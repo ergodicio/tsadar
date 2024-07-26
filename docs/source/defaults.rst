@@ -1,3 +1,5 @@
+.. _configuring-the-default:
+
 Default options
 ========================================
 
@@ -17,7 +19,7 @@ Parameters
 - ``fitprops`` *currently depreciated, removal likely*
 
 
-
+..  _Data default:
 Data
 --------------
 The ``data:`` section contains the specifics on which shot and what region of the shot should be analyzed.
@@ -31,7 +33,7 @@ The ``data:`` section contains the specifics on which shot and what region of th
     - ``blue_min`` starting wavelength for the analysis of the blue shifted EPW in nm
 
     - ``blue_max`` ending wavelength for the analysis of the blue shifted EPW in nm
-
+  
     - ``red_min`` starting wavelength for the analysis of the red shifted EPW in nm
 
     - ``red_max`` ending wavelength for the analysis of the red shifted EPW in nm

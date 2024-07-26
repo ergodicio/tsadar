@@ -92,11 +92,11 @@ def get_lineout_bg(
     """
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
-    if config["data"]["background"]["type"] not in ["Fit", "Shot", "pixel"]:
+    if config["data"]["background"]["type"] not in ["Fit","fit","shot","Pixel", "Shot", "pixel"]:
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'pixel'")
 
     if config["other"]["extraoptions"]["load_ele_spec"]:
-        if config["data"]["background"]["type"] == "Fit":
+        if config["data"]["background"]["type"] in ("Fit","fit"):
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
                 # should be checked in more situations
@@ -123,10 +123,10 @@ def get_lineout_bg(
                 LineoutBGE = []
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                     [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
-                    if config["data"]["background"]["show"]:
-                        plt.plot(rat11(np.arange(1024), *rat1bg))
-                        plt.plot(LineoutTSE_smooth[i])
-                        plt.show()
+                    # if config["data"]["background"]["show"]:
+                    #     plt.plot(rat11(np.arange(1024), *rat1bg))
+                    #     plt.plot(LineoutTSE_smooth[i])
+                    #     plt.show()
 
                     LineoutBGE.append(rat11(np.arange(1024), *rat1bg))
         # if not fit

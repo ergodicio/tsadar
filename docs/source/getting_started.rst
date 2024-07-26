@@ -38,6 +38,11 @@ There are three run "modes".
 
 One performs a fitting procedure
 
+.. card:: Fitting 
+
+    Performs a fitting procedure
+   .. code block:: Python
+
 .. code-block:: bash
 
    python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode fit
@@ -59,3 +64,9 @@ The inputs for the code are stored in an input deck. The default location for th
 the starting path for running jobs is :code:`inverse_thomson_scattering/configs/1d`. These inputs should be
 modified to change the specific to fit your analysis needs. More information on the Input deck can be found 
 on the `Configuring the inputs`_ page.
+
+**Output visualization**:
+
+.. code-block:: bash
+
+   mlflow ui 

@@ -1,4 +1,4 @@
-Best Practices for Fitting
+Best Practices for Fittings
 ================================
 
 This page gives input deck snippets which produce the highest quality fits using TSADAR. It is recomended that 

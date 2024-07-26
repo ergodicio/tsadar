@@ -4,18 +4,18 @@ parameters:
             electron:
             active: False
         Te:
-            val: .2
+            val: .6
             active: True
             lb: 0.01
-            ub: 1.5
+            ub: 1.25
         ne:
-            val: 0.08
+            val: 0.2
             active: True
-            lb: 0.03
-            ub: 1.0
+            lb: 0.01
+            ub: 0.75
         m:
-            val: 2.0
-            active: False
+            val: 2.7
+            active: false
             lb: 2.0
             ub: 5.0
             matte: False
@@ -79,7 +79,7 @@ parameters:
             ub: 3.75
         lam:
             val: 526.5
-            active: False
+            active: True
             lb: 523.0
             ub: 528.0
         Te_gradient:
@@ -111,9 +111,9 @@ data:
     shotnum: 101675
     lineouts:
         type:
-            ps
-        start: 800
-        end: 3500
+            pixel
+        start: 290
+        end: 760
         skip: 10
     background:
         type:

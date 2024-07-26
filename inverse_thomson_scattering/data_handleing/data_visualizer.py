@@ -95,14 +95,14 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 linestyle="--",
             )
             ax.set_xlabel(all_axes["x_label"])
-            ax.set_ylabel("Wavelength")
+            ax.set_ylabel("Wavelength (nm)")
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
 
         if config["other"]["extraoptions"]["load_ele_spec"]:
             X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
             fig, ax = plt.subplots()
-            ax.pcolormesh(
+            jc= ax.pcolormesh(
                 X,
                 Y,
                 elecData,
@@ -152,7 +152,8 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 linestyle="--",
             )
             ax.set_xlabel(all_axes["x_label"])
-            ax.set_ylabel("Wavelength")
+            ax.set_ylabel("Wavelength (nm)")
+            fig.colorbar(jc)
             fig.savefig(os.path.join(td, "plots", "electron_fit_ranges.png"), bbox_inches="tight")
 
         mlflow.log_artifacts(td)

@@ -126,14 +126,14 @@ other:
     calc_sigmas: False
 
 data:
-    shotnum: 101675
+    shotnum: 101676
     shotDay: False
     launch_data_visualizer: True
     fit_rng:
-        blue_min: 430
+        blue_min: 460
         blue_max: 510
         red_min: 545
-        red_max: 660
+        red_max: 600
         iaw_min: 525.5
         iaw_max: 527.5
         iaw_cf_min: 526.49

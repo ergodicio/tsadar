@@ -1,3 +1,5 @@
+.. _inputs:
+
 Configuring the inputs
 ========================================
 
@@ -9,7 +11,7 @@ to be altered and default values for all options.
 Parameters
 ---------------------
 
-All fitting parameters are found in the ``parameters:`` section of the input deck. These parameters are separated into
+All fitting parameters are found in the ``parameters:`` section of the input decks. These parameters are separated into
 species fields. These species can be called anything but best practice is to name them ``species1`` through
 ``speciesn``.
 
@@ -80,13 +82,13 @@ end of ``inputs.yaml`` in the ``mlflow:`` section.
 - ``run`` is the name of the analysis or forward model run. Run names do not need to be unique as many runs can be created with the same name. It is recomended that this is changed before each run.
 
 
-
+.. _Data inputs:
 Data
 --------------
 The ``data:`` section contains the specifics on which shot and what region of the shot should be analyzed.
 
 - ``shotnum`` is the OMEGA shot number. For non-OMEGA data please contact the developers
-
+:bdg-primary-line:`_lineouts`
 - ``lineouts`` specifies the region of the data to take lineouts from
 
     - ``type`` specifies the units that the linout locations are in. Options are ``um`` for microns in imaging data, ``ps`` for picoseconds in time resolved data, ``pixel`` is the general option to specify locations in pixel numbers.

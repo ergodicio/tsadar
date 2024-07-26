@@ -1,7 +1,4 @@
-.. TSADAR documentation master file, created by
-   sphinx-quickstart on Fri Nov 10 11:06:38 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. _top:
 
 Welcome to TSADAR!
 ==================================
@@ -16,11 +13,13 @@ More details on the numerics will be added soon.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
 
-   getting_started
+   Home <self>
+   Getting satrted<getting_started_the_remix>
+   index
    best_practice
    examples
+   examplefirst
    inputs
    defaults
    FAQ
@@ -51,4 +50,11 @@ Indices and tables
 
 * :ref:`genindex`
 * :ref:`modindex`
-* :ref:`search`
+
+.. commenting search tab out since it is empty, and a search field has been added to the navigation bar
+    * :ref:`search`..
+
+.. TSADAR documentation master file, created by
+   sphinx-quickstart on Fri Nov 10 11:06:38 2023.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
