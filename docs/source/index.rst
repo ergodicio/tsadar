@@ -5,27 +5,26 @@ Welcome to TSADAR!
 
 TSADAR is a Thomson scattering data analysis software written in Python. It helps determine plasma parameters given
 Thomson scattering measurements by fitting the collisionless spectral density function to the observed spectra.
-More detail on the theory is provided elsewhere [1] and the specifics of implementation can be found in :doc:`math`.
+More detail on the theory is provided elsewhere [1] and the specifics of implementation can be found in :doc:`math` [2].
 
-The fitting is performed via gradient descent. The gradients are acquired using automatic differentiation and JAX [2].
+The fitting is performed via gradient descent. The gradients are acquired using automatic differentiation and JAX [3].
 More details on the numerics will be added soon.
 
 
 .. toctree::
    :maxdepth: 2
 
-   Home <self>
    Getting satrted<getting_started_the_remix>
-   index
    best_practice
    examples
-   examplefirst
+   examplefit
    inputs
    defaults
    FAQ
    math
    contributing
    api_main
+   TS_fundamentals
    
 *What does TSADAR stand for?*
 
@@ -42,7 +41,11 @@ References
 
 [1] - Sheffield, J., Froula, D., Glenzer, S.H. and Luhmann Jr, N.C., 2010. Plasma scattering of electromagnetic radiation: theory and measurement techniques. Academic press.
 
-[2] - https://github.com/google/jax
+[2] - Milder, A & Joglekar, Archis & Rozmus, Wojciech & Froula, Dustin. (2024). Qualitative and quantitative enhancement of parameter estimation for model-based diagnostics using automatic differentiation with an application to inertial fusion. Machine Learning: Science and Technology. 5. 10.1088/2632-2153/ad2493. 
+
+[3] - https://github.com/google/jax
+
+
 
 
 Indices and tables

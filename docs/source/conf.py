@@ -205,7 +205,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.rst"]
 # html_theme = "alabaster"
 # New theme is pydata
 html_theme = 'pydata_sphinx_theme'
-html_static_path = ['_static']
+#html_static_path = ['_static']
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -215,6 +215,13 @@ html_theme_options = {
     #    'canonical_url': '',
     #    'analytics_id': 'UA-XXXXXXX-1',  #  Provided by Google in your dashboard
     #"logo_link": "index.html",
+    #TSADAR logo and tittle, both of which should redirect you to the homepage 
+    "logo":{
+        "text":"Home",
+        "image_light": "_elfolder/lafoto.JPG",
+        "image_dark": "_elfolder/lafoto.JPG",
+    },
+    #github icon in the nav bar that directs you to the repo
     "icon_links": [
         {
             "name": "GitHub",
@@ -224,7 +231,7 @@ html_theme_options = {
         }
     ],
     "header_links_before_dropdown": 4,
-    "logo_only": True,
+    #"logo_only": True,
     #remove secondary sidebar
     "secondary_sidebar_items":[],
     #"display_version": True,
@@ -244,7 +251,7 @@ html_theme_options = {
     #placing the search field at the top right of the navigation bar
     "navbar_end": ["navbar-icon-links", "theme-switcher"],
     #show the home page in the nav bar
-    "home_page_in_toc": True,
+    "home_page_in_toc": False,
     # Toc options
     "collapse_navigation": True,
     "sticky_navigation": True,
@@ -252,6 +259,7 @@ html_theme_options = {
     "includehidden": True,
     "titles_only": False,
     }
+
 
 #this will be used to make the light mode the default mode
 html_context = {
@@ -268,7 +276,7 @@ html_css_files = ["custom.css"]
 # the top of the navigation bar will say TASADAR
 # the logo for TSADAR can be found inside a folder called "_elfolder" 
 html_tittle = "TSADAR",
-html_logo = '_elfolder/lafoto.JPG'
+#html_logo = '_elfolder/lafoto.JPG'
 
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32

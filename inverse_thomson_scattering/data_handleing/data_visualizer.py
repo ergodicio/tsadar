@@ -49,7 +49,7 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 X,
                 Y,
                 ionData,
-                cmap="gist_ncar",
+                cmap="hot_r",
                 vmin=np.amin(ionData),
                 vmax=np.amax(ionData),
             )
@@ -106,7 +106,7 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 X,
                 Y,
                 elecData,
-                cmap="gist_ncar",
+                cmap="hot_r",
                 vmin=np.amin(elecData),
                 vmax=np.amax(elecData),
             )
@@ -114,13 +114,13 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 [all_axes["epw_x"][LineoutPixelE[0]], all_axes["epw_x"][LineoutPixelE[0]]],
                 [all_axes["epw_y"][0], all_axes["epw_y"][-1]],
                 lw=2,
-                color="w",
+                color="y",
             )
             (eline,) = ax.plot(
                 [all_axes["epw_x"][LineoutPixelE[-1]], all_axes["epw_x"][LineoutPixelE[-1]]],
                 [all_axes["epw_y"][0], all_axes["epw_y"][-1]],
                 lw=2,
-                color="w",
+                color="y",
             )
 
             (lamsline,) = ax.plot(
@@ -141,14 +141,14 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["red_min"], config["data"]["fit_rng"]["red_min"]],
                 lw=2,
-                color="w",
+                color="r",
                 linestyle="--",
             )
             (lameline,) = ax.plot(
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["red_max"], config["data"]["fit_rng"]["red_max"]],
                 lw=2,
-                color="w",
+                color="r",
                 linestyle="--",
             )
             ax.set_xlabel(all_axes["x_label"])

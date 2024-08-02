@@ -15,7 +15,7 @@ parameters:
             ub: 0.75
         m:
             val: 2.7
-            active: false
+            active: true
             lb: 2.0
             ub: 5.0
             matte: False
@@ -112,7 +112,7 @@ data:
     lineouts:
         type:
             pixel
-        start: 290
+        start: 700
         end: 760
         skip: 10
     background:
@@ -127,7 +127,6 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
-        spectype: temporal
     PhysParams:
         widIRF:
             spect_stddev_ion: 0.015
