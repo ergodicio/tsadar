@@ -3,10 +3,38 @@ Example: Fitting time-resolved data
 
 This is an example for fitting time-resolved data. 
 
+The input decks are located in inverse-thomson-scattering/configs/1d.
 
+The code will identify the data as time resolved for OMEGA experients, based of the data file. 
+For fitting data files from other source, please contact the authors.
 
-Running the code
-^^^^^^^^^^^^^^^^^
+.. code-block:: yaml
+    :caption: Inputs.yalm
+    :emphasize-lines: 2
+
+    data:
+        shotnum: 101675
+        lineouts:
+            type:
+                pixel
+Select which spectra you are loading. EPW or IAW.
+
+.. code-block:: yaml
+    :caption: Inputs.yalm
+    :emphasize-lines: 3,4,5,6,7,
+
+    other:
+        extraoptions:
+            load_ion_spec: False
+            load_ele_spec: True
+            fit_IAW: False
+            fit_EPWb: True
+            fit_EPWr: True
+        PhysParams:
+            widIRF:
+
+Fitting time resolved EPW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Once you have adjusted the parameters, and saved the changes made. You will want to implement the run command.
 
 .. code-block:: python

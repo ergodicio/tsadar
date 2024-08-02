@@ -54,14 +54,13 @@ into the folder where you created the virtual envirnment
 Adjusting parameters
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Set up the :ref:`inputs <inputs>` and :ref:` defaults <defaults>` to best fit your data. This can be acomplished by configuring the input decks.The code uses two input decks. 
-Which can be found on inverse-thomson-scattering/configd/1d.
+Set up the :ref:`inputs <inputs>` and :ref:` defaults <defaults>` to best fit your data. 
+This can be acomplished by configuring the input decks.The code uses two input decks. 
+Which can be found on inverse-thomson-scattering/configs/1d.
 
 For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
-Set the :bdg-light:`lineout:start` and :bdg-info:`lineout:end` close together, to select a small region. Increase the :bdg:`lineouts:skip` to decrease the resolution.
-Setting the  :bdg-success:`lineout:start` and :bdg-success-line:`lineout:end` close together will  a small region
-if this is the first time you are fitting a data set, it is recommended that you fit a small region of the data, 
-using a small number of lineouts. To fit a small region of the data, edit the lineout:start and lineout:end parameeters to be close, and increase lineouts:skip. 
+Set the :bdg-light:`lineout:start` and :bdg-info:`lineout:end` close together, to select a small region. 
+Increase the :bdg:`lineouts:skip` to decrease the resolution.
 These parameters can be found in the :bdg:`Inputs.yalm.` deck. Make sure to save your changes, and get ready to run the code.
 
 .. card:: Inputs.yaml
