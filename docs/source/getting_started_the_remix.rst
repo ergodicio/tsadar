@@ -51,25 +51,79 @@ Importing raw data
 Once you have created a virtual environment, you should add your raw data, which should be a :bdg-primary-line:`.hdf`` file 
 into the folder where you created the virtual envirnment 
 
-Adjusting parameters
-^^^^^^^^^^^^^^^^^^^^^^^^^
+Input decks
+^^^^^^^^^^^^
 
-Set up the :ref:`inputs <inputs>` and :ref:` defaults <defaults>` to best fit your data. 
-This can be acomplished by configuring the input decks.The code uses two input decks. 
-Which can be found on inverse-thomson-scattering/configs/1d.
+The code uses two input decks, which  are located in **inverse-thomson-scattering/configs/1d**. The primary input deck will override the secondary input deck when values conflict. 
+More information on the specifics of each deck can be found by clicking on the cards bellow. 
 
-For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
-Set the :bdg-light:`lineout:start` and :bdg-info:`lineout:end` close together, to select a small region. 
-Increase the :bdg:`lineouts:skip` to decrease the resolution.
-These parameters can be found in the :bdg:`Inputs.yalm.` deck. Make sure to save your changes, and get ready to run the code.
+.. grid:: 2
 
-.. card:: Inputs.yaml
-    :link: inputs
-    :link-type: ref
+    .. grid-item-card::  Inputs.yaml
+        :link: inputs
+        :link-type: ref
 
-    Primary input deck will override defaults deck.  
+        Primary input deck 
+
+    .. grid-item-card::  Defaults.yaml
+        :link: configuring-the-default
+        :link-type: ref
+
+        Secondary input deck 
+
+Experiment information
+^^^^^^^^^^^^^^^^^^^^^^^
+Indicate the shotnumber of the experimnet in the :bdg-link-primary:`Input.yaml <inputs>` deck.
+The code will identify the data as time resolved for OMEGA experients, based of the data file. 
+For fitting data files from other sources, please contact the authors.
 
 .. code-block:: yaml
+    :caption: Inputs.yaml
+    :emphasize-lines: 2
+
+    data:
+        shotnum: 101675
+        lineouts:
+            type:
+                pixel
+
+Load the spectra you are interested in visualizing by activating its corresponding boolean.
+
+.. code-block:: yaml
+    :caption: Inputs.yaml
+    :emphasize-lines: 3,4
+
+    other:
+        extraoptions:
+            load_ion_spec: True
+            load_ele_spec: True
+            fit_IAW: True
+            fit_EPWb: True
+            fit_EPWr: True
+        PhysParams:
+
+Fitting a new data set
+^^^^^^^^^^^^^^^^^^^^^^^^
+Select the data you are interested in fitting by activating its corresponding boolean. 
+
+.. code-block:: yaml
+    :caption: Inputs.yaml
+    :emphasize-lines: 5,6,7
+
+    other:
+        extraoptions:
+            load_ion_spec: True
+            load_ele_spec: True
+            fit_IAW: True
+            fit_EPWb: True
+            fit_EPWr: True
+        PhysParams:
+
+The fit will start at :bdg-light:`lineout:start` and will end at :bdg-light:`lineout:end`. Lineouts will be fit every :bdg:`lineout:skip`of the unit type defined. 
+For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
+
+.. code-block:: yaml
+    :caption: Inputs.yaml
     :emphasize-lines: 3,6,7,8
 
     data:
@@ -85,13 +139,31 @@ These parameters can be found in the :bdg:`Inputs.yalm.` deck. Make sure to save
                 pixel
             slice: 900
 
-.. card:: Defaults.yalm
-    :link: configuring-the-default
-    :link-type: ref
+Adjusting parameters
+^^^^^^^^^^^^^^^^^^^^^
 
-    Secondary imput deck, contains the blue and red shift minimum and maximum values
+Set up the input deckst best fit your data. **value** sets the initial value for the first itteration, or the static value of unfit parameters.
+These values are bounded by **lb** and **ub** indicating the lower and upper bound respectively.
 
 .. code-block:: yaml
+    :caption: Inputs.yaml
+    :emphasize-lines: 7,,9,10
+
+    parameters:
+        species1:
+            type:
+                electron:
+                active: False
+            Te:
+                val: .6
+                active: True
+                lb: 0.01
+                ub: 1.25
+
+The secondary imput deck, contains the minimum and maximum values for the blue and red shifts.
+
+.. code-block:: yaml
+    :caption: Defaults.yaml
     :emphasize-lines: 6,7,8,9
 
     data:
@@ -103,40 +175,34 @@ These parameters can be found in the :bdg:`Inputs.yalm.` deck. Make sure to save
         blue_max: 510
         red_min: 545
         red_max: 600
-        iaw_min: 525.5
-        iaw_max: 527.5
-        iaw_cf_min: 526.49
-        iaw_cf_max: 526.51
-        forward_epw_start: 400
-        forward_epw_end: 700
-        forward_iaw_start: 525.75
-        forward_iaw_end: 527.25
-
 
 Run command
 ^^^^^^^^^^^^^^^
+Name the run in the input deck. 
+
+.. code-block:: yaml
+    :caption: Input.yaml 
+    :emphasize-lines: 3
+
+    mlflow:
+    experiment: inverse-thomson-scattering
+    run: name of the run
+
 Run the code using a run command.
 
-There are :bdg-info:`2` run "modes".
+There are :bdg:`2` run "modes".
 
-**fit** performs a time resolved fitting procedure.
+**Fit mode** fitperfoms fitting procedure.
 
 .. code-block:: bash
 
    python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode fit
 
-**fordward** performs a forward pass and gives you the spectra given some input parameters.
- Additionally, it can get spectra for a series of plasma conditions. 
- For more information on specifying the inputs see :ref:`Configuring the inputs<inputs>` . 
-
+**Forward mode** performs a forward pass and gives you the spectra given some input parameters. Additionally, it can get spectra for a series of plasma conditions. 
+ 
 .. code-block:: bash
 
    python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode forward
-
-The inputs for the code are stored in an input deck. The default location for this input deck and therefore
-the starting path for running jobs is :code:`inverse_thomson_scattering/configs/1d`. These inputs should be
-modified to change the specifics to fit your analysis needs. More information on the Input deck can be found 
-on the :ref:`Configuring the inputs<inputs>` page.
 
 Output visualization
 ^^^^^^^^^^^^^^^^^^^^^

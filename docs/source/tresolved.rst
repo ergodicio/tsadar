@@ -1,12 +1,12 @@
 Example: Fitting time-resolved data
--------------------------
+--------------------------------------
 
-This is an example for fitting time-resolved data. 
+This is an example will walk you through the key steps for fitting time-resolved data. 
 
-The input decks are located in inverse-thomson-scattering/configs/1d.
-
+After loading your data, you wil want to indicate the shotnumber of your experimnet in the :bdg-link-primary:`Input.yaml <inputs>` deck.
+The input decks are located in **inverse-thomson-scattering/configs/1d**.
 The code will identify the data as time resolved for OMEGA experients, based of the data file. 
-For fitting data files from other source, please contact the authors.
+For fitting data files from other sources, please contact the authors.
 
 .. code-block:: yaml
     :caption: Inputs.yalm
@@ -17,11 +17,15 @@ For fitting data files from other source, please contact the authors.
         lineouts:
             type:
                 pixel
-Select which spectra you are loading. EPW or IAW.
+
+Fitting time resolved EPW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Load the electron spectra, and activate the EPW fit by setting the corresponding booleans to :bdg-info:`True`. 
 
 .. code-block:: yaml
     :caption: Inputs.yalm
-    :emphasize-lines: 3,4,5,6,7,
+    :emphasize-lines: 4,6,7
 
     other:
         extraoptions:
@@ -31,10 +35,7 @@ Select which spectra you are loading. EPW or IAW.
             fit_EPWb: True
             fit_EPWr: True
         PhysParams:
-            widIRF:
 
-Fitting time resolved EPW
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Once you have adjusted the parameters, and saved the changes made. You will want to implement the run command.
 
 .. code-block:: python
@@ -49,32 +50,58 @@ The following command will allow you to visualize the results of the fitting. Th
 
     mlflow ui
 
-.. image:: _elfolder\mlflow_ui.png
+.. image:: _elfolder/mlflow_ui.png
 
 Click the follow the link to vizialize the data. The resulting plots can be founs in the :bdg:`Artifacts` unedr the folder :bdg:`plots`. 
 Best and worst folders contain the best and worst fits respectively. `
 
+Electron fit ranges plot
+
+.. image:: _elfolder/electron_fit_ranges.png
+
+Best plots
+
+.. image:: _elfolder/epw_best.png
+
+Worst plots
+
+.. image:: _elfolder/epw_worst.png
+
+Dowload the learned parameters to confirm the code ran correctly
+
+.. image:: _elfolder/lparam_epw.png
 
 
-Fitting a new data set 
-^^^^^^^^^^^^^^^^^^^^^^^
-For fitting a new data set, it is recomended to fit a small region of the data using a small number of
-linouts. This can be acomplished by setting the lineout:start and lineout:end to be close, or by increasing 
-lineouts:skip
-Once you have adjusted the inputs and outputs 
+Fitting time-resolved IAW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Load the ion spectra, and activate the IAW fit by setting the corresponding booleans to :bdg-info:`True`. 
 
-.. grid:: 2
+.. code-block:: yaml
+    :caption: Inputs.yalm
+    :emphasize-lines: 3,5
 
-    .. grid-item-card::  Inputs.yalm
-        :link: inputs
-        :link-type: ref
+    other:
+        extraoptions:
+            load_ion_spec: True
+            load_ele_spec: False
+            fit_IAW: True
+            fit_EPWb: False
+            fit_EPWr: False
+        PhysParams:
 
-        Primary input deck 
+Ion fit ranges plot 
 
-    .. grid-item-card::  Defaults.yalm
-        :link: configuring-the-default
-        :link-type: ref
+.. image:: _elfolder/ion_fit_ranges.png
 
-        Secondary input deck 
+Best plots
 
+.. image:: _elfolder/iaw_best.png
+
+Worst plots
+
+.. image:: _elfolder/iaw_worst.png
+
+Dowload the learned parameters to confirm the code ran correctly
+
+.. image:: _elfolder/lparam_aiw.png

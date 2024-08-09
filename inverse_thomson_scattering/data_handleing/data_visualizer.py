@@ -45,13 +45,14 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
 
             fig, ax = plt.subplots()
-            ax.pcolormesh(
+            cb = ax.pcolormesh(
                 X,
                 Y,
                 ionData,
-                cmap="hot_r",
-                vmin=np.amin(ionData),
-                vmax=np.amax(ionData),
+                cmap="Spectral_r",
+                #vmin=np.amin(ionData),
+                vmin=0,
+                vmax=0.05*np.amax(ionData),
             )
             (sline,) = ax.plot(
                 [all_axes["iaw_x"][LineoutPixelI[0]], all_axes["iaw_x"][LineoutPixelI[0]]],
@@ -96,6 +97,7 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             )
             ax.set_xlabel(all_axes["x_label"])
             ax.set_ylabel("Wavelength (nm)")
+            fig.colorbar(cb)
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
 
         if config["other"]["extraoptions"]["load_ele_spec"]:
@@ -106,49 +108,50 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 X,
                 Y,
                 elecData,
-                cmap="hot_r",
-                vmin=np.amin(elecData),
+                cmap="RdYlGn_r",
+                #vmin=np.amin(elecData),
+                vmin=0,
                 vmax=np.amax(elecData),
             )
             (sline,) = ax.plot(
                 [all_axes["epw_x"][LineoutPixelE[0]], all_axes["epw_x"][LineoutPixelE[0]]],
                 [all_axes["epw_y"][0], all_axes["epw_y"][-1]],
                 lw=2,
-                color="y",
+                color="royalblue",
             )
             (eline,) = ax.plot(
                 [all_axes["epw_x"][LineoutPixelE[-1]], all_axes["epw_x"][LineoutPixelE[-1]]],
                 [all_axes["epw_y"][0], all_axes["epw_y"][-1]],
                 lw=2,
-                color="y",
+                color="indigo",
             )
 
             (lamsline,) = ax.plot(
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["blue_min"], config["data"]["fit_rng"]["blue_min"]],
                 lw=2,
-                color="w",
+                color="mediumspringgreen",
                 linestyle="--",
             )
             (lameline,) = ax.plot(
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["blue_max"], config["data"]["fit_rng"]["blue_max"]],
                 lw=2,
-                color="w",
+                color="aqua",
                 linestyle="--",
             )
             (lamsline,) = ax.plot(
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["red_min"], config["data"]["fit_rng"]["red_min"]],
                 lw=2,
-                color="r",
+                color="greenyellow",
                 linestyle="--",
             )
             (lameline,) = ax.plot(
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["red_max"], config["data"]["fit_rng"]["red_max"]],
                 lw=2,
-                color="r",
+                color="blueviolet",
                 linestyle="--",
             )
             ax.set_xlabel(all_axes["x_label"])

@@ -39,20 +39,20 @@ parameters:
             ion:
         Ti:
             val: 0.12
-            active: False
+            active: True
             lb: 0.001
             ub: 1.0
         Z:
             val: 14.0
-            active: False
+            active: True
             lb: 0.5
             ub: 7.0
         A:
             val: 40.0
-            active: False
+            active: True
         fract:
             val: 0.1
-            active: False
+            active: True
 
     general:
         type:
@@ -105,7 +105,7 @@ parameters:
 other:
     expandedions: False
     extraoptions:
-        load_ion_spec: False
+        load_ion_spec: True
         load_ele_spec: True
         fit_IAW: False
         fit_EPWb: True
@@ -134,10 +134,10 @@ data:
         blue_max: 510
         red_min: 545
         red_max: 600
-        iaw_min: 525.5
-        iaw_max: 527.5
-        iaw_cf_min: 526.49
-        iaw_cf_max: 526.51
+        iaw_min: 526
+        iaw_max: 527.3
+        iaw_cf_min: 526.75
+        iaw_cf_max: 526.75
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -167,7 +167,7 @@ plotting:
     rolling_std_width: 5
     data_cbar_u: data
     data_cbar_l: 0
-    ion_window_start: 525
+    ion_window_start: 526
     ion_window_end: 528
     ele_window_start: 425
     ele_window_end: 660

@@ -1,5 +1,5 @@
 Example: Fitting time-resolved data
--------------------------
+---------------------------------------
 This is an example for fitting time-resolved data. 
 
 Firstly, you will want to download this TSADAR, install all the necesary requirements, and create a virtual environment. 
@@ -127,3 +127,17 @@ Once you have adjusted the inputs and outputs
 
         Secondary input deck 
 
+Extra info in the inputs
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The inputs for the code are stored in an input deck. The default location for this input deck and therefore
+the starting path for running jobs is :code:`inverse_thomson_scattering/configs/1d`. These inputs should be
+modified to change the specifics to fit your analysis needs. More information on the Input deck can be found 
+on the :ref:`Configuring the inputs<inputs>` page.
+
+extra info on fitting the data set for a small region 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
+Set the :bdg-light:`lineout:start` and :bdg-info:`lineout:end` close together, to select a small region. 
+Increase the :bdg:`lineouts:skip` to decrease the resolution.

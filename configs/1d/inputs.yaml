@@ -10,15 +10,15 @@ parameters:
             ub: 1.25
         ne:
             val: 0.2
-            active: True
+            active: False
             lb: 0.01
             ub: 0.75
         m:
             val: 2.7
-            active: true
+            active: True
             lb: 2.0
             ub: 5.0
-            matte: False
+            matte: True
             intens: 2.0
         fe:
             val: [ ]
@@ -41,14 +41,14 @@ parameters:
             ion:
             active: False
         Ti:
-            val: 0.08
-            active: False
+            val: 0.15
+            active: True
             same: False
             lb: 0.01
             ub: 1.0
         Z:
             val: 10.0
-            active: False
+            active: True
             lb: 1.0
             ub: 18.0
         A:
@@ -64,22 +64,22 @@ parameters:
             active: False
         amp1:
             val: 1.
-            active: True
+            active: False
             lb: 0.01
             ub: 3.75
         amp2:
             val: 1.
-            active: True
+            active: False
             lb: 0.01
             ub: 3.75
         amp3:
             val: 1.0
-            active: False
+            active: True
             lb: 0.01
             ub: 3.75
         lam:
             val: 526.5
-            active: True
+            active: False
             lb: 523.0
             ub: 528.0
         Te_gradient:
@@ -108,13 +108,13 @@ parameters:
             ub: 20.5
 
 data:
-    shotnum: 101675
+    shotnum: 101676
     lineouts:
         type:
             pixel
-        start: 700
-        end: 760
-        skip: 10
+        start: 100
+        end: 700
+        skip: 46
     background:
         type:
             pixel
@@ -122,11 +122,11 @@ data:
 
 other:
     extraoptions:
-        load_ion_spec: False
+        load_ion_spec: True
         load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
+        fit_IAW: True
+        fit_EPWb: False
+        fit_EPWr: False
     PhysParams:
         widIRF:
             spect_stddev_ion: 0.015
@@ -140,4 +140,4 @@ other:
 
 mlflow:
     experiment: inverse-thomson-scattering
-    run: test
+    run: vmax=0.05*np.amax(ionData) Spectral_r & RdYlGn_r
