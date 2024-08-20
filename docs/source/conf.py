@@ -236,9 +236,9 @@ html_theme_options = {
     "secondary_sidebar_items":[],
     #"display_version": True,
     "show_nav_level": 2,
-    "prev_next_buttons_location": "both",
-    "style_external_links": False,
-    "style_nav_header_background": "#3c4142",
+    #"prev_next_buttons_location": "both",
+    #"style_external_links": False,
+    #"style_nav_header_background": "#3c4142",
     #"logo" : "TSADAR",
     #back to top button
     "back_to_top_button": True,
@@ -251,13 +251,13 @@ html_theme_options = {
     #placing the search field at the top right of the navigation bar
     "navbar_end": ["navbar-icon-links", "theme-switcher"],
     #show the home page in the nav bar
-    "home_page_in_toc": False,
+    #"home_page_in_toc": False,
     # Toc options
     "collapse_navigation": True,
-    "sticky_navigation": True,
+    #"sticky_navigation": True,
     "navigation_depth": 2,
-    "includehidden": True,
-    "titles_only": False,
+    #"includehidden": True,
+    #"titles_only": False,
     }
 
 
@@ -268,7 +268,7 @@ html_context = {
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+#html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
 # The name of an image file (relative to this directory) to place at the top

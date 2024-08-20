@@ -34,7 +34,7 @@ using a small number of lineouts. To fit a small region of the data, edit the li
 These parameters can be found in the :bdg:`Inputs.yalm.` deck. Make sure to save your changes, and get ready to run the code.
 
 .. card:: Inputs.yaml
-    :link: inputs
+    :link: inputs_deck
     :link-type: ref
 
     Primary input deck will override defaults deck.  
@@ -98,7 +98,7 @@ The following command will allow you to visualize the results of the fitting. Th
 
     mlflow ui
 
-.. image:: _elfolder\mlflow_ui.png
+.. image:: _elfolder\mlflow_home.png
 
 Click the follow the link to vizialize the data. The resulting plots can be founs in the :bdg:`Artifacts` unedr the folder :bdg:`plots`. 
 Best and worst folders contain the best and worst fits respectively. `
@@ -116,7 +116,7 @@ Once you have adjusted the inputs and outputs
 .. grid:: 2
 
     .. grid-item-card::  Inputs.yalm
-        :link: inputs
+        :link: inputs_deck
         :link-type: ref
 
         Primary input deck 
@@ -133,9 +133,9 @@ Extra info in the inputs
 The inputs for the code are stored in an input deck. The default location for this input deck and therefore
 the starting path for running jobs is :code:`inverse_thomson_scattering/configs/1d`. These inputs should be
 modified to change the specifics to fit your analysis needs. More information on the Input deck can be found 
-on the :ref:`Configuring the inputs<inputs>` page.
+on the :ref:`Configuring the inputs <inputs_deck>` page.
 
-extra info on fitting the data set for a small region 
+Extra info on fitting the data set for a small region 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 

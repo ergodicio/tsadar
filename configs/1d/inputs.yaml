@@ -4,7 +4,7 @@ parameters:
             electron:
             active: False
         Te:
-            val: .6
+            val: .8
             active: True
             lb: 0.01
             ub: 1.25
@@ -14,7 +14,7 @@ parameters:
             lb: 0.01
             ub: 0.75
         m:
-            val: 2.7
+            val: 2.5
             active: True
             lb: 2.0
             ub: 5.0
@@ -48,7 +48,7 @@ parameters:
             ub: 1.0
         Z:
             val: 10.0
-            active: True
+            active: False
             lb: 1.0
             ub: 18.0
         A:
@@ -63,12 +63,12 @@ parameters:
             general:
             active: False
         amp1:
-            val: 1.
+            val: 1.0
             active: False
             lb: 0.01
             ub: 3.75
         amp2:
-            val: 1.
+            val: 1.0
             active: False
             lb: 0.01
             ub: 3.75
@@ -78,13 +78,13 @@ parameters:
             lb: 0.01
             ub: 3.75
         lam:
-            val: 526.5
-            active: False
+            val: 526.6
+            active: True
             lb: 523.0
             ub: 528.0
         Te_gradient:
             val: 0.0
-            active: False
+            active: false
             lb: 0.
             ub: 10.
             num_grad_points: 1
@@ -97,24 +97,29 @@ parameters:
         ud:
             val: 0.0
             angle: 0.0
-            active: False
+            active: True
             lb: -10.0
             ub: 10.0
         Va:
-            val: 0.0
+            val: -1.3
             angle: 0.0
-            active: False
+            active: True
             lb: -20.5
             ub: 20.5
 
 data:
     shotnum: 101676
+    fit_rng:
+        blue_min: 460
+        blue_max: 510
+        red_min: 545
+        red_max: 600
     lineouts:
         type:
             pixel
-        start: 100
-        end: 700
-        skip: 46
+        start: 140
+        end: 400
+        skip: 10
     background:
         type:
             pixel
@@ -123,9 +128,9 @@ data:
 other:
     extraoptions:
         load_ion_spec: True
-        load_ele_spec: True
+        load_ele_spec: false
         fit_IAW: True
-        fit_EPWb: False
+        fit_EPWb: false
         fit_EPWr: False
     PhysParams:
         widIRF:
@@ -140,4 +145,5 @@ other:
 
 mlflow:
     experiment: inverse-thomson-scattering
-    run: vmax=0.05*np.amax(ionData) Spectral_r & RdYlGn_r
+    run: IAW fit turbo_r log starting at vmin = np.amin(data) 101676
+    #ti 0.15 ud -0.5, amp3 1.6, end 645, va 0 skip 40

@@ -60,7 +60,7 @@ More information on the specifics of each deck can be found by clicking on the c
 .. grid:: 2
 
     .. grid-item-card::  Inputs.yaml
-        :link: inputs
+        :link: inputs_deck
         :link-type: ref
 
         Primary input deck 
@@ -73,7 +73,7 @@ More information on the specifics of each deck can be found by clicking on the c
 
 Experiment information
 ^^^^^^^^^^^^^^^^^^^^^^^
-Indicate the shotnumber of the experimnet in the :bdg-link-primary:`Input.yaml <inputs>` deck.
+Indicate the shotnumber of the experimnet in the :ref:`Input.yaml <inputs_deck>` deck.
 The code will identify the data as time resolved for OMEGA experients, based of the data file. 
 For fitting data files from other sources, please contact the authors.
 
@@ -97,10 +97,7 @@ Load the spectra you are interested in visualizing by activating its correspondi
         extraoptions:
             load_ion_spec: True
             load_ele_spec: True
-            fit_IAW: True
-            fit_EPWb: True
-            fit_EPWr: True
-        PhysParams:
+
 
 Fitting a new data set
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -117,10 +114,9 @@ Select the data you are interested in fitting by activating its corresponding bo
             fit_IAW: True
             fit_EPWb: True
             fit_EPWr: True
-        PhysParams:
 
-The fit will start at :bdg-light:`lineout:start` and will end at :bdg-light:`lineout:end`. Lineouts will be fit every :bdg:`lineout:skip`of the unit type defined. 
 For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
+The fit will start at **lineout:start** and will end at **lineout:end**. Lineouts will be fit every **lineout:skip** of the unit type defined. 
 
 .. code-block:: yaml
     :caption: Inputs.yaml
@@ -139,6 +135,57 @@ For fitting a new data set, it is recomended to start by fitting a small region 
                 pixel
             slice: 900
 
+Background and lineout selection
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+There are multiple options for background algorithms and types of fitting. The following tend to be the best options for various data types. All of these options are editable in the input deck.
+
+.. tab-set::
+
+    .. tab-item:: Time-resolved Data
+
+        .. code-block:: yaml
+
+            background:
+                type: 
+                    pixel
+                slice: 900
+
+
+    .. tab-item:: Spatially-resolved Data
+
+        .. code-block:: yaml
+
+            background:
+                type: 
+                    fit
+                slice: 900 <or backrgound slice for IAW>
+
+    .. tab-item:: Lineouts of Angular
+
+        .. code-block:: yaml
+
+            background:
+                type: 
+                    fit
+                slice: <background shot number>
+
+    .. tab-item:: Full Angular
+
+        .. code-block:: yaml
+
+            lienouts:
+                type:
+                    range
+                start: 90
+                end: 900
+                skip: #
+            background:
+                type:
+                    fit
+             slice: <background shot number>
+
+
 Adjusting parameters
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -147,7 +194,7 @@ These values are bounded by **lb** and **ub** indicating the lower and upper bou
 
 .. code-block:: yaml
     :caption: Inputs.yaml
-    :emphasize-lines: 7,,9,10
+    :emphasize-lines: 7,9,10
 
     parameters:
         species1:
@@ -190,9 +237,9 @@ Name the run in the input deck.
 
 Run the code using a run command.
 
-There are :bdg:`2` run "modes".
+There are **2** run "modes".
 
-**Fit mode** fitperfoms fitting procedure.
+**Fit mode** perfoms fitting procedure.
 
 .. code-block:: bash
 
@@ -211,3 +258,4 @@ To visualize the outputs run the following commnand, and follow the resultant li
 .. code-block:: bash
 
    mlflow ui 
+

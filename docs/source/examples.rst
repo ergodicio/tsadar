@@ -9,7 +9,8 @@ folder.
 
 Parts of an electron fit ranges plot
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-imgae of a plot sample will go here 
+
+ .. image:: _elfolder/electron_fit_annotated.png
 
 -:ref:`Lineout<Data inputs>`
     :bdg-primary-line:`start`
@@ -22,3 +23,8 @@ imgae of a plot sample will go here
 -:ref:`Blue shift<Data default>`
     :bdg-primary-line:`maxmimum`
     :bdg-primary-line:`minimum`
+
+Parts of an ion fit ranges plot
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. image:: _elfolder/ion_fit_annotated.png

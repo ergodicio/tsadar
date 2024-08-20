@@ -135,9 +135,9 @@ data:
         red_min: 545
         red_max: 600
         iaw_min: 526
-        iaw_max: 527.3
-        iaw_cf_min: 526.75
-        iaw_cf_max: 526.75
+        iaw_max: 527.2
+        iaw_cf_min: 526.63
+        iaw_cf_max: 526.63
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -181,8 +181,8 @@ optimizer:
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 6
-    num_epochs: 500
+    batch_size: 5
+    num_epochs: 1
     learning_rate: 1.0e-4
     parameter_norm: True
     refine_factor: 0

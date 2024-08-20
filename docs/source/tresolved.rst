@@ -3,7 +3,7 @@ Example: Fitting time-resolved data
 
 This is an example will walk you through the key steps for fitting time-resolved data. 
 
-After loading your data, you wil want to indicate the shotnumber of your experimnet in the :bdg-link-primary:`Input.yaml <inputs>` deck.
+After loading your data, you wil want to indicate the shotnumber of your experimnet in the :ref:`Input.yaml <inputs_deck>` deck.
 The input decks are located in **inverse-thomson-scattering/configs/1d**.
 The code will identify the data as time resolved for OMEGA experients, based of the data file. 
 For fitting data files from other sources, please contact the authors.
@@ -21,7 +21,7 @@ For fitting data files from other sources, please contact the authors.
 Fitting time resolved EPW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Load the electron spectra, and activate the EPW fit by setting the corresponding booleans to :bdg-info:`True`. 
+Load the electron spectra, and activate the EPW fit by setting the corresponding booleans to :bdg-success-line:`True`. 
 
 .. code-block:: yaml
     :caption: Inputs.yalm
@@ -42,7 +42,8 @@ Once you have adjusted the parameters, and saved the changes made. You will want
 
     python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode fit
 
-This command will yeild the following output, indicating the the fit is completed:
+
+.. _mlflow_ui:
 
 The following command will allow you to visualize the results of the fitting. The output link will redirect you to a local site where the outputs can be viewed. 
  
@@ -50,9 +51,9 @@ The following command will allow you to visualize the results of the fitting. Th
 
     mlflow ui
 
-.. image:: _elfolder/mlflow_ui.png
+.. image:: _elfolder/mlflow_home.png
 
-Click the follow the link to vizialize the data. The resulting plots can be founs in the :bdg:`Artifacts` unedr the folder :bdg:`plots`. 
+Click the follow the link to vizialize the data. The resulting plots can be founs in the **Artifacts** unedr the folder **plots**. 
 Best and worst folders contain the best and worst fits respectively. `
 
 Electron fit ranges plot
@@ -75,7 +76,7 @@ Dowload the learned parameters to confirm the code ran correctly
 Fitting time-resolved IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Load the ion spectra, and activate the IAW fit by setting the corresponding booleans to :bdg-info:`True`. 
+Load the ion spectra, and activate the IAW fit by setting the corresponding booleans to :bdg-success-line:`True`. To visualize the outputs, use the :ref:`mlflow ui <mlflow_ui>` command.
 
 .. code-block:: yaml
     :caption: Inputs.yalm
@@ -104,4 +105,4 @@ Worst plots
 
 Dowload the learned parameters to confirm the code ran correctly
 
-.. image:: _elfolder/lparam_aiw.png
+.. image:: _elfolder/lparam_iaw.jpg
