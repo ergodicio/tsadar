@@ -11,11 +11,16 @@ If you are new to Thomson scattering, go to :ref:`Fundamentals of Thomson Scatte
 The fitting is performed via gradient descent. The gradients are acquired using automatic differentiation and JAX [3].
 More details on the numerics will be added soon.
 
+*What does TSADAR stand for?*
 
+Thomson Scattering with Automatic Differentiation for Analysis and Regression
+
+Table of Contents
+--------------------
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
-   Getting satrted<getting_started_the_remix>
+   getting_started
    tresolved
    inputs
    defaults
@@ -26,9 +31,6 @@ More details on the numerics will be added soon.
    contributing
    api_main
    
-*What does TSADAR stand for?*
-
-Thomson Scattering with Automatic Differentiation for Analysis and Regression
 
 
 
