@@ -3,30 +3,28 @@
 Fundamentals of Thomson Scattering 
 ==========================================
 
-This page will provide 
-To talk about Thomson Scattering, we firts need to talk about plasma. So, what is Plasma?
-
-**Plasma** is a an ionized gas, which is mande up of a collection of free electrons and positively charged ions.
+This page provides some basics on Thomson scateering to help users figure out how to modify the input deck. 
 
 **What is Thomson Scattering?** 
-thomson scattering is a technique used in plasma diagnostics to obtain information about the energy and temperature of the ions and electrons, as well as flcutuations in plasma conditions.
-
-**Plasma parameter** characterizes the effects of different interactions like thermal motions and electromagnetic fields affect the plasma. It is unitless.
-
-**Electrostatic Waves** (I am confused, when charged particles move in a plasma they create electric fields. but the particles also move as an effect of these fields??)
+Thomson scattering is a diagnostic technique used to obtain information about the plasma conditions such as temperature and density.
 
 **Lagmuir waves** are  high frequency electron plasma waves.
 
-**Electron Plasma Waves (EPW)** alson known as Langmuir wave??s, are electrostatic plasma waves with electrons as the oscillating species.
+**Electron Plasma Waves (EPW)** also known as Langmuir waves, are high frequency electrostatic waves in a plasma with electrons as the oscillating species.
 
-**Ion Acoustic Waves (IAW)** are low frequency electrostatic plasma waves, with ions as the oscillating species (the ions are responsible for the force that drive the wave). 
+**Ion Acoustic Waves (IAW)** are low frequency electrostatic waves in a plasma, with ions as the primary oscillating species. 
 In this case the electrons fight to sustain charge neutrality.
 
-**Electron temperature (Te)** is dependent on the velocity at which electrons travel within the plasma, since it is the KE of the electrons
+Very basic description of the geomerty (laser plasma collection), define scattering angle
+
+Defininitions of Acronyms 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Te** Temperature of the electrons, as defined througth the averarge kinetic energy 
 
 **Electron density (ne)** is the number of free electrons per unit volume,and it is used to characterize the plasma.
 
-**Gradient descent** is an optimization technique, which calculates the gradient of a function and moves in the decresing direction. This can help find the minimum value of a function. Although it is possible to be trapped in a local minima.
+amp1, amp2,
 
 
 Thomson Scattering Spectra for Electron Plasma Waves (EPW) 

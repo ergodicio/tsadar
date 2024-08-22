@@ -3,7 +3,7 @@ Example: Fitting time-resolved data
 This is an example for fitting time-resolved data. 
 
 Firstly, you will want to download this TSADAR, install all the necesary requirements, and create a virtual environment. 
-Instructions for that can be found in the :ref:`getting started<getting started the remix>` page.
+Instructions for that can be found in the :ref:`getting started<getting started>` page.
 
 Importing raw data
 ^^^^^^^^^^^^^^^^^^^
@@ -55,7 +55,7 @@ These parameters can be found in the :bdg:`Inputs.yalm.` deck. Make sure to save
                 pixel
             slice: 900
 
-.. card:: Defaults.yalm
+.. card:: Defaults.yaml
     :link: configuring-the-default
     :link-type: ref
 
@@ -115,13 +115,13 @@ Once you have adjusted the inputs and outputs
 
 .. grid:: 2
 
-    .. grid-item-card::  Inputs.yalm
+    .. grid-item-card::  Inputs.yaml
         :link: inputs_deck
         :link-type: ref
 
         Primary input deck 
 
-    .. grid-item-card::  Defaults.yalm
+    .. grid-item-card::  Defaults.yaml
         :link: configuring-the-default
         :link-type: ref
 
