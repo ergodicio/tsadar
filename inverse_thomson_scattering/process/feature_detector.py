@@ -10,112 +10,114 @@ import tempfile, os
 #defining the main function 
 def first_guess(elecData, ionData, all_axes, config):
      
-    with tempfile.TemporaryDirectory() as tdir: #temporary directory to save figures
-        if config["other"]["extraoptions"]["load_ion_spec"]: # ploting the iaw spec w/out lineouts
-            X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
-            fig1, ax1 = plt.subplots()
-            ax1.axis('off')
-            ax1.pcolormesh(
-                X,
-                Y,
-                ionData,
-                cmap="gray",
-                vmin=0,
-                vmax=0.05*np.amax(ionData),
-            )
-            fig1_path = os.path.join(tdir,'temp_iaw.png') #path for iaw plot 
-            fig1.savefig(fig1_path , bbox_inches='tight') #save in temp dir
-            #openinn iaw and geting roi
-            iaw1 = cv.imread(fig1_path)
-            img_iaw = iaw1[70:390,10:497]
+    #with tempfile.TemporaryDirectory() as tdir: #temporary directory to save figures
+    if config["other"]["extraoptions"]["load_ion_spec"]: # ploting the iaw spec w/out lineouts
+        X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
+        fig1, ax1 = plt.subplots()
+        ax1.axis('off')
+        ax1.pcolormesh(
+            X,
+            Y,
+            ionData,
+            cmap="gray",
+            vmin=0,
+            vmax=0.05*np.amax(ionData),
+        )
+        #fig1_path = os.path.join(tdir,'temp_iaw.png') #path for iaw plot 
+        #fig1.savefig(fig1_path , bbox_inches='tight') #save in temp dir
+        #openinn iaw and geting roi
+        #iaw1 = cv.imread(fig1_path)
 
-            # convert the img to grayscale (migth delete later if the image is ploter in gray scale)
-            gray_iaw =cv.cvtColor(img_iaw,cv.COLOR_BGR2GRAY)
-            ret,bw_iaw = cv.threshold(gray_iaw, 127, 255, cv.THRESH_BINARY)  # unpack the result from Adaptative threshold into two variables
-            kernel = np.ones((2,2),np.uint8 ) #kernel for eroding
+        # using fig without a temp directory 
+        
+        img_iaw = ionData[70:390,10:497]
 
-            eroded = cv.erode(bw_iaw, kernel, iterations = 2) #bw_iaw holds the eroded image
-            corners_iaw = cv.goodFeaturesToTrack(eroded,20,0.01,20) # eroded is now single channel
-            corners_iaw = np.int0(corners_iaw)
+        # convert the img to grayscale (migth delete later if the image is ploter in gray scale)
+        gray_iaw =cv.cvtColor(img_iaw,cv.COLOR_BGR2GRAY)
+        ret,bw_iaw = cv.threshold(gray_iaw, 127, 255, cv.THRESH_BINARY)  # unpack the result from Adaptative threshold into two variables
+        kernel = np.ones((2,2),np.uint8 ) #kernel for eroding
 
-            #list for corners coordinates
-            corner_list_iaw = []
-            for i in corners_iaw:
-                x,y = i.ravel()
-                cv.circle(img_iaw,(x,y),3,255,-1)
-                corner_list_iaw.append((x,y))
+        eroded = cv.erode(bw_iaw, kernel, iterations = 2) #bw_iaw holds the eroded image
+        corners_iaw = cv.goodFeaturesToTrack(eroded,20,0.01,20) # eroded is now single channel
+        corners_iaw = np.int0(corners_iaw)
 
-            #Finding the min and max x and y points of the feature, and mapping the to the original image
-            corner_list_iaw.sort()  # Sort in-place by x-coordinate (default behavior)
-            x_min = corner_list_iaw[0][0]  # Extract only the x-value
-            OGX_min = x_min + 0
-            x_max = corner_list_iaw[-1][0]  # Extract only the x-value
-            OGx_max = x_max + 10
-            corner_list_iaw.sort(key=lambda point: point[1])  # Sort in-place by y-coordinate
-            y_min = corner_list_iaw[0][1]  # Extract only the y-value
-            OGy_min = y_min + 60
-            y_max = corner_list_iaw[-1][1] # Extract only the y-value
-            OGy_max = y_max + 70
+        #list for corners coordinates
+        corner_list_iaw = []
+        for i in corners_iaw:
+            x,y = i.ravel()
+            cv.circle(img_iaw,(x,y),3,255,-1)
+            corner_list_iaw.append((x,y))
 
-            #maping findings to their corresponding parameters
-            lineout_start = OGX_min
-            lineout_end = OGx_max
-            iaw_max = OGy_max
-            iaw_max = OGy_min
-            iaw_cf = (OGy_min + OGy_max)/2
+        #Finding the min and max x and y points of the feature, and mapping the to the original image
+        corner_list_iaw.sort()  # Sort in-place by x-coordinate (default behavior)
+        x_min = corner_list_iaw[0][0]  # Extract only the x-value
+        OGX_min = x_min + 0
+        x_max = corner_list_iaw[-1][0]  # Extract only the x-value
+        OGx_max = x_max + 10
+        corner_list_iaw.sort(key=lambda point: point[1])  # Sort in-place by y-coordinate
+        y_min = corner_list_iaw[0][1]  # Extract only the y-value
+        OGy_min = y_min + 60
+        y_max = corner_list_iaw[-1][1] # Extract only the y-value
+        OGy_max = y_max + 70
 
-        if config["other"]["extraoptions"]["load_ele_spec"]: #plotting the epw spec wi/out lineouts
-            X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
-            fig2, ax2 = plt.subplots()
-            ax2.axis('off')
-            ax2.pcolormesh(
-                X,
-                Y,
-                elecData,
-                cmap="hot",
-                vmin=0,
-                vmax=0.15*np.amax(elecData)
-            )
-            """fig2_path = os.path.join(tdir, 'temp_epw.png') #path for epw spectra 
-            fig2.savefig(fig2_path, bbox_inches='tight') #saving fig in temp dir
-            #openinn iaw and geting roi
-            epw1 = cv.imread(fig2_path)"""
-            img_epw = elecData[70:390,10:497]
+        #maping findings to their corresponding parameters
+        lineout_start = OGX_min
+        lineout_end = OGx_max
+        iaw_max = OGy_max
+        iaw_max = OGy_min
+        iaw_cf = (OGy_min + OGy_max)/2
 
-            # convert the img to grayscale (migth delete later if the image is ploter in gray scale)
-            gray_epw =cv.cvtColor(img_epw,cv.COLOR_BGR2GRAY)
-            ret,bw_epw = cv.threshold(gray_epw, 127, 255, cv.THRESH_BINARY)  # unpack the result from Adaptative threshold into two variables
-            kernel = np.ones((2,2),np.uint8 ) #kernel for eroding
+    if config["other"]["extraoptions"]["load_ele_spec"]: #plotting the epw spec wi/out lineouts
+        X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
+        fig2, ax2 = plt.subplots()
+        ax2.axis('off')
+        ax2.pcolormesh(
+            X,
+            Y,
+            elecData,
+            cmap="hot",
+            vmin=0,
+            vmax=0.15*np.amax(elecData)
+        )
+        """fig2_path = os.path.join(tdir, 'temp_epw.png') #path for epw spectra 
+        fig2.savefig(fig2_path, bbox_inches='tight') #saving fig in temp dir
+        #openinn iaw and geting roi
+        epw1 = cv.imread(fig2_path)"""
+        img_epw = elecData[70:390,10:497]
 
-            eroded = cv.erode(bw_epw, kernel, iterations = 2) #bw_iaw holds the eroded image
-            corners_epw = cv.goodFeaturesToTrack(eroded,20,0.01,20) # eroded is now single channel
-            corners_epw = np.int0(corners_epw)
+        # convert the img to grayscale (migth delete later if the image is ploter in gray scale)
+        gray_epw =cv.cvtColor(img_epw,cv.COLOR_BGR2GRAY)
+        ret,bw_epw = cv.threshold(gray_epw, 127, 255, cv.THRESH_BINARY)  # unpack the result from Adaptative threshold into two variables
+        kernel = np.ones((2,2),np.uint8 ) #kernel for eroding
 
-            #list for corners coordinates
-            corner_list_epw = []
-            for i in corners_epw:
-                x,y = i.ravel()
-                cv.circle(img_epw,(x,y),3,255,-1)
-                corner_list_epw.append((x,y))
+        eroded = cv.erode(bw_epw, kernel, iterations = 2) #bw_iaw holds the eroded image
+        corners_epw = cv.goodFeaturesToTrack(eroded,20,0.01,20) # eroded is now single channel
+        corners_epw = np.int0(corners_epw)
 
-            #Finding the min and max x and y points of the feature, and mapping the to the original image
-            corner_list_epw.sort()  # Sort in-place by x-coordinate (default behavior)
-            x_min = corner_list_epw[0][0]  # Extract only the x-value
-            OGX_min = x_min + 0
-            x_max = corner_list_epw[-1][0]  # Extract only the x-value
-            OGx_max = x_max + 10
-            corner_list_iaw.sort(key=lambda point: point[1])  # Sort in-place by y-coordinate
-            y_min = corner_list_epw[0][1]  # Extract only the y-value
-            OGy_min = y_min + 60
-            y_max = corner_list_epw[-1][1] # Extract only the y-value
-            OGy_max = y_max + 70
+        #list for corners coordinates
+        corner_list_epw = []
+        for i in corners_epw:
+            x,y = i.ravel()
+            cv.circle(img_epw,(x,y),3,255,-1)
+            corner_list_epw.append((x,y))
 
-            #maping findings to their corresponding parameters
-            lineout_start = OGX_min
-            lineout_end = OGx_max
-            iaw_max = OGy_max
-            iaw_max = OGy_min
-            iaw_cf = (OGy_min + OGy_max)/2
+        #Finding the min and max x and y points of the feature, and mapping the to the original image
+        corner_list_epw.sort()  # Sort in-place by x-coordinate (default behavior)
+        x_min = corner_list_epw[0][0]  # Extract only the x-value
+        OGX_min = x_min + 0
+        x_max = corner_list_epw[-1][0]  # Extract only the x-value
+        OGx_max = x_max + 10
+        corner_list_iaw.sort(key=lambda point: point[1])  # Sort in-place by y-coordinate
+        y_min = corner_list_epw[0][1]  # Extract only the y-value
+        OGy_min = y_min + 60
+        y_max = corner_list_epw[-1][1] # Extract only the y-value
+        OGy_max = y_max + 70
+
+        #maping findings to their corresponding parameters
+        lineout_start = OGX_min
+        lineout_end = OGx_max
+        red_max = OGy_max
+        blue_min = OGy_min
 
 
 

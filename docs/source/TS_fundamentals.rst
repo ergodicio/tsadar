@@ -33,11 +33,13 @@ Thomson Scattering Spectra for Electron Plasma Waves (EPW)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/TS_spectra_EPW.JPG
+    :scale: 80%
 
-Electron Fit Ranges Plot
+Electron Fit Ranges Plot 75
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/electron_fit_annotated.png
+    :scale: 75%
 
 -:ref:`Lineout<Data inputs>`
     :bdg-primary-line:`start`
@@ -51,12 +53,15 @@ Electron Fit Ranges Plot
     :bdg-primary-line:`maxmimum`
     :bdg-primary-line:`minimum`
 
-Ion Fit Ranges Plot
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. image:: _elfolder/ion_fit_annotated.png
 
 Thomson Scattering Spectra for Ion Acoustic Waves (IAW)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/TS_spectra_IAW.JPG
+    :scale: 80%
+
+Ion Fit Ranges Plot
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. image:: _elfolder/ion_fit_annotated.png
+    :scale: 75%

@@ -53,14 +53,15 @@ The following command will allow you to visualize the results of the fitting. Th
 
 .. image:: _elfolder/mlflow_home.png
 
-Click the follow the link to vizialize the data. The resulting plots can be founs in the **Artifacts** unedr the folder **plots**. 
-Best and worst folders contain the best and worst fits respectively. `
+The resulting plots can be founs in the **Artifacts** unedr the folder **plots**. 
 
-Electron fit ranges plot
+Electron fit ranges plot 
 
 .. image:: _elfolder/electron_fit_ranges.png
 
-Best plots
+Best and worst folders contain the best and worst fits respectively. `
+
+Best plots 
 
 .. image:: _elfolder/epw_best.png
 
