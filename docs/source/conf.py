@@ -58,6 +58,7 @@ extensions = [
     "sphinx_github_style",
     "sphinx_design",
     "sphinx.ext.intersphinx",
+   # "sphinx_gallery.gen_gallery"
 ]
 # options for sphinx_github_style
 top_level = "inverse_thomson_scattering"

@@ -1,0 +1,2 @@
+Example: time resolved IAW
+==============================

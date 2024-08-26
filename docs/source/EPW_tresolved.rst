@@ -1,4 +1,26 @@
-parameters:
+Time resolved EPW
+====================================
+
+This is example will walk you through the key steps for fitting time-resolved data for EPW.
+
+.. image:: _elfolder/
+    :scale: 85%
+
+
+Load the electron spectra, and activate the EPW fit by setting the corresponding booleans to :bdg-success-line:`True`.
+Use the mflow ui to visualize the outputs.
+
+Load the provided data file into the data folder. Update the parameters in the input deck to mimic those used here 
+
+Use the following command to fit the data 
+
+.. code-block:: bash
+
+   python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode fit
+
+.. code-block:: yaml
+
+    parameters:
     species1:
         type:
             electron:
@@ -107,43 +129,45 @@ parameters:
             lb: -20.5
             ub: 20.5
 
-data:
-    shotnum: 101676
-    fit_rng:
-        blue_min: 460
-        blue_max: 510
-        red_min: 545
-        red_max: 600
-    lineouts:
-        type:
-            pixel
-        start: 290
-        end: 760
-        skip: 1
-    background:
-        type:
-            pixel
-        slice: 900
+    data:
+        shotnum: 101676
+        fit_rng:
+            blue_min: 460
+            blue_max: 510
+            red_min: 545
+            red_max: 600
+        lineouts:
+            type:
+                pixel
+            start: 290
+            end: 760
+            skip: 1
+        background:
+            type:
+                pixel
+            slice: 900
 
-other:
-    extraoptions:
-        load_ion_spec: False
-        load_ele_spec: true
-        fit_IAW: false
-        fit_EPWb: True
-        fit_EPWr: true
-    PhysParams:
-        widIRF:
-            spect_stddev_ion: 0.015
-            spect_stddev_ele: 0.1
-            spect_FWHM_ele: 0.9
-            ang_FWHM_ele: 1.0
-    refit: False
-    refit_thresh: 5.0
-    calc_sigmas: False
+    other:
+        extraoptions:
+            load_ion_spec: False
+            load_ele_spec: true
+            fit_IAW: false
+            fit_EPWb: True
+            fit_EPWr: true
+        PhysParams:
+            widIRF:
+                spect_stddev_ion: 0.015
+                spect_stddev_ele: 0.1
+                spect_FWHM_ele: 0.9
+                ang_FWHM_ele: 1.0
+        refit: False
+        refit_thresh: 5.0
+        calc_sigmas: False
 
 
-mlflow:
-    experiment: inverse-thomson-scattering
-    run: IAW fit turbo_r log starting at vmin = np.amin(data) 101676
-    #ti 0.15 ud -0.5, amp3 1.6, end 645, va 0 skip 40
+    mlflow:
+        experiment: inverse-thomson-scattering
+        run: name of the run
+
+
+

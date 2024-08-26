@@ -3,7 +3,7 @@
 Fundamentals of Thomson Scattering 
 ==========================================
 
-This page provides some basics on Thomson scateering to help users figure out how to modify the input deck. 
+This page provides some basics on Thomson scatering to help users figure out how to modify the input deck. 
 
 **What is Thomson Scattering?** 
 Thomson scattering is a diagnostic technique used to obtain information about the plasma conditions such as temperature and density.
@@ -15,51 +15,88 @@ Thomson scattering is a diagnostic technique used to obtain information about th
 **Ion Acoustic Waves (IAW)** are low frequency electrostatic waves in a plasma, with ions as the primary oscillating species. 
 In this case the electrons fight to sustain charge neutrality.
 
-Very basic description of the geomerty (laser plasma collection), define scattering angle
+**Scattering angle** is the angle between the incident and scattered  electromagnetic wave.
 
-Defininitions of Acronyms 
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Light scattered off of EPWs experience **Doppler shifts** due to the velocity of electrons relative to the incoming light. 
+These shifts provide insights into the movemet of electrons and characteristics of the plasma waves. 
 
-**Te** Temperature of the electrons, as defined througth the averarge kinetic energy 
+Fit and data plot for EPW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**Electron density (ne)** is the number of free electrons per unit volume,and it is used to characterize the plasma.
+.. image:: _elfolder/fit_and_data_ele.jpg
+    :scale: 75%
 
-amp1, amp2,
-
-
-Thomson Scattering Spectra for Electron Plasma Waves (EPW) 
+Thomson Scattering Spectra for EPW 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/TS_spectra_EPW.JPG
-    :scale: 80%
+    :scale: 75%
 
-Electron Fit Ranges Plot 75
+**Electron temperature (Te)**  as defined througth the averarge kinetic energy.
+
+**Electron density (ne)** is the number of free electrons per unit volume,and it is used to characterize the plasma.
+
+**m** is used to measure non-local heat flux
+
+**amp1** is the blue-shifted EPW amplitude multiplier.
+
+**amp2** is the red-shifted EPW amplitude multiplier. 
+
+
+Electron Fit Ranges Plot 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/electron_fit_annotated.png
     :scale: 75%
 
--:ref:`Lineout<Data inputs>`
-    :bdg-primary-line:`start`
-    :bdg-primary-line:`end`
 
--:ref:`Red shift<Data default>`
-    :bdg-primary-line:`maxmimum`
-    :bdg-primary-line:`minimum`
+**Lineouts** are used to specify the region of data to be analyzed. 
 
--:ref:`Blue shift<Data default>`
-    :bdg-primary-line:`maxmimum`
-    :bdg-primary-line:`minimum`
+**Lineout : start** specifies the first location where a lineout will be take
 
+**lineout : end** specifies the last location where a lineout will be taken
 
-Thomson Scattering Spectra for Ion Acoustic Waves (IAW)
+The scattered light is **red-shifted** if the electrons move away from the incoming light source. 
+If the electrons move towards the light source, the scattered light is **blue-shifted**.  
+**Min** and **max** values of these shifts indicate starting and ending waveleghts repectively to be analyzed.
+
+Fit and data plot for IAW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. image:: _elfolder/
+    :scale: 75%
+    
+
+Thomson Scattering Spectra for IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/TS_spectra_IAW.JPG
-    :scale: 80%
+    :scale: 75%
+
+**Ion tempreature (Ti)** the ion temperature as defined through the average kinetic energy.
+
+**Ion density (ni)** is the number of free ions per unit volume.
+
+**Z** is the average ionization state. 
+
+**Va** is the plasma flow velocity.
+
+**lam** is the probe wavelenght. 
+
+**ud** is the electron drfit velocity. 
+
+**amp3** is the IAW amplitude multiplier.
 
 Ion Fit Ranges Plot
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. image:: _elfolder/ion_fit_annotated.png
     :scale: 75%
+
+**IAW max & min** designate the starting and ending wavelenghts for the analysis of the IAW.
+
+**IAW cf min & max** indicate the starting and ending wavelenghts for a central feature to be excluded from analysis.
+
+
+
+

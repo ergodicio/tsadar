@@ -21,9 +21,9 @@ Table of Contents
    :maxdepth: 1
 
    getting_started
-   tresolved
    inputs
    defaults
+   examples
    Forward pass<forward_pass>
    TS_fundamentals
    math

@@ -1,7 +1,7 @@
 .. _getting started:
 
-Getting Started
-================
+Getting Started Tutorial
+----------------------------
 
 This page should provides detailed instruction on instalation and basic usage of the TSADAR code.
 
@@ -89,54 +89,44 @@ For fitting data files from other sources, please contact the authors.
             type:
                 pixel
 
-Load the spectra you are interested in visualizing by activating its corresponding boolean. This code allows the red-shifted EPW  **fit_EPWr**
-and blue-shifted EPW **fit_EPWb** to be individualy selected for fitting.
+
+Fitting time resolved EPW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Load the electron spectra, and activate the EPW fit by setting the corresponding booleans to :bdg-success-line:`True`. 
 
 .. code-block:: yaml
-    :caption: Inputs.yaml
-    :emphasize-lines: 3,4
+    :caption: Inputs.yalm
+    :emphasize-lines: 4,6,7
 
     other:
         extraoptions:
-            load_ion_spec: True
+            load_ion_spec: False
             load_ele_spec: True
-
-
-Fitting a new data set
-^^^^^^^^^^^^^^^^^^^^^^^^
-Select the data you are interested in fitting by activating its corresponding boolean. 
-
-.. code-block:: yaml
-    :caption: Inputs.yaml
-    :emphasize-lines: 5,6,7
-
-    other:
-        extraoptions:
-            load_ion_spec: True
-            load_ele_spec: True
-            fit_IAW: True
+            fit_IAW: False
             fit_EPWb: True
             fit_EPWr: True
 
-For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
-The fit will start at **lineout:start** and will end at **lineout:end**. Lineouts will be fit every **lineout:skip** of the unit type defined. 
+
+Fitting time-resolved IAW
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Load the ion spectra, and activate the IAW fit by setting the corresponding booleans to :bdg-success-line:`True`. 
 
 .. code-block:: yaml
-    :caption: Inputs.yaml
-    :emphasize-lines: 3,6,7,8
+    :caption: Inputs.yalm
+    :emphasize-lines: 3,5
 
-    data:
-        shotnum: 1234567
-        lineouts:
-            type:
-                pixel
-            start: 100
-            end: 900
-            skip: 10
-        background:
-            type:
-                pixel
-            slice: 900
+    other:
+        extraoptions:
+            load_ion_spec: True
+            load_ele_spec: False
+            fit_IAW: True
+            fit_EPWb: False
+            fit_EPWr: False
+
+
+
 
 Background and lineout selection
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -188,6 +178,28 @@ There are multiple options for background algorithms and types of fitting. The f
                     fit
              slice: <background shot number>
 
+Fitting a new data set
+^^^^^^^^^^^^^^^^^^^^^^^^
+For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
+The fit will start at **lineout:start** and will end at **lineout:end**. Lineouts will be fit every **lineout:skip** of the unit type defined. 
+
+.. code-block:: yaml
+    :caption: Inputs.yaml
+    :emphasize-lines: 3,6,7,8
+
+    data:
+        shotnum: 1234567
+        lineouts:
+            type:
+                pixel
+            start: 100
+            end: 900
+            skip: 10
+        background:
+            type:
+                pixel
+            slice: 900
+
 
 Adjusting parameters
 ^^^^^^^^^^^^^^^^^^^^^
@@ -228,6 +240,7 @@ The secondary imput deck, contains the minimum and maximum values for the blue a
 
 Run command
 ^^^^^^^^^^^^^^^
+
 Code outputs are packaged using MLFlow, each run should be individualy named in the input deck. The experiment field is a folder and can be used to group runs.
 
 .. code-block:: yaml
@@ -238,8 +251,7 @@ Code outputs are packaged using MLFlow, each run should be individualy named in 
     experiment: folder1
     run: name of the run
 
-Run the code using a run command.
-
+Once you have adjusted the parameters and saved the changes made, you will want to implement the run command.
 There are **2** run "modes".
 
 **Fit mode** perfoms the fitting procedure producing plasma conditions from the data.
@@ -261,4 +273,38 @@ To visualize the outputs run the following commnand, and follow the resultant li
 .. code-block:: bash
 
    mlflow ui 
+
+.. image:: _elfolder/mlflow_home.png
+
+The resulting plots can be founs in the **Artifacts** unedr the folder **plots**. 
+
+Electron fit ranges plot                                     Ion fit ranges plot                  
+
+.. image:: _elfolder/electron_fit_ranges.png
+    :width: 45%
+
+.. image:: _elfolder/ion_fit_ranges.png
+    :width: 45%
+
+Best and worst folders contain the **best and worst fits** respectively. 
+
+Best plots 
+
+.. image:: _elfolder/epw_best.png
+    :width: 45%
+
+.. image:: _elfolder/iaw_best.png
+    :width: 45%
+
+Worst plots
+
+.. image:: _elfolder/epw_worst.png
+    :width: 45%
+
+.. image:: _elfolder/iaw_worst.png
+    :width: 45%
+
+Dowload the **learned parameters** to confirm the code ran correctly
+
+.. image:: _elfolder/lparam_epw.png
 
