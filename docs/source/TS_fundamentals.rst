@@ -23,7 +23,10 @@ These shifts provide insights into the movemet of electrons and characteristics 
 Fit and data plot for EPW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. image:: _elfolder/fit_and_data_ele.jpg
+This plot gives an insight into the quality of the analysis, as it compares the fitted data (left) with the raw data (right).
+
+
+.. image:: _elfolder/fit_and_data_ele.png
     :scale: 75%
 
 Thomson Scattering Spectra for EPW 
@@ -31,6 +34,8 @@ Thomson Scattering Spectra for EPW
 
 .. image:: _elfolder/TS_spectra_EPW.JPG
     :scale: 75%
+
+The spectra provides a visual representation of the state of learned parameters for a given lineout. As each parament influeces an element in the wave. 
 
 **Electron temperature (Te)**  as defined througth the averarge kinetic energy.
 
@@ -50,6 +55,8 @@ Electron Fit Ranges Plot
     :scale: 75%
 
 
+The **Electron Fit rRanges plots** uses lineouts to indicate the region where data is being analyzed.
+
 **Lineouts** are used to specify the region of data to be analyzed. 
 
 **Lineout : start** specifies the first location where a lineout will be take
@@ -63,7 +70,7 @@ If the electrons move towards the light source, the scattered light is **blue-sh
 Fit and data plot for IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. image:: _elfolder/
+.. image:: _elfolder/fit_and_data_iaw.png
     :scale: 75%
     
 

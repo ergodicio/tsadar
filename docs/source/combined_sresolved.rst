@@ -1,4 +1,3 @@
 
-
-Example: Combined spatial resolved (with some notes on centering TCC)
+Combined Spatial Resolved (with some notes on centering TCC)
 =====================================================================================

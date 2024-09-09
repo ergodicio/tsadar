@@ -134,10 +134,10 @@ data:
         blue_max: 510
         red_min: 545
         red_max: 600
-        iaw_min: 526.1
+        iaw_min: 526
         iaw_max: 527.2
-        iaw_cf_min: 526.5
-        iaw_cf_max: 526.5
+        iaw_cf_min: 526.63
+        iaw_cf_max: 526.63
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -173,16 +173,13 @@ plotting:
     ele_window_end: 660
 
 optimizer:
-    # use adam for nn / stochastic gradient descent
-    # use L-BFGS-B for full batch / parameter learning
-    # although adam will work here too
     method: l-bfgs-b
     hessian: False
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 5
-    num_epochs: 2000
+    batch_size: 10
+    num_epochs: 1000
     learning_rate: 1.0e-4
     parameter_norm: True
     refine_factor: 0
@@ -196,8 +193,8 @@ nn:
 
 dist_fit:
     window:
-        len: 0.2 #should be even
-        type: hamming # one of [hamming, hann, bartlett]
+        len: 0.2
+        type: hamming 
 
 mlflow:
     experiment: inverse-thomson-scattering

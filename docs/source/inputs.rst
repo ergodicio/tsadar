@@ -23,7 +23,6 @@ The defaults deck contains additional options and default values for all options
         Secondary input deck 
 
 
-
 .. Tip:: The primary input deck will override the secondary input deck when values conflict. 
 
 Parameters

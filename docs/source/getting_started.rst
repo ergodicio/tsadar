@@ -267,8 +267,9 @@ There are **2** run "modes".
    python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode forward
 
 Output visualization
-^^^^^^^^^^^^^^^^^^^^^
+----------------------
 To visualize the outputs run the following commnand, and follow the resultant link. 
+The resulting plots can be found in the **Artifacts** unedr the folder **plots**. 
 
 .. code-block:: bash
 
@@ -276,35 +277,60 @@ To visualize the outputs run the following commnand, and follow the resultant li
 
 .. image:: _elfolder/mlflow_home.png
 
-The resulting plots can be founs in the **Artifacts** unedr the folder **plots**. 
 
-Electron fit ranges plot                                     Ion fit ranges plot                  
+
+**Fit and data plots** show a side by side of the fit and data, which can be used to evaluate the quality of the fit. 
+
+.. image:: _elfolder/fit_and_data_ele.png
+    :scale: 85%
+    :alt: Fit and Data EPW
+
+
+**Fit ranges plots** use lines to indicate the region where data is being analyzed.
+  
 
 .. image:: _elfolder/electron_fit_ranges.png
+
+    :alt: Electron Fit Ranges
     :width: 45%
 
 .. image:: _elfolder/ion_fit_ranges.png
-    :width: 45%
 
-Best and worst folders contain the **best and worst fits** respectively. 
+    :width: 45%
+    :alt: Ion Fit Ranges
+
+
+**Best and Worst** plots display the lineouts where the intput parameters for the analysis best and wort match those of the data. 
 
 Best plots 
 
 .. image:: _elfolder/epw_best.png
     :width: 45%
+    :alt: EPW Best
 
 .. image:: _elfolder/iaw_best.png
     :width: 45%
+    :alt: IAW Best
 
 Worst plots
 
 .. image:: _elfolder/epw_worst.png
     :width: 45%
+    :alt: EPW Worst
 
 .. image:: _elfolder/iaw_worst.png
     :width: 45%
+    :alt: IAW Worst
 
-Dowload the **learned parameters** to confirm the code ran correctly
+**Learned parameters** contain the fitted parameters for every lineout. 
 
 .. image:: _elfolder/lparam_epw.png
 
+
+The variation of individual parameters throughout the linouts is shown in their respective **learned plots**.
+
+.. image:: _elfolder/learned_m.png
+    :scale: 99%
+
+.. image:: _elfolder/learned_Ti.png
+    :scale: 99%

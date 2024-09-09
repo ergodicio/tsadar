@@ -9,13 +9,13 @@ parameters:
             lb: 0.01
             ub: 1.25
         ne:
-            val: 0.7
-            active: false
+            val: 0.2
+            active: true
             lb: 0.01
             ub: 0.75
         m:
-            val: 2.5
-            active: False
+            val: 2.7
+            active: True
             lb: 2.0
             ub: 5.0
             matte: True
@@ -41,8 +41,8 @@ parameters:
             ion:
             active: False
         Ti:
-            val: 0.16
-            active: true
+            val: 0.15
+            active: False
             same: False
             lb: 0.01
             ub: 1.0
@@ -63,18 +63,18 @@ parameters:
             general:
             active: False
         amp1:
-            val: 1.0
-            active: false
+            val: 0.7
+            active: True
             lb: 0.01
             ub: 3.75
         amp2:
-            val: 1.0
-            active: false
+            val: 0.5
+            active: True
             lb: 0.01
             ub: 3.75
         amp3:
-            val: 0.75
-            active: true
+            val: 1.0
+            active: False
             lb: 0.01
             ub: 3.75
         lam:
@@ -95,15 +95,15 @@ parameters:
             ub: 15.
             num_grad_points: 1
         ud:
-            val: -1
+            val: 0.0
             angle: 0.0
-            active: true
+            active: False
             lb: -10.0
             ub: 10.0
         Va:
-            val: -10
+            val: -1.3
             angle: 0.0
-            active: true
+            active: false
             lb: -20.5
             ub: 20.5
 
@@ -117,8 +117,8 @@ data:
     lineouts:
         type:
             pixel
-        start: 140
-        end: 590
+        start: 290
+        end: 760
         skip: 10
     background:
         type:
@@ -127,11 +127,11 @@ data:
 
 other:
     extraoptions:
-        load_ion_spec: true
-        load_ele_spec: false
-        fit_IAW: true
-        fit_EPWb: false
-        fit_EPWr: false
+        load_ion_spec: False
+        load_ele_spec: true
+        fit_IAW: false
+        fit_EPWb: True
+        fit_EPWr: true
     PhysParams:
         widIRF:
             spect_stddev_ion: 0.015
@@ -145,5 +145,4 @@ other:
 
 mlflow:
     experiment: inverse-thomson-scattering
-    run: IAW fit and data 101676
-    #ti 0.15 ud -0.5, amp3 1.6, end 645, va 0 skip 40
+    run: Time-resolved EPW

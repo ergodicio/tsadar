@@ -57,8 +57,7 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_github_style",
     "sphinx_design",
-    "sphinx.ext.intersphinx",
-   # "sphinx_gallery.gen_gallery"
+    "sphinx.ext.intersphinx"
 ]
 # options for sphinx_github_style
 top_level = "inverse_thomson_scattering"
@@ -218,7 +217,7 @@ html_theme_options = {
     #"logo_link": "index.html",
     #TSADAR logo and tittle, both of which should redirect you to the homepage 
     "logo":{
-        "text":"Home",
+        #"text":"Home",
         "image_light": "_elfolder/lafoto.JPG",
         "image_dark": "_elfolder/lafoto.JPG",
     },
@@ -259,6 +258,7 @@ html_theme_options = {
     "navigation_depth": 2,
     #"includehidden": True,
     #"titles_only": False,
+    "use_issues_button": True,
     }
 
 

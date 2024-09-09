@@ -1,173 +1,20 @@
 Time resolved EPW
 ====================================
 
-This is example will walk you through the key steps for fitting time-resolved data for EPW.
+This example demonstrates fitting time-resolved data for EPW. 
 
-.. image:: _elfolder/
+
+Load the provided electron specta, update the input decks to mimc those used here, and use fitmode to run the code. 
+
+.. image:: _elfolder/fit_and_data_ele.png
     :scale: 85%
 
 
-Load the electron spectra, and activate the EPW fit by setting the corresponding booleans to :bdg-success-line:`True`.
-Use the mflow ui to visualize the outputs.
-
-Load the provided data file into the data folder. Update the parameters in the input deck to mimic those used here 
-
-Use the following command to fit the data 
-
-.. code-block:: bash
-
-   python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode fit
-
-.. code-block:: yaml
-
-    parameters:
-    species1:
-        type:
-            electron:
-            active: False
-        Te:
-            val: .6
-            active: True
-            lb: 0.01
-            ub: 1.25
-        ne:
-            val: 0.2
-            active: true
-            lb: 0.01
-            ub: 0.75
-        m:
-            val: 2.7
-            active: True
-            lb: 2.0
-            ub: 5.0
-            matte: True
-            intens: 2.0
-        fe:
-            val: [ ]
-            active: False
-            length: 3999
-            type:
-                DLM:
-            lb: -100.
-            ub: -0.5
-            fe_decrease_strict: False
-            symmetric: False
-            dim: 1
-            v_res: 0.05
-            temp_asym: 1.0
-            m_theta: 0.0
-            m_asym: 1.
-
-    species2:
-        type:
-            ion:
-            active: False
-        Ti:
-            val: 0.15
-            active: True
-            same: False
-            lb: 0.01
-            ub: 1.0
-        Z:
-            val: 10.0
-            active: False
-            lb: 1.0
-            ub: 18.0
-        A:
-            val: 40.0
-            active: False
-        fract:
-            val: 1.0
-            active: False
-
-    general:
-        type:
-            general:
-            active: False
-        amp1:
-            val: 1.0
-            active: True
-            lb: 0.01
-            ub: 3.75
-        amp2:
-            val: 1.0
-            active: True
-            lb: 0.01
-            ub: 3.75
-        amp3:
-            val: 1.0
-            active: False
-            lb: 0.01
-            ub: 3.75
-        lam:
-            val: 526.5
-            active: True
-            lb: 523.0
-            ub: 528.0
-        Te_gradient:
-            val: 0.0
-            active: false
-            lb: 0.
-            ub: 10.
-            num_grad_points: 1
-        ne_gradient:
-            val: 0.
-            active: False
-            lb: 0.
-            ub: 15.
-            num_grad_points: 1
-        ud:
-            val: 0.0
-            angle: 0.0
-            active: False
-            lb: -10.0
-            ub: 10.0
-        Va:
-            val: -1.3
-            angle: 0.0
-            active: True
-            lb: -20.5
-            ub: 20.5
-
-    data:
-        shotnum: 101676
-        fit_rng:
-            blue_min: 460
-            blue_max: 510
-            red_min: 545
-            red_max: 600
-        lineouts:
-            type:
-                pixel
-            start: 290
-            end: 760
-            skip: 1
-        background:
-            type:
-                pixel
-            slice: 900
-
-    other:
-        extraoptions:
-            load_ion_spec: False
-            load_ele_spec: true
-            fit_IAW: false
-            fit_EPWb: True
-            fit_EPWr: true
-        PhysParams:
-            widIRF:
-                spect_stddev_ion: 0.015
-                spect_stddev_ele: 0.1
-                spect_FWHM_ele: 0.9
-                ang_FWHM_ele: 1.0
-        refit: False
-        refit_thresh: 5.0
-        calc_sigmas: False
 
 
-    mlflow:
-        experiment: inverse-thomson-scattering
-        run: name of the run
-
-
+::download:`EPW data <examples/EPW_tresolved_data.hdf>` 
+::download:`input deck <examples/EPW_tresolved_inputs.yaml>` 
+::download:`default deck <examples/EPW_tresolved_defaults.yaml>` 
+::download:`input decks <examples/EPW_tresolved_input_decks.zip>` 
+:::download:`outputs <path>` 
 
