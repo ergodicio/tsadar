@@ -4,7 +4,7 @@ parameters:
             electron:
             active: False
         Te:
-            val: 0.48
+            val: 0.82
             active: True
             lb: 0.01
             ub: 1.25
@@ -79,7 +79,7 @@ parameters:
             ub: 3.75
         lam:
             val: 526.5
-            active: True
+            active: False
             lb: 523.0
             ub: 528.0
         Te_gradient:
@@ -95,13 +95,13 @@ parameters:
             ub: 15.
             num_grad_points: 1
         ud:
-            val: -1
+            val: 5
             angle: 0.0
             active: true
             lb: -10.0
             ub: 10.0
         Va:
-            val: -10
+            val: 0
             angle: 0.0
             active: true
             lb: -20.5
@@ -118,7 +118,7 @@ data:
         type:
             pixel
         start: 140
-        end: 590
+        end: 440
         skip: 10
     background:
         type:
@@ -145,5 +145,5 @@ other:
 
 mlflow:
     experiment: inverse-thomson-scattering
-    run: IAW fit and data 101676
+    run: IAW fit and data 101676 (sequential, small section) 
     #ti 0.15 ud -0.5, amp3 1.6, end 645, va 0 skip 40

@@ -19,32 +19,45 @@ List of examples
 
 
 
-
-
-
 .. grid:: 1 2 2 2
+   :padding: 1
 
     .. grid-item-card:: Time resolved EPW
-
-        .. image:: _elfolder/fit_and_data_ele.png
-        :link-type: ref
-        :link: EPW_tresolved
-
+      :text-align: center
+      :link-type: doc
+      :link: EPW_tresolved
+      
+      .. image:: _elfolder/fit_and_data_ele.png
 
     .. grid-item-card:: Time Resolved IAW
-        :link: IAW_tresolved
-        :link-type: ref
+      :link-type: doc
+      :link: IAW_tresolved
 
-        .. image:: _elfolder/fit_and_data_iaw.png
+      .. image:: _elfolder/fit_and_data_iaw.png
 
     .. grid-item-card:: Combined Spatial Resolved
-        :link: combined_sresolved
-        :link-type: ref
+      :link-type: doc
+      :link: combined_sresolved
 
-        .. image:: _elfolder/
+      .. image:: _elfolder/
+
 
     .. grid-item-card:: Combined Time Resolved
-        :link: combined_tresolved
-        :link-type: ref
+      :link-type: doc
+      :lnk: combined_tresolved
 
-        .. image:: _elfolder/
+      .. image:: _elfolder/
+
+    .. grid-item-card:: Forward Pass
+      :link-type: doc
+      :link: fpass_example
+
+      .. image:: _elfolder/
+
+    .. gird-item-card:: Forward Pass Series
+      :link-type: doc
+      :link: fpass_series
+
+      .. image:: _elfolder/
+
+

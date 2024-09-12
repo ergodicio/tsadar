@@ -57,6 +57,7 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_github_style",
     "sphinx_design",
+    #"sphinx.ext.autosectionlabel",
     "sphinx.ext.intersphinx"
 ]
 # options for sphinx_github_style

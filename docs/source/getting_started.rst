@@ -238,7 +238,7 @@ The secondary imput deck, contains the minimum and maximum values for the blue a
         red_min: 545
         red_max: 600
 
-Run command
+Run modes
 ^^^^^^^^^^^^^^^
 
 Code outputs are packaged using MLFlow, each run should be individualy named in the input deck. The experiment field is a folder and can be used to group runs.
@@ -267,7 +267,7 @@ There are **2** run "modes".
    python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode forward
 
 Output visualization
-----------------------
+^^^^^^^^^^^^^^^^^^^^^^
 To visualize the outputs run the following commnand, and follow the resultant link. 
 The resulting plots can be found in the **Artifacts** unedr the folder **plots**. 
 
@@ -278,21 +278,25 @@ The resulting plots can be found in the **Artifacts** unedr the folder **plots**
 .. image:: _elfolder/mlflow_home.png
 
 
+Fit and data plots
+^^^^^^^^^^^^^^^^^^^^
 
-**Fit and data plots** show a side by side of the fit and data, which can be used to evaluate the quality of the fit. 
+Fit and data plots show a side by side of the fit and data, which can be used to evaluate the quality of the fit. 
 
 .. image:: _elfolder/fit_and_data_ele.png
     :scale: 85%
     :alt: Fit and Data EPW
 
 
-**Fit ranges plots** use lines to indicate the region where data is being analyzed.
+Fit ranges plots 
+^^^^^^^^^^^^^^^^^^
+Fit and ranges Plots use lines to indicate the region where data is being analyzed.
   
 
 .. image:: _elfolder/electron_fit_ranges.png
 
-    :alt: Electron Fit Ranges
     :width: 45%
+    :alt: Electron Fit Ranges
 
 .. image:: _elfolder/ion_fit_ranges.png
 
@@ -300,9 +304,13 @@ The resulting plots can be found in the **Artifacts** unedr the folder **plots**
     :alt: Ion Fit Ranges
 
 
-**Best and Worst** plots display the lineouts where the intput parameters for the analysis best and wort match those of the data. 
+Best and worst plots
+^^^^^^^^^^^^^^^^^^^^^^^
 
-Best plots 
+ Best and wost plots display the lineouts where the free parameters for the analysis best and wort match those of the data.
+ These plots can be used ot determine how to alter input conditions. The second image 
+
+**Best plots**
 
 .. image:: _elfolder/epw_best.png
     :width: 45%
@@ -312,7 +320,8 @@ Best plots
     :width: 45%
     :alt: IAW Best
 
-Worst plots
+
+**Worst plots**
 
 .. image:: _elfolder/epw_worst.png
     :width: 45%
@@ -322,12 +331,17 @@ Worst plots
     :width: 45%
     :alt: IAW Worst
 
-**Learned parameters** contain the fitted parameters for every lineout. 
+Learned parameters
+^^^^^^^^^^^^^^^^^^^
+
+Learned parameters contain the fitted parameters for every lineout. These can be downloaded to further analyse individual lineouts.
 
 .. image:: _elfolder/lparam_epw.png
 
+Learned parameters plots
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The variation of individual parameters throughout the linouts is shown in their respective **learned plots**.
+The variation of individual parameters throughout the linouts is shown in their respective learned plots.
 
 .. image:: _elfolder/learned_m.png
     :scale: 99%
