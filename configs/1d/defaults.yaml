@@ -3,13 +3,13 @@ parameters:
         type:
             electron:
         Te:
-            val: .6
+            val: .01
             active: False
             lb: 0.01
             ub: 1.5
         ne:
-            val: 0.2
-            active: False
+            val: 0.0
+            active: True
             lb: 0.001
             ub: 1.0
         m:
@@ -73,8 +73,8 @@ parameters:
             lb: 0.01
             ub: 3.75
         lam:
-            val: 526.5
-            active: False
+            val: 526.12
+            active: false
             lb: 523.0
             ub: 528.0
         Te_gradient:
@@ -96,9 +96,9 @@ parameters:
             lb: -100.0
             ub: 100.0
         Va:
-            val: 0.0
+            val: -20
             angle: 0.0
-            active: False
+            active: True
             lb: -20.5
             ub: 20.5
 
@@ -134,10 +134,10 @@ data:
         blue_max: 510
         red_min: 545
         red_max: 600
-        iaw_min: 526.27
-        iaw_max: 527.2
-        iaw_cf_min: 526.64
-        iaw_cf_max: 526.64
+        iaw_min: 526.2
+        iaw_max: 527.1
+        iaw_cf_min: 526.62
+        iaw_cf_max: 526.62
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -146,11 +146,11 @@ data:
     bgscaleI: 0.1
     bgshotmult: 1
     ion_loss_scale: 2.0
-    ele_t0: 1500
-    ion_t0_shift: 900.0
+    ele_t0: 0
+    ion_t0_shift: 0
     ele_lam_shift: 0.0
     probe_beam: P9
-    dpixel: 3
+    dpixel: 5
     lineouts:
         type:
             pixel
@@ -167,8 +167,8 @@ plotting:
     rolling_std_width: 5
     data_cbar_u: data
     data_cbar_l: 0
-    ion_window_start: 526
-    ion_window_end: 528
+    ion_window_start: 525
+    ion_window_end: 527
     ele_window_start: 425
     ele_window_end: 660
 
@@ -181,13 +181,13 @@ optimizer:
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 10
+    batch_size: 2
     num_epochs: 1000
     learning_rate: 1.0e-4
     parameter_norm: True
     refine_factor: 0
     num_mins: 8
-    sequential: True
+    sequential: False
 
 nn:
     use: false

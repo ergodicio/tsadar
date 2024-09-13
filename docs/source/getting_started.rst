@@ -291,24 +291,20 @@ Fit and data plots show a side by side of the fit and data, which can be used to
 Fit ranges plots 
 ^^^^^^^^^^^^^^^^^^
 Fit and ranges Plots use lines to indicate the region where data is being analyzed.
-  
 
 .. image:: _elfolder/electron_fit_ranges.png
-
     :width: 45%
     :alt: Electron Fit Ranges
 
 .. image:: _elfolder/ion_fit_ranges.png
-
     :width: 45%
     :alt: Ion Fit Ranges
-
 
 Best and worst plots
 ^^^^^^^^^^^^^^^^^^^^^^^
 
- Best and wost plots display the lineouts where the free parameters for the analysis best and wort match those of the data.
- These plots can be used ot determine how to alter input conditions. The second image 
+Best and wost plots display the lineouts where the free parameters for the analysis best and wort match those of the data.
+These plots can be used ot determine how to alter input conditions. The second image 
 
 **Best plots**
 
