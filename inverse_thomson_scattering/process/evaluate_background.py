@@ -96,7 +96,7 @@ def get_lineout_bg(
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'pixel'")
 
     if config["other"]["extraoptions"]["load_ele_spec"]:
-        if config["data"]["background"]["type"] in ("Fit","fit"):
+        if config["data"]["background"]["type"] in ("Fit","fit","FIT"):
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
                 # should be checked in more situations
@@ -191,7 +191,8 @@ def get_lineout_bg(
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         # Due to the low background associated with IAWs the fitted background is only performed for the EPW
-        if config["data"]["background"]["type"] == "Fit":
+        if config["data"]["background"]["type"] in ("fit", "Fit", "FIT"):
+        #if (config["data"]["background"]["type"] == "Fit" or config["data"]["background"]["type"] == "fit" or config["data"]["background"]["type"] =="FIT") :
             BackgroundPixel = config["data"]["background"]["slice"]
 
         # quantify a uniform background

@@ -254,7 +254,7 @@ def calc_series(config):
 
         ts_fitter = TSFitter(config, sas, dummy_batch)
         params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
-        ThryE[i][i], ThryI[i][i], lamAxisE[i][i], lamAxisI[i][i] = ts_fitter.spec_calc(params, dummy_batch)
+        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_fitter.spec_calc(params, dummy_batch)
 
     spectime = time.time() - t_start
     ThryE = np.array(ThryE)

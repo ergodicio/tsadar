@@ -284,8 +284,12 @@ Fit and data plots
 Fit and data plots show a side by side of the fit and data, which can be used to evaluate the quality of the fit. 
 
 .. image:: _elfolder/fit_and_data_ele.png
-    :scale: 85%
-    :alt: Fit and Data EPW
+    :scale: 45%
+    :alt: Fit and data EPW
+
+.. image:: _elfolder/fit_and_data_iaw.png
+    :scale: 45%
+    :alt: Fit and data IAW
 
 
 Fit ranges plots 

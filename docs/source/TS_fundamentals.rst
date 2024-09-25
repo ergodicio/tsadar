@@ -51,27 +51,24 @@ The image provides a simplified visual representation of the effect of each para
 Electron fit ranges plot 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The **Electron Fit Ranges plot** uses lines to visually represent the region where data is being analyzed.
+This plot uses lines to visually represent the region where data is being analyzed.
 
 .. image:: _elfolder/electron_fit_annotated.png
     :scale: 75%
 
 **Lineouts** are locations where data will be analyzed. 
 
-**Lineout : start** specifies the first location where a lineout will be take
+**Lineout start** specifies the first location where a lineout will be take
 
-**lineout : end** specifies the last location where a lineout will be taken
+**lineout end** specifies the last location where a lineout will be taken
 
-Red abd blue,  min and max are the start and end of the region where the shift will be analyzed.
+**Red** and **blue**,  **min** and **max** are the start and end of the region where the shifts will be analyzed.
 
-Min and max values for red and blue shift, are the start and end region whete the shifts will be analyzed. 
-
-The scattered light is **red-shifted** if the electrons move away from the incoming light source. 
-If the electrons move towards the light source, the scattered light is **blue-shifted**.  
-**Min** and **max** values of these shifts indicate starting and ending waveleghts repectively to be analyzed.
 
 Fit and data plot for IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This plot gives an insight into the quality of the analysis, as it compares the fitted results (left) with the raw data (right).
 
 .. image:: _elfolder/fit_and_data_iaw.png
     :scale: 75%
@@ -79,6 +76,8 @@ Fit and data plot for IAW
 
 Thomson scattering spectra for IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This image provides a simplified visual representation of the effect of each parameter on the spectrum.  
 
 .. image:: _elfolder/TS_spectra_IAW.JPG
     :scale: 75%
@@ -97,6 +96,7 @@ Thomson scattering spectra for IAW
 
 Ion fit ranges plot
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 This plot uses lines to visually represent the region where data is being analyzed.
 
 .. image:: _elfolder/ion_fit_annotated.png

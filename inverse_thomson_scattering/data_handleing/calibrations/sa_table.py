@@ -184,6 +184,6 @@ def sa_lookup(beam):
             ),
         )
     else:
-        raise NotImplmentedError("Other probe geometrries are not yet supported")
+        raise NotImplementedError("Other probe geometrries are not yet supported")
 
     return sa
