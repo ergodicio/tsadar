@@ -96,7 +96,7 @@ def _run_(config: Dict, mode: str = "fit"):
     """
     utils.log_params(config)
     t0 = time.time()
-    if mode == "fit":
+    if mode in ("fit", "FIT", "Fit"):
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
         calc_series(config=config)
