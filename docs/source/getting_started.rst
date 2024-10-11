@@ -97,10 +97,11 @@ Load the electron spectra, and activate the EPW fit by setting the corresponding
 
 .. code-block:: yaml
     :caption: Inputs.yalm
-    :emphasize-lines: 4,6,7
+    :emphasize-lines: 5,7,8
 
     other:
         extraoptions:
+            spectype: true
             load_ion_spec: False
             load_ele_spec: True
             fit_IAW: False
@@ -115,10 +116,11 @@ Load the ion spectra, and activate the IAW fit by setting the corresponding bool
 
 .. code-block:: yaml
     :caption: Inputs.yalm
-    :emphasize-lines: 3,5
+    :emphasize-lines: 4,6
 
     other:
         extraoptions:
+            spectype: true
             load_ion_spec: True
             load_ele_spec: False
             fit_IAW: True
@@ -229,14 +231,14 @@ The secondary imput deck, contains the minimum and maximum values for the blue a
     :emphasize-lines: 6,7,8,9
 
     data:
-    shotnum: 1234567
-    shotDay: False
-    launch_data_visualizer: True
-    fit_rng:
-        blue_min: 460
-        blue_max: 510
-        red_min: 545
-        red_max: 600
+        shotnum: 1234567
+        shotDay: False
+        launch_data_visualizer: True
+        fit_rng:
+            blue_min: 460
+            blue_max: 510
+            red_min: 545
+            red_max: 600
 
 Run modes
 ^^^^^^^^^^^^^^^
@@ -248,11 +250,11 @@ Code outputs are packaged using MLFlow, each run should be individualy named in 
     :emphasize-lines: 3
 
     mlflow:
-    experiment: folder1
-    run: name of the run
+        experiment: folder1
+        run: name of the run
 
 Once you have adjusted the parameters and saved the changes made, you will want to implement the run command.
-There are **2** run "modes".
+There are two run "modes".
 
 **Fit mode** perfoms the fitting procedure producing plasma conditions from the data.
 
@@ -284,11 +286,11 @@ Fit and data plots
 Fit and data plots show a side by side of the fit and data, which can be used to evaluate the quality of the fit. 
 
 .. image:: _elfolder/fit_and_data_ele.png
-    :scale: 45%
+    :scale: 35%
     :alt: Fit and data EPW
 
 .. image:: _elfolder/fit_and_data_iaw.png
-    :scale: 45%
+    :scale: 35%
     :alt: Fit and data IAW
 
 

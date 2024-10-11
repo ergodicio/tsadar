@@ -5,8 +5,10 @@ Fundamentals of Thomson Scattering
 
 This page provides some basics on Thomson scatering to help users figure out how to modify the input deck. 
 
-**What is Thomson Scattering?** 
-Thomson scattering is a diagnostic technique used to obtain information about the plasma conditions such as temperature and density.
+Glossary 
+^^^^^^^^^
+
+**Thomson Scattering** is a diagnostic technique used to obtain information about the plasma conditions such as temperature and density.
 
 **Lagmuir waves** are  high frequency electron plasma waves.
 

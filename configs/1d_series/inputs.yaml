@@ -8,7 +8,7 @@ series:
     param4: ne
     vals4: [0.1387, 0.18, 0.2067, 0.2189, 0.2293, 0.2311, 0.2311]
 parameters:
-    species1:
+    species:
         type:
             electron:
             active: False
@@ -30,7 +30,7 @@ parameters:
             matte: False
             intens: 2.0
         fe:
-            val: [ ]
+            val: [1.0]
             active: False
             length: 3999
             type:
@@ -44,8 +44,6 @@ parameters:
             temp_asym: 1.0
             m_theta: 0.0
             m_asym: 1.
-
-    species2:
         type:
             ion:
             active: False

@@ -1,12 +1,11 @@
-Examples
+Example Gallery
 ---------------------------------
 
 This page contains examples of the different run "modes" available with TASADAR.
 An example input and default deck for a single electron and single ion species can be found in the **configs/1d/**
 folder.
 
- For a detailed tutorial, see the :ref:`getting started page <getting_started>`.
-
+For a detailed tutorial, see the :ref:`getting started page <getting_started>`.
 
 .. grid:: 1 2 2 2 
   :gutter: 4
@@ -54,11 +53,11 @@ folder.
       :link-type: doc
       :link: fpass_example
 
-      .. image:: _elfolder/
+      .. image:: examples/forward_pass_plot.png
 
   .. grid-item-card:: Forward Pass Series
       :link-type: doc
       :link: fpass_series
 
-      .. image:: _elfolder/
+      .. image:: examples/comingsoon_series.JPG
 

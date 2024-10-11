@@ -221,6 +221,7 @@ html_theme_options = {
         #"text":"Home",
         "image_light": "_elfolder/lafoto.JPG",
         "image_dark": "_elfolder/lafoto.JPG",
+        "text": "TSADAR"
     },
     #github icon in the nav bar that directs you to the repo
     "icon_links": [
@@ -231,7 +232,7 @@ html_theme_options = {
             "type": "fontawesome",
         }
     ],
-    "header_links_before_dropdown": 4,
+    "header_links_before_dropdown": 6,
     #"logo_only": True,
     #remove secondary sidebar
     "secondary_sidebar_items":[],
