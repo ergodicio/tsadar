@@ -221,6 +221,7 @@ html_theme_options = {
         #"text":"Home",
         "image_light": "_elfolder/lafoto.JPG",
         "image_dark": "_elfolder/lafoto.JPG",
+         "text": "TSADAR",
     },
     #github icon in the nav bar that directs you to the repo
     "icon_links": [
