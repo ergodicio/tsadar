@@ -4,6 +4,12 @@ from numpy.matlib import repmat
 import scipy.interpolate as sp
 import scipy.io as sio
 from os.path import join
+import os
+
+if "TS_BASE_FILES_PATH" not in os.environ:
+    BASE_FILES_PATH = os.getcwd()
+else:
+    BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
 
 
 def correctThroughput(data, tstype, axisy, shotNum):
@@ -22,7 +28,7 @@ def correctThroughput(data, tstype, axisy, shotNum):
 
     """
     if tstype == "angular":
-        imp = sio.loadmat(join("files", "spectral_sensitivity.mat"), variable_names="speccal")
+        imp = sio.loadmat(join(BASE_FILES_PATH, "files", "spectral_sensitivity.mat"), variable_names="speccal")
         speccal = imp["speccal"]
         # not sure if this transpose is correct, need to check once plotting is working
         speccal = np.transpose(speccal)
@@ -35,7 +41,7 @@ def correctThroughput(data, tstype, axisy, shotNum):
         # print(np.shape(vq1))
 
     elif tstype == "temporal":
-        wb = xlrd.open_workbook(join("files", "Copy of MeasuredSensitivity_9.21.15.xls"))
+        wb = xlrd.open_workbook(join(BASE_FILES_PATH, "files", "Copy of MeasuredSensitivity_9.21.15.xls"))
         sheet = wb.sheet_by_index(0)
         sens = np.zeros([301, 2])
 
@@ -50,7 +56,7 @@ def correctThroughput(data, tstype, axisy, shotNum):
         vq1 = speccalshift(axisy)
 
     else:
-        imp = sio.loadmat(join("files", "MeasuredSensitivity_11_30_21.mat"), variable_names="sens")
+        imp = sio.loadmat(join(BASE_FILES_PATH, "files", "MeasuredSensitivity_11_30_21.mat"), variable_names="sens")
         sens = imp["sens"]
 
         sens[:, 1] = 1.0 / sens[:, 1]

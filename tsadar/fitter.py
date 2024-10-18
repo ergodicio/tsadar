@@ -9,9 +9,9 @@ import jaxopt, mlflow, optax
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
 
-from inverse_thomson_scattering.distribution_functions.gen_num_dist_func import DistFunc
-from inverse_thomson_scattering.model.TSFitter import TSFitter
-from inverse_thomson_scattering.process import prepare, postprocess
+from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.process import prepare, postprocess
+from tsadar.model.TSFitter import TSFitter
 
 
 def init_param_norm_and_shift(config: Dict) -> Dict:
@@ -255,6 +255,7 @@ def angular_adam(config, all_data, sa, batch_indices, num_batches):
 
         mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
     return best_weights, best_loss, ts_fitter
+
 
 def _1d_adam_loop_(
     config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict, tbatch

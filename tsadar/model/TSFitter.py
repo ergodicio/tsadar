@@ -9,8 +9,8 @@ from jax import jit, value_and_grad
 from jax.flatten_util import ravel_pytree
 import numpy as np
 
-from inverse_thomson_scattering.model.spectrum import SpectrumCalculator
-from inverse_thomson_scattering.distribution_functions.dist_functional_forms import trapz
+from tsadar.model.spectrum import SpectrumCalculator
+from tsadar.distribution_functions.dist_functional_forms import trapz
 
 
 class TSFitter:

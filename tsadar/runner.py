@@ -9,13 +9,13 @@ import xarray as xr
 from tqdm import tqdm
 from flatten_dict import flatten, unflatten
 
-from inverse_thomson_scattering import fitter
-from inverse_thomson_scattering.distribution_functions.gen_num_dist_func import DistFunc
-from inverse_thomson_scattering.model.TSFitter import TSFitter
-from inverse_thomson_scattering.fitter import init_param_norm_and_shift
-from inverse_thomson_scattering.misc import utils
-from inverse_thomson_scattering.plotting import plotters
-from inverse_thomson_scattering.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
+from tsadar import fitter
+from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.model.TSFitter import TSFitter
+from tsadar.fitter import init_param_norm_and_shift
+from tsadar.misc import utils
+from tsadar.plotting import plotters
+from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
@@ -57,7 +57,11 @@ def load_and_make_folders(cfg_path: str) -> Tuple[str, Dict]:
 
             mlflow.log_artifacts(td)
 
-    return mlflow_run.info.run_id, all_configs
+    defaults = flatten(all_configs["defaults"])
+    defaults.update(flatten(all_configs["inputs"]))
+    config = unflatten(defaults)
+
+    return mlflow_run.info.run_id, config
 
 
 def run(cfg_path: str, mode: str) -> str:
@@ -71,14 +75,16 @@ def run(cfg_path: str, mode: str) -> str:
     Returns:
 
     """
-    run_id, all_configs = load_and_make_folders(cfg_path)
-    defaults = flatten(all_configs["defaults"])
-    defaults.update(flatten(all_configs["inputs"]))
-    config = unflatten(defaults)
+    run_id, config = load_and_make_folders(cfg_path)
     with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
         _run_(config, mode=mode)
-
     return run_id
+
+
+def run_for_app(cfg: Dict, mode: str) -> str:
+    with mlflow.start_run(run_name=cfg["mlflow"]["run"], log_system_metrics=True) as mlflow_run:
+        _run_(cfg, mode=mode)
+    return mlflow_run.info.run_id
 
 
 def _run_(config: Dict, mode: str = "fit"):

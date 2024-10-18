@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 
 from scipy.signal import convolve2d as conv2
 
-from inverse_thomson_scattering.data_handleing.load_ts_data import loadData
-from inverse_thomson_scattering.process.correct_throughput import correctThroughput
+from tsadar.data_handleing.load_ts_data import loadData
+from tsadar.process.correct_throughput import correctThroughput
 
 
 def get_shot_bg(config, axisyE, elecData):

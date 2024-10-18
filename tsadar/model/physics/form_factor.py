@@ -7,10 +7,17 @@ import numpy as np
 from interpax import interp2d
 from jax.lax import scan
 from jax import checkpoint
+import os
 
-from inverse_thomson_scattering.model.physics import ratintn
-from inverse_thomson_scattering.data_handleing import lam_parse
-from inverse_thomson_scattering.misc.vector_tools import vsub, vdot, vdiv
+from tsadar.model.physics import ratintn
+from tsadar.data_handleing import lam_parse
+from tsadar.misc.vector_tools import vsub, vdot, vdiv
+
+
+if "TS_BASE_FILES_PATH" not in os.environ:
+    BASE_FILES_PATH = os.getcwd()
+else:
+    BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
 
 
 def zprimeMaxw(xi):
@@ -28,8 +35,8 @@ def zprimeMaxw(xi):
 
     """
 
-    rdWT = np.vstack(np.loadtxt("files/rdWT.txt"))
-    idWT = np.vstack(np.loadtxt("files/idWT.txt"))
+    rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
+    idWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "idWT.txt")))
 
     ai = xi < -10
     bi = xi > 10

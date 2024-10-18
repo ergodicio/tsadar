@@ -1,8 +1,13 @@
 from jax import numpy as jnp
 import scipy.io as sio
-import jax
+import jax, os
 
-from inverse_thomson_scattering.distribution_functions import dist_functional_forms
+if "TS_BASE_FILES_PATH" not in os.environ:
+    BASE_FILES_PATH = os.getcwd()
+else:
+    BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
+
+from tsadar.distribution_functions import dist_functional_forms
 
 
 # needs the ability to enforce symetry
@@ -77,24 +82,24 @@ class DistFunc:
         """
         if self.fe_name == "DLM":
             if self.dim == 1:
-                #v, fe = dist_functional_forms.DLM_1D(mval, self.velocity_res)
-                tabl="numDistFuncs/DLM_x_-3_-10_10_m_-1_2_5.mat"
+                # v, fe = dist_functional_forms.DLM_1D(mval, self.velocity_res)
+                tabl = os.path.join(BASE_FILES_PATH, "numDistFuncs/DLM_x_-3_-10_10_m_-1_2_5.mat")
                 tablevar = sio.loadmat(tabl, variable_names="IT")
                 IT = tablevar["IT"]
                 vx = jnp.arange(-8, 8, self.velocity_res)
-                xs = jnp.arange(-10,10,.001)
-                ms = jnp.arange(2,5,.1)
-                x_float_inds = jnp.interp(vx, xs, jnp.linspace(0,xs.shape[0]-1,xs.shape[0]))
-                m_float_inds = jnp.interp(mval, ms, jnp.linspace(0,ms.shape[0]-1,ms.shape[0]))
+                xs = jnp.arange(-10, 10, 0.001)
+                ms = jnp.arange(2, 5, 0.1)
+                x_float_inds = jnp.interp(vx, xs, jnp.linspace(0, xs.shape[0] - 1, xs.shape[0]))
+                m_float_inds = jnp.interp(mval, ms, jnp.linspace(0, ms.shape[0] - 1, ms.shape[0]))
 
-                                          #np.linspace(0, params["x"].size - 1, params["x"].size))
-                #m_float_inds = jnp.array(jnp.interp(m, params["m"], np.linspace(0, params["m"].size - 1, params["m"].size)))
+                # np.linspace(0, params["x"].size - 1, params["x"].size))
+                # m_float_inds = jnp.array(jnp.interp(m, params["m"], np.linspace(0, params["m"].size - 1, params["m"].size)))
                 m_float_inds = m_float_inds.reshape((1,))
                 ind_x_mesh, ind_m_mesh = jnp.meshgrid(x_float_inds, m_float_inds)
                 indices = jnp.concatenate([ind_x_mesh.flatten()[:, None], ind_m_mesh.flatten()[:, None]], axis=1)
 
                 fe = jax.scipy.ndimage.map_coordinates(IT, indices.T, order=1, mode="constant", cval=0.0)
-                v=vx
+                v = vx
             elif self.dim == 2:
                 # v, fe = dist_functional_forms.DLM_2D(mdict["val"], self.velocity_res)
                 # v, fe = dist_functional_forms.BiDLM(

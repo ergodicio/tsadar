@@ -1,9 +1,14 @@
 from os.path import join
 from os import listdir
-
+import os
 from pyhdf.SD import SD, SDC
 import numpy as np
-from inverse_thomson_scattering.process.warpcorr import perform_warp_correction
+from tsadar.process.warpcorr import perform_warp_correction
+
+if "TS_BASE_FILES_PATH" not in os.environ:
+    BASE_FILES_PATH = os.getcwd()
+else:
+    BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
 
 
 def loadData(sNum, sDay, loadspecs):
@@ -33,7 +38,7 @@ def loadData(sNum, sDay, loadspecs):
     if sDay:
         folder = r"\\redwood\archive\tmp\thomson"
     else:
-        folder = "data"
+        folder = join(BASE_FILES_PATH, "data")
 
     file_list = listdir(folder)
     files = [name for name in file_list if str(sNum) in name]

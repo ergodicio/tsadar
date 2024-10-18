@@ -1,12 +1,12 @@
 from typing import Dict
 
 import numpy as np
-from inverse_thomson_scattering.process.evaluate_background import get_shot_bg
-from inverse_thomson_scattering.data_handleing.load_ts_data import loadData
-from inverse_thomson_scattering.process.correct_throughput import correctThroughput
-from inverse_thomson_scattering.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
-from inverse_thomson_scattering.process.lineouts import get_lineouts
-from inverse_thomson_scattering.data_handleing.data_visualizer import launch_data_visualizer
+from tsadar.process.evaluate_background import get_shot_bg
+from tsadar.data_handleing.load_ts_data import loadData
+from tsadar.process.correct_throughput import correctThroughput
+from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
+from tsadar.process.lineouts import get_lineouts
+from tsadar.data_handleing.data_visualizer import launch_data_visualizer
 
 
 def prepare_data(config: Dict) -> Dict:
@@ -50,8 +50,8 @@ def prepare_data(config: Dict) -> Dict:
         elecData = correctThroughput(
             elecData, config["other"]["extraoptions"]["spectype"], axisyE, config["data"]["shotnum"]
         )
-        #temp fix for zeros
-        elecData = elecData+10.0
+        # temp fix for zeros
+        elecData = elecData + 10.0
 
     # load and correct background
     [BGele, BGion] = get_shot_bg(config, axisyE, elecData)
