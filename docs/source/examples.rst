@@ -5,7 +5,7 @@ This page contains examples of the different run "modes" available with TASADAR.
 An example input and default deck for a single electron and single ion species can be found in the **configs/1d/**
 folder.
 
-For a detailed tutorial, see the :ref:`getting started page <getting_started>`.
+For a detailed tutorial, see the :ref:`getting started page <getting started>`.
 
 .. grid:: 1 2 2 2 
   :gutter: 4
@@ -35,7 +35,7 @@ For a detailed tutorial, see the :ref:`getting started page <getting_started>`.
       :link-type: doc
       :link: imaging_IAW
 
-      .. image:: _elfolder/fit_and_data_iaw.png
+      .. image:: examples/imaging_iaw.png
 
   .. grid-item-card:: Combined Spatial Resolved
       :link-type: doc
@@ -59,5 +59,5 @@ For a detailed tutorial, see the :ref:`getting started page <getting_started>`.
       :link-type: doc
       :link: fpass_series
 
-      .. image:: examples/comingsoon_series.JPG
+      .. image:: examples/forwardp_comingsoon.jpg
 

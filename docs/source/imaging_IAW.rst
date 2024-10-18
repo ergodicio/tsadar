@@ -14,6 +14,6 @@ Load the provided electron specta, update the input decks to mimc those used her
 
 
 
-::download:`IAW imaging data <examples/immaging_epw_data.hdf>` 
-::download:`input decks <examples/imaging_epw_inputs.zip>` 
-::download:`output plots <examples/imaging_epw_outputs.zip>`
+::download:`IAW imaging data <examples/iaw_imaging_data.hdf>` 
+::download:`input decks <examples/imaging_iaw_inputs.zip>` 
+::download:`output plots <examples/imaging_iaw_outputs.zip>`
