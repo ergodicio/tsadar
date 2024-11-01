@@ -24,24 +24,24 @@ For a detailed tutorial, see the :ref:`getting started page <getting started>`.
 
       .. image:: _elfolder/fit_and_data_iaw.png
 
-  .. grid-item-card:: Imaging EPW
+  .. grid-item-card:: Spatialy Resolevd EPW
       :text-align: center
       :link-type: doc
       :link: imaging_EPW
       
       .. image:: examples/imaging_epw.png
 
-  .. grid-item-card:: Imaging IAW
+  .. grid-item-card:: Spatialy Resolved IAW
       :link-type: doc
       :link: imaging_IAW
 
       .. image:: examples/imaging_iaw.png
 
-  .. grid-item-card:: Combined Spatial Resolved
+  .. grid-item-card:: Combined Spatialy Resolved
       :link-type: doc
       :link: combined_sresolved
 
-      .. image:: _elfolder/
+      .. image:: examples/combined_s_profile.png
 
   .. grid-item-card:: Combined Time Resolved
       :link-type: doc

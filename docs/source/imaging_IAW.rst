@@ -1,6 +1,6 @@
 .. _imaging IAW:
 
-Imaging data IAW
+Spatialy resolved IAW
 ====================================
 
 This example demonstrates fitting imaging data for IAW. 

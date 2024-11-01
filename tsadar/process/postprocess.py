@@ -231,7 +231,7 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter
                 for key in fitted_weights[(i - 1) // true_batch_size][species].keys():
                     if config["parameters"][species][key]["active"]:
                         temp_cfg["parameters"][species][key]["val"] = float(
-                            fitted_weights[(i - 1) // true_batch_size][species][key][(i - 1) % true_batch_size]
+                            np.squeeze(fitted_weights[(i - 1) //true_batch_size][species][key][(i - 1) % true_batch_size])
                         )
 
             ts_fitter_refit = TSFitter(temp_cfg, sa, batch)

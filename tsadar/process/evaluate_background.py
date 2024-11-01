@@ -100,7 +100,7 @@ def get_lineout_bg(
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
                 # should be checked in more situations
-                bgfitx = np.hstack([np.arange(100, 200), np.arange(800, 1023)])
+                bgfitx = np.hstack([np.arange(150, 200), np.arange(800, 1023)])
 
                 def exp2(x, a, b, c, d):
                     return a * np.exp(b * x) + c * np.exp(d * x)
@@ -122,11 +122,14 @@ def get_lineout_bg(
 
                 LineoutBGE = []
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
-                    [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
+                    [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170], maxfev=2000)
                     # if config["data"]["background"]["show"]:
-                    #     plt.plot(rat11(np.arange(1024), *rat1bg))
-                    #     plt.plot(LineoutTSE_smooth[i])
-                    #     plt.show()
+                    #if i %1 == 0:
+            
+                        #plt.plot(rat11(np.arange(1024), *rat1bg))
+                        #plt.plot(LineoutTSE_smooth[i])
+                        #plt.show()
+                        #print(i)
 
                     LineoutBGE.append(rat11(np.arange(1024), *rat1bg))
         # if not fit

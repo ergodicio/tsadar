@@ -114,10 +114,10 @@ def first_guess(elecData, ionData, all_axes, config):
         OGy_max = y_max + 70
 
         #maping findings to their corresponding parameters
-        lineout_start = OGX_min
-        lineout_end = OGx_max
-        red_max = OGy_max
-        blue_min = OGy_min
+        lineout_start = float(OGX_min)
+        lineout_end = float(OGx_max)
+        red_max = float(OGy_max)
+        blue_min = float(OGy_min)
 
 
 

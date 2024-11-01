@@ -160,7 +160,7 @@ def get_calibrations(shotNum, tstype, CCDsize):
             magE = 5.10  # um / px
 
             EPWtcc = 1024 - 456.1  # 562;
-            IAWtcc = 1024 - 519  # 469;
+            IAWtcc = 1024 -  470  #519  # 469;
 
         elif 106303 <= shotNum <= 106321:
             # refractive teloscope used on 11/8/22
