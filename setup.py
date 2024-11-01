@@ -32,7 +32,7 @@ setup(
         "numpy",
         "scipy",
         "matplotlib",
-        "pyhdf",  # if on a mac, install this using conda, has hdf5 dependencies that need configuring otherwise
+        # "pyhdf",  # if on a mac, install this using conda, has hdf5 dependencies that need configuring otherwise
         "xlrd",
         "pyyaml",
         "mlflow",
