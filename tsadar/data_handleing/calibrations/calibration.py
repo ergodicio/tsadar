@@ -6,11 +6,6 @@ import os
 
 from tsadar.data_handleing.calibrations.sa_table import sa_lookup
 
-# if "TS_BASE_FILES_PATH" not in os.environ:
-#     BASE_FILES_PATH = os.getcwd()
-# else:
-#     BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
-
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
 

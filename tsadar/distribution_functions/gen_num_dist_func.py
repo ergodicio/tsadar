@@ -2,10 +2,6 @@ from jax import numpy as jnp
 import scipy.io as sio
 import jax, os
 
-# if "TS_BASE_FILES_PATH" not in os.environ:
-#     BASE_FILES_PATH = os.getcwd()
-# else:
-#     BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
