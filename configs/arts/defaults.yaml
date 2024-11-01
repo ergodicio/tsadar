@@ -33,9 +33,10 @@ data:
   shotDay: false
   shotnum: 101675
 dist_fit:
+  smooth: false
   window:
     len: 0.2
-    type: hamming
+    type: bartlett
 mlflow:
   experiment: inverse-thomson-scattering
   run: base
@@ -50,7 +51,7 @@ optimizer:
   hessian: false
   learning_rate: 0.0001
   method: rmsprop
-  num_epochs: 2
+  num_epochs: 1000
   num_mins: 1
   parameter_norm: true
   refine_factor: 1

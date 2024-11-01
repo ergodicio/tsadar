@@ -7,11 +7,14 @@ data:
     skip: 20
     start: 90
     type: range
-  shotnum: [10002, 10007]
+  shot_rot: 90.0
+  shotnum:
+  - 10007
+  - 10002
 machine: gpu
 mlflow:
   experiment: inverse-thomson-scattering
-  run: multiplex_arts_test2
+  run: multiplex_arts_rot90_nosmoothtest_nonete_1
 other:
   PhysParams:
     widIRF:
@@ -80,7 +83,7 @@ parameters:
       val: 5.0
   species1:
     Te:
-      active: true
+      active: false
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
@@ -108,7 +111,7 @@ parameters:
       ub: 5.0
       val: 2.0
     ne:
-      active: true
+      active: false
       gradient_scalar: 10.0
       lb: 0.03
       ub: 2.0

@@ -263,8 +263,8 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.00000001:
-                print("Minimizer exited due to change in loss < 1e-8")
+            if best_loss - epoch_loss < 0.000001:
+                print("Minimizer exited due to change in loss < 1e-6")
                 break
             else:
                 best_loss = epoch_loss
@@ -446,7 +446,9 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
 
     # prepare data
     if isinstance(config["data"]["shotnum"],list):
+        startCCDsize = config["other"]["CCDsize"]
         all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"][0])
+        config["other"]["CCDsize"] = startCCDsize
         all_data2, _, _ = prepare.prepare_data(config, config["data"]["shotnum"][1])
         all_data.update({'e_data_rot': all_data2['e_data'], 'e_amps_rot': all_data2['e_amps'], 
                          'rot_angle': config["data"]['shot_rot'], 'noiseE_rot': all_data2['noiseE']})

@@ -129,7 +129,29 @@ class TSFitter:
         return jnp.convolve(self.w / self.w.sum(), s, mode="same")[
             self.smooth_window_len - 1 : -(self.smooth_window_len - 1)
         ]
+    
+    def smooth2D(self, distribution: jnp.ndarray) -> jnp.ndarray:
+        """
+        This method is used to smooth the distribution function. It sits right in between the optimization algorithm
+        that provides the weights/values of the distribution function and the fitting code that uses it.
 
+        Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
+        the output. This is a differentiable operation and we train/fit our weights through this.
+
+        Args:
+            distribution:
+
+        Returns:
+
+        """
+        
+        smoothing_kernel = jnp.outer(jnp.bartlett(5),jnp.bartlett(5))
+        smoothing_kernel = smoothing_kernel/jnp.sum(smoothing_kernel)
+        #print(distribution)
+        #print(jnp.shape(distribution))
+        
+        return jax.scipy.signal.convolve2d(distribution,smoothing_kernel,'same')
+    
     def weights_to_params(self, input_weights: Dict, return_static_params: bool = True) -> Dict:
         """
         This function creates the physical parameters used in the TS algorithm from the weights. The input input_weights
@@ -171,35 +193,35 @@ class TSFitter:
                             + self.cfg["units"]["shifts"][species][param_name].reshape(fe_shape)
                         )
                         #commented out the renormalization to see effect on 2D edfs 9/26/24
-                        # #jax.debug.print("fe_cur {a}", a=fe_cur)
-                        # #this only works for 2D edfs and will have to be genralized to 1D
-                        # #recaclulate the moments of the EDF
-                        # renorm = jnp.sqrt(
-                        #     calc_moment(jnp.squeeze(fe_cur), 
-                        #                 self.cfg["parameters"][self.e_species]["fe"]["velocity"],2)
-                        #     / (2*calc_moment(jnp.squeeze(fe_cur), 
-                        #                      self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)))
-                        # Te_mult = renorm**2
-                        # #h2 = self.cfg["parameters"][self.e_species]["fe"]["v_res"]/renorm
-                        # vx2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
-                        # vy2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
-                        # # fe_cur = interp2d(
-                        # #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
-                        # #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
-                        # #     vx2, vy2,
-                        # #     jnp.squeeze(fe_cur),
-                        # #     extrap=[0, 0], method="linear").reshape(
-                        # #         jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F")
-                        # fe_cur = jnp.exp(interp2d(
+                        #jax.debug.print("fe_cur {a}", a=fe_cur)
+                        #this only works for 2D edfs and will have to be genralized to 1D
+                        #recaclulate the moments of the EDF
+                        renorm = jnp.sqrt(
+                            calc_moment(jnp.squeeze(fe_cur), 
+                                        self.cfg["parameters"][self.e_species]["fe"]["velocity"],2)
+                            / (2*calc_moment(jnp.squeeze(fe_cur), 
+                                             self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)))
+                        Te_mult = renorm**2
+                        #h2 = self.cfg["parameters"][self.e_species]["fe"]["v_res"]/renorm
+                        vx2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
+                        vy2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
+                        # fe_cur = interp2d(
                         #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
                         #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
                         #     vx2, vy2,
-                        #     jnp.log(jnp.squeeze(fe_cur)),
-                        #     extrap=[-100, -100], method="linear").reshape(
-                        #         jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F"))
-                        # ne_mult = calc_moment(jnp.squeeze(fe_cur),
-                        #                       self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)
-                        # fe_cur = fe_cur/ ne_mult
+                        #     jnp.squeeze(fe_cur),
+                        #     extrap=[0, 0], method="linear").reshape(
+                        #         jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F")
+                        fe_cur = jnp.exp(interp2d(
+                            self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
+                            self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
+                            vx2, vy2,
+                            jnp.log(jnp.squeeze(fe_cur)),
+                            extrap=[-100, -100], method="linear").reshape(
+                                jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F"))
+                        ne_mult = calc_moment(jnp.squeeze(fe_cur),
+                                              self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)
+                        fe_cur = fe_cur/ ne_mult
                         these_params[species][param_name]=jnp.log(fe_cur)
 
 
@@ -207,6 +229,11 @@ class TSFitter:
                             these_params[species]["fe"] = jnp.log(
                                 self.smooth(jnp.exp(these_params[species]["fe"][0]))[None, :]
                             )
+                        elif self.cfg["dist_fit"]['smooth']:
+                            these_params[species]["fe"] = self.smooth2D(these_params[species]['fe'])
+                            # jnp.log(
+                            #     self.smooth2D(jnp.exp(these_params[species]["fe"][0]))
+                            # )
                         # these_params["fe"] = jnp.log(self.smooth(jnp.exp(these_params["fe"])))
 
                 else:

@@ -28,7 +28,7 @@ class DistFunc:
 
         """
         self.velocity_res = cfg["fe"]["v_res"]
-        self.fe_name = list(cfg["fe"]["type"].keys())[0]
+        self.fe_name = list(cfg["fe"]["type"].keys())[-1]
 
         if "dim" in cfg["fe"].keys():
             self.dim = cfg["fe"]["dim"]
@@ -40,8 +40,8 @@ class DistFunc:
 
         # normalized here so it only is done once
         if "f1_direction" in cfg["fe"].keys():
-            self.f1_direction = cfg["fe"]["f1_direction"] / jnp.sqrt(
-                jnp.sum([ele**2 for ele in cfg["fe"]["f1_direction"]])
+            self.f1_direction = jnp.array(cfg["fe"]["f1_direction"]) / jnp.sqrt(
+                jnp.sum(jnp.array([ele**2 for ele in cfg["fe"]["f1_direction"]]))
             )
         # temperature asymetry for biDLM with Tex = Te and Tey = Te*temp_asym
         if "temp_asym" in cfg["fe"].keys():

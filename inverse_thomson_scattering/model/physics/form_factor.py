@@ -244,7 +244,7 @@ class FormFactor:
         xq = rotated_mesh[..., 0].flatten()
         yq = rotated_mesh[..., 1].flatten()
 
-        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="linear").reshape(
+        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="cubic").reshape(
             (self.v.size, self.v.size), order="F"
         )
 
