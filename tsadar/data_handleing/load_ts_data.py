@@ -5,10 +5,8 @@ from pyhdf.SD import SD, SDC
 import numpy as np
 from tsadar.process.warpcorr import perform_warp_correction
 
-if "TS_BASE_FILES_PATH" not in os.environ:
-    BASE_FILES_PATH = os.getcwd()
-else:
-    BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
+
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
 
 def loadData(sNum, sDay, loadspecs):

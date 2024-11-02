@@ -26,11 +26,13 @@ setup(
     # cmdclass=versioneer.get_cmdclass(),
     packages=find_packages(),
     python_requires=">=3.10",
+    package_data={"tsadar": ["aux/**/*"]},
+    include_package_data=True,
     install_requires=[
-        "numpy",
+        "numpy<2",
         "scipy",
         "matplotlib",
-        # "pyhdf", # install using conda, has hdf5 dependencies that need configuring otherwise
+        "pyhdf",  # if on a mac, install this using conda, has hdf5 dependencies that need configuring otherwise
         "xlrd",
         "pyyaml",
         "mlflow",
@@ -41,7 +43,6 @@ setup(
         "tqdm",
         "jaxopt",
         "xarray",
-        "mlflow_export_import",
         "pandas",
         "interpax",
         "tabulate",
