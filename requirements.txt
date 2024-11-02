@@ -1,6 +1,6 @@
 jaxlib
 jax
-numpy
+numpy<2
 scipy
 matplotlib
 pyhdf
