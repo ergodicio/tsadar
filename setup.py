@@ -29,7 +29,7 @@ setup(
     package_data={"tsadar": ["aux/**/*"]},
     include_package_data=True,
     install_requires=[
-        "numpy",
+        "numpy<2",
         "scipy",
         "matplotlib",
         # "pyhdf",  # if on a mac, install this using conda, has hdf5 dependencies that need configuring otherwise
