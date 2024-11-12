@@ -25,9 +25,11 @@ setup(
     version="0.0.2",
     # cmdclass=versioneer.get_cmdclass(),
     packages=find_packages(),
-    python_requires=">=3.10",
+    python_requires=">=3.11",
+    package_data={"tsadar": ["aux/**/*"]},
+    include_package_data=True,
     install_requires=[
-        "numpy",
+        "numpy<2",
         "scipy",
         "matplotlib",
         # "pyhdf", # install using conda, has hdf5 dependencies that need configuring otherwise
