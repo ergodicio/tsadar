@@ -1,9 +1,9 @@
 .. _imaging EPW:
 
-Imaging data EPW
+Spatialy resolved EPW
 ====================================
 
-This example demonstrates fitting imaging data for EPW. 
+This example demonstrates fitting of imaging data for EPW. 
 
 
 Load the provided electron specta, update the input decks to mimc those used here, and use **fit** mode to run the code. 

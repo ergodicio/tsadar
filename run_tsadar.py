@@ -7,8 +7,8 @@ from jax import config
 config.update("jax_enable_x64", True)
 # config.update("jax_disable_jit", True)
 
-from inverse_thomson_scattering.runner import run, run_job
-from inverse_thomson_scattering.misc.utils import export_run
+from tsadar.runner import run, run_job, load_and_make_folders
+from tsadar.misc.utils import export_run
 
 
 if __name__ == "__main__":
@@ -23,6 +23,7 @@ if __name__ == "__main__":
         run_job(args.run_id, args.mode, nested=None)
         run_id = args.run_id
     else:
+    #    run_id, config = load_and_make_folders(args.cfg)
         run_id = run(args.cfg, mode=args.mode)
 
     if "MLFLOW_EXPORT" in os.environ:

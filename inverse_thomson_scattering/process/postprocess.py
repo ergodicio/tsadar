@@ -6,7 +6,7 @@ import numpy as np
 import scipy.optimize as spopt
 
 from inverse_thomson_scattering.plotting import plotters
-from inverse_thomson_scattering.model.TSFitter import TSFitter
+from tsadar.model.TSFitter import TSFitter
 
 
 def recalculate_with_chosen_weights(

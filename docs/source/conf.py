@@ -232,7 +232,7 @@ html_theme_options = {
             "type": "fontawesome",
         }
     ],
-    "header_links_before_dropdown": 4,
+    "header_links_before_dropdown": 6,
     #"logo_only": True,
     #remove secondary sidebar
     "secondary_sidebar_items":[],

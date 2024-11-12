@@ -5,8 +5,8 @@ The dispersion relation integral is the most computationally expensive component
 integral, we perform a rational integral that is described by the following routines
 
 
-.. autofunction::   inverse_thomson_scattering.model.physics.ratintn.ratintn
-.. autofunction::   inverse_thomson_scattering.model.physics.ratintn.ratcen
+.. autofunction::   tsadar.model.physics.ratintn.ratintn
+.. autofunction::   tsadar.model.physics.ratintn.ratcen
 
 
 

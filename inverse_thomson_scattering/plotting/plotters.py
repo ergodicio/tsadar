@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 
-from inverse_thomson_scattering.plotting.lineout_plot import lineout_plot
+from tsadar.plotting.lineout_plot import lineout_plot
 
 
 def get_final_params(config, best_weights, all_axes, td):
@@ -96,11 +96,6 @@ def plot_final_params(config, all_params, sigmas_ds, td):
                 ax.set_xlabel("lineout", fontsize=14)
                 ax.grid()
                 ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
-                """if param == ("Te"):
-                    units = "KeV"
-                else:
-                    units = "e Å-3"
-                    return units"""
                 ax.set_ylabel(param, fontsize=14)
                 fig.savefig(
                     os.path.join(td, "plots", "learned_" + param + "_" + species + "_" + str(i) + ".png"),
