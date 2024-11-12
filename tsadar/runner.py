@@ -81,9 +81,27 @@ def run(cfg_path: str, mode: str) -> str:
     return run_id
 
 
-def run_for_app(cfg: Dict, mode: str) -> str:
-    with mlflow.start_run(run_name=cfg["mlflow"]["run"], log_system_metrics=True) as mlflow_run:
-        _run_(cfg, mode=mode)
+def run_for_app(run_id: str) -> str:
+    with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
+        # download config
+        with tempfile.TemporaryDirectory(dir=BASE_TEMPDIR) as temp_path:
+
+            dest_file_path = utils.download_file(f"config.yaml", mlflow_run.info.artifact_uri, temp_path)
+            with open(dest_file_path, "r") as fi:
+                config = yaml.safe_load(fi)
+
+            if config["data"]["filenames"]["epw"] is not None:
+                config["data"]["filenames"]["epw"] = utils.download_file(
+                    config["data"]["filenames"]["epw"], mlflow_run.info.artifact_uri, temp_path
+                )
+
+            if config["data"]["filenames"]["iaw"] is not None:
+                config["data"]["filenames"]["iaw"] = utils.download_file(
+                    config["data"]["filenames"]["iaw"], mlflow_run.info.artifact_uri, temp_path
+                )
+
+            _run_(config, mode="fit")
+
     return mlflow_run.info.run_id
 
 

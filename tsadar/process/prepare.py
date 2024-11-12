@@ -1,6 +1,8 @@
 from typing import Dict
 
 import numpy as np
+import os
+
 from tsadar.process.evaluate_background import get_shot_bg
 from tsadar.data_handleing.load_ts_data import loadData
 from tsadar.process.correct_throughput import correctThroughput
@@ -20,8 +22,12 @@ def prepare_data(config: Dict) -> Dict:
 
     """
     # load data
+    custom_path = (config["data"]["filenames"]["epw"] is not None) | (config["data"]["filenames"]["iaw"] is not None)
+    if custom_path:
+        custom_path = os.path.dirname(config["data"]["filenames"]["epw"])
+
     [elecData, ionData, xlab, config["other"]["extraoptions"]["spectype"]] = loadData(
-        config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"]
+        config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
     )
 
     # get scattering angles and weights
