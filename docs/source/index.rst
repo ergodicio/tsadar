@@ -1,41 +1,35 @@
-.. TSADAR documentation master file, created by
-   sphinx-quickstart on Fri Nov 10 11:06:38 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. _top:
 
-Welcome to TSADAR!
+TSADAR Documentation
 ==================================
 
-TSADAR is a Thomson scattering data analysis software written in Python. It helps determine plasma parameters given
-Thomson scattering measurements by fitting the collisionless spectral density function to the observed spectra.
-More detail on the theory is provided elsewhere [1] and the specifics of implementation can be found in :doc:`math`.
+Welcome to the TSADAR documentation site! 
 
-The fitting is performed via gradient descent. The gradients are acquired using automatic differentiation and JAX [2].
+TSADAR stands for Thomson Scattering with Automatic Differentiation for Analysis and Regression; it is a Thomson scattering 
+data analysis software written in Python. It helps determine plasma parameters given
+Thomson scattering measurements by fitting the collisionless spectral density function to the observed spectra.
+More detail on the theory is provided elsewhere [1] and the specifics of implementation can be found in :doc:`math` [2]. 
+If you are new to Thomson scattering, go to :ref:`Fundamentals of Thomson Scattering <ts_fundamentals>` for a quick introduction.
+The fitting is performed via gradient descent. The gradients are acquired using automatic differentiation and JAX [3].
 More details on the numerics will be added soon.
 
+Table of Contents
+^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
 
-   getting_started
-   best_practice
-   examples
-   inputs
-   defaults
+   Geeting Started Tutorial<getting_started>
+   Example Gallery<examples>
+   Inputs<inputs>
+   Defaults<defaults>
+   Forward<forward_pass>
+   Fundamentals of Thomson Scattering<TS_fundamentals>
    FAQ
-   math
    contributing
+   math
    api_main
    
-*What does TSADAR stand for?*
-
-Thomson Scattering with Automatic Differentiation for Analysis and Regression
-
-
-
-
-
 
 
 References
@@ -43,7 +37,11 @@ References
 
 [1] - Sheffield, J., Froula, D., Glenzer, S.H. and Luhmann Jr, N.C., 2010. Plasma scattering of electromagnetic radiation: theory and measurement techniques. Academic press.
 
-[2] - https://github.com/google/jax
+[2] - Milder, A & Joglekar, Archis & Rozmus, Wojciech & Froula, Dustin. (2024). Qualitative and quantitative enhancement of parameter estimation for model-based diagnostics using automatic differentiation with an application to inertial fusion. Machine Learning: Science and Technology. 5. 10.1088/2632-2153/ad2493. 
+
+[3] - https://github.com/google/jax
+
+
 
 
 Indices and tables
@@ -51,4 +49,11 @@ Indices and tables
 
 * :ref:`genindex`
 * :ref:`modindex`
-* :ref:`search`
+
+.. commenting search tab out since it is empty, and a search field has been added to the navigation bar
+    * :ref:`search`..
+
+.. TSADAR documentation master file, created by
+   sphinx-quickstart on Fri Nov 10 11:06:38 2023.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.

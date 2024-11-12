@@ -10,8 +10,13 @@ from tqdm import trange
 from jax.flatten_util import ravel_pytree
 
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+<<<<<<<< HEAD:tsadar/fitter.py
 from tsadar.process import prepare, postprocess
 from tsadar.model.TSFitter import TSFitter
+========
+from tsadar.model.TSFitter import TSFitter
+from inverse_thomson_scattering.process import prepare, postprocess
+>>>>>>>> cd7e229f1402e57e76dfe949fcc1beaa600b4999:inverse_thomson_scattering/fitter.py
 
 
 def init_param_norm_and_shift(config: Dict) -> Dict:

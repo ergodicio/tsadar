@@ -1,0 +1,199 @@
+data:
+  background:
+    slice: 900
+    type: pixel
+  bgscaleE: 1.0
+  bgscaleI: 0.1
+  bgshotmult: 1
+  dpixel: 5
+  ele_lam_shift: 0.0
+  ele_t0: 0
+  fit_rng:
+    blue_max: 510
+    blue_min: 460
+    forward_epw_end: 700
+    forward_epw_start: 400
+    forward_iaw_end: 527.25
+    forward_iaw_start: 525.75
+    iaw_cf_max: 526.62
+    iaw_cf_min: 526.62
+    iaw_max: 527.1
+    iaw_min: 526.2
+    red_max: 600
+    red_min: 545
+  ion_loss_scale: 2.0
+  ion_t0_shift: 0
+  launch_data_visualizer: true
+  lineouts:
+    end: 510
+    skip: 1
+    start: 500
+    type: pixel
+  probe_beam: P9
+  shotDay: false
+  shotnum: 101676
+dist_fit:
+  window:
+    len: 0.2
+    type: hamming
+machine: gpu
+mlflow:
+  experiment: inverse-thomson-scattering
+  run: base
+nn:
+  conv_filters: 32|32|16
+  linear_widths: 16|8
+  use: false
+optimizer:
+  batch_size: 6
+  grad_method: AD
+  hessian: false
+  learning_rate: 0.0001
+  method: l-bfgs-b
+  num_epochs: 1000
+  num_mins: 8
+  parameter_norm: true
+  refine_factor: 0
+  sequential: true
+  x_norm: false
+  y_norm: true
+other:
+  CCDsize:
+  - 1024
+  - 1024
+  PhysParams:
+    background:
+    - 0
+    - 0
+    norm: 0
+  ang_res_unit: 10
+  calc_sigmas: false
+  expandedions: false
+  extraoptions:
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: false
+    load_ele_spec: true
+    load_ion_spec: true
+  flatbg: 0
+  gain: 1
+  iawfilter:
+  - 1
+  - 4
+  - 24
+  - 528
+  iawoff: 0
+  lam_res_unit: 5
+  points_per_pixel: 1
+  refit: false
+  refit_thresh: 0.25
+parameters:
+  general:
+    Te_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 10.0
+      val: 0.0
+    Va:
+      active: true
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: -20
+    amp1:
+      active: true
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp2:
+      active: false
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp3:
+      active: false
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    lam:
+      active: false
+      lb: 523.0
+      ub: 528.0
+      val: 526.12
+    ne_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 15.0
+      val: 0.0
+    type:
+      general: null
+    ud:
+      active: false
+      angle: 0.0
+      lb: -100.0
+      ub: 100.0
+      val: 0.0
+  species1:
+    Te:
+      active: false
+      lb: 0.01
+      ub: 1.5
+      val: 0.01
+    fe:
+      active: false
+      dim: 1
+      fe_decrease_strict: false
+      lb: -100.0
+      length: 3999
+      m_asym: 1.0
+      m_theta: 0.0
+      symmetric: false
+      temp_asym: 1.0
+      type:
+        DLM: null
+      ub: -0.5
+      v_res: 0.1
+      val: []
+    m:
+      active: true
+      lb: 2.0
+      matte: false
+      ub: 5.0
+      val: 3.0
+    ne:
+      active: true
+      lb: 0.001
+      ub: 1.0
+      val: 0.0
+    type:
+      electron: null
+  species2:
+    A:
+      active: true
+      val: 40.0
+    Ti:
+      active: true
+      lb: 0.001
+      ub: 1.0
+      val: 0.15
+    Z:
+      active: true
+      lb: 0.5
+      ub: 7.0
+      val: 14.0
+    fract:
+      active: true
+      val: 0.1
+    type:
+      ion: null
+plotting:
+  data_cbar_l: 0
+  data_cbar_u: data
+  ele_window_end: 660
+  ele_window_start: 425
+  ion_window_end: 527
+  ion_window_start: 525
+  n_sigmas: 3
+  rolling_std_width: 5

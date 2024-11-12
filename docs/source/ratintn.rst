@@ -8,3 +8,6 @@ integral, we perform a rational integral that is described by the following rout
 .. autofunction::   tsadar.model.physics.ratintn.ratintn
 .. autofunction::   tsadar.model.physics.ratintn.ratcen
 
+
+
+Users\jher\downloads\inverse-thomson-scattering\venv\script

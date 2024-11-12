@@ -23,6 +23,7 @@ if __name__ == "__main__":
         run_job(args.run_id, args.mode, nested=None)
         run_id = args.run_id
     else:
+    #    run_id, config = load_and_make_folders(args.cfg)
         run_id = run(args.cfg, mode=args.mode)
 
     if "MLFLOW_EXPORT" in os.environ:

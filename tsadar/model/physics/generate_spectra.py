@@ -133,6 +133,9 @@ class FitModel:
                 ele_c += 1
 
             elif "ion" in self.config["parameters"][species]["type"].keys():
+               # ashape = jnp.shape(all_params[species]["A"])
+                #aaa = A.at[ion_c] 
+              #  jnp.reshape(aaa, ashape)
                 A = A.at[ion_c].set(all_params[species]["A"].squeeze())
                 Z = Z.at[ion_c].set(all_params[species]["Z"].squeeze())
                 if self.config["parameters"][species]["Ti"]["same"]:
