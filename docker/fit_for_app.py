@@ -1,4 +1,8 @@
 import sys
+from jax import config
+
+config.update("jax_enable_x64", True)
+
 from tsadar.runner import run_for_app
 
 if __name__ == "__main__":
