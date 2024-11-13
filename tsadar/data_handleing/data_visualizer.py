@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+import matplotlib.patheffects as patheffects
 import tempfile, mlflow, os
 
 
@@ -45,13 +47,16 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
 
             fig, ax = plt.subplots()
-            ax.pcolormesh(
+            cb = ax.pcolormesh(
                 X,
                 Y,
                 ionData,
-                cmap="gist_ncar",
-                vmin=np.amin(ionData),
-                vmax=np.amax(ionData),
+                cmap="turbo_r",
+                #norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03, vmin =0, vmax= np.amax(ionData)),
+                norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
+                #vmin=np.amin(ionData),
+                #vmin=0,
+                #vmax= np.amax(ionData),
             )
             (sline,) = ax.plot(
                 [all_axes["iaw_x"][LineoutPixelI[0]], all_axes["iaw_x"][LineoutPixelI[0]]],
@@ -71,44 +76,49 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 [config["data"]["fit_rng"]["iaw_min"], config["data"]["fit_rng"]["iaw_min"]],
                 lw=2,
                 color="w",
-                linestyle="--",
+                linestyle=":",
             )
             (lamsline,) = ax.plot(
                 [all_axes["iaw_x"][0], all_axes["iaw_x"][-1]],
                 [config["data"]["fit_rng"]["iaw_cf_min"], config["data"]["fit_rng"]["iaw_cf_min"]],
                 lw=2,
                 color="w",
-                linestyle="--",
+                linestyle="-.",
             )
             (lamsline,) = ax.plot(
                 [all_axes["iaw_x"][0], all_axes["iaw_x"][-1]],
                 [config["data"]["fit_rng"]["iaw_cf_max"], config["data"]["fit_rng"]["iaw_cf_max"]],
                 lw=2,
                 color="w",
-                linestyle="--",
+                linestyle="-.",
             )
             (lameline,) = ax.plot(
                 [all_axes["iaw_x"][0], all_axes["iaw_x"][-1]],
                 [config["data"]["fit_rng"]["iaw_max"], config["data"]["fit_rng"]["iaw_max"]],
+                #path_effects=[patheffects.withTickedStroke(spacing=7, angle=135)],
                 lw=2,
                 color="w",
-                linestyle="--",
+                linestyle="--", 
             )
             ax.set_xlabel(all_axes["x_label"])
-            ax.set_ylabel("Wavelength")
+            ax.set_ylabel("Wavelength (nm)")
+            fig.colorbar(cb)
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
 
         if config["other"]["extraoptions"]["load_ele_spec"]:
             X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
             fig, ax = plt.subplots()
-            ax.pcolormesh(
+            jc= ax.pcolormesh(
                 X,
                 Y,
                 elecData,
-                cmap="gist_ncar",
-                vmin=np.amin(elecData),
-                vmax=np.amax(elecData),
+                norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(elecData), vmax= np.amax(elecData)),
+                cmap="turbo_r",
+                shading= "auto",
+                #vmin=np.amin(elecData),
+                #vmin=0,
+                #vmax= np.amax(elecData)
             )
             (sline,) = ax.plot(
                 [all_axes["epw_x"][LineoutPixelE[0]], all_axes["epw_x"][LineoutPixelE[0]]],
@@ -142,17 +152,18 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 [config["data"]["fit_rng"]["red_min"], config["data"]["fit_rng"]["red_min"]],
                 lw=2,
                 color="w",
-                linestyle="--",
+                linestyle=":",
             )
             (lameline,) = ax.plot(
                 [all_axes["epw_x"][0], all_axes["epw_x"][-1]],
                 [config["data"]["fit_rng"]["red_max"], config["data"]["fit_rng"]["red_max"]],
                 lw=2,
                 color="w",
-                linestyle="--",
+                linestyle=":",
             )
             ax.set_xlabel(all_axes["x_label"])
-            ax.set_ylabel("Wavelength")
+            ax.set_ylabel("Wavelength (nm)")
+            fig.colorbar(jc)
             fig.savefig(os.path.join(td, "plots", "electron_fit_ranges.png"), bbox_inches="tight")
 
         mlflow.log_artifacts(td)

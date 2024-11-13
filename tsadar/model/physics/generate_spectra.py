@@ -2,7 +2,7 @@ from typing import Dict
 
 from tsadar.model.physics.form_factor import FormFactor
 
-# from inverse_thomson_scattering.distribution_functions.gen_num_dist_func import DistFunc
+# from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 from jax import numpy as jnp
@@ -42,7 +42,7 @@ class FitModel:
             elif "ion" in config["parameters"][species]["type"].keys():
                 self.num_ions += 1
 
-        print(f"{config['other']['npts']=}")
+        #print(f"{config['other']['npts']=}")
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],

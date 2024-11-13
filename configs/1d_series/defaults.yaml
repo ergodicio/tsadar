@@ -1,98 +1,124 @@
 parameters:
-    amp1:
-        val: 1.
-        active: False
-        lb: 0.
-        ub: 10.
-    amp2:
-        val: 1.
-        active: False
-        lb: 0.
-        ub: 10.
-    amp3:
-        val: 1.
-        active: False
-        lb: 0.
-        ub: 10.
-    lam:
-        val: 526.5
-        active: False
-        lb: 523.
-        ub: 528.
-    Te:
-        val: .5
-        active: False
-        lb: 0.01
-        ub: 3.
-        gradient: 0.0
-    Te_gradient:
-        val: 0.0
-        active: False
-        lb: 0.
-        ub: 10.
-        num_grad_points: 1
-    Ti:
-        val: .2
-        active: False
-        lb: 0.01
-        ub: 3.
-    Z:
-        val: 1.
-        active: False
-        lb: 1.
-        ub: 25.
-    A:
-        val: 40
-        active: False
-    fract:
-        val: 1
-        active: False
-    ne:
-        val: .2
-        active: False
-        lb: .001
-        ub: 10.
-        gradient: 0.0
-    ne_gradient:
-        val: 0.
-        active: False
-        lb: 0.
-        ub: 15.
-        num_grad_points: 1
-    ud:
-        val: 0
-        active: False
-    Va:
-        val: 0
-        active: False
-    m:
-        val: 2.
-        active: False
-        lb: 2.
-        ub: 5.
-    fe:
-        val: []
-        active: False
-        length: 3999
+    species1:
         type:
-            DLM:
-        lb: -100.
-        ub: -0.5
-        fe_decrease_strict: True
-        symmetric: False
-    blur:
-        val: []
-        active: False
-        lb: 0.
-        ub: 10.
-    specCurvature:
-        val: []
-        active: False
-        lb: .1
-        ub: 10.
-    fitprops:
-        val: []
-        active: False
+            electron:
+            active: False
+        Te:
+            val: 0.33
+            active: True
+            lb: 0.05
+            ub: 1.2
+        ne:
+            val: 0.15
+            active: false
+            lb: 0.01
+            ub: 0.75
+        m:
+            val: 2.0
+            active: false
+            lb: 2.0
+            ub: 5.0
+            matte: False
+            intens: 2.0
+        fe:
+            val: [ ]
+            active: False
+            length: 3999
+            type:
+                DLM:
+            lb: -100.
+            ub: -0.5
+            fe_decrease_strict: False
+            symmetric: False
+            dim: 1
+            v_res: 0.05
+            temp_asym: 1.0
+            m_theta: 0.0
+            m_asym: 1.
+
+    species2:
+        type:
+            ion:
+            active: False
+        Ti:
+            val: 0.1
+            active: true
+            same: False
+            lb: 0.01
+            ub: 1.0
+        Z:
+            val: 16.0
+            active: true
+            lb: 1.0
+            ub: 18.0
+        A:
+            val: 40.0
+            active: False
+        fract:
+            val: 1.0
+            active: False
+
+    general:
+        type:
+            general:
+            active: False
+        amp1:
+            val: 1.0
+            active: false
+            lb: 0.01
+            ub: 3.75
+        amp2:
+            val: 1.0
+            active: false
+            lb: 0.01
+            ub: 3.75
+        amp3:
+            val: 1.0
+            active: true
+            lb: 0.01
+            ub: 3.75
+        lam:
+            val: 526.4
+            active: false
+            lb: 526.0
+            ub: 527.0
+        Te_gradient:
+            val: 0.0
+            active: false
+            lb: 0.
+            ub: 10.
+            num_grad_points: 1
+        ne_gradient:
+            val: 0.
+            active: False
+            lb: 0.
+            ub: 15.
+            num_grad_points: 1
+        ud:
+            val: 0.0
+            angle: 0.0
+            active: true
+            lb: -10.0
+            ub: 10.0
+        Va:
+            val: 0.0
+            angle: 0.0
+            active: true
+            lb: -10.0
+            ub: 10.0
+        blur:
+            val: []
+            active: False
+            lb: 0.
+            ub: 10.
+        specCurvature:
+            val: []
+            active: False
+            lb: .1
+            ub: 10.
+        fitprops:
+            val: []
+            active: False
 
 other:
     crop_window: 256
@@ -110,7 +136,6 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
-        absolute_timing: True
     PhysParams:
         background: [0, 0]
         norm: 0
@@ -160,7 +185,7 @@ data:
         skip: 1
     background:
         type:
-            pixel
+            fit
         slice: 900
     probe_beam: P9
 

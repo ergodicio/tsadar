@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import math
+import math, os
 from os.path import join, exists
+
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
 
 def perform_warp_correction(warpedData, instrument="EPW", sweepSpeed=5, flatField=True):
@@ -21,13 +23,13 @@ def perform_warp_correction(warpedData, instrument="EPW", sweepSpeed=5, flatFiel
 
     if instrument == "EPW":
         if sweepSpeed == 5:
-            warp1x = np.load(join("files", "epwtestDW5img1x.npy"))
-            warp1y = np.load(join("files", "epwtestDW5img1y.npy"))
+            warp1x = np.load(join(BASE_FILES_PATH, "files", "epwtestDW5img1x.npy"))
+            warp1y = np.load(join(BASE_FILES_PATH, "files", "epwtestDW5img1y.npy"))
         # elif sweepSpeed == 15:
 
         else:
-            warp1x = np.load(join("files", "epwtestDW5img1x.npy"))
-            warp1y = np.load(join("files", "epwtestDW5img1y.npy"))
+            warp1x = np.load(join(BASE_FILES_PATH, "files", "epwtestDW5img1x.npy"))
+            warp1y = np.load(join(BASE_FILES_PATH, "files", "epwtestDW5img1y.npy"))
             print("no specific data avaiable for this sweep speed - using 5ns dewarp")
 
     warp1r = np.sqrt(warp1x**2 + warp1y**2)
@@ -69,7 +71,7 @@ def perform_warp_correction(warpedData, instrument="EPW", sweepSpeed=5, flatFiel
             lenarrrayx[j, i] = diffx
             lenarrrayy[j, i] = diffy
 
-    #%%%%%%%%%%%%%%%%%
+    # %%%%%%%%%%%%%%%%%
     # fig, ax = plt.subplots(1, 3, figsize=(16, 4))
     # imI = ax[0].imshow(warpedData, vmax=100)
     # imI = ax[1].imshow(depimg, vmax=100)

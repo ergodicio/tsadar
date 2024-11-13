@@ -91,112 +91,208 @@ other:
   refit: false
   refit_thresh: 0.25
 parameters:
-  general:
-    Te_gradient:
-      active: false
-      lb: 0.0
-      num_grad_points: 1
-      ub: 10.0
-      val: 0.0
-    Va:
-      active: true
-      angle: 0.0
-      lb: -20.5
-      ub: 20.5
-      val: -20
-    amp1:
-      active: true
-      lb: 0.01
-      ub: 3.75
-      val: 1.0
-    amp2:
-      active: false
-      lb: 0.01
-      ub: 3.75
-      val: 1.0
-    amp3:
-      active: false
-      lb: 0.01
-      ub: 3.75
-      val: 1.0
-    lam:
-      active: false
-      lb: 523.0
-      ub: 528.0
-      val: 526.12
-    ne_gradient:
-      active: false
-      lb: 0.0
-      num_grad_points: 1
-      ub: 15.0
-      val: 0.0
-    type:
-      general: null
-    ud:
-      active: false
-      angle: 0.0
-      lb: -100.0
-      ub: 100.0
-      val: 0.0
-  species1:
-    Te:
-      active: false
-      lb: 0.01
-      ub: 1.5
-      val: 0.01
-    fe:
-      active: false
-      dim: 1
-      fe_decrease_strict: false
-      lb: -100.0
-      length: 3999
-      m_asym: 1.0
-      m_theta: 0.0
-      symmetric: false
-      temp_asym: 1.0
-      type:
-        DLM: null
-      ub: -0.5
-      v_res: 0.1
-      val: []
-    m:
-      active: true
-      lb: 2.0
-      matte: false
-      ub: 5.0
-      val: 3.0
-    ne:
-      active: true
-      lb: 0.001
-      ub: 1.0
-      val: 0.0
-    type:
-      electron: null
-  species2:
-    A:
-      active: true
-      val: 40.0
-    Ti:
-      active: true
-      lb: 0.001
-      ub: 1.0
-      val: 0.15
-    Z:
-      active: true
-      lb: 0.5
-      ub: 7.0
-      val: 14.0
-    fract:
-      active: true
-      val: 0.1
-    type:
-      ion: null
+    species1:
+        type:
+            electron:
+        Te:
+            val: .01
+            active: False
+            lb: 0.01
+            ub: 1.5
+        ne:
+            val: 0.0
+            active: True
+            lb: 0.001
+            ub: 1.0
+        m:
+            val: 3.0
+            active: True
+            lb: 2.0
+            ub: 5.0
+            matte: False
+        fe:
+            val: [ ]
+            active: False
+            length: 3999
+            type:
+                DLM:
+            lb: -100.
+            ub: -0.5
+            fe_decrease_strict: False
+            symmetric: False
+            dim: 1
+            v_res: 0.1
+            temp_asym: 1.0
+            m_theta: 0.0
+            m_asym: 1.
+
+    species2:
+        type:
+            ion:
+        Ti:
+            val: 0.12
+            active: True
+            lb: 0.001
+            ub: 1.0
+        Z:
+            val: 14.0
+            active: True
+            lb: 0.5
+            ub: 7.0
+        A:
+            val: 40.0
+            active: True
+        fract:
+            val: 0.1
+            active: True
+
+    general:
+        type:
+            general:
+        amp1:
+            val: 1.
+            active: True
+            lb: 0.01
+            ub: 3.75
+        amp2:
+            val: 1.
+            active: False
+            lb: 0.01
+            ub: 3.75
+        amp3:
+            val: 1.0
+            active: False
+            lb: 0.01
+            ub: 3.75
+        lam:
+            val: 526.12
+            active: false
+            lb: 523.0
+            ub: 528.0
+        Te_gradient:
+            val: 0.0
+            active: False
+            lb: 0.
+            ub: 10.
+            num_grad_points: 1
+        ne_gradient:
+            val: 0.
+            active: False
+            lb: 0.
+            ub: 15.
+            num_grad_points: 1
+        ud:
+            val: 0.0
+            angle: 0.0
+            active: False
+            lb: -100.0
+            ub: 100.0
+        Va:
+            val: -20
+            angle: 0.0
+            active: True
+            lb: -20.5
+            ub: 20.5
+
+other:
+    expandedions: False
+    extraoptions:
+        load_ion_spec: True
+        load_ele_spec: True
+        fit_IAW: False
+        fit_EPWb: True
+        fit_EPWr: True
+    PhysParams:
+        background: [0, 0]
+        norm: 0
+    iawoff: 0
+    iawfilter: [1, 4, 24, 528]
+    CCDsize: [1024, 1024]
+    flatbg: 0
+    gain: 1
+    points_per_pixel: 1
+    ang_res_unit: 10
+    lam_res_unit: 5
+    refit: False
+    refit_thresh: 0.25
+    calc_sigmas: False
+
+data:
+    shotnum: 101676
+    shotDay: False
+    launch_data_visualizer: True
+    fit_rng:
+        blue_min: 460
+        blue_max: 510
+        red_min: 545
+        red_max: 600
+        iaw_min: 526.2
+        iaw_max: 527.1
+        iaw_cf_min: 526.62
+        iaw_cf_max: 526.62
+        forward_epw_start: 400
+        forward_epw_end: 700
+        forward_iaw_start: 525.75
+        forward_iaw_end: 527.25
+    bgscaleE: 1.0
+    bgscaleI: 0.1
+    bgshotmult: 1
+    ion_loss_scale: 2.0
+    ele_t0: 0
+    ion_t0_shift: 0
+    ele_lam_shift: 0.0
+    probe_beam: P9
+    dpixel: 5
+    lineouts:
+        type:
+            pixel
+        start: 500
+        end: 510
+        skip: 1
+    background:
+        type:
+            pixel
+        slice: 900
+
 plotting:
-  data_cbar_l: 0
-  data_cbar_u: data
-  ele_window_end: 660
-  ele_window_start: 425
-  ion_window_end: 527.5
-  ion_window_start: 525.5
-  n_sigmas: 3
-  rolling_std_width: 5
+    n_sigmas: 3
+    rolling_std_width: 5
+    data_cbar_u: data
+    data_cbar_l: 0
+    ion_window_start: 525
+    ion_window_end: 527
+    ele_window_start: 425
+    ele_window_end: 660
+
+optimizer:
+    # use adam for nn / stochastic gradient descent
+    # use L-BFGS-B for full batch / parameter learning
+    # although adam will work here too
+    method: l-bfgs-b
+    hessian: False
+    y_norm: True
+    x_norm: False
+    grad_method: AD
+    batch_size: 2
+    num_epochs: 1000
+    learning_rate: 1.0e-4
+    parameter_norm: True
+    refine_factor: 0
+    num_mins: 8
+    sequential: False
+
+nn:
+    use: false
+    conv_filters: 32|32|16
+    linear_widths: 16|8
+
+dist_fit:
+    window:
+        len: 0.2 #should be even
+        type: hamming # one of [hamming, hann, bartlett]
+
+mlflow:
+    experiment: inverse-thomson-scattering
+    run: base
+
+machine: gpu

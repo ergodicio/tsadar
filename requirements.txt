@@ -1,6 +1,6 @@
 jaxlib
 jax
-numpy
+numpy<2
 scipy
 matplotlib
 pyhdf
@@ -14,7 +14,6 @@ optax
 tqdm
 jaxopt
 xarray
-mlflow_export_import
 pandas
 interpax
 tabulate

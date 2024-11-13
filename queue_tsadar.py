@@ -34,8 +34,5 @@ if __name__ == "__main__":
     parser.add_argument("--mode", help="forward or fit")
     args = parser.parse_args()
 
-    run_id, all_configs = load_and_make_folders(args.cfg)
-    machine = (
-        all_configs["inputs"]["machine"] if "machine" in all_configs["inputs"] else all_configs["defaults"]["machine"]
-    )
-    _queue_run_(machine, args.mode, run_id)
+    run_id, config = load_and_make_folders(args.cfg)
+    _queue_run_(config["inputs"]["machine"], args.mode, run_id)

@@ -3,6 +3,6 @@ Spectrum API
 
 TODO
 
-.. autoclass:: inverse_thomson_scattering.model.spectrum.SpectrumCalculator
+.. autoclass:: tsadar.model.spectrum.SpectrumCalculator
     :members:
     :private-members:

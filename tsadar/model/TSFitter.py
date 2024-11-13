@@ -17,7 +17,12 @@ from tsadar.misc.vector_tools import rotate
 
 class TSFitter:
     """
-    This class is responsible for handling the forward pass and using that to create a loss function.
+    This class is responsible for handling the forward pass and using that to create a loss function
+
+    Args:
+            cfg: Configuration dictionary
+            sas: TODO
+            dummy_batch: Dictionary of dummy data
 
     """
 

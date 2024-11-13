@@ -1,13 +1,14 @@
 from os.path import join
 from os import listdir
-
+import os
 from pyhdf.SD import SD, SDC
 import numpy as np
 from scipy.signal import find_peaks
 from tsadar.process.warpcorr import perform_warp_correction
 
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
-def loadData(sNum, sDay, loadspecs):
+def loadData(sNum, sDay, loadspecs, custom_path=False):
     """
         This function loads the appropriate data based off the provided shot number (sNum) automatically determining the
         type of data in the file. The flag sDay changes the default path to the temporary archive on the redwood server and
@@ -36,14 +37,17 @@ def loadData(sNum, sDay, loadspecs):
     """
     if sDay:
         folder = r"\\redwood\archive\tmp\thomson"
+    elif custom_path:
+        folder = custom_path
     else:
-        folder = "data"
+        folder = join(BASE_FILES_PATH, "data")
+
 
     file_list = listdir(folder)
     files = [name for name in file_list if str(sNum) in name]
     t0 = [0, 0]
-    print(sNum)
-    print(files)
+    #print(sNum)
+    #print(files)
 
     for fl in files:
         if "epw" in fl or "EPW" in fl:

@@ -14,6 +14,8 @@ from tsadar.model.physics import ratintn
 from tsadar.data_handleing import lam_parse
 from tsadar.misc.vector_tools import vsub, vdot, vdiv
 
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "aux")
+
 
 def zprimeMaxw(xi):
     """
@@ -30,8 +32,8 @@ def zprimeMaxw(xi):
 
     """
 
-    rdWT = np.vstack(np.loadtxt("files/rdWT.txt"))
-    idWT = np.vstack(np.loadtxt("files/idWT.txt"))
+    rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
+    idWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "idWT.txt")))
 
     ai = xi < -10
     bi = xi > 10

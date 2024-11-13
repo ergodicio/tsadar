@@ -1,6 +1,8 @@
 from typing import Dict
 
 import numpy as np
+import os
+
 from tsadar.process.evaluate_background import get_shot_bg
 from tsadar.data_handleing.load_ts_data import loadData
 from tsadar.process.correct_throughput import correctThroughput
@@ -24,8 +26,16 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
 
     """
     # load data
+    custom_path = None
+    if "filenames" in config["data"].keys():
+        if config["data"]["filenames"]["epw"] is not None:
+            custom_path = os.path.dirname(config["data"]["filenames"]["epw-local"])
+
+        if config["data"]["filenames"]["iaw"] is not None:
+            custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
+
     [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"]] = loadData(
-        shotNum, config["data"]["shotDay"], config["other"]["extraoptions"]
+        config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
     )
 
     # get scattering angles and weights
@@ -45,7 +55,10 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["other"]["extraoptions"]["fit_EPWb"] = 0
         config["other"]["extraoptions"]["fit_EPWr"] = 0
         print("EPW data not loaded, omitting EPW fit")
-
+    #if config["other"]["extraoptions"]["first_guess"]:
+        #run code
+        #outs=first_guess(inputs)
+        #config["data"]["lineouts"]["start"]=start
     # Correct for spectral throughput
     if config["other"]["extraoptions"]["load_ele_spec"]:
         elecData = correctThroughput(
