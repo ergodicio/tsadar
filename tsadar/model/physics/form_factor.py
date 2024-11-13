@@ -1,13 +1,15 @@
-from jax import numpy as jnp
-from jax import vmap
+from jax import numpy as jnp, vmap, device_put
+from jax.experimental import mesh_utils
+from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
 import scipy.interpolate as sp
+from functools import partial
 
+import os
 import numpy as np
 from interpax import interp2d
-from jax.lax import scan
+from jax.lax import scan, map as jmap
 from jax import checkpoint
-import os
 
 from tsadar.model.physics import ratintn
 from tsadar.data_handleing import lam_parse
@@ -62,20 +64,6 @@ class FormFactor:
             Instance of the FormFactor object
 
         """
-        """
-        Creates a FormFactor object holding all the static values to use for repeated calculations of the Thomson
-        scattering structure factor or spectral density function.
-
-        Args:
-            lamrang: list of the starting and ending wavelengths over which to calculate the spectrum.
-            npts: number of wavelength points to use in the calculation
-            fe_dim: dimension of the electron velocity distribution function (EDF), should be 1 or 2
-            vax: (optional) velocity axis coordinates that the 2D EDF is defined on
-
-        Returns:
-            Instance of the FormFactor object
-
-        """
         # basic quantities
         self.C = 2.99792458e10
         self.Me = 510.9896 / self.C**2  # electron mass keV/C^2
@@ -93,7 +81,11 @@ class FormFactor:
             self.coords = jnp.concatenate([np.copy(vax[0][..., None]), np.copy(vax[1][..., None])], axis=-1)
             self.v = vax[0][0]
 
-        self._calc_all_chi_vals_ = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, 0, 0, 0), out_axes=0)
+        self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
+
+        # Create a Sharding object to distribute a value across devices:
+        mesh = Mesh(devices=mesh_utils.create_device_mesh(1), axis_names=("x"))
+        self.sharding = NamedSharding(mesh, P("x"))
 
     def __call__(self, params, cur_ne, cur_Te, A, Z, Ti, fract, sa, f_and_v, lam):
         """
@@ -254,12 +246,12 @@ class FormFactor:
         )
         xq = rotated_mesh[..., 0].flatten()
         yq = rotated_mesh[..., 1].flatten()
-        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="linear").reshape(
+
+        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="cubic").reshape(
             (self.v.size, self.v.size), order="F"
         )
 
-    def calc_chi_vals(self, carry, xs):
-        # def calc_chi_vals(self, x_DF, element, xie_mag_at, klde_mag_at):
+    def scan_calc_chi_vals(self, carry, xs):
         """
         Calculate the values of the susceptibility at a given point in the distribution function
 
@@ -279,9 +271,29 @@ class FormFactor:
 
         """
         x, DF = carry
-        element, xie_mag_at, klde_mag_at = xs
-        # x, DF = x_DF
+        fe_vphi, chiEI, chiERrat = self.calc_chi_vals(x, DF, xs)
+        return (x, DF), (fe_vphi, chiEI, chiERrat)
 
+    def calc_chi_vals(self, x, DF, inputs):
+        """
+        Calculate the values of the susceptibility at a given point in the distribution function
+
+        Args:
+            carry: container for
+                x: 1D array
+                DF: 2D array
+            xs: container for
+                element: angle in radians
+                xie_mag_at: float
+                klde_mag_at: float
+
+        Returns:
+            fe_vphi: float, value of the projected distribution function at the point xie
+            chiEI: float, value of the imaginary part of the electron susceptibility at the point xie
+            chiERrat: float, value of the real part of the electron susceptibility at the point xie
+
+        """
+        element, xie_mag_at, klde_mag_at = inputs
         fe_2D_k = checkpoint(self.rotate)(DF, element * 180 / jnp.pi, reshape=False)
         fe_1D_k = jnp.sum(fe_2D_k, axis=0) * (x[1] - x[0])
 
@@ -302,10 +314,9 @@ class FormFactor:
         chiERrat = (
             -1.0 / (klde_mag_at**2) * jnp.real(ratintn.ratintn(df, x - xie_mag_at, x))
         )  # this may need to be downsampled for run time
-        # return fe_vphi, chiEI, chiERrat
-        return (x, DF), (fe_vphi, chiEI, chiERrat)
+        return fe_vphi, chiEI, chiERrat
 
-    def calc_all_chi_vals(self, x, beta, DF, xie_mag, klde_mag):
+    def calc_all_chi_vals(self, x, DF, beta, xie_mag, klde_mag):
         """
         Calculate the susceptibility values for all the desired points xie
 
@@ -322,16 +333,39 @@ class FormFactor:
             chiERrat: real part of the electron susceptibility
 
         """
+        calc_chi_vals = "batch_vmap"
 
-        _, (fe_vphi, chiEI, chiERrat) = scan(
-            self.calc_chi_vals, (x, DF), (beta.flatten(), xie_mag.flatten(), klde_mag.flatten()), unroll=8
-        )
+        flattened_inputs = (beta.flatten(), xie_mag.flatten(), klde_mag.flatten())
 
-        # fe_vphi, chiEI, chiERrat = self._calc_all_chi_vals_(
-        #     (x, DF), beta.flatten(), xie_mag.flatten(), klde_mag.flatten()
-        # )
+        if calc_chi_vals == "scan":
+            _, (fe_vphi, chiEI, chiERrat) = scan(
+                self.scan_calc_chi_vals, (x, jnp.squeeze(DF)), flattened_inputs, unroll=1
+            )
 
-        return fe_vphi.reshape(beta.shape), chiEI.reshape(beta.shape), chiERrat.reshape(beta.shape)
+        elif calc_chi_vals == "vmap":
+            fe_vphi, chiEI, chiERrat = self.vmap_calc_chi_vals(x, jnp.squeeze(DF), flattened_inputs)
+
+        elif calc_chi_vals == "batch_vmap":
+            batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, x, jnp.squeeze(DF))
+            fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=8)
+        else:
+            raise NotImplementedError
+
+        fe_vphi = fe_vphi.reshape(beta.shape)
+        chiEI = chiEI.reshape(beta.shape)
+        chiERrat = chiERrat.reshape(beta.shape)
+
+        return fe_vphi, chiEI, chiERrat
+
+    def parallel_calc_all_chi_vals(self, x, DF, flattened_inputs):
+
+        beta, xie_mag, klde_mag = flattened_inputs
+
+        flat_beta = device_put(beta, self.sharding)
+        flat_xie_mag = device_put(xie_mag, self.sharding)
+        flat_klde_mag = device_put(klde_mag, self.sharding)
+
+        return self.calc_all_chi_vals(x, DF, (flat_beta, flat_xie_mag, flat_klde_mag))
 
     def calc_in_2D(self, params, ud_ang, va_ang, cur_ne, cur_Te, A, Z, Ti, fract, sa, f_and_v, lam):
         """
@@ -439,7 +473,7 @@ class FormFactor:
         # find the rotation angle beta, the heaviside changes the angles to [0, 2pi)
         beta = jnp.arctan(xie[1] / xie[0]) + jnp.pi * (-jnp.heaviside(xie[0], 1) + 1)
 
-        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(x[0, :], beta, DF, xie_mag, klde_mag)
+        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(x[0, :], DF, beta, xie_mag, klde_mag)
 
         chiE = chiERrat + jnp.sqrt(-1 + 0j) * chiEI
         epsilon = 1.0 + chiE + chiI

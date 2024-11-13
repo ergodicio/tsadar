@@ -3,14 +3,16 @@ import time
 import numpy as np
 import pandas as pd
 import copy
+import pickle
 import scipy.optimize as spopt
 
-import jaxopt, mlflow, optax
+import mlflow, optax
+from optax import tree_utils as otu 
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
+import jaxopt
 
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-
 from tsadar.model.TSFitter import TSFitter
 from tsadar.process import prepare, postprocess
 
@@ -126,137 +128,110 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     return config
 
-
-def scipy_angular_loop(config: Dict, all_data: Dict, sa) -> Tuple[Dict, float, TSFitter]:
+def angular_optax(config, all_data, sa, batch_indices, num_batches):
     """
-    Performs angular thomson scattering i.e. ARTEMIS fitting exercise using the SciPy optimizer routines
-
+    This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
 
     Args:
-        config:
-        all_data:
-        best_weights:
-        all_weights:
-        sa:
+        config: Configuration dictionary build from the input decks
+        all_data: dictionary of the datasets, amplitudes, and backgrounds as constructed by the prepare.py code
+        sa: dictionary of the scattering angles and thier relative weights
+        batch_indices: NA
+        num_batches: NA
 
     Returns:
-
-    """
-    print("Running Angular, setting batch_size to 1")
-    config["optimizer"]["batch_size"] = 1
-    batch = {
-        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "i_data": all_data["i_data"],
-        "i_amps": all_data["i_amps"],
-        "noise_e": config["other"]["PhysParams"]["noiseE"][
-            config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-        ],
-        "noise_i": config["other"]["PhysParams"]["noiseI"][
-            config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-        ],
-    }
-
-    ts_fitter = TSFitter(config, sa, batch)
-    all_weights = {k: [] for k in ts_fitter.pytree_weights["active"].keys()}
-
-    if config["optimizer"]["num_mins"] > 1:
-        print(Warning("multiple num mins doesnt work. only running once"))
-    for i in range(1):
-        ts_fitter = TSFitter(config, sa, batch)
-        init_weights = copy.deepcopy(ts_fitter.flattened_weights)
-
-        res = spopt.minimize(
-            ts_fitter.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_fitter.loss,
-            init_weights,
-            args=batch,
-            method=config["optimizer"]["method"],
-            jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-            bounds=ts_fitter.bounds,
-            options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
-        )
-        these_weights = ts_fitter.unravel_pytree(res["x"])
-        for k in all_weights.keys():
-            all_weights[k].append(these_weights[k])
-
-    overall_loss = res["fun"]
-
-    return all_weights, overall_loss, ts_fitter
-
-
-def angular_adam(config, all_data, sa, batch_indices, num_batches):
-    """
-    This performs an SGD-like fitting routine. It is different than the SciPy routines primarily because we have to
-    manage the number of iterations manually whereas the SciPy routines have their own convergence/termination process
-
-    Args:
-        config:
-        all_data:
-        sa:
-        batch_indices:
-        num_batches:
-
-    Returns:
+        best_weights: best parameter weights as returned by the minimizer
+        best_loss: best value of the fit metric found by ther minimizer
+        ts_fitter: instance of the TSFitter object used for minimization
 
     """
 
     config["optimizer"]["batch_size"] = 1
-    test_batch = {
+    config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
+    config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
+    batch1 = {
         "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         "i_data": all_data["i_data"],
         "i_amps": all_data["i_amps"],
-        "noise_e": config["other"]["PhysParams"]["noiseE"][
+        "noise_e": all_data["noiseE"][
             config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
         ],
-        "noise_i": config["other"]["PhysParams"]["noiseI"][
+        "noise_i": all_data["noiseI"][
             config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
         ],
     }
+    if isinstance(config["data"]["shotnum"],list):
+        batch2 = {
+            "e_data": all_data["e_data_rot"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+            "e_amps": all_data["e_amps_rot"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+            "noise_e": all_data["noiseE_rot"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            }
+        test_batch = {'b1':batch1,'b2':batch2}
+    else:
+        test_batch = batch1
 
-    ts_fitter = TSFitter(config, sa, test_batch)
-
-    jaxopt_kwargs = dict(
-        fun=ts_fitter.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
-    )
-    opt = optax.adam(config["optimizer"]["learning_rate"])
-    solver = jaxopt.OptaxSolver(opt=opt, **jaxopt_kwargs)
+    ts_fitter = TSFitter(config, sa, batch1)
+    minimizer = getattr(optax, config["optimizer"]["method"])
+    #schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
+    #solver = minimizer(schedule)
+    solver = minimizer(config["optimizer"]["learning_rate"])
 
     weights = ts_fitter.pytree_weights["active"]
-    # if previous_weights is None:
-    #     init_weights = ts_fitter.pytree_weights["active"]
-    # else:
-    #     init_weights = previous_weights
-
-    # if "sequential" in config["optimizer"]:
-    #     if config["optimizer"]["sequential"]:
-    #         if previous_weights is not None:
-    #             init_weights = previous_weights
-    opt_state = solver.init_state(weights, batch=test_batch)
+    opt_state = solver.init(weights)
 
     # start train loop
+    state_weights = {}
     t1 = time.time()
-    print("minimizing")
-    mlflow.set_tag("status", "minimizing")
-
-    best_loss = 1e16
+    epoch_loss = 0.0
+    best_loss = 100.0
+    num_g_wait = 0
+    num_b_wait = 0
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
         if config["nn"]["use"]:
             np.random.shuffle(batch_indices)
-            # tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
-        epoch_loss = 0.0
-        weights, opt_state = solver.update(params=weights, state=opt_state, batch=test_batch)
-        epoch_loss += opt_state.value
-        pbar.set_description(f"Loss {epoch_loss:.2e}")
-
-        # epoch_loss /= num_batches
+        
+        (val, aux), grad = ts_fitter.vg_loss(weights, test_batch)
+        updates, opt_state = solver.update(grad, opt_state, weights)
+        
+        epoch_loss = val
         if epoch_loss < best_loss:
-            best_loss = epoch_loss
-            best_weights = weights
+            print(f"delta loss {best_loss - epoch_loss}")
+            if best_loss - epoch_loss < 0.000001:
+                best_loss = epoch_loss
+                num_g_wait+=1
+                if num_g_wait > 5:
+                    print("Minimizer exited due to change in loss < 1e-6")
+                    break
+            elif epoch_loss > best_loss:
+                num_b_wait+=1
+                if num_b_wait > 5:
+                    print("Minimizer exited due to increase in loss")
+                    break
+            else:
+                best_loss = epoch_loss
+                num_b_wait = 0
+                num_g_wait = 0
+        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
+        
+        weights = optax.apply_updates(weights, updates)
+        
+        if config["optimizer"]["save_state"]:
+            if i_epoch % config["optimizer"]["save_state_freq"] == 0:
+                state_weights[i_epoch] = weights
 
         mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
-    return best_weights, best_loss, ts_fitter
 
+    with open('state_weights.txt', 'wb') as file:
+        file.write(pickle.dumps(state_weights))
+
+    mlflow.log_artifact('state_weights.txt')
+    return weights, epoch_loss, ts_fitter
 
 def _1d_adam_loop_(
     config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict, tbatch
@@ -344,8 +319,8 @@ def one_d_loop(
     """
     sample = {k: v[: config["optimizer"]["batch_size"]] for k, v in all_data.items()}
     sample = {
-        "noise_e": config["other"]["PhysParams"]["noiseE"][: config["optimizer"]["batch_size"]],
-        "noise_i": config["other"]["PhysParams"]["noiseI"][: config["optimizer"]["batch_size"]],
+        "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
+        "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
     } | sample
     ts_fitter = TSFitter(config, sa, sample)
 
@@ -363,8 +338,8 @@ def one_d_loop(
                 "e_amps": all_data["e_amps"][inds],
                 "i_data": all_data["i_data"][inds],
                 "i_amps": all_data["i_amps"][inds],
-                "noise_e": config["other"]["PhysParams"]["noiseE"][inds],
-                "noise_i": config["other"]["PhysParams"]["noiseI"][inds],
+                "noise_e": all_data["noiseE"][inds],
+                "noise_i": all_data["noiseI"][inds],
             }
 
             if config["optimizer"]["method"] == "adam":  # Stochastic Gradient Descent
@@ -418,7 +393,19 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     config = _validate_inputs_(config)
 
     # prepare data
-    all_data, sa, all_axes = prepare.prepare_data(config)
+    if isinstance(config["data"]["shotnum"],list):
+        startCCDsize = config["other"]["CCDsize"]
+        all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"][0])
+        config["other"]["CCDsize"] = startCCDsize
+        all_data2, _, _ = prepare.prepare_data(config, config["data"]["shotnum"][1])
+        all_data.update({'e_data_rot': all_data2['e_data'], 'e_amps_rot': all_data2['e_amps'], 
+                         'rot_angle': config["data"]['shot_rot'], 'noiseE_rot': all_data2['noiseE']})
+        
+        if config["other"]["extraoptions"]["spectype"] != 'angular_full':
+            raise NotImplementedError('Muliplexed data fitting is only availible for angular data')
+    else:
+        all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"])
+    
     batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
     num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1
     mlflow.log_metrics({"setup_time": round(time.time() - t1, 2)})
@@ -429,7 +416,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     print("minimizing")
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
-        fitted_weights, overall_loss, ts_fitter = scipy_angular_loop(config, all_data, sa)
+        fitted_weights, overall_loss, ts_fitter = angular_optax(config, all_data, sa, batch_indices, num_batches)
     else:
         fitted_weights, overall_loss, ts_fitter = one_d_loop(config, all_data, sa, batch_indices, num_batches)
 

@@ -10,7 +10,7 @@ from tsadar.data_handleing.load_ts_data import loadData
 from tsadar.process.correct_throughput import correctThroughput
 
 
-def get_shot_bg(config, axisyE, elecData):
+def get_shot_bg(config, shotNum, axisyE, elecData):
     """
     Quantify the background for full images
 
@@ -23,7 +23,7 @@ def get_shot_bg(config, axisyE, elecData):
 
     """
     if config["data"]["background"]["type"] == "Shot":
-        [BGele, BGion, _, _] = loadData(
+        [BGele, BGion, _, _, _] = loadData(
             config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
         )
         if config["other"]["extraoptions"]["load_ion_spec"]:
@@ -41,11 +41,11 @@ def get_shot_bg(config, axisyE, elecData):
         else:
             BGele = 0
     elif config["other"]["extraoptions"]["spectype"] == "angular" and config["data"]["background"]["type"] == "Fit":
-        [BGele, _, _, _] = loadData(
+        [BGele, _, _, _, _] = loadData(
             config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
         )
 
-        BGele = correctThroughput(BGele, config["other"]["extraoptions"]["spectype"], axisyE, config["data"]["shotnum"])
+        BGele = correctThroughput(BGele, config["other"]["extraoptions"]["spectype"], axisyE, shotNum)
 
         BGele = conv2(BGele, np.ones([5, 5]) / 25, mode="same")  # 1/27 for H2 and 1/24 for kr
         xx = np.arange(1024)
@@ -92,15 +92,15 @@ def get_lineout_bg(
     """
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
-    if config["data"]["background"]["type"] not in ["Fit","fit","shot","Pixel", "Shot", "pixel"]:
+    if config["data"]["background"]["type"] not in ["Fit", "Shot", "pixel"]:
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'pixel'")
 
     if config["other"]["extraoptions"]["load_ele_spec"]:
-        if config["data"]["background"]["type"] in ("Fit","fit","FIT"):
+        if config["data"]["background"]["type"] == "Fit":
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
                 # should be checked in more situations
-                bgfitx = np.hstack([np.arange(150, 200), np.arange(800, 1023)])
+                bgfitx = np.hstack([np.arange(100, 200), np.arange(800, 1023)])
 
                 def exp2(x, a, b, c, d):
                     return a * np.exp(b * x) + c * np.exp(d * x)
@@ -122,14 +122,11 @@ def get_lineout_bg(
 
                 LineoutBGE = []
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
-                    [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170], maxfev=2000)
+                    [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
                     # if config["data"]["background"]["show"]:
-                    #if i %1 == 0:
-            
-                        #plt.plot(rat11(np.arange(1024), *rat1bg))
-                        #plt.plot(LineoutTSE_smooth[i])
-                        #plt.show()
-                        #print(i)
+                    #     plt.plot(rat11(np.arange(1024), *rat1bg))
+                    #     plt.plot(LineoutTSE_smooth[i])
+                    #     plt.show()
 
                     LineoutBGE.append(rat11(np.arange(1024), *rat1bg))
         # if not fit
@@ -194,8 +191,7 @@ def get_lineout_bg(
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         # Due to the low background associated with IAWs the fitted background is only performed for the EPW
-        if config["data"]["background"]["type"] in ("fit", "Fit", "FIT"):
-        #if (config["data"]["background"]["type"] == "Fit" or config["data"]["background"]["type"] == "fit" or config["data"]["background"]["type"] =="FIT") :
+        if config["data"]["background"]["type"] == "Fit":
             BackgroundPixel = config["data"]["background"]["slice"]
 
         # quantify a uniform background

@@ -65,10 +65,10 @@ def recalculate_with_chosen_weights(
             "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
             "i_data": all_data["i_data"],
             "i_amps": all_data["i_amps"],
-            "noise_e": config["other"]["PhysParams"]["noiseE"][
+            "noise_e": all_data["noiseE"][
                 config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
             ],
-            "noise_i": config["other"]["PhysParams"]["noiseI"][
+            "noise_i": all_data["noiseI"][
                 config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
             ],
         }
@@ -78,8 +78,11 @@ def recalculate_with_chosen_weights(
 
         for species in all_params.keys():
             for k in all_params[species].keys():
-                # all_params[k] = np.concatenate([all_params[k], params[k].reshape(-1)])
-                all_params[species][k] = params[species][k].reshape(-1)
+                if k != 'fe':
+                    # all_params[k] = np.concatenate([all_params[k], params[k].reshape(-1)])
+                    all_params[species][k] = params[species][k].reshape(-1)
+                else:
+                    all_params[species][k] = params[species][k]
 
         if calc_sigma:
             # this line may need to be omited since the weights may be transformed by line 77
@@ -95,11 +98,13 @@ def recalculate_with_chosen_weights(
                 "e_amps": all_data["e_amps"][inds],
                 "i_data": all_data["i_data"][inds],
                 "i_amps": all_data["i_amps"][inds],
-                "noise_e": config["other"]["PhysParams"]["noiseE"][inds],
-                "noise_i": config["other"]["PhysParams"]["noiseI"][inds],
+                "noise_e": all_data["noiseE"][inds],
+                "noise_i": all_data["noiseI"][inds],
             }
 
-            loss, sqds, used_points, [ThryE, ThryI, params] = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            #loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            #calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean)
             # these_params = ts_fitter.weights_to_params(fitted_weights[i_batch], return_static_params=False)
 
             if calc_sigma:
@@ -199,6 +204,10 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
 def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter, sa, fitted_weights):
     t1 = time.time()
 
+    for species in config["parameters"].keys():
+        if "electron" in config["parameters"][species]["type"].keys():
+            elec_species = species
+    
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
         losses_init, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
             config, batch_indices, all_data, ts_fitter, False, fitted_weights
@@ -220,8 +229,8 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter
                 "e_amps": np.reshape(all_data["e_amps"][i], (1, -1)),
                 "i_data": np.reshape(all_data["i_data"][i], (1, -1)),
                 "i_amps": np.reshape(all_data["i_amps"][i], (1, -1)),
-                "noise_e": np.reshape(config["other"]["PhysParams"]["noiseE"][i], (1, -1)),
-                "noise_i": np.reshape(config["other"]["PhysParams"]["noiseI"][i], (1, -1)),
+                "noise_e": np.reshape(all_data["noiseE"][i], (1, -1)),
+                "noise_i": np.reshape(all_data["noiseI"][i], (1, -1)),
             }
 
             # previous_weights = {}
@@ -275,24 +284,29 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter
         if config["other"]["extraoptions"]["spectype"] == "angular_full":
             best_weights_val = {}
             best_weights_std = {}
-            for k, v in fitted_weights.items():
-                best_weights_val[k] = np.average(v, axis=0)  # [0, :]
-                best_weights_std[k] = np.std(v, axis=0)  # [0, :]
+            if config["optimizer"]["num_mins"]>1:
+                for k, v in fitted_weights.items():
+                    best_weights_val[k] = np.average(v, axis=0)  # [0, :]
+                    best_weights_std[k] = np.std(v, axis=0)  # [0, :]
+            else:
+                best_weights_val = fitted_weights
+                
             losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
                 config, batch_indices, all_data, ts_fitter, config["other"]["calc_sigmas"], best_weights_val
             )
+            
             mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
             mlflow.set_tag("status", "plotting")
             t1 = time.time()
 
-            final_params = plotters.get_final_params(config, best_weights_val, all_axes, td)
+            final_params = plotters.get_final_params(config, all_params, all_axes, td)
             if config["other"]["calc_sigmas"]:
                 sigma_fe = plotters.save_sigmas_fe(final_params, best_weights_std, sigmas, td)
             else:
                 sigma_fe = np.zeros_like(final_params["fe"])
             savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
             plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
-            plotters.plot_dist(config, final_params, sigma_fe, td)
+            plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
 
         else:
             losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
@@ -305,6 +319,22 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter
             t1 = time.time()
 
             final_params = plotters.get_final_params(config, all_params, all_axes, td)
+            # for species in config["parameters"].keys():
+            #     if "m" in config["parameters"][species].keys():
+            #         if not config["parameters"][species]["m"]["active"] and config["parameters"][species]["matte"]:
+            #             alpha = (
+            #                 0.042
+            #                 * config["parameters"][species]["m"]["intens"]
+            #                 / 9.0
+            #                 * np.sum(Z**2 * fract)
+            #                 / (np.sum(Z * fract) * all_params[species]["Te"])
+            #             )
+            #             mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
+            #             (
+            #                 self.config["parameters"][self.e_species]["fe"]["velocity"],
+            #                 all_params[self.e_species]["fe"],
+            #             ) = self.num_dist_func(mcur.squeeze())
+
             red_losses = plotters.plot_loss_hist(config, losses_init, losses, all_params, used_points, td)
             savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
             plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)

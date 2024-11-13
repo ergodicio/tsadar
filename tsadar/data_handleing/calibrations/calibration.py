@@ -2,14 +2,11 @@ from typing import Dict
 import numpy as np
 import scipy.io as sio
 from os.path import join
-import os
 
 from tsadar.data_handleing.calibrations.sa_table import sa_lookup
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
-
-def get_calibrations(shotNum, tstype, CCDsize):
+def get_calibrations(shotNum, tstype, t0, CCDsize):
     """
     Contains and loads the appropriate instrument calibrations based off the shot number and type of Thomson scattering
     performed. The calibrations loaded are the spectral dispersion, offset for the spectral axis, spectral instrument
@@ -115,18 +112,18 @@ def get_calibrations(shotNum, tstype, CCDsize):
             magI = 5  # (ps / px) this is just a rough guess
             magE = 5  # (ps / px) this is just a rough guess
 
-        elif 111410 < shotNum < 111426:
+        elif 111410 < shotNum < 111435:
             # needs to be updated with the calibrations from 7-26-22
             EPWDisp = 0.4104
-            IAWDisp = 0.00678  # needs to be updated
-            EPWoff = 317.6
-            IAWoff = 523.12
-            stddev["spect_stddev_ion"] = 0.0187  # needs to be updated
-            stddev["spect_stddev_ele"] = 1.4294  # needs to be updated
-
+            IAWDisp = 0.00678
+            EPWoff = 317.4
+            IAWoff = 522.92
+            stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
+            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
+            print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
-            magI = 5  # (ps / px) this is just a rough guess
-            magE = 5  # (ps / px) this is just a rough guess
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
 
         else:
             # needs to be updated with the calibrations from 7-26-22
@@ -173,7 +170,7 @@ def get_calibrations(shotNum, tstype, CCDsize):
             magE = 5.13 / 0.36175 * 1.118  # um / px times strech factor accounting for tilt in view
 
             EPWtcc = 1024 - 503  # 562;
-            IAWtcc = 1024 - 578  # 469;
+            IAWtcc = 1024 - 450 #578  # 469;
 
         else:
             # needs to be updated with the calibrations from 7-26-22
@@ -200,14 +197,14 @@ def get_calibrations(shotNum, tstype, CCDsize):
 
     if tstype != "angular":
         axisx = np.arange(1, CCDsize[1] + 1)
-        axisxE = axisx * magE  # ps,um
-        axisxI = axisx * magI  # ps,um
+        axisxE = (axisx - t0[1]) * magE  # ps,um
+        axisxI = (axisx - t0[0]) * magI  # ps,um
         if tstype == "imaging":
             axisxE = axisxE - EPWtcc * magE
             axisxI = axisxI - IAWtcc * magI
             # axisxI = axisxI + 200
     else:
-        imp = sio.loadmat(join(BASE_FILES_PATH, "files", "angsFRED.mat"), variable_names="angsFRED")
+        imp = sio.loadmat(join("files", "angsFRED.mat"), variable_names="angsFRED")
         axisxE = imp["angsFRED"][0, :]
         # axisxE = np.vstack(np.loadtxt("files/angsFRED.txt"))
         axisxI = np.arange(1, CCDsize[1] + 1)
@@ -237,7 +234,7 @@ def get_scattering_angles(config: Dict) -> Dict:
         sa = sa_lookup(config["data"]["probe_beam"])
     else:
         # Scattering angle in degrees for Artemis
-        imp = sio.loadmat(join(BASE_FILES_PATH, "files", "angleWghtsFredfine.mat"), variable_names="weightMatrix")
+        imp = sio.loadmat(join("files", "angleWghtsFredfine.mat"), variable_names="weightMatrix")
         weights = imp["weightMatrix"]
         sa = dict(sa=np.arange(19, 139.5, 0.5), weights=weights)
     return sa

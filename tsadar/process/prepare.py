@@ -11,14 +11,18 @@ from tsadar.process.lineouts import get_lineouts
 from tsadar.data_handleing.data_visualizer import launch_data_visualizer
 
 
-def prepare_data(config: Dict) -> Dict:
+def prepare_data(config: Dict, shotNum: int) -> Dict:
     """
     Loads and preprocesses the data for fitting
 
     Args:
-        config:
+        config: Configuration dictionary created from input decks
+        shotNum: The OMEGA shot number
 
     Returns:
+        all_data: dictionary containing the throughput and warp corrected data at the appropriate resolution unit or lineouts
+        sa: scattering angle dictionary containing the scattering angles and thier relative weights
+        all_axes: dictionary containing the calibrated axes for all spectra and axis labels
 
     """
     # load data
@@ -30,7 +34,7 @@ def prepare_data(config: Dict) -> Dict:
         if config["data"]["filenames"]["iaw"] is not None:
             custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
 
-    [elecData, ionData, xlab, config["other"]["extraoptions"]["spectype"]] = loadData(
+    [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"]] = loadData(
         config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
     )
 
@@ -39,7 +43,7 @@ def prepare_data(config: Dict) -> Dict:
 
     # Calibrate axes
     [axisxE, axisxI, axisyE, axisyI, magE, stddev] = get_calibrations(
-        config["data"]["shotnum"], config["other"]["extraoptions"]["spectype"], config["other"]["CCDsize"]
+       shotNum, config["other"]["extraoptions"]["spectype"], t0, config["other"]["CCDsize"]
     )
     all_axes = {"epw_x": axisxE, "epw_y": axisyE, "iaw_x": axisxI, "iaw_y": axisyI, "x_label": xlab}
 
@@ -58,13 +62,13 @@ def prepare_data(config: Dict) -> Dict:
     # Correct for spectral throughput
     if config["other"]["extraoptions"]["load_ele_spec"]:
         elecData = correctThroughput(
-            elecData, config["other"]["extraoptions"]["spectype"], axisyE, config["data"]["shotnum"]
+            elecData, config["other"]["extraoptions"]["spectype"], axisyE, shotNum
         )
         # temp fix for zeros
-        elecData = elecData + 10.0
+        elecData = elecData + 0.1
 
     # load and correct background
-    [BGele, BGion] = get_shot_bg(config, axisyE, elecData)
+    [BGele, BGion] = get_shot_bg(config, shotNum, axisyE, elecData)
 
     # extract ARTS section
     if (config["data"]["lineouts"]["type"] == "range") & (config["other"]["extraoptions"]["spectype"] == "angular"):
@@ -106,11 +110,11 @@ def prepare_data(config: Dict) -> Dict:
         all_data = {"e_data": data_res_unit, "e_amps": np.amax(data_res_unit, axis=1, keepdims=True)}
         all_data["i_data"] = all_data["i_amps"] = np.zeros(len(data_res_unit))
         # changed this 8-29-23 not sure how it worked with =0?
-        config["other"]["PhysParams"]["noiseI"] = np.zeros(np.shape(bg_res_unit))
-        config["other"]["PhysParams"]["noiseE"] = bg_res_unit
+        all_data["noiseI"] = np.zeros(np.shape(bg_res_unit))
+        all_data['noiseE']=config["data"]["bgscaleE"]*bg_res_unit + 0.1
         config["other"]["CCDsize"] = np.shape(data_res_unit)
-        config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / ang_res_unit)
-        config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / ang_res_unit)
+        #config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / ang_res_unit)
+        #config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / ang_res_unit)
 
     else:
         all_data = get_lineouts(

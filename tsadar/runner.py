@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
-import mlflow, tempfile, yaml
+import mlflow, tempfile, yaml, pandas
 import multiprocessing as mp
 import xarray as xr
 from tqdm import tqdm
@@ -57,11 +57,7 @@ def load_and_make_folders(cfg_path: str) -> Tuple[str, Dict]:
 
             mlflow.log_artifacts(td)
 
-    defaults = flatten(all_configs["defaults"])
-    defaults.update(flatten(all_configs["inputs"]))
-    config = unflatten(defaults)
-
-    return mlflow_run.info.run_id, config
+    return mlflow_run.info.run_id, all_configs
 
 
 def run(cfg_path: str, mode: str) -> str:
@@ -75,9 +71,13 @@ def run(cfg_path: str, mode: str) -> str:
     Returns:
 
     """
-    run_id, config = load_and_make_folders(cfg_path)
+    run_id, all_configs = load_and_make_folders(cfg_path)
+    defaults = flatten(all_configs["defaults"])
+    defaults.update(flatten(all_configs["inputs"]))
+    config = unflatten(defaults)
     with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
         _run_(config, mode=mode)
+
     return run_id
 
 
@@ -195,15 +195,6 @@ def calc_series(config):
             )
             config["parameters"][species]["fe"]["val"] = np.log(config["parameters"][species]["fe"]["val"])[None, :]
 
-    for species in config["parameters"].keys():
-        if "electron" in config["parameters"][species]["type"].keys():
-            elec_species = species
-            dist_obj = DistFunc(config["parameters"][species])
-            config["parameters"][species]["fe"]["velocity"], config["parameters"][species]["fe"]["val"] = dist_obj(
-                config["parameters"][species]["m"]["val"]
-            )
-            config["parameters"][species]["fe"]["val"] = np.log(config["parameters"][species]["fe"]["val"])[None, :]
-
     config["units"] = init_param_norm_and_shift(config)
 
     sas = get_scattering_angles(config)
@@ -218,7 +209,7 @@ def calc_series(config):
 
     if config["other"]["extraoptions"]["spectype"] == "angular":
         [axisxE, _, _, _, _, _] = get_calibrations(
-            104000, config["other"]["extraoptions"]["spectype"], config["other"]["CCDsize"]
+            104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
         )  # shot number hardcoded to get calibration
         config["other"]["extraoptions"]["spectype"] = "angular_full"
 
@@ -301,56 +292,25 @@ def calc_series(config):
             )
             plotters.plot_dist(
                 config,
+                elec_species,
                 {
-                    "fe": config["parameters"][elec_species]["fe"]["val"],
+                    "fe": np.squeeze(config["parameters"][elec_species]["fe"]["val"]),
                     "v": config["parameters"][elec_species]["fe"]["velocity"],
                 },
                 np.zeros_like(config["parameters"][elec_species]["fe"]["val"]),
                 td,
             )
+            print(np.shape(config["parameters"][elec_species]["fe"]["val"]))
+            if len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"])))==1:
+                final_dist = pandas.DataFrame({'fe':[l for l in config["parameters"][elec_species]["fe"]["val"]], 'vx':[vx for vx in config["parameters"][elec_species]["fe"]["velocity"]]})
+            elif len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"])))==2:
+                final_dist = pandas.DataFrame(data=np.squeeze(config["parameters"][elec_species]["fe"]["val"]), columns=config["parameters"][elec_species]["fe"]["velocity"][0][0], index=config["parameters"][elec_species]["fe"]["velocity"][0][:,0]) 
+            final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
             if config["parameters"][elec_species]["fe"]["dim"] == 2:
                 plotters.plot_dist(
                     config,
-                    {
-                        "fe": config["parameters"][elec_species]["fe"]["val"],
-                        "v": config["parameters"][elec_species]["fe"]["velocity"],
-                    },
-                    np.zeros_like(config["parameters"][elec_species]["fe"]["val"]),
-                    td,
-                )
-
-    spectime = time.time() - t_start
-    ThryE = np.array(ThryE)
-    ThryI = np.array(ThryI)
-    lamAxisE = np.array(lamAxisE)
-    lamAxisI = np.array(lamAxisI)
-
-    with tempfile.TemporaryDirectory() as td:
-        os.makedirs(os.path.join(td, "plots"), exist_ok=True)
-        os.makedirs(os.path.join(td, "binary"), exist_ok=True)
-        os.makedirs(os.path.join(td, "csv"), exist_ok=True)
-        if config["other"]["extraoptions"]["spectype"] == "angular_full":
-            savedata = plotters.plot_data_angular(
-                config,
-                {"ele": np.squeeze(ThryE)},
-                {"e_data": np.zeros((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))},
-                {"epw_x": sas["angAxis"], "epw_y": lamAxisE},
-                td,
-            )
-            plotters.plot_dist(
-                config,
-                {
-                    "fe": config["parameters"][elec_species]["fe"]["val"],
-                    "v": config["parameters"][elec_species]["fe"]["velocity"],
-                },
-                np.zeros_like(config["parameters"][elec_species]["fe"]["val"]),
-                td,
-            )
-        else:
-            if config["parameters"][elec_species]["fe"]["dim"] == 2:
-                plotters.plot_dist(
-                    config,
+                    elec_species,
                     {
                         "fe": config["parameters"][elec_species]["fe"]["val"],
                         "v": config["parameters"][elec_species]["fe"]["velocity"],

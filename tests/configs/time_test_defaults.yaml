@@ -111,6 +111,7 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
+        absolute_timing: false
     PhysParams:
         background: [0, 0]
         norm: 0
@@ -178,6 +179,8 @@ optimizer:
     # use L-BFGS-B for full batch / parameter learning
     # although adam will work here too
     method: l-bfgs-b
+    moment_loss: false
+    loss_method: l2
     hessian: False
     y_norm: True
     x_norm: False
