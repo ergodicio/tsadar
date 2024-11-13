@@ -61,7 +61,7 @@ class TSFitter:
         self._loss_ = jit(self.__loss__)
         self._vg_func_ = jit(value_and_grad(self.__loss__, argnums=0, has_aux=True))
         ##this will be replaced with jacobian params jacobian inverse
-        #self._h_func_ = jit(jax.hessian(self._loss_for_hess_fn_, argnums=0))
+        self._h_func_ = jit(jax.hessian(self._loss_for_hess_fn_, argnums=0))
         self.array_loss = jit(self.calc_loss)
 
         ############
@@ -312,6 +312,22 @@ class TSFitter:
     def h_loss_wrt_params(self, weights, batch):
         return self._h_func_(weights, batch)
 
+    def _loss_for_hess_fn_(self, weights, batch):
+        # params = params | self.static_params
+        params = self.weights_to_params(weights)
+        ThryE, ThryI, lamAxisE, lamAxisI = self.spec_calc(params, batch)
+        i_error, e_error, _, _ = self.calc_ei_error(
+            batch,
+            ThryI,
+            lamAxisI,
+            ThryE,
+            lamAxisE,
+            uncert=[jnp.abs(batch["i_data"]) + 1e-10, jnp.abs(batch["e_data"]) + 1e-10],
+            reduce_func=jnp.sum,
+        )
+
+        return i_error + e_error
+
     def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean):
         """
         This function calculates the error in the fit of the IAW and EPW
@@ -463,8 +479,9 @@ class TSFitter:
         normed_e_data = normed_batch["e_data"]
         ion_error = self.cfg["data"]["ion_loss_scale"] * i_error
 
-        penalty_error = self.penalties(params)
+        penalty_error = self.penalties(weights)
         total_loss = ion_error + e_error + penalty_error
+        #jax.debug.print("e_error {total_loss}", total_loss=e_error)
         
         return total_loss, sqdev, used_points, ThryE, ThryI, params
         #return total_loss, [ThryE, params]
@@ -536,6 +553,7 @@ class TSFitter:
         for species in weights.keys():
             for k in weights[species].keys():
                 if k!='fe':
+                    #jax.debug.print("fe size {e_error}", e_error=weights[species][k])
                     param_penalty += jnp.maximum(0.0, jnp.log(jnp.abs(weights[species][k] - 0.5) + 0.5))
         if self.cfg['optimizer']['moment_loss']:
             density_loss, temperature_loss, momentum_loss = self._moment_loss_(weights)
@@ -555,6 +573,7 @@ class TSFitter:
         # jax.debug.print("{temperature_loss}", temperature_loss=temperature_loss)
         # jax.debug.print("{momentum_loss}", momentum_loss=momentum_loss)
         #jax.debug.print("tot loss {total_loss}", total_loss=total_loss)
+        #jax.debug.print("param_penalty {total_loss}", total_loss=jnp.sum(param_penalty))
         
         return jnp.sum(param_penalty)+fe_penalty+density_loss+temperature_loss+momentum_loss
 
