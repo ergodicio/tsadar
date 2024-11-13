@@ -15,7 +15,7 @@ This is multistep for now, at least on Mac, because `pyhdf` using `pip` has some
  - Install `pyhdf` using `conda`
 
 ## Documentation
-Go to https://inverse-thomson-scattering.readthedocs.io/ for detailed documentation.
+Go to https://tsadar.readthedocs.io/ for detailed documentation.
 
 ## Automatic Differentiation
 In Thomson Scattering, as in other parameter estimation inverse problems, there can be many parameters. In the case where the forward model is known, 
