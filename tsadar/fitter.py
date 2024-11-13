@@ -10,8 +10,9 @@ from tqdm import trange
 from jax.flatten_util import ravel_pytree
 
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.process import prepare, postprocess
+
 from tsadar.model.TSFitter import TSFitter
+from tsadar.process import prepare, postprocess
 
 
 def init_param_norm_and_shift(config: Dict) -> Dict:

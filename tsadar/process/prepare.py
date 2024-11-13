@@ -51,7 +51,10 @@ def prepare_data(config: Dict) -> Dict:
         config["other"]["extraoptions"]["fit_EPWb"] = 0
         config["other"]["extraoptions"]["fit_EPWr"] = 0
         print("EPW data not loaded, omitting EPW fit")
-
+    #if config["other"]["extraoptions"]["first_guess"]:
+        #run code
+        #outs=first_guess(inputs)
+        #config["data"]["lineouts"]["start"]=start
     # Correct for spectral throughput
     if config["other"]["extraoptions"]["load_ele_spec"]:
         elecData = correctThroughput(

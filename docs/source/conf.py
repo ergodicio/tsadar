@@ -27,20 +27,18 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath("."))
 sys.path.append(os.path.abspath("../../"))
 
-import inverse_thomson_scattering
+import tsadar
 
-project = 'TSADAR'
-copyright = '2023, Avi Milder, Archis Joglekar'
-author = 'Avi Milder, Archis Joglekar'
+project = "TSADAR"
+copyright = "2023, Avi Milder, Archis Joglekar"
+author = "Avi Milder, Archis Joglekar"
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'sphinx_rtd_theme'
-html_static_path = ['_static']
-
-
-
+# html_theme = 'sphinx_rtd_theme'
+# New theme is pydata
+html_theme = "pydata_sphinx_theme"
 # -- General configuration ---------------------------------------------------
 
 # Add any Sphinx extension module names here, as strings. They can be
@@ -49,6 +47,7 @@ html_static_path = ['_static']
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.coverage",
     "sphinx.ext.doctest",
     "sphinx.ext.githubpages",
@@ -57,11 +56,14 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_github_style",
+    "sphinx_design",
+    # "sphinx.ext.autosectionlabel",
+    "sphinx.ext.intersphinx",
 ]
 # options for sphinx_github_style
-top_level = "inverse_thomson_scattering"
+top_level = "tsadar"
 linkcode_blob = "head"
-linkcode_url = r"https://github.com/ergodicio/inverse-thomson-scattering/"
+linkcode_url = r"https://github.com/ergodicio/tsadar/"
 linkcode_link_text = "Source"
 
 
@@ -108,7 +110,7 @@ def linkcode_resolve(domain, info):
         print("Failed to get head")  # so no head?
         blob = "main"
 
-    linkcode_url = r"https://github.com/ergodicio/inverse-thomson-scattering/"
+    linkcode_url = r"https://github.com/ergodicio/tsadar/"
     linkcode_url = linkcode_url.strip("/") + f"/blob/{blob}/"
     linkcode_url += "{filepath}#L{linestart}-L{linestop}"
 
@@ -143,9 +145,7 @@ def linkcode_resolve(domain, info):
     # Fix links with "../../../" or "..\\..\\..\\"
     filepath = "/".join(filepath[filepath.find(top_level) :].split("\\"))
 
-    final_link = linkcode_url.format(
-        filepath=filepath, linestart=linestart, linestop=linestop
-    )
+    final_link = linkcode_url.format(filepath=filepath, linestart=linestart, linestop=linestop)
     print(f"Final Link for {fullname}: {final_link}")
     return final_link
 
@@ -202,6 +202,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.rst"]
 # a list of builtin themes.
 #
 # html_theme = "alabaster"
+# New theme is pydata
+html_theme = "pydata_sphinx_theme"
+# html_static_path = ['_static']
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -210,28 +213,69 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.rst"]
 html_theme_options = {
     #    'canonical_url': '',
     #    'analytics_id': 'UA-XXXXXXX-1',  #  Provided by Google in your dashboard
-    "logo_only": True,
-    "display_version": True,
-    "prev_next_buttons_location": "both",
-    "style_external_links": False,
-    "style_nav_header_background": "#3c4142",
+    # "logo_link": "index.html",
+    # TSADAR logo and tittle, both of which should redirect you to the homepage
+    "logo": {
+        # "text":"Home",
+        "image_light": "_elfolder/lafoto.JPG",
+        "image_dark": "_elfolder/lafoto.JPG",
+        "text": "TSADAR",
+    },
+    # github icon in the nav bar that directs you to the repo
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/ergodicio/tsadar.git",
+            "icon": "fa-brands fa-github",
+            "type": "fontawesome",
+        }
+    ],
+    "header_links_before_dropdown": 6,
+    # "logo_only": True,
+    # remove secondary sidebar
+    "secondary_sidebar_items": [],
+    # "display_version": True,
+    "show_nav_level": 2,
+    # "prev_next_buttons_location": "both",
+    # "style_external_links": False,
+    # "style_nav_header_background": "#3c4142",
+    # "logo" : "TSADAR",
+    # back to top button
+    "back_to_top_button": True,
+    # maintaining the search button in the nav bar
+    "navbar_persistent": "search-button-field",
+    # location of the navigation bar
+    "navbar_align": "left",
+    # top left of the navigation bar will include logo and version
+    "navbar_start": ["navbar-logo"],
+    # placing the search field at the top right of the navigation bar
+    "navbar_end": ["navbar-icon-links", "theme-switcher"],
+    # show the home page in the nav bar
+    # "home_page_in_toc": False,
     # Toc options
     "collapse_navigation": True,
-    "sticky_navigation": True,
+    # "sticky_navigation": True,
     "navigation_depth": 2,
-    "includehidden": True,
-    "titles_only": False,
+    # "includehidden": True,
+    # "titles_only": False,
+    "use_issues_button": True,
 }
 
+
+# this will be used to make the light mode the default mode
+html_context = {"default_mode": "auto"}
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
 # The name of an image file (relative to this directory) to place at the top
 # of the sidebar.
-# html_logo = "_static/images/logo_small_clear.png"
+# the top of the navigation bar will say TASADAR
+# the logo for TSADAR can be found inside a folder called "_elfolder"
+html_tittle = ("TSADAR",)
+# html_logo = '_elfolder/lafoto.JPG'
 
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
@@ -248,7 +292,11 @@ html_last_updated_fmt = "%b %d, %Y"
 html_use_smartypants = True
 
 # Custom sidebar templates, maps document names to template names.
-# html_sidebars = {}
+html_sidebars = {"**": ["globaltoc.html", "sidebar-nav-bs.html"]}
+# html_sidebars = {
+#   "**": ["sbt-sidebar-nav.html", "sidebar-primary.html"]
+#    "**": ["sbt-sidebar-nav.html"]
+# }
 
 # Additional templates that should be rendered to pages, maps page names to
 # template names.
@@ -264,7 +312,7 @@ html_use_index = True
 html_split_index = False
 
 # If true, links to the reST sources are added to the pages.
-html_show_sourcelink = True
+html_show_sourcelink = False
 
 # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
 html_show_sphinx = True

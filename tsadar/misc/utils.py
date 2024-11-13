@@ -25,6 +25,7 @@ def log_params(cfg):
             mlflow.log_params(trunc_dict)
     else:
         mlflow.log_params(flattened_dict)
+        
 
 
 def update(base_dict, new_dict):

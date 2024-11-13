@@ -4,30 +4,23 @@ API Documentation
 Note: This section is under heavy development and the API is very much subject to change
 
 
-High Level API
----------------
 .. toctree::
     :maxdepth: 2
-    :caption: Contents:
+    :caption: High Level API:
 
     runner
     fitter
 
-Middle (?) Level API
-----------------------
 .. toctree::
     :maxdepth: 2
-    :caption: Contents:
+    :caption: Middle Level API:
 
     TSfitter
     spectrum
 
-
-Low Level API
---------------
 .. toctree::
     :maxdepth: 2
-    :caption: Contents:
+    :caption: Low Level API:
 
     formfactor
     fitmodel
