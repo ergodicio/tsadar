@@ -9,7 +9,7 @@ from tsadar.process.warpcorr import perform_warp_correction
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
 
-def loadData(sNum, sDay, loadspecs):
+def loadData(sNum, sDay, loadspecs, custom_path=False):
     """
     This function loads the appropriate data based off the provided shot number (sNum) automatically determining the
     type of data in the file. The flag sDay changes the default path to the temporary archive on the redwood server and
@@ -35,6 +35,8 @@ def loadData(sNum, sDay, loadspecs):
     """
     if sDay:
         folder = r"\\redwood\archive\tmp\thomson"
+    elif custom_path:
+        folder = custom_path
     else:
         folder = join(BASE_FILES_PATH, "data")
 
