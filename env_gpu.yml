@@ -18,6 +18,7 @@ dependencies:
   - tqdm
   - xarray
   - pandas
+  - xlrd
   - pip:
     - mlflow_export_import
     - interpax
