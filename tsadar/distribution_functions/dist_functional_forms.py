@@ -1,6 +1,6 @@
 from jax.scipy.special import gamma
 from jax import numpy as jnp
-from inverse_thomson_scattering.misc.vector_tools import rotate
+from tsadar.misc.vector_tools import rotate
 from interpax import interp2d
 
 

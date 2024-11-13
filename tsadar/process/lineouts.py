@@ -3,7 +3,7 @@ from typing import Dict
 from collections import defaultdict
 
 import numpy as np
-from inverse_thomson_scattering.process.evaluate_background import get_lineout_bg
+from tsadar.process.evaluate_background import get_lineout_bg
 
 
 def get_lineouts(

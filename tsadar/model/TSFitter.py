@@ -10,9 +10,9 @@ from jax.flatten_util import ravel_pytree
 from interpax import interp2d
 import numpy as np
 
-from inverse_thomson_scattering.model.spectrum import SpectrumCalculator
-from inverse_thomson_scattering.distribution_functions.dist_functional_forms import calc_moment, trapz
-from inverse_thomson_scattering.misc.vector_tools import rotate
+from tsadar.model.spectrum import SpectrumCalculator
+from tsadar.distribution_functions.dist_functional_forms import calc_moment, trapz
+from tsadar.misc.vector_tools import rotate
 
 
 class TSFitter:

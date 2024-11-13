@@ -9,13 +9,13 @@ import xarray as xr
 from tqdm import tqdm
 from flatten_dict import flatten, unflatten
 
-from inverse_thomson_scattering import fitter
-from inverse_thomson_scattering.distribution_functions.gen_num_dist_func import DistFunc
-from inverse_thomson_scattering.model.TSFitter import TSFitter
-from inverse_thomson_scattering.fitter import init_param_norm_and_shift
-from inverse_thomson_scattering.misc import utils
-from inverse_thomson_scattering.plotting import plotters
-from inverse_thomson_scattering.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
+from tsadar import fitter
+from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.model.TSFitter import TSFitter
+from tsadar.fitter import init_param_norm_and_shift
+from tsadar.misc import utils
+from tsadar.plotting import plotters
+from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]

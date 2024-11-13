@@ -10,9 +10,9 @@ from interpax import interp2d
 from jax.lax import scan, map as jmap
 from jax import checkpoint
 
-from inverse_thomson_scattering.model.physics import ratintn
-from inverse_thomson_scattering.data_handleing import lam_parse
-from inverse_thomson_scattering.misc.vector_tools import vsub, vdot, vdiv
+from tsadar.model.physics import ratintn
+from tsadar.data_handleing import lam_parse
+from tsadar.misc.vector_tools import vsub, vdot, vdiv
 
 
 def zprimeMaxw(xi):

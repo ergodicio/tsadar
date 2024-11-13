@@ -3,7 +3,7 @@ import numpy as np
 import scipy.io as sio
 from os.path import join
 
-from inverse_thomson_scattering.data_handleing.calibrations.sa_table import sa_lookup
+from tsadar.data_handleing.calibrations.sa_table import sa_lookup
 
 
 def get_calibrations(shotNum, tstype, t0, CCDsize):

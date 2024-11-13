@@ -4,7 +4,7 @@ from os import listdir
 from pyhdf.SD import SD, SDC
 import numpy as np
 from scipy.signal import find_peaks
-from inverse_thomson_scattering.process.warpcorr import perform_warp_correction
+from tsadar.process.warpcorr import perform_warp_correction
 
 
 def loadData(sNum, sDay, loadspecs):

@@ -1,8 +1,8 @@
 from jax import numpy as jnp
 from jax import vmap
 
-from inverse_thomson_scattering.model.physics.generate_spectra import FitModel
-from inverse_thomson_scattering.process import irf
+from tsadar.model.physics.generate_spectra import FitModel
+from tsadar.process import irf
 
 
 class SpectrumCalculator:

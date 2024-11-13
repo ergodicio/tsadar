@@ -2,7 +2,7 @@ from jax import numpy as jnp
 import scipy.io as sio
 import jax
 
-from inverse_thomson_scattering.distribution_functions import dist_functional_forms
+from tsadar.distribution_functions import dist_functional_forms
 
 
 # needs the ability to enforce symetry
