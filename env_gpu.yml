@@ -23,4 +23,5 @@ dependencies:
     - mlflow_export_import
     - interpax
     - psutil
+    - pynvml
       
