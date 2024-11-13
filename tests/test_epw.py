@@ -10,8 +10,8 @@ from flatten_dict import flatten, unflatten
 config.update("jax_enable_x64", True)
 
 from scipy.signal import find_peaks
-from inverse_thomson_scattering.model.physics.form_factor import FormFactor
-from inverse_thomson_scattering.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.model.physics.form_factor import FormFactor
+from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 
 def test_epw():

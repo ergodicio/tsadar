@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath("."))
 sys.path.append(os.path.abspath("../../"))
 
-import inverse_thomson_scattering
+import tsadar
 
 project = 'TSADAR'
 copyright = '2023, Avi Milder, Archis Joglekar'

@@ -1,6 +1,6 @@
 import argparse, os, time
 
-from inverse_thomson_scattering.runner import load_and_make_folders
+from tsadar.runner import load_and_make_folders
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]

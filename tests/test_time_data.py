@@ -10,8 +10,8 @@ config.update("jax_enable_x64", True)
 # config.update("jax_disable_jit", True)
 # config.update("jax_check_tracer_leaks", True)
 
-from inverse_thomson_scattering import fitter
-from inverse_thomson_scattering.misc import utils
+from tsadar import fitter
+from tsadar.misc import utils
 
 
 @pytest.mark.parametrize("nn", [False])
