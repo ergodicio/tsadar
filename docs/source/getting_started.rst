@@ -7,7 +7,7 @@ This page should provides detailed instruction on instalation and basic usage of
 
 Installation 
 ^^^^^^^^^^^^^^^
-1. Clone the github `repo <https://github.com/ergodicio/inverse-thomson-scattering>`_ to the local or remote machine where you will be running analysis.
+1. Clone the github `repo <https://github.com/ergodicio/tsadar>`_ to the local or remote machine where you will be running analysis.
 2. Install using the commands bellow, or following your prefered method.
 
 
@@ -54,7 +54,7 @@ into the provided data folder located in your instalation.
 Input decks
 ^^^^^^^^^^^^
 
-The code uses two input decks, which  are located in **inverse-thomson-scattering/configs/1d**. The primary input deck `inputs.yaml` 
+The code uses two input decks, which  are located in **configs/1d**. The primary input deck `inputs.yaml` 
 contains the commonly altered parameters. The secondary input deck `defaults.yaml` contains additional options that tend to remain static. 
 Please note, any parameters in `inputs.yaml` will override the secondary input deck when values conflict. More information on the specifics 
 of each deck can be found by clicking the cards bellow. 

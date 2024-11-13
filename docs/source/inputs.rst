@@ -3,7 +3,7 @@
 Inputs Deck
 -------------------------------------
 
-The code uses two input decks, which  are located in **inverse-thomson-scattering/configs/1d**. 
+The code uses two input decks, which  are located in **configs/1d**. 
 The inputs deck contains all the commonly altered options which will be discussed in detail in the following section.
 More information on the specifics of each deck can be found by clicking on the cards bellow. 
 The defaults deck contains additional options and default values for all options.

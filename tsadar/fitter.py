@@ -12,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 from tsadar.model.TSFitter import TSFitter
-from inverse_thomson_scattering.process import prepare, postprocess
+from tsadar.process import prepare, postprocess
 
 
 def init_param_norm_and_shift(config: Dict) -> Dict:
