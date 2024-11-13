@@ -22,6 +22,7 @@ def prepare_data(config: Dict) -> Dict:
 
     """
     # load data
+    custom_path = None
     if "filenames" in config["data"].keys():
         custom_path = (config["data"]["filenames"]["epw"] is not None) | (
             config["data"]["filenames"]["iaw"] is not None

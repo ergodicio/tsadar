@@ -22,4 +22,5 @@ dependencies:
   - pip:
     - mlflow_export_import
     - interpax
+    - psutil
       
