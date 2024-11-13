@@ -91,12 +91,12 @@ def run_for_app(run_id: str) -> str:
                 config = yaml.safe_load(fi)
 
             if config["data"]["filenames"]["epw"] is not None:
-                config["data"]["filenames"]["epw-local"] = utils.download_file(
+                config["data"]["filenames"]["tempepwfilepath"] = utils.download_file(
                     config["data"]["filenames"]["epw"], mlflow_run.info.artifact_uri, temp_path
                 )
 
             if config["data"]["filenames"]["iaw"] is not None:
-                config["data"]["filenames"]["iaw-local"] = utils.download_file(
+                config["data"]["filenames"]["tempiawfilepath"] = utils.download_file(
                     config["data"]["filenames"]["iaw"], mlflow_run.info.artifact_uri, temp_path
                 )
 

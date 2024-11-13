@@ -25,10 +25,10 @@ def prepare_data(config: Dict) -> Dict:
     custom_path = None
     if "filenames" in config["data"].keys():
         if config["data"]["filenames"]["epw"] is not None:
-            custom_path = os.path.dirname(config["data"]["filenames"]["epw-local"])
+            custom_path = os.path.dirname(config["data"]["filenames"]["tempepwfilepath"])
 
         if config["data"]["filenames"]["iaw"] is not None:
-            custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
+            custom_path = os.path.dirname(config["data"]["filenames"]["tempiawfilepath"])
 
     [elecData, ionData, xlab, config["other"]["extraoptions"]["spectype"]] = loadData(
         config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
