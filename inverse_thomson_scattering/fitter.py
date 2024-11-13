@@ -128,64 +128,6 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     return config
 
-
-# def scipy_angular_loop(config: Dict, all_data: Dict, sa) -> Tuple[Dict, float, TSFitter]:
-#     """
-#     Performs angular thomson scattering i.e. ARTEMIS fitting exercise using the SciPy optimizer routines
-
-
-#     Args:
-#         config:
-#         all_data:
-#         best_weights:
-#         all_weights:
-#         sa:
-
-#     Returns:
-
-#     """
-#     print("Running Angular, setting batch_size to 1")
-#     config["optimizer"]["batch_size"] = 1
-#     batch = {
-#         "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-#         "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-#         "i_data": all_data["i_data"],
-#         "i_amps": all_data["i_amps"],
-#         "noise_e": all_data["noiseE"][
-#             config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-#         ],
-#         "noise_i": all_data["noiseI"][
-#             config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-#         ],
-#     }
-
-#     ts_fitter = TSFitter(config, sa, batch)
-#     all_weights = {k: [] for k in ts_fitter.pytree_weights["active"].keys()}
-
-#     if config["optimizer"]["num_mins"] > 1:
-#         print(Warning("multiple num mins doesnt work. only running once"))
-#     for i in range(1):
-#         ts_fitter = TSFitter(config, sa, batch)
-#         init_weights = copy.deepcopy(ts_fitter.flattened_weights)
-
-#         res = spopt.minimize(
-#             ts_fitter.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_fitter.loss,
-#             init_weights,
-#             args=batch,
-#             method=config["optimizer"]["method"],
-#             jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-#             bounds=ts_fitter.bounds,
-#             options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
-#         )
-#         these_weights = ts_fitter.unravel_pytree(res["x"])
-#         for k in all_weights.keys():
-#             all_weights[k].append(these_weights[k])
-
-#     overall_loss = res["fun"]
-
-#     return all_weights, overall_loss, ts_fitter
-
-
 def angular_optax(config, all_data, sa, batch_indices, num_batches):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
@@ -248,30 +190,36 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
     t1 = time.time()
     epoch_loss = 0.0
     best_loss = 100.0
+    num_g_wait = 0
+    num_b_wait = 0
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
         if config["nn"]["use"]:
             np.random.shuffle(batch_indices)
         
         (val, aux), grad = ts_fitter.vg_loss(weights, test_batch)
-        #print(f"aux {aux}")
-        #print(f"aux {grad}")
         updates, opt_state = solver.update(grad, opt_state, weights)
-        #print(opt_state)
-        #print(f"weights preupdate {weights}")
-        #print(f"updates {updates}")
         
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
             if best_loss - epoch_loss < 0.000001:
-                print("Minimizer exited due to change in loss < 1e-6")
-                break
+                best_loss = epoch_loss
+                num_g_wait+=1
+                if num_g_wait > 5:
+                    print("Minimizer exited due to change in loss < 1e-6")
+                    break
+            elif epoch_loss > best_loss:
+                num_b_wait+=1
+                if num_b_wait > 5:
+                    print("Minimizer exited due to increase in loss")
+                    break
             else:
                 best_loss = epoch_loss
+                num_b_wait = 0
+                num_g_wait = 0
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
         
         weights = optax.apply_updates(weights, updates)
-        #print(f"weights post update {weights}")
         
         if config["optimizer"]["save_state"]:
             if i_epoch % config["optimizer"]["save_state_freq"] == 0:
@@ -456,7 +404,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
         if config["other"]["extraoptions"]["spectype"] != 'angular_full':
             raise NotImplementedError('Muliplexed data fitting is only availible for angular data')
     else:
-        all_data, sa, all_axes = prepare.prepare_data(config)
+        all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"])
     
     batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
     num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1

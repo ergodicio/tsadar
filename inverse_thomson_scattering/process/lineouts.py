@@ -101,10 +101,9 @@ def get_lineouts(
             axis=1,
         )
 
+    all_data = defaultdict(list)
     all_data["noiseI"] = noiseI
     all_data["noiseE"] = noiseE
-
-    all_data = defaultdict(list)
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         all_data["i_data"] = LineoutTSI_norm

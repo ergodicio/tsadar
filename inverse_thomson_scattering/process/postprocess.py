@@ -102,7 +102,9 @@ def recalculate_with_chosen_weights(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            loss, sqds, used_points, [ThryE, ThryI, params] = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            #loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            #calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean)
             # these_params = ts_fitter.weights_to_params(fitted_weights[i_batch], return_static_params=False)
 
             if calc_sigma:

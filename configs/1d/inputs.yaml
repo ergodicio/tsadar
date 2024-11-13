@@ -1,16 +1,14 @@
 data:
   background:
-    slice: 10002
-    type: Fit
+    slice: 900
+    type: pixel
   lineouts:
-    end: 950
+    end: 700
     skip: 20
-    start: 90
-    type: range
+    start: 400
+    type: pixel
   shot_rot: 90.0
-  shotnum:
-  - 10007
-  - 10002
+  shotnum: 101675
 machine: gpu
 mlflow:
   experiment: inverse-thomson-scattering
@@ -89,8 +87,8 @@ parameters:
       ub: 2.0
       val: 1.1
     fe:
-      active: true
-      dim: 2
+      active: false
+      dim: 1
       fe_decrease_strict: false
       lb: -100.0
       length: 64

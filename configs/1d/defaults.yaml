@@ -49,8 +49,10 @@ optimizer:
   grad_method: AD
   hessian: false
   learning_rate: 0.0001
-  method: adam
-  num_epochs: 2000
+  method: l-bfgs-b
+  loss_method: l2
+  moment_loss: false
+  num_epochs: 10
   num_mins: 8
   parameter_norm: true
   refine_factor: 0
