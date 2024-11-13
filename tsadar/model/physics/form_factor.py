@@ -5,6 +5,7 @@ from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 import scipy.interpolate as sp
 from functools import partial
 
+import os
 import numpy as np
 from interpax import interp2d
 from jax.lax import scan, map as jmap

@@ -51,6 +51,8 @@ optimizer:
   hessian: false
   learning_rate: 0.0001
   method: rmsprop
+  moment_loss: false
+  loss_method: l2
   num_epochs: 1000
   num_mins: 1
   parameter_norm: true

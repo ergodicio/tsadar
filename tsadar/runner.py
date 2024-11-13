@@ -81,6 +81,30 @@ def run(cfg_path: str, mode: str) -> str:
     return run_id
 
 
+def run_for_app(run_id: str) -> str:
+    with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
+        # download config
+        with tempfile.TemporaryDirectory(dir=BASE_TEMPDIR) as temp_path:
+
+            dest_file_path = utils.download_file(f"config.yaml", mlflow_run.info.artifact_uri, temp_path)
+            with open(dest_file_path, "r") as fi:
+                config = yaml.safe_load(fi)
+
+            if config["data"]["filenames"]["epw"] is not None:
+                config["data"]["filenames"]["epw-local"] = utils.download_file(
+                    config["data"]["filenames"]["epw"], mlflow_run.info.artifact_uri, temp_path
+                )
+
+            if config["data"]["filenames"]["iaw"] is not None:
+                config["data"]["filenames"]["iaw-local"] = utils.download_file(
+                    config["data"]["filenames"]["iaw"], mlflow_run.info.artifact_uri, temp_path
+                )
+
+            _run_(config, mode="fit")
+
+    return mlflow_run.info.run_id
+
+
 def _run_(config: Dict, mode: str = "fit"):
     """
     Either performs a forward pass or an entire fitting routine
@@ -96,7 +120,7 @@ def _run_(config: Dict, mode: str = "fit"):
     """
     utils.log_params(config)
     t0 = time.time()
-    if mode == "fit":
+    if mode in ("fit", "FIT", "Fit"):
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
         calc_series(config=config)
@@ -205,13 +229,14 @@ def calc_series(config):
     t_start = time.time()
     for i in tqdm(range(serieslen), total=serieslen):
         if "series" in config.keys():
-            config["parameters"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
+
+            config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
             if "param2" in config["series"].keys():
-                config["parameters"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
+                config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
             if "param3" in config["series"].keys():
-                config["parameters"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
+                config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
             if "param4" in config["series"].keys():
-                config["parameters"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
+                config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
     if config["other"]["extraoptions"]["spectype"] == "angular":
         [axisxE, _, _, _, _, _] = get_calibrations(
@@ -235,13 +260,13 @@ def calc_series(config):
     t_start = time.time()
     for i in range(serieslen):
         if "series" in config.keys():
-            config["parameters"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
+            config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
             if "param2" in config["series"].keys():
-                config["parameters"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
+                config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
             if "param3" in config["series"].keys():
-                config["parameters"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
+                config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
             if "param4" in config["series"].keys():
-                config["parameters"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
+                config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
         ts_fitter = TSFitter(config, sas, dummy_batch)
         params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
