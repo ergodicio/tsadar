@@ -1,5 +1,5 @@
 # base image
-FROM mambaorg/micromamba:latest
+FROM mambaorg/micromamba:cuda
 
 WORKDIR /app
 
