@@ -4,22 +4,22 @@ dependencies:
   - python=3.12
   - pyhdf
   - pip
-  - jax[cuda12]
-  - jaxopt
-  - numpy<2
-  - scipy
-  - matplotlib
-  - pyyaml
-  - mlflow
-  - boto3
-  - flatten-dict
-  - typing-extensions
-  - optax
-  - tqdm
-  - xarray
-  - pandas
   - xlrd
   - pip:
+    - jax[cuda12]
+    - jaxopt
+    - numpy<2
+    - scipy
+    - matplotlib
+    - pyyaml
+    - mlflow
+    - boto3
+    - flatten-dict
+    - typing-extensions
+    - optax
+    - tqdm
+    - xarray
+    - pandas
     - mlflow_export_import
     - interpax
     - psutil
