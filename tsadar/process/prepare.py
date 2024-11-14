@@ -34,6 +34,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         if config["data"]["filenames"]["iaw"] is not None:
             custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
 
+    print(f"{custom_path=}")
+
     [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"]] = loadData(
         config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
     )
@@ -43,7 +45,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
 
     # Calibrate axes
     [axisxE, axisxI, axisyE, axisyI, magE, stddev] = get_calibrations(
-       shotNum, config["other"]["extraoptions"]["spectype"], t0, config["other"]["CCDsize"]
+        shotNum, config["other"]["extraoptions"]["spectype"], t0, config["other"]["CCDsize"]
     )
     all_axes = {"epw_x": axisxE, "epw_y": axisyE, "iaw_x": axisxI, "iaw_y": axisyI, "x_label": xlab}
 
@@ -55,15 +57,13 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["other"]["extraoptions"]["fit_EPWb"] = 0
         config["other"]["extraoptions"]["fit_EPWr"] = 0
         print("EPW data not loaded, omitting EPW fit")
-    #if config["other"]["extraoptions"]["first_guess"]:
-        #run code
-        #outs=first_guess(inputs)
-        #config["data"]["lineouts"]["start"]=start
+    # if config["other"]["extraoptions"]["first_guess"]:
+    # run code
+    # outs=first_guess(inputs)
+    # config["data"]["lineouts"]["start"]=start
     # Correct for spectral throughput
     if config["other"]["extraoptions"]["load_ele_spec"]:
-        elecData = correctThroughput(
-            elecData, config["other"]["extraoptions"]["spectype"], axisyE, shotNum
-        )
+        elecData = correctThroughput(elecData, config["other"]["extraoptions"]["spectype"], axisyE, shotNum)
         # temp fix for zeros
         elecData = elecData + 0.1
 
@@ -111,10 +111,10 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         all_data["i_data"] = all_data["i_amps"] = np.zeros(len(data_res_unit))
         # changed this 8-29-23 not sure how it worked with =0?
         all_data["noiseI"] = np.zeros(np.shape(bg_res_unit))
-        all_data['noiseE']=config["data"]["bgscaleE"]*bg_res_unit + 0.1
+        all_data["noiseE"] = config["data"]["bgscaleE"] * bg_res_unit + 0.1
         config["other"]["CCDsize"] = np.shape(data_res_unit)
-        #config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / ang_res_unit)
-        #config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / ang_res_unit)
+        # config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / ang_res_unit)
+        # config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / ang_res_unit)
 
     else:
         all_data = get_lineouts(
