@@ -13,7 +13,7 @@ from tsadar.model.physics import ratintn
 from tsadar.data_handleing import lam_parse
 from tsadar.misc.vector_tools import vsub, vdot, vdiv
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..")
 
 
 def zprimeMaxw(xi):

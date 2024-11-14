@@ -3,7 +3,7 @@ import scipy.io as sio
 import jax, os
 
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..")
 
 from tsadar.distribution_functions import dist_functional_forms
 
