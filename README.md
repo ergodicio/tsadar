@@ -7,7 +7,7 @@ from other facilities
 -- work in progress -- 
 
 ## Installation
-This is multistep for now, at least on Mac, because `pyhdf` using `pip` has some problems. We can get around that by using conda
+If cloning the respository onto a windows machine it may be necessary to modify the git config `git config --global core.protectNTFS false`. This is multistep for now, at least on Mac, because `pyhdf` using `pip` has some problems. We can get around that by using conda
 
  - Install conda 
  - Make conda environment for `tsadar`
