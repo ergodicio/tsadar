@@ -14,7 +14,7 @@ data:
 machine: gpu
 mlflow:
   experiment: inverse-thomson-scattering
-  run: multiplex_arts_rot90_nosmoothtest_nonete_1
+  run: multiplex_arts_rot90_smoothtest_win7_nonete_4
 other:
   PhysParams:
     widIRF:
@@ -101,7 +101,7 @@ parameters:
       type:
         DLM: null
       ub: -0.5
-      v_res: 0.1
+      v_res: 0.5
       val: []
     m:
       active: false

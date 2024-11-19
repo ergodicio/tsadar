@@ -407,7 +407,12 @@ def plot_data_angular(config, fits, all_data, all_axes, td):
         "fit": fits["ele"],
         "data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
     }
-    savedata = xr.Dataset({k: xr.DataArray(v) for k, v in dat.items()})
+    coords = (all_axes["x_label"], np.squeeze(all_axes["epw_x"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"]])), (
+            "Wavelength",
+            np.squeeze(all_axes["epw_y"]),
+        )
+    
+    savedata = xr.Dataset({k: xr.DataArray(v, coords=coords) for k, v in dat.items()})
     savedata.to_netcdf(os.path.join(td, "binary", "fit_and_data.nc"))
     savedata["data"] = savedata["data"].T
     savedata["fit"] = savedata["fit"].T

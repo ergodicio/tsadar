@@ -5,24 +5,24 @@ data:
   bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
-  dpixel: 5
+  dpixel: 3
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
     blue_max: 510
-    blue_min: 460
+    blue_min: 430
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 527.25
     forward_iaw_start: 525.75
-    iaw_cf_max: 526.62
-    iaw_cf_min: 526.62
-    iaw_max: 527.1
-    iaw_min: 526.2
-    red_max: 600
+    iaw_cf_max: 526.501
+    iaw_cf_min: 526.499
+    iaw_max: 527.3
+    iaw_min: 525.7
+    red_max: 660
     red_min: 545
-  ion_loss_scale: 2.0
-  ion_t0_shift: 0
+  ion_loss_scale: 1.0
+  ion_t0_shift: -150
   launch_data_visualizer: true
   lineouts:
     end: 510
@@ -31,7 +31,7 @@ data:
     type: pixel
   probe_beam: P9
   shotDay: false
-  shotnum: 101676
+  shotnum: 101675
 dist_fit:
   window:
     len: 0.2
@@ -50,7 +50,7 @@ optimizer:
   hessian: false
   learning_rate: 0.0001
   method: adam
-  num_epochs: 2000
+  num_epochs: 1000
   num_mins: 8
   parameter_norm: true
   refine_factor: 0
@@ -70,12 +70,12 @@ other:
   calc_sigmas: false
   expandedions: false
   extraoptions:
-    absolute_timing: false
+    absolute_timing: true
     fit_EPWb: true
     fit_EPWr: true
     fit_IAW: false
     load_ele_spec: true
-    load_ion_spec: true
+    load_ion_spec: false
   flatbg: 0
   gain: 1
   iawfilter:
@@ -97,11 +97,11 @@ parameters:
       ub: 10.0
       val: 0.0
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.5
       ub: 20.5
-      val: -20
+      val: 0.0
     amp1:
       active: true
       lb: 0.01
@@ -121,7 +121,7 @@ parameters:
       active: false
       lb: 523.0
       ub: 528.0
-      val: 526.12
+      val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
@@ -141,7 +141,7 @@ parameters:
       active: false
       lb: 0.01
       ub: 1.5
-      val: 0.01
+      val: 0.6
     fe:
       active: false
       dim: 1
@@ -164,28 +164,28 @@ parameters:
       ub: 5.0
       val: 3.0
     ne:
-      active: true
+      active: false
       lb: 0.001
       ub: 1.0
-      val: 0.0
+      val: 0.2
     type:
       electron: null
   species2:
     A:
-      active: true
+      active: false
       val: 40.0
     Ti:
-      active: true
+      active: false
       lb: 0.001
       ub: 1.0
-      val: 0.15
+      val: 0.12
     Z:
-      active: true
+      active: false
       lb: 0.5
       ub: 7.0
       val: 14.0
     fract:
-      active: true
+      active: false
       val: 0.1
     type:
       ion: null
@@ -194,7 +194,7 @@ plotting:
   data_cbar_u: data
   ele_window_end: 660
   ele_window_start: 425
-  ion_window_end: 527.5
-  ion_window_start: 525.5
+  ion_window_end: 528
+  ion_window_start: 525
   n_sigmas: 3
   rolling_std_width: 5

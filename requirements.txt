@@ -18,3 +18,4 @@ mlflow_export_import
 pandas
 interpax
 tabulate
+psutil

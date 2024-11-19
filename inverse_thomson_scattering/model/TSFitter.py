@@ -87,7 +87,8 @@ class TSFitter:
                     else:
                         raise NotImplementedError
                 else:
-                    Warning("Smoothing not enabled for 2D distributions")
+                    self.smooth_window_len = cfg["dist_fit"]["window"]["len"]
+                    #Warning("Smoothing not enabled for 2D distributions")
             else:
                 Warning(
                     "\n !!! Distribution function not fitted !!! Make sure this is what you thought you were running \n"
@@ -145,12 +146,13 @@ class TSFitter:
 
         """
         
-        smoothing_kernel = jnp.outer(jnp.bartlett(5),jnp.bartlett(5))
+        smoothing_kernel = jnp.outer(jnp.bartlett(self.smooth_window_len),jnp.bartlett(self.smooth_window_len))
         smoothing_kernel = smoothing_kernel/jnp.sum(smoothing_kernel)
         #print(distribution)
-        #print(jnp.shape(distribution))
+        print(jnp.shape(distribution))
+        print(jnp.shape(smoothing_kernel))
         
-        return jax.scipy.signal.convolve2d(distribution,smoothing_kernel,'same')
+        return jax.scipy.signal.convolve2d(jnp.squeeze(distribution),smoothing_kernel,'same')
     
     def weights_to_params(self, input_weights: Dict, return_static_params: bool = True) -> Dict:
         """
@@ -184,45 +186,45 @@ class TSFitter:
                             + self.cfg["units"]["shifts"][species][param_name]
                         )
                     else:
-                        fe_shape = jnp.shape(these_params[species][param_name])
-                        #convert EDF from 01 bounded log units to unbounded log units
-                        #jax.debug.print("these params {a}", a=these_params[species][param_name])
+#                         fe_shape = jnp.shape(these_params[species][param_name])
+#                         #convert EDF from 01 bounded log units to unbounded log units
+#                         #jax.debug.print("these params {a}", a=these_params[species][param_name])
                         
-                        fe_cur = jnp.exp(
-                            these_params[species][param_name] * self.cfg["units"]["norms"][species][param_name].reshape(fe_shape) 
-                            + self.cfg["units"]["shifts"][species][param_name].reshape(fe_shape)
-                        )
-                        #commented out the renormalization to see effect on 2D edfs 9/26/24
-                        #jax.debug.print("fe_cur {a}", a=fe_cur)
-                        #this only works for 2D edfs and will have to be genralized to 1D
-                        #recaclulate the moments of the EDF
-                        renorm = jnp.sqrt(
-                            calc_moment(jnp.squeeze(fe_cur), 
-                                        self.cfg["parameters"][self.e_species]["fe"]["velocity"],2)
-                            / (2*calc_moment(jnp.squeeze(fe_cur), 
-                                             self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)))
-                        Te_mult = renorm**2
-                        #h2 = self.cfg["parameters"][self.e_species]["fe"]["v_res"]/renorm
-                        vx2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
-                        vy2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
-                        # fe_cur = interp2d(
-                        #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
-                        #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
-                        #     vx2, vy2,
-                        #     jnp.squeeze(fe_cur),
-                        #     extrap=[0, 0], method="linear").reshape(
-                        #         jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F")
-                        fe_cur = jnp.exp(interp2d(
-                            self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
-                            self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
-                            vx2, vy2,
-                            jnp.log(jnp.squeeze(fe_cur)),
-                            extrap=[-100, -100], method="linear").reshape(
-                                jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F"))
-                        ne_mult = calc_moment(jnp.squeeze(fe_cur),
-                                              self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)
-                        fe_cur = fe_cur/ ne_mult
-                        these_params[species][param_name]=jnp.log(fe_cur)
+#                         fe_cur = jnp.exp(
+#                             these_params[species][param_name] * self.cfg["units"]["norms"][species][param_name].reshape(fe_shape) 
+#                             + self.cfg["units"]["shifts"][species][param_name].reshape(fe_shape)
+#                         )
+#                         #commented out the renormalization to see effect on 2D edfs 9/26/24
+#                         #jax.debug.print("fe_cur {a}", a=fe_cur)
+#                         #this only works for 2D edfs and will have to be genralized to 1D
+#                         #recaclulate the moments of the EDF
+#                         renorm = jnp.sqrt(
+#                             calc_moment(jnp.squeeze(fe_cur), 
+#                                         self.cfg["parameters"][self.e_species]["fe"]["velocity"],2)
+#                             / (2*calc_moment(jnp.squeeze(fe_cur), 
+#                                              self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)))
+#                         Te_mult = renorm**2
+#                         #h2 = self.cfg["parameters"][self.e_species]["fe"]["v_res"]/renorm
+#                         vx2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
+#                         vy2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0]/renorm
+#                         # fe_cur = interp2d(
+#                         #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
+#                         #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
+#                         #     vx2, vy2,
+#                         #     jnp.squeeze(fe_cur),
+#                         #     extrap=[0, 0], method="linear").reshape(
+#                         #         jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F")
+#                         fe_cur = jnp.exp(interp2d(
+#                             self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(), 
+#                             self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(), 
+#                             vx2, vy2,
+#                             jnp.log(jnp.squeeze(fe_cur)),
+#                             extrap=[-100, -100], method="linear").reshape(
+#                                 jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F"))
+#                         ne_mult = calc_moment(jnp.squeeze(fe_cur),
+#                                               self.cfg["parameters"][self.e_species]["fe"]["velocity"],0)
+#                         fe_cur = fe_cur/ ne_mult
+#                         these_params[species][param_name]=jnp.log(fe_cur)
 
 
                         if self.cfg["parameters"][species]["fe"]["dim"] == 1:
@@ -244,8 +246,8 @@ class TSFitter:
         #jax.debug.print("Temult {total_loss}", total_loss=Te_mult)
         #jax.debug.print("nemult {total_loss}", total_loss=ne_mult)
         #jax.debug.print("Tebefore {total_loss}", total_loss=these_params[self.e_species]['Te'])
-        these_params[self.e_species]['Te']*=Te_mult
-        these_params[self.e_species]['ne']*=ne_mult
+        # these_params[self.e_species]['Te']*=Te_mult
+        # these_params[self.e_species]['ne']*=ne_mult
         #jax.debug.print("Teafter {total_loss}", total_loss=these_params[self.e_species]['Te'])
         #jax.debug.print("fe after has NANs {total_loss}", total_loss=jnp.isnan(fe_cur))
 

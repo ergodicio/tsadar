@@ -263,8 +263,11 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.000001:
-                print("Minimizer exited due to change in loss < 1e-6")
+            if epoch_loss < 0.001 and best_loss - epoch_loss < 0.0000001:
+                print("Minimizer exited due to change in loss < 1e-7")
+                break
+            elif epoch_loss > 1.2*best_loss:
+                print("Minimizer exited due to large increase in loss")
                 break
             else:
                 best_loss = epoch_loss
@@ -456,7 +459,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
         if config["other"]["extraoptions"]["spectype"] != 'angular_full':
             raise NotImplementedError('Muliplexed data fitting is only availible for angular data')
     else:
-        all_data, sa, all_axes = prepare.prepare_data(config)
+        all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"])
     
     batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
     num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1

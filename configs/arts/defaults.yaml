@@ -33,9 +33,9 @@ data:
   shotDay: false
   shotnum: 101675
 dist_fit:
-  smooth: false
+  smooth: true
   window:
-    len: 0.2
+    len: 7
     type: bartlett
 mlflow:
   experiment: inverse-thomson-scattering
