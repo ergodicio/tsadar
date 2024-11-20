@@ -6,7 +6,7 @@ import scipy.interpolate as sp
 from functools import partial
 
 import numpy as np
-from interpax import interp2d
+from interpax import interp2d, interp1d
 from jax.lax import scan, map as jmap
 from jax import checkpoint
 
@@ -175,7 +175,7 @@ class FormFactor:
 
         DF, x = fe
         fe_vphi = jnp.exp(jnp.interp(xie, x, jnp.log(jnp.squeeze(DF))))
-
+        fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),x,jnp.log(jnp.squeeze(DF)),extrap=[-50, -50])).reshape(jnp.shape(xie))
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
         df = jnp.append(df, jnp.zeros((len(ne), 1, len(sa))), 1)
 

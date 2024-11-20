@@ -10,11 +10,11 @@ data:
   shotnum: 111411
 mlflow:
   experiment: shot_day_3_27_24
-  run: shot111411_twiceIRF
+  run: shot111411_late_fract_scan
 other:
   PhysParams:
     widIRF:
-      spect_stddev_ele: 1.336
+      spect_stddev_ele: .334
       spect_stddev_ion: 0.0153
   calc_sigmas: false
   extraoptions:
@@ -80,7 +80,7 @@ parameters:
       active: true
       lb: 0.01
       ub: 2.0
-      val: 0.01
+      val: 0.25
     fe:
       active: false
       dim: 1
@@ -100,9 +100,9 @@ parameters:
       active: false
       intens: 2.0
       lb: 2.0
-      matte: true
+      matte: false
       ub: 5.0
-      val: 2.5
+      val: 2.0
     ne:
       active: true
       lb: 0.03
