@@ -5,22 +5,22 @@ data:
   lineouts:
     end: 2200
     skip: 20
-    start: 150
+    start: 1150
     type: ps
   shotnum: 111411
 mlflow:
   experiment: shot_day_3_27_24
-  run: shot111411_twiceIRF
+  run: shot111411_late_fract_scan_90-10
 other:
   PhysParams:
     widIRF:
-      spect_stddev_ele: 1.336
+      spect_stddev_ele: 0.668
       spect_stddev_ion: 0.0153
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
-    fit_IAW: false
+    fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
     spectype: temporal
@@ -31,9 +31,9 @@ parameters:
     Te_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 1
+      num_grad_points: 10
       ub: 10.0
-      val: 0.0
+      val: 6.0
     Va:
       active: false
       angle: 0.0
@@ -63,9 +63,9 @@ parameters:
     ne_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 1
+      num_grad_points: 10
       ub: 15.0
-      val: 0.0
+      val: 4.0
     type:
       active: false
       general: null
@@ -80,7 +80,7 @@ parameters:
       active: true
       lb: 0.01
       ub: 2.0
-      val: 0.01
+      val: 0.6
     fe:
       active: false
       dim: 1
@@ -116,16 +116,16 @@ parameters:
       active: false
       val: 40.0
     Ti:
-      active: false
+      active: True
       lb: 0.01
       same: false
       ub: 1.0
-      val: 0.05
+      val: 0.09
     Z:
-      active: false
+      active: True
       lb: 1.0
       ub: 18.0
-      val: 6.0
+      val: 11.0
     fract:
       active: false
       val: 0.1

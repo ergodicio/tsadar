@@ -2,7 +2,7 @@
 #SBATCH -A m4490_g
 #SBATCH -C gpu
 #SBATCH -q debug
-#SBATCH -t 0:05:00
+#SBATCH -t 0:15:00
 #SBATCH -n 1
 #SBATCH --gpus-per-task=1
 
