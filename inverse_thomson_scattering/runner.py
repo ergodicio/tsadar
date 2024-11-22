@@ -213,36 +213,6 @@ def calc_series(config):
             if "param4" in config["series"].keys():
                 config["parameters"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-    if config["other"]["extraoptions"]["spectype"] == "angular":
-        [axisxE, _, _, _, _, _] = get_calibrations(
-            104000, config["other"]["extraoptions"]["spectype"], config["other"]["CCDsize"]
-        )  # shot number hardcoded to get calibration
-        config["other"]["extraoptions"]["spectype"] = "angular_full"
-
-        sas["angAxis"] = axisxE
-        dummy_batch["i_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
-        dummy_batch["e_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
-
-    if "series" in config.keys():
-        serieslen = len(config["series"]["vals1"])
-    else:
-        serieslen = 1
-    ThryE = [None] * serieslen
-    ThryI = [None] * serieslen
-    lamAxisE = [None] * serieslen
-    lamAxisI = [None] * serieslen
-
-    t_start = time.time()
-    for i in range(serieslen):
-        if "series" in config.keys():
-            config["parameters"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
-            if "param2" in config["series"].keys():
-                config["parameters"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
-            if "param3" in config["series"].keys():
-                config["parameters"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
-            if "param4" in config["series"].keys():
-                config["parameters"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
-
         ts_fitter = TSFitter(config, sas, dummy_batch)
         params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_fitter.spec_calc(params, dummy_batch)

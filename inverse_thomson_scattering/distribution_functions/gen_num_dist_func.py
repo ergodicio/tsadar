@@ -89,6 +89,9 @@ class DistFunc:
 
                                           #np.linspace(0, params["x"].size - 1, params["x"].size))
                 #m_float_inds = jnp.array(jnp.interp(m, params["m"], np.linspace(0, params["m"].size - 1, params["m"].size)))
+                print(m_float_inds)
+                # if len(m_float_inds)>1:
+                #     m_floar_inds = jnp.mean(m_float_inds)
                 m_float_inds = m_float_inds.reshape((1,))
                 ind_x_mesh, ind_m_mesh = jnp.meshgrid(x_float_inds, m_float_inds)
                 indices = jnp.concatenate([ind_x_mesh.flatten()[:, None], ind_m_mesh.flatten()[:, None]], axis=1)
