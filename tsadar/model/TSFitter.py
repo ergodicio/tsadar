@@ -717,39 +717,39 @@ def init_weights_and_bounds(config, num_slices):
         iw["inactive"][species] = {}
 
     for species in config["parameters"].keys():
-        for k, v in config["parameters"][species].items():
-            if k == "type":
-                continue
-            if v["active"]:
+        for param_name, param_dict in config["parameters"][species].items():
+            if param_dict["active"]:
                 active_or_inactive = "active"
             else:
                 active_or_inactive = "inactive"
 
-            if k != "fe":
-                iw[active_or_inactive][species][k] = np.array(
-                    [config["parameters"][species][k]["val"] for _ in range(num_slices)]
-                )[:, None]
+            if param_name == "fe":
+                iw[active_or_inactive][species]["fe"] = np.ones(num_slices) * param_dict["val"]
             else:
-                iw[active_or_inactive][species][k] = np.concatenate(
-                    [config["parameters"][species][k]["val"] for _ in range(num_slices)]
+                iw[active_or_inactive][species][param_name] = np.ones((num_slices, 1)) * param_dict["val"][:, None]
+
+            if param_dict["active"]:
+                # shift
+                lb[active_or_inactive][species][param_name] = np.array(
+                    [0 * config["units"]["lb"][species][param_name] for _ in range(num_slices)]
+                )
+                ub[active_or_inactive][species][param_name] = np.array(
+                    [1.0 + 0 * config["units"]["ub"][species][param_name] for _ in range(num_slices)]
                 )
 
-            if v["active"]:
-                lb[active_or_inactive][species][k] = np.array(
-                    [0 * config["units"]["lb"][species][k] for _ in range(num_slices)]
-                )
-                ub[active_or_inactive][species][k] = np.array(
-                    [1.0 + 0 * config["units"]["ub"][species][k] for _ in range(num_slices)]
-                )
-
-                if k != "fe":
-                    iw[active_or_inactive][species][k] = (
-                        iw[active_or_inactive][species][k] - config["units"]["shifts"][species][k]
-                    ) / config["units"]["norms"][species][k]
+                # normalize
+                if param_name == "fe":
+                    iw[active_or_inactive][species]["fe"] = (
+                        iw[active_or_inactive][species]["fe"]
+                        - config["units"]["shifts"][species]["fe"].reshape(
+                            jnp.shape(iw[active_or_inactive][species]["fe"])
+                        )
+                    ) / config["units"]["norms"][species]["fe"].reshape(
+                        jnp.shape(iw[active_or_inactive][species]["fe"])
+                    )
                 else:
-                    iw[active_or_inactive][species][k] = (
-                        iw[active_or_inactive][species][k]
-                        - config["units"]["shifts"][species][k].reshape(jnp.shape(iw[active_or_inactive][species][k]))
-                    ) / config["units"]["norms"][species][k].reshape(jnp.shape(iw[active_or_inactive][species][k]))
+                    iw[active_or_inactive][species][param_name] = (
+                        iw[active_or_inactive][species][param_name] - config["units"]["shifts"][species][param_name]
+                    ) / config["units"]["norms"][species][param_name]
 
     return lb, ub, iw

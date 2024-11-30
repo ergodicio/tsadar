@@ -188,7 +188,7 @@ class FormFactor:
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
         def this_ratintn(this_dx):
-            return jnp.real(ratintn.ratintn(ratdf, this_dx, self.xi1))
+            return ratintn.ratintn(ratdf, this_dx, self.xi1)
 
         chiERratprim = vmap(this_ratintn)(self.xi1[None, :] - self.xi2[:, None])
         # if len(fe) == 2:
