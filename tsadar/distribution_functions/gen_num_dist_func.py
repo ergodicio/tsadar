@@ -31,7 +31,7 @@ class DistFunc:
 
         """
         self.velocity_res = cfg["fe"]["v_res"]
-        self.fe_name = list(cfg["fe"]["type"].keys())[-1]
+        self.fe_name = cfg["fe"]["type"]
 
         if "dim" in cfg["fe"].keys():
             self.dim = cfg["fe"]["dim"]
@@ -78,6 +78,7 @@ class DistFunc:
             fe: Numerical distribution function
 
         """
+
         if self.fe_name == "DLM":
             if self.dim == 1:
                 # v, fe = dist_functional_forms.DLM_1D(mval, self.velocity_res)
@@ -112,6 +113,8 @@ class DistFunc:
                 v, fe = dist_functional_forms.BiDLM(
                     mval, mval * self.m_asym, self.temp_asym, self.m_theta, self.velocity_res
                 )
+            else:
+                raise NotImplementedError("DLM distribution can only be computed in 1D or 2D")
 
         elif self.fe_name == "Spitzer":
             if self.dim == 2:
@@ -130,5 +133,8 @@ class DistFunc:
                     v, fe = dist_functional_forms.MoriYahi_3V(self.dt, self.f1_direction, self.velocity_res)
             else:
                 raise ValueError("Mora and Yahi distribution can only be computed in 2D")
+
+        elif self.fe_name == "Arbitrary":
+            fe = f_params["fe_val"]
 
         return v, fe

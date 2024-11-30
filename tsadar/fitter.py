@@ -2,12 +2,11 @@ from typing import Dict, Tuple, List
 import time
 import numpy as np
 import pandas as pd
-import copy
 import pickle
 import scipy.optimize as spopt
 
 import mlflow, optax
-from optax import tree_utils as otu 
+from optax import tree_utils as otu
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
 import jaxopt
@@ -82,7 +81,7 @@ def _validate_inputs_(config: Dict) -> Dict:
     """
     # get derived quantities
     for species in config["parameters"].keys():
-        if "electron" in config["parameters"][species]["type"].keys():
+        if "electron" == species:
             dist_obj = DistFunc(config["parameters"][species])
             config["parameters"][species]["fe"]["velocity"], config["parameters"][species]["fe"]["val"] = dist_obj(
                 config["parameters"][species]["m"]["val"]
@@ -128,6 +127,7 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     return config
 
+
 def angular_optax(config, all_data, sa, batch_indices, num_batches):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
@@ -154,32 +154,32 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
         "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         "i_data": all_data["i_data"],
         "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][
-            config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-        ],
-        "noise_i": all_data["noiseI"][
-            config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-        ],
+        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
     }
-    if isinstance(config["data"]["shotnum"],list):
+    if isinstance(config["data"]["shotnum"], list):
         batch2 = {
-            "e_data": all_data["e_data_rot"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-            "e_amps": all_data["e_amps_rot"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-            "noise_e": all_data["noiseE_rot"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_i": all_data["noiseI"][
+            "e_data": all_data["e_data_rot"][
                 config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
             ],
-            }
-        test_batch = {'b1':batch1,'b2':batch2}
+            "e_amps": all_data["e_amps_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "noise_e": all_data["noiseE_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        }
+        test_batch = {"b1": batch1, "b2": batch2}
     else:
         test_batch = batch1
 
     ts_fitter = TSFitter(config, sa, batch1)
     minimizer = getattr(optax, config["optimizer"]["method"])
-    #schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
-    #solver = minimizer(schedule)
+    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
+    # solver = minimizer(schedule)
     solver = minimizer(config["optimizer"]["learning_rate"])
 
     weights = ts_fitter.pytree_weights["active"]
@@ -195,21 +195,21 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
         if config["nn"]["use"]:
             np.random.shuffle(batch_indices)
-        
+
         (val, aux), grad = ts_fitter.vg_loss(weights, test_batch)
         updates, opt_state = solver.update(grad, opt_state, weights)
-        
+
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
             if best_loss - epoch_loss < 0.000001:
                 best_loss = epoch_loss
-                num_g_wait+=1
+                num_g_wait += 1
                 if num_g_wait > 5:
                     print("Minimizer exited due to change in loss < 1e-6")
                     break
             elif epoch_loss > best_loss:
-                num_b_wait+=1
+                num_b_wait += 1
                 if num_b_wait > 5:
                     print("Minimizer exited due to increase in loss")
                     break
@@ -218,20 +218,21 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
                 num_b_wait = 0
                 num_g_wait = 0
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
-        
+
         weights = optax.apply_updates(weights, updates)
-        
+
         if config["optimizer"]["save_state"]:
             if i_epoch % config["optimizer"]["save_state_freq"] == 0:
                 state_weights[i_epoch] = weights
 
         mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
 
-    with open('state_weights.txt', 'wb') as file:
+    with open("state_weights.txt", "wb") as file:
         file.write(pickle.dumps(state_weights))
 
-    mlflow.log_artifact('state_weights.txt')
+    mlflow.log_artifact("state_weights.txt")
     return weights, epoch_loss, ts_fitter
+
 
 def _1d_adam_loop_(
     config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict, tbatch
@@ -393,19 +394,25 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     config = _validate_inputs_(config)
 
     # prepare data
-    if isinstance(config["data"]["shotnum"],list):
+    if isinstance(config["data"]["shotnum"], list):
         startCCDsize = config["other"]["CCDsize"]
         all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"][0])
         config["other"]["CCDsize"] = startCCDsize
         all_data2, _, _ = prepare.prepare_data(config, config["data"]["shotnum"][1])
-        all_data.update({'e_data_rot': all_data2['e_data'], 'e_amps_rot': all_data2['e_amps'], 
-                         'rot_angle': config["data"]['shot_rot'], 'noiseE_rot': all_data2['noiseE']})
-        
-        if config["other"]["extraoptions"]["spectype"] != 'angular_full':
-            raise NotImplementedError('Muliplexed data fitting is only availible for angular data')
+        all_data.update(
+            {
+                "e_data_rot": all_data2["e_data"],
+                "e_amps_rot": all_data2["e_amps"],
+                "rot_angle": config["data"]["shot_rot"],
+                "noiseE_rot": all_data2["noiseE"],
+            }
+        )
+
+        if config["other"]["extraoptions"]["spectype"] != "angular_full":
+            raise NotImplementedError("Muliplexed data fitting is only availible for angular data")
     else:
         all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"])
-    
+
     batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
     num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1
     mlflow.log_metrics({"setup_time": round(time.time() - t1, 2)})

@@ -120,7 +120,7 @@ def _run_(config: Dict, mode: str = "fit"):
     """
     utils.log_params(config)
     t0 = time.time()
-    if mode in ("fit", "FIT", "Fit"):
+    if mode.casefold() == "fit":
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
         calc_series(config=config)
@@ -187,7 +187,7 @@ def calc_series(config):
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
 
     for species in config["parameters"].keys():
-        if "electron" in config["parameters"][species]["type"].keys():
+        if "electron" == species:
             elec_species = species
             dist_obj = DistFunc(config["parameters"][species])
             config["parameters"][species]["fe"]["velocity"], config["parameters"][species]["fe"]["val"] = dist_obj(
@@ -301,10 +301,19 @@ def calc_series(config):
                 td,
             )
             print(np.shape(config["parameters"][elec_species]["fe"]["val"]))
-            if len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"])))==1:
-                final_dist = pandas.DataFrame({'fe':[l for l in config["parameters"][elec_species]["fe"]["val"]], 'vx':[vx for vx in config["parameters"][elec_species]["fe"]["velocity"]]})
-            elif len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"])))==2:
-                final_dist = pandas.DataFrame(data=np.squeeze(config["parameters"][elec_species]["fe"]["val"]), columns=config["parameters"][elec_species]["fe"]["velocity"][0][0], index=config["parameters"][elec_species]["fe"]["velocity"][0][:,0]) 
+            if len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"]))) == 1:
+                final_dist = pandas.DataFrame(
+                    {
+                        "fe": [l for l in config["parameters"][elec_species]["fe"]["val"]],
+                        "vx": [vx for vx in config["parameters"][elec_species]["fe"]["velocity"]],
+                    }
+                )
+            elif len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"]))) == 2:
+                final_dist = pandas.DataFrame(
+                    data=np.squeeze(config["parameters"][elec_species]["fe"]["val"]),
+                    columns=config["parameters"][elec_species]["fe"]["velocity"][0][0],
+                    index=config["parameters"][elec_species]["fe"]["velocity"][0][:, 0],
+                )
             final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
             if config["parameters"][elec_species]["fe"]["dim"] == 2:
