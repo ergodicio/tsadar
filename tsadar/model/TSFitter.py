@@ -724,18 +724,14 @@ def init_weights_and_bounds(config, num_slices):
                 active_or_inactive = "inactive"
 
             if param_name == "fe":
-                iw[active_or_inactive][species]["fe"] = np.ones(num_slices) * param_dict["val"]
+                iw[active_or_inactive][species]["fe"] = np.repeat(param_dict["val"][None, :], num_slices, axis=0)
             else:
-                iw[active_or_inactive][species][param_name] = np.ones((num_slices, 1)) * param_dict["val"][:, None]
+                iw[active_or_inactive][species][param_name] = np.ones((num_slices, 1)) * param_dict["val"]
 
             if param_dict["active"]:
                 # shift
-                lb[active_or_inactive][species][param_name] = np.array(
-                    [0 * config["units"]["lb"][species][param_name] for _ in range(num_slices)]
-                )
-                ub[active_or_inactive][species][param_name] = np.array(
-                    [1.0 + 0 * config["units"]["ub"][species][param_name] for _ in range(num_slices)]
-                )
+                lb[active_or_inactive][species][param_name] = np.zeros(num_slices)
+                ub[active_or_inactive][species][param_name] = np.ones(num_slices)
 
                 # normalize
                 if param_name == "fe":

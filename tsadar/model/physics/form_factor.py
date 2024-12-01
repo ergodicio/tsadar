@@ -182,7 +182,7 @@ class FormFactor:
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
         df = jnp.append(df, jnp.zeros((len(ne), 1, len(sa))), 1)
 
-        chiEI = jnp.pi / (klde**2) * jnp.sqrt(-1 + 0j) * df
+        chiEI = jnp.pi / (klde**2) * 1j * df
 
         ratmod = jnp.exp(jnp.interp(self.xi1, x, jnp.log(jnp.squeeze(DF))))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
