@@ -8,6 +8,7 @@ from tsadar.process.warpcorr import perform_warp_correction
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
 
+
 def loadData(sNum, sDay, loadspecs, custom_path=False):
     """
         This function loads the appropriate data based off the provided shot number (sNum) automatically determining the
@@ -42,12 +43,10 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     else:
         folder = join(BASE_FILES_PATH, "data")
 
-
+    print(f"{folder=}")
     file_list = listdir(folder)
     files = [name for name in file_list if str(sNum) in name]
     t0 = [0, 0]
-    #print(sNum)
-    #print(files)
 
     for fl in files:
         if "epw" in fl or "EPW" in fl:
@@ -94,6 +93,8 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             loadspecs["load_ion_spec"] = False
     else:
         iDat = []
+
+    print(f"{hdfnameE=}")
 
     if loadspecs["load_ele_spec"]:
         try:

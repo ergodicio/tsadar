@@ -52,9 +52,9 @@ def test_data(nn):
         assert_allclose(fit_results["amp1_general"][0], 0.734, rtol=1e-1)  # 0.9257
         assert_allclose(fit_results["amp2_general"][0], 0.519, rtol=1e-1)  # 0.6727
         assert_allclose(fit_results["lam_general"][0], 524.016, rtol=5e-3)  # 524.2455
-        assert_allclose(fit_results["Te_species1"][0], 0.5994, rtol=1e-1)  # 0.67585
-        assert_allclose(fit_results["ne_species1"][0], 0.2256, rtol=5e-2)  # 0.21792
-        assert_allclose(fit_results["m_species1"][0], 2.987, rtol=15e-2)  # 3.3673
+        assert_allclose(fit_results["Te_electron"][0], 0.5994, rtol=1e-1)  # 0.67585
+        assert_allclose(fit_results["ne_electron"][0], 0.2256, rtol=5e-2)  # 0.21792
+        assert_allclose(fit_results["m_electron"][0], 2.987, rtol=15e-2)  # 3.3673
 
 
 if __name__ == "__main__":

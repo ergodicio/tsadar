@@ -36,8 +36,8 @@ def test_iaw():
     re = 2.8179e-13  # classical electron radius cm
     Esq = Me * C**2 * re  # sq of the electron charge keV cm
 
-    num_dist_func = DistFunc(config["parameters"]["species1"])
-    vcur, fecur = num_dist_func(config["parameters"]["species1"]["m"]["val"])
+    num_dist_func = DistFunc(config["parameters"]["electron"])
+    vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
 
     ion_form_factor = FormFactor(
         [525, 528],
@@ -68,12 +68,12 @@ def test_iaw():
     # ThryI, lamAxisI = jit(ion_form_factor)(inps, cur_ne, cur_Te, sa, (fecur, xie), lam)
     ThryI, lamAxisI = jit(ion_form_factor)(
         params,
-        jnp.array(config["parameters"]["species1"]["ne"]["val"] * 1e20).reshape(1, 1),
-        jnp.array(config["parameters"]["species1"]["Te"]["val"]).reshape(1, 1),
-        config["parameters"]["species2"]["A"]["val"],
-        config["parameters"]["species2"]["Z"]["val"],
-        config["parameters"]["species2"]["Ti"]["val"],
-        config["parameters"]["species2"]["fract"]["val"],
+        jnp.array(config["parameters"]["electron"]["ne"]["val"] * 1e20).reshape(1, 1),
+        jnp.array(config["parameters"]["electron"]["Te"]["val"]).reshape(1, 1),
+        config["parameters"]["ion-1"]["A"]["val"],
+        config["parameters"]["ion-1"]["Z"]["val"],
+        config["parameters"]["ion-1"]["Ti"]["val"],
+        config["parameters"]["ion-1"]["fract"]["val"],
         sa,
         (fecur, vcur),
         config["parameters"]["general"]["lam"]["val"],
