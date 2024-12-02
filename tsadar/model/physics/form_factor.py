@@ -170,7 +170,7 @@ class FormFactor:
         chiI = jnp.zeros(num_ion_pts)
         ZpiR = jnp.interp(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
         ZpiI = jnp.interp(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
-        chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + jnp.sqrt(-1 + 0j) * ZpiI), 3)
+        chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
 
         # electron susceptibility
         # calculating normilized phase velcoity(xi's) for electrons
@@ -188,7 +188,7 @@ class FormFactor:
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
         def this_ratintn(this_dx):
-            return ratintn.ratintn(ratdf, this_dx, self.xi1)
+            return jnp.real(ratintn.ratintn(ratdf, this_dx, self.xi1))
 
         chiERratprim = vmap(this_ratintn)(self.xi1[None, :] - self.xi2[:, None])
         # if len(fe) == 2:
