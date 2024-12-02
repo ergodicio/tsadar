@@ -48,13 +48,13 @@ class FitModel:
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=config["parameters"]["electron"]["fe"]["velocity"],
+            vax=self.num_dist_func.vx,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=config["parameters"]["electron"]["fe"]["velocity"],
+            vax=self.num_dist_func.vx,
         )
 
     def __call__(self, all_params: Dict):
@@ -99,11 +99,7 @@ class FitModel:
                 all_params["electron"]["fe"],
             ) = self.num_dist_func(all_params["electron"]["m"])
             all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
-            if (
-                self.config["parameters"]["electron"]["m"]["active"]
-                and self.config["parameters"]["electron"]["fe"]["active"]
-            ):
-                raise ValueError("m and fe cannot be actively fit at the same time")
+
         elif self.config["parameters"]["electron"]["m"]["matte"]:
             # Intensity should be given in effective 3omega intensity e.i. I*lamda^2/lamda_3w^2 and in units of 10^14 W/cm^2
             alpha = (

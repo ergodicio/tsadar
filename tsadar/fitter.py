@@ -81,18 +81,36 @@ def _validate_inputs_(config: Dict) -> Dict:
     """
     # get derived quantities
     electron_params = config["parameters"]["electron"]
-    dist_obj = DistFunc(electron_params)
-    electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
-    electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
-    Warning("fe length is currently overwritten by v_res")
-    electron_params["fe"]["length"] = len(electron_params["fe"]["val"])
-    if electron_params["fe"]["symmetric"]:
-        Warning("Symmetric EDF has been disabled")
-    if electron_params["fe"]["dim"] == 2 and electron_params["fe"]["active"]:
-        Warning("2D EDFs can only be fit for angular data")
 
-    electron_params["fe"]["lb"] = np.multiply(electron_params["fe"]["lb"], np.ones(electron_params["fe"]["length"]))
-    electron_params["fe"]["ub"] = np.multiply(electron_params["fe"]["ub"], np.ones(electron_params["fe"]["length"]))
+    if electron_params["fe"]["type"].casefold() == "arbitrary":
+        if isinstance(electron_params["fe"]["val"]) in [list, np.array]:
+            pass
+        elif isinstance(electron_params["fe"]["val"], str):
+            electron_params["fe"]["val"] = DLM1D(electron_params)(electron_params["m"]["val"])
+
+    elif electron_params["fe"]["type"].casefold() == "dlm":
+        assert electron_params["m"]["val"] >= 2, "DLM requires m >= 2"
+        assert electron_params["m"]["val"] <= 5, "DLM requires m <= 5"
+
+    elif electron_params["fe"]["type"].casefold() == "spitzer":
+        pass  # dont need anything here
+    elif electron_params["fe"]["type"].casefold() == "mydlm":
+        pass  # don't need anything here
+    else:
+        raise NotImplementedError(f"Functional form {electron_params['fe']['type']} not implemented")
+
+    # dist_obj = DistFunc(electron_params)
+    # electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
+    # electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
+    # Warning("fe length is currently overwritten by v_res")
+    # electron_params["fe"]["length"] = len(electron_params["fe"]["val"])
+    # if electron_params["fe"]["symmetric"]:
+    #     Warning("Symmetric EDF has been disabled")
+    # if electron_params["fe"]["dim"] == 2 and electron_params["fe"]["active"]:
+    #     Warning("2D EDFs can only be fit for angular data")
+
+    # electron_params["fe"]["lb"] = np.multiply(electron_params["fe"]["lb"], np.ones(electron_params["fe"]["length"]))
+    # electron_params["fe"]["ub"] = np.multiply(electron_params["fe"]["ub"], np.ones(electron_params["fe"]["length"]))
 
     # get slices
     config["data"]["lineouts"]["val"] = [

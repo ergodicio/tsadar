@@ -175,8 +175,6 @@ class TSFitter:
         these_params = copy.deepcopy(input_weights)
         for species in self.cfg["parameters"].keys():
             for param_name, param_config in self.cfg["parameters"][species].items():
-                if param_name == "type":
-                    continue
                 if param_config["active"]:
                     if param_name != "fe":
                         these_params[species][param_name] = (
@@ -247,7 +245,11 @@ class TSFitter:
 
                 else:
                     if return_static_params:
-                        these_params[species][param_name] = self.static_params[species][param_name]
+                        if param_name == "fe":
+                            if param_config["type"].casefold() == "arbitrary":
+                                these_params[species][param_name] = self.static_params[species][param_name]
+                        else:
+                            these_params[species][param_name] = self.static_params[species][param_name]
 
         # need to confirm this works due to jax imutability
         # jax.debug.print("Temult {total_loss}", total_loss=Te_mult)
@@ -713,7 +715,15 @@ def init_weights_and_bounds(config, num_slices):
                 active_or_inactive = "inactive"
 
             if param_name == "fe":
-                iw[active_or_inactive][species]["fe"] = np.repeat(param_dict["val"][None, :], num_slices, axis=0)
+                # if config["parameters"][species]["fe"]["type"].casefold() == "dlm":
+                # iw[active_or_inactive][species]["m"] = np.ones((num_slices, 1)) * param_dict["params"]["m"]["val"]
+                if config["parameters"][species]["fe"]["type"].casefold() == "arbitrary":
+                    iw[active_or_inactive][species]["fe"] = np.repeat(param_dict["val"][None, :], num_slices, axis=0)
+                # else:
+                # raise NotImplementedError(
+                # f"Functional form {config['parameters'][species]['fe']['type']} not implemented"
+                # )
+
             else:
                 iw[active_or_inactive][species][param_name] = np.ones((num_slices, 1)) * param_dict["val"]
 
@@ -724,14 +734,20 @@ def init_weights_and_bounds(config, num_slices):
 
                 # normalize
                 if param_name == "fe":
-                    iw[active_or_inactive][species]["fe"] = (
-                        iw[active_or_inactive][species]["fe"]
-                        - config["units"]["shifts"][species]["fe"].reshape(
+                    if config["parameters"][species]["fe"]["type"].casefold() == "dlm":
+                        iw[active_or_inactive][species]["m"] = (
+                            iw[active_or_inactive][species]["m"] - config["units"]["shifts"][species]["m"]
+                        ) / config["units"]["norms"][species]["m"]
+
+                    else:
+                        iw[active_or_inactive][species]["fe"] = (
+                            iw[active_or_inactive][species]["fe"]
+                            - config["units"]["shifts"][species]["fe"].reshape(
+                                jnp.shape(iw[active_or_inactive][species]["fe"])
+                            )
+                        ) / config["units"]["norms"][species]["fe"].reshape(
                             jnp.shape(iw[active_or_inactive][species]["fe"])
                         )
-                    ) / config["units"]["norms"][species]["fe"].reshape(
-                        jnp.shape(iw[active_or_inactive][species]["fe"])
-                    )
                 else:
                     iw[active_or_inactive][species][param_name] = (
                         iw[active_or_inactive][species][param_name] - config["units"]["shifts"][species][param_name]
