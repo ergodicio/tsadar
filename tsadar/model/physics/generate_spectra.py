@@ -35,7 +35,6 @@ class FitModel:
         for species in config["parameters"].keys():
             if "electron" == species:
                 self.num_dist_func = DistFunc(config["parameters"][species])
-                self.e_species = species
                 self.num_electrons += 1
             elif "ion" in species:
                 self.num_ions += 1
@@ -49,13 +48,13 @@ class FitModel:
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=config["parameters"][self.e_species]["fe"]["velocity"],
+            vax=config["parameters"]["electron"]["fe"]["velocity"],
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=config["parameters"][self.e_species]["fe"]["velocity"],
+            vax=config["parameters"]["electron"]["fe"]["velocity"],
         )
 
     def __call__(self, all_params: Dict):
@@ -94,36 +93,36 @@ class FitModel:
         return modlE, modlI, lamAxisE, lamAxisI, all_params
 
     def calculate_distribution(self, all_params, cur_Te, Z, fract):
-        if self.config["parameters"][self.e_species]["m"]["active"]:
+        if self.config["parameters"]["electron"]["m"]["active"]:
             (
-                self.config["parameters"][self.e_species]["fe"]["velocity"],
-                all_params[self.e_species]["fe"],
-            ) = self.num_dist_func(all_params[self.e_species]["m"])
-            all_params[self.e_species]["fe"] = jnp.log(all_params[self.e_species]["fe"])
+                self.config["parameters"]["electron"]["fe"]["velocity"],
+                all_params["electron"]["fe"],
+            ) = self.num_dist_func(all_params["electron"]["m"])
+            all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
             if (
-                self.config["parameters"][self.e_species]["m"]["active"]
-                and self.config["parameters"][self.e_species]["fe"]["active"]
+                self.config["parameters"]["electron"]["m"]["active"]
+                and self.config["parameters"]["electron"]["fe"]["active"]
             ):
                 raise ValueError("m and fe cannot be actively fit at the same time")
-        elif self.config["parameters"][self.e_species]["m"]["matte"]:
+        elif self.config["parameters"]["electron"]["m"]["matte"]:
             # Intensity should be given in effective 3omega intensity e.i. I*lamda^2/lamda_3w^2 and in units of 10^14 W/cm^2
             alpha = (
                 0.042
-                * self.config["parameters"][self.e_species]["m"]["intens"]
+                * self.config["parameters"]["electron"]["m"]["intens"]
                 / 9.0
                 * jnp.sum(Z**2 * fract)
                 / (jnp.sum(Z * fract) * cur_Te)
             )
             mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
             (
-                self.config["parameters"][self.e_species]["fe"]["velocity"],
-                all_params[self.e_species]["fe"],
+                self.config["parameters"]["electron"]["fe"]["velocity"],
+                all_params["electron"]["fe"],
             ) = self.num_dist_func(mcur.squeeze())
-            all_params[self.e_species]["fe"] = jnp.log(all_params[self.e_species]["fe"])
+            all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
 
-        fecur = jnp.exp(all_params[self.e_species]["fe"])
-        vcur = self.config["parameters"][self.e_species]["fe"]["velocity"]
-        if self.config["parameters"][self.e_species]["fe"]["symmetric"]:
+        fecur = jnp.exp(all_params["electron"]["fe"])
+        vcur = self.config["parameters"]["electron"]["fe"]["velocity"]
+        if self.config["parameters"]["electron"]["fe"]["symmetric"]:
             fecur = jnp.concatenate((jnp.flip(fecur[1:]), fecur))
             vcur = jnp.concatenate((-jnp.flip(vcur[1:]), vcur))
         return fecur, vcur

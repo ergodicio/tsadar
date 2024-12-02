@@ -80,30 +80,19 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     """
     # get derived quantities
-    for species in config["parameters"].keys():
-        if "electron" == species:
-            dist_obj = DistFunc(config["parameters"][species])
-            config["parameters"][species]["fe"]["velocity"], config["parameters"][species]["fe"]["val"] = dist_obj(
-                config["parameters"][species]["m"]["val"]
-            )
-            config["parameters"][species]["fe"]["val"] = np.log(config["parameters"][species]["fe"]["val"])[None, :]
-            # config["velocity"] = np.linspace(-7, 7, config["parameters"]["fe"]["length"])
-            Warning("fe length is currently overwritten by v_res")
-            config["parameters"][species]["fe"]["length"] = len(config["parameters"][species]["fe"]["val"])
-            if config["parameters"][species]["fe"]["symmetric"]:
-                Warning("Symmetric EDF has been disabled")
-                # config["velocity"] = np.linspace(0, 7, config["parameters"]["fe"]["length"])
-            if config["parameters"][species]["fe"]["dim"] == 2 and config["parameters"][species]["fe"]["active"]:
-                Warning("2D EDFs can only be fit for angular data")
+    electron_params = config["parameters"]["electron"]
+    dist_obj = DistFunc(electron_params)
+    electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
+    electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
+    Warning("fe length is currently overwritten by v_res")
+    electron_params["fe"]["length"] = len(electron_params["fe"]["val"])
+    if electron_params["fe"]["symmetric"]:
+        Warning("Symmetric EDF has been disabled")
+    if electron_params["fe"]["dim"] == 2 and electron_params["fe"]["active"]:
+        Warning("2D EDFs can only be fit for angular data")
 
-            config["parameters"][species]["fe"]["lb"] = np.multiply(
-                config["parameters"][species]["fe"]["lb"], np.ones(config["parameters"][species]["fe"]["length"])
-            )
-            config["parameters"][species]["fe"]["ub"] = np.multiply(
-                config["parameters"][species]["fe"]["ub"], np.ones(config["parameters"][species]["fe"]["length"])
-            )
-        if "dist_obj" in locals():
-            ValueError("Only 1 electron species is currently supported")
+    electron_params["fe"]["lb"] = np.multiply(electron_params["fe"]["lb"], np.ones(electron_params["fe"]["length"]))
+    electron_params["fe"]["ub"] = np.multiply(electron_params["fe"]["ub"], np.ones(electron_params["fe"]["length"]))
 
     # get slices
     config["data"]["lineouts"]["val"] = [

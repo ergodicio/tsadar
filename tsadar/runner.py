@@ -222,7 +222,6 @@ def calc_series(config):
             CCDsize=config["other"]["CCDsize"],
         )
         config["other"]["PhysParams"]["widIRF"] = stddev
-        # config["other"]["PhysParams"]["widIRF"]["spect_stddev_ele"] = stddev
 
     if "series" in config.keys():
         serieslen = len(config["series"]["vals1"])
@@ -354,7 +353,7 @@ def calc_series(config):
                     coords_ele = (("series", [0]), ("Wavelength", lamAxisE[0, :].squeeze()))
                     ele_dat = {"Sim": ThryE.squeeze(0)}
                     ele_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ele) for k, v in ele_dat.items()})
-                ele_data.to_netcdf(os.path.join(td, "binary", "ele_fit_and_data.nc"))
+                ele_data.to_netcdf(os.path.join(td, "binary", "electron_data.nc"))
 
             if config["other"]["extraoptions"]["load_ion_spec"]:
                 ax[1].plot(lamAxisI.squeeze().transpose(), ThryI.squeeze().transpose())
@@ -378,7 +377,7 @@ def calc_series(config):
                     coords_ion = (("series", [0]), ("Wavelength", lamAxisI[0, :].squeeze()))
                     ion_dat = {"Sim": ThryI.squeeze(0)}
                     ion_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ion) for k, v in ion_dat.items()})
-                ion_data.to_netcdf(os.path.join(td, "binary", "ion_fit_and_data.nc"))
+                ion_data.to_netcdf(os.path.join(td, "binary", "ion_data.nc"))
             fig.savefig(os.path.join(td, "plots", "simulated_data"), bbox_inches="tight")
         mlflow.log_artifacts(td)
         metrics_dict = {"spectrum_calc_time": spectime}
