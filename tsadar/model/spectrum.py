@@ -108,7 +108,7 @@ class SpectrumCalculator:
         Returns:
 
         """
-        modlE, modlI, lamAxisE, lamAxisI, live_TSinputs = self.vmap_forward_pass(params)  # , sas["weights"])
+        modlE, modlI, lamAxisE, lamAxisI, live_TSinputs = self.vmap_forward_pass(params)
         ThryE, ThryI, lamAxisE, lamAxisI = self.vmap_postprocess_thry(
             modlE, modlI, lamAxisE, lamAxisI, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, live_TSinputs
         )

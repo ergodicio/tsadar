@@ -48,11 +48,6 @@ class TSFitter:
         else:
             self.i_input_norm = self.e_input_norm = 1.0
 
-        # this will need to be fixed for multi electron
-        for species in self.cfg["parameters"].keys():
-            if "electron" == species:
-                self.e_species = species
-
         # boolean used to determine if the analyis is performed twice with rotation of the EDF
         self.multiplex_ang = isinstance(cfg["data"]["shotnum"], list)
 
@@ -75,11 +70,11 @@ class TSFitter:
         self.construct_bounds()
 
         # this needs to be rethought and does not work in all cases
-        if cfg["parameters"][self.e_species]["fe"]["active"]:
+        if cfg["parameters"]["electron"]["fe"]["active"]:
             if "dist_fit" in cfg:
-                if cfg["parameters"][self.e_species]["fe"]["dim"] == 1:
+                if cfg["parameters"]["electron"]["fe"]["dim"] == 1:
                     self.smooth_window_len = round(
-                        cfg["parameters"][self.e_species]["fe"]["velocity"].size * cfg["dist_fit"]["window"]["len"]
+                        cfg["parameters"]["electron"]["fe"]["velocity"].size * cfg["dist_fit"]["window"]["len"]
                     )
                     self.smooth_window_len = self.smooth_window_len if self.smooth_window_len > 1 else 2
 
@@ -203,40 +198,38 @@ class TSFitter:
                         # this only works for 2D edfs and will have to be genralized to 1D
                         # recaclulate the moments of the EDF
                         renorm = jnp.sqrt(
-                            calc_moment(
-                                jnp.squeeze(fe_cur), self.cfg["parameters"][self.e_species]["fe"]["velocity"], 2
-                            )
+                            calc_moment(jnp.squeeze(fe_cur), self.cfg["parameters"]["electron"]["fe"]["velocity"], 2)
                             / (
                                 2
                                 * calc_moment(
-                                    jnp.squeeze(fe_cur), self.cfg["parameters"][self.e_species]["fe"]["velocity"], 0
+                                    jnp.squeeze(fe_cur), self.cfg["parameters"]["electron"]["fe"]["velocity"], 0
                                 )
                             )
                         )
                         Te_mult = renorm**2
-                        # h2 = self.cfg["parameters"][self.e_species]["fe"]["v_res"]/renorm
-                        vx2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0] / renorm
-                        vy2 = self.cfg["parameters"][self.e_species]["fe"]["velocity"][0][0] / renorm
+                        # h2 = self.cfg["parameters"]["electron"]["fe"]["v_res"]/renorm
+                        vx2 = self.cfg["parameters"]["electron"]["fe"]["velocity"][0][0] / renorm
+                        vy2 = self.cfg["parameters"]["electron"]["fe"]["velocity"][0][0] / renorm
                         # fe_cur = interp2d(
-                        #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(),
-                        #     self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(),
+                        #     self.cfg["parameters"]["electron"]["fe"]["velocity"][0].flatten(),
+                        #     self.cfg["parameters"]["electron"]["fe"]["velocity"][1].flatten(),
                         #     vx2, vy2,
                         #     jnp.squeeze(fe_cur),
                         #     extrap=[0, 0], method="linear").reshape(
-                        #         jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]),order="F")
+                        #         jnp.shape(self.cfg["parameters"]["electron"]["fe"]["velocity"][0]),order="F")
                         fe_cur = jnp.exp(
                             interp2d(
-                                self.cfg["parameters"][self.e_species]["fe"]["velocity"][0].flatten(),
-                                self.cfg["parameters"][self.e_species]["fe"]["velocity"][1].flatten(),
+                                self.cfg["parameters"]["electron"]["fe"]["velocity"][0].flatten(),
+                                self.cfg["parameters"]["electron"]["fe"]["velocity"][1].flatten(),
                                 vx2,
                                 vy2,
                                 jnp.log(jnp.squeeze(fe_cur)),
                                 extrap=[-100, -100],
                                 method="linear",
-                            ).reshape(jnp.shape(self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]), order="F")
+                            ).reshape(jnp.shape(self.cfg["parameters"]["electron"]["fe"]["velocity"][0]), order="F")
                         )
                         ne_mult = calc_moment(
-                            jnp.squeeze(fe_cur), self.cfg["parameters"][self.e_species]["fe"]["velocity"], 0
+                            jnp.squeeze(fe_cur), self.cfg["parameters"]["electron"]["fe"]["velocity"], 0
                         )
                         fe_cur = fe_cur / ne_mult
                         these_params[species][param_name] = jnp.log(fe_cur)
@@ -259,10 +252,10 @@ class TSFitter:
         # need to confirm this works due to jax imutability
         # jax.debug.print("Temult {total_loss}", total_loss=Te_mult)
         # jax.debug.print("nemult {total_loss}", total_loss=ne_mult)
-        # jax.debug.print("Tebefore {total_loss}", total_loss=these_params[self.e_species]['Te'])
-        these_params[self.e_species]["Te"] *= Te_mult
-        these_params[self.e_species]["ne"] *= ne_mult
-        # jax.debug.print("Teafter {total_loss}", total_loss=these_params[self.e_species]['Te'])
+        # jax.debug.print("Tebefore {total_loss}", total_loss=these_params["electron"]['Te'])
+        these_params["electron"]["Te"] *= Te_mult
+        these_params["electron"]["ne"] *= ne_mult
+        # jax.debug.print("Teafter {total_loss}", total_loss=these_params["electron"]['Te'])
         # jax.debug.print("fe after has NANs {total_loss}", total_loss=jnp.isnan(fe_cur))
 
         return these_params
@@ -441,9 +434,9 @@ class TSFitter:
 
         if self.multiplex_ang:
             ThryE, ThryI, lamAxisE, lamAxisI = self.spec_calc(params, batch["b1"])
-            # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params[self.e_species]['fe']))
-            params[self.e_species]["fe"] = rotate(
-                jnp.squeeze(params[self.e_species]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
+            # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params["electron"]['fe']))
+            params["electron"]["fe"] = rotate(
+                jnp.squeeze(params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
             )
 
             ThryE_rot, _, _, _ = self.spec_calc(params, batch["b2"])
@@ -570,7 +563,7 @@ class TSFitter:
             density_loss = 0.0
             temperature_loss = 0.0
             momentum_loss = 0.0
-        if self.cfg["parameters"][self.e_species]["fe"]["fe_decrease_strict"]:
+        if self.cfg["parameters"]["electron"]["fe"]["fe_decrease_strict"]:
             gradfe = jnp.sign(self.cfg["velocity"][1:]) * jnp.diff(params["fe"].squeeze())
             vals = jnp.where(gradfe > 0.0, gradfe, 0.0).sum()
             fe_penalty = jnp.tan(jnp.amin(jnp.array([vals, jnp.pi / 2])))
@@ -596,35 +589,33 @@ class TSFitter:
         Returns:
 
         """
-        if self.cfg["parameters"][self.e_species]["fe"]["dim"] == 1:
+        if self.cfg["parameters"]["electron"]["fe"]["dim"] == 1:
             dv = (
-                self.cfg["parameters"][self.e_species]["fe"]["velocity"][1]
-                - self.cfg["parameters"][self.e_species]["fe"]["velocity"][0]
+                self.cfg["parameters"]["electron"]["fe"]["velocity"][1]
+                - self.cfg["parameters"]["electron"]["fe"]["velocity"][0]
             )
-            if self.cfg["parameters"][self.e_species]["fe"]["symmetric"]:
-                density_loss = jnp.mean(
-                    jnp.square(1.0 - 2.0 * jnp.sum(jnp.exp(params[self.e_species]["fe"]) * dv, axis=1))
-                )
+            if self.cfg["parameters"]["electron"]["fe"]["symmetric"]:
+                density_loss = jnp.mean(jnp.square(1.0 - 2.0 * jnp.sum(jnp.exp(params["electron"]["fe"]) * dv, axis=1)))
                 temperature_loss = jnp.mean(
                     jnp.square(
                         1.0
                         - 2.0
                         * jnp.sum(
-                            jnp.exp(params[self.e_species]["fe"])
-                            * self.cfg["parameters"][self.e_species]["fe"]["velocity"] ** 2.0
+                            jnp.exp(params["electron"]["fe"])
+                            * self.cfg["parameters"]["electron"]["fe"]["velocity"] ** 2.0
                             * dv,
                             axis=1,
                         )
                     )
                 )
             else:
-                density_loss = jnp.mean(jnp.square(1.0 - jnp.sum(jnp.exp(params[self.e_species]["fe"]) * dv, axis=1)))
+                density_loss = jnp.mean(jnp.square(1.0 - jnp.sum(jnp.exp(params["electron"]["fe"]) * dv, axis=1)))
                 temperature_loss = jnp.mean(
                     jnp.square(
                         1.0
                         - jnp.sum(
-                            jnp.exp(params[self.e_species]["fe"])
-                            * self.cfg["parameters"][self.e_species]["fe"]["velocity"] ** 2.0
+                            jnp.exp(params["electron"]["fe"])
+                            * self.cfg["parameters"]["electron"]["fe"]["velocity"] ** 2.0
                             * dv,
                             axis=1,
                         )
@@ -633,17 +624,15 @@ class TSFitter:
             momentum_loss = jnp.mean(
                 jnp.square(
                     jnp.sum(
-                        jnp.exp(params[self.e_species]["fe"])
-                        * self.cfg["parameters"][self.e_species]["fe"]["velocity"]
-                        * dv,
+                        jnp.exp(params["electron"]["fe"]) * self.cfg["parameters"]["electron"]["fe"]["velocity"] * dv,
                         axis=1,
                     )
                 )
             )
         else:
             fedens = trapz(
-                trapz(jnp.exp(params[self.e_species]["fe"]), self.cfg["parameters"][self.e_species]["fe"]["v_res"]),
-                self.cfg["parameters"][self.e_species]["fe"]["v_res"],
+                trapz(jnp.exp(params["electron"]["fe"]), self.cfg["parameters"]["electron"]["fe"]["v_res"]),
+                self.cfg["parameters"]["electron"]["fe"]["v_res"],
             )
             jax.debug.print("zero moment = {fedens}", fedens=fedens)
             density_loss = jnp.mean(jnp.square(1.0 - fedens))
@@ -653,37 +642,37 @@ class TSFitter:
             #         1.0
             #         - trapz(
             #             trapz(
-            #                 jnp.exp(params[self.e_species]["fe"]), self.cfg["parameters"][self.e_species]["fe"]["v_res"]
+            #                 jnp.exp(params["electron"]["fe"]), self.cfg["parameters"]["electron"]["fe"]["v_res"]
             #             ),
-            #             self.cfg["parameters"][self.e_species]["fe"]["v_res"],
+            #             self.cfg["parameters"]["electron"]["fe"]["v_res"],
             #         )
             #     )
             # )
             second_moment = trapz(
                 trapz(
-                    jnp.exp(params[self.e_species]["fe"])
+                    jnp.exp(params["electron"]["fe"])
                     * (
-                        self.cfg["parameters"][self.e_species]["fe"]["velocity"][0] ** 2
-                        + self.cfg["parameters"][self.e_species]["fe"]["velocity"][1] ** 2
+                        self.cfg["parameters"]["electron"]["fe"]["velocity"][0] ** 2
+                        + self.cfg["parameters"]["electron"]["fe"]["velocity"][1] ** 2
                     ),
-                    self.cfg["parameters"][self.e_species]["fe"]["v_res"],
+                    self.cfg["parameters"]["electron"]["fe"]["v_res"],
                 ),
-                self.cfg["parameters"][self.e_species]["fe"]["v_res"],
+                self.cfg["parameters"]["electron"]["fe"]["v_res"],
             )
             jax.debug.print("second moment = {fedens}", fedens=second_moment)
             temperature_loss = jnp.mean(jnp.square(1.0 - second_moment / 2))
             # needs to be fixed
             first_moment = second_moment = trapz(
                 trapz(
-                    jnp.exp(params[self.e_species]["fe"])
+                    jnp.exp(params["electron"]["fe"])
                     * (
-                        self.cfg["parameters"][self.e_species]["fe"]["velocity"][0] ** 2
-                        + self.cfg["parameters"][self.e_species]["fe"]["velocity"][1] ** 2
+                        self.cfg["parameters"]["electron"]["fe"]["velocity"][0] ** 2
+                        + self.cfg["parameters"]["electron"]["fe"]["velocity"][1] ** 2
                     )
                     ** (1 / 2),
-                    self.cfg["parameters"][self.e_species]["fe"]["v_res"],
+                    self.cfg["parameters"]["electron"]["fe"]["v_res"],
                 ),
-                self.cfg["parameters"][self.e_species]["fe"]["v_res"],
+                self.cfg["parameters"]["electron"]["fe"]["v_res"],
             )
             jax.debug.print("first moment = {fedens}", fedens=first_moment)
             # momentum_loss = jnp.mean(jnp.square(jnp.sum(jnp.exp(params["fe"]) * self.cfg["velocity"] * dv, axis=1)))

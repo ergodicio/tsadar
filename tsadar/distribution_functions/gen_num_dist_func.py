@@ -64,7 +64,7 @@ class DistFunc:
         else:
             self.m_theta = 0.0
 
-    def __call__(self, mval):
+    def __call__(self, dist_params):
         """
         Distribution function class call, produces a numerical distribution function based of the object and the current
         m-value.
@@ -80,6 +80,7 @@ class DistFunc:
         """
 
         if self.fe_name == "DLM":
+            mval = dist_params
             if self.dim == 1:
                 # v, fe = dist_functional_forms.DLM_1D(mval, self.velocity_res)
                 tabl = os.path.join(BASE_FILES_PATH, "numDistFuncs/DLM_x_-3_-10_10_m_-1_2_5.mat")
@@ -135,6 +136,9 @@ class DistFunc:
                 raise ValueError("Mora and Yahi distribution can only be computed in 2D")
 
         elif self.fe_name == "Arbitrary":
-            fe = f_params["fe_val"]
+            fe = dist_params["fe_val"]
+
+        else:
+            raise NotImplementedError(f"Functional form {self.fe_name} not implemented")
 
         return v, fe
