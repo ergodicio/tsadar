@@ -129,63 +129,6 @@ def _validate_inputs_(config: Dict) -> Dict:
     return config
 
 
-# def scipy_angular_loop(config: Dict, all_data: Dict, sa) -> Tuple[Dict, float, TSFitter]:
-#     """
-#     Performs angular thomson scattering i.e. ARTEMIS fitting exercise using the SciPy optimizer routines
-
-
-#     Args:
-#         config:
-#         all_data:
-#         best_weights:
-#         all_weights:
-#         sa:
-
-#     Returns:
-
-#     """
-#     print("Running Angular, setting batch_size to 1")
-#     config["optimizer"]["batch_size"] = 1
-#     batch = {
-#         "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-#         "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-#         "i_data": all_data["i_data"],
-#         "i_amps": all_data["i_amps"],
-#         "noise_e": all_data["noiseE"][
-#             config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-#         ],
-#         "noise_i": all_data["noiseI"][
-#             config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-#         ],
-#     }
-
-#     ts_fitter = TSFitter(config, sa, batch)
-#     all_weights = {k: [] for k in ts_fitter.pytree_weights["active"].keys()}
-
-#     if config["optimizer"]["num_mins"] > 1:
-#         print(Warning("multiple num mins doesnt work. only running once"))
-#     for i in range(1):
-#         ts_fitter = TSFitter(config, sa, batch)
-#         init_weights = copy.deepcopy(ts_fitter.flattened_weights)
-
-#         res = spopt.minimize(
-#             ts_fitter.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_fitter.loss,
-#             init_weights,
-#             args=batch,
-#             method=config["optimizer"]["method"],
-#             jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-#             bounds=ts_fitter.bounds,
-#             options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
-#         )
-#         these_weights = ts_fitter.unravel_pytree(res["x"])
-#         for k in all_weights.keys():
-#             all_weights[k].append(these_weights[k])
-
-#     overall_loss = res["fun"]
-
-#     return all_weights, overall_loss, ts_fitter
-
-
 def angular_optax(config, all_data, sa, batch_indices, num_batches):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
@@ -291,38 +234,90 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
 def _1d_adam_loop_(
     config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
-    jaxopt_kwargs = dict(
-        fun=ts_fitter.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
-    )
-    opt = optax.adam(config["optimizer"]["learning_rate"])
-    solver = jaxopt.OptaxSolver(opt=opt, **jaxopt_kwargs)
+    # jaxopt_kwargs = dict(
+    #     fun=ts_fitter.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
+    # )
+    
+    
+    minimizer = getattr(optax, config["optimizer"]["method"])
+    solver = minimizer(config["optimizer"]["learning_rate"])
+    #opt = optax.adam(config["optimizer"]["learning_rate"])
+    #solver = jaxopt.OptaxSolver(opt=opt, **jaxopt_kwargs)
 
     if previous_weights is None:
-        init_weights = ts_fitter.pytree_weights["active"]
+        weights = ts_fitter.pytree_weights["active"]
     else:
-        init_weights = previous_weights
+        weights = previous_weights
+   
+    opt_state = solver.init(weights)
 
     # if "sequential" in config["optimizer"]:
     #     if config["optimizer"]["sequential"]:
     #         if previous_weights is not None:
     #             init_weights = previous_weights
 
-    opt_state = solver.init_state(init_weights, batch=batch)
+    #opt_state = solver.init_state(init_weights, batch=batch)
 
-    best_loss = 1e16
-    epoch_loss = 1e19
-    for i_epoch in range(config["optimizer"]["num_epochs"]):
-        tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
-        # if config["nn"]["use"]:
-        #     np.random.shuffle(batch_indices)
-
-        init_weights, opt_state = solver.update(params=init_weights, state=opt_state, batch=batch)
-        epoch_loss = opt_state.value
+    # start train loop
+    state_weights = {}
+    t1 = time.time()
+    epoch_loss = 0.0
+    best_loss = 100.0
+    for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
+        if config["nn"]["use"]:
+            np.random.shuffle(batch_indices)
+        
+        (val, aux), grad = ts_fitter.vg_loss(weights, batch)
+        #print(f"aux {aux}")
+        #print(f"aux {grad}")
+        updates, opt_state = solver.update(grad, opt_state, weights)
+        #print(opt_state)
+        #print(f"weights preupdate {weights}")
+        #print(f"updates {updates}")
+        
+        epoch_loss = val
         if epoch_loss < best_loss:
-            best_loss = epoch_loss
-            best_weights = init_weights
+            #print(f"delta loss {best_loss - epoch_loss}")
+            if epoch_loss < 0.001 and best_loss - epoch_loss < 0.000001:
+                print("Minimizer exited due to change in loss < 1e-7")
+                break
+            elif epoch_loss > 1.2*best_loss:
+                print("Minimizer exited due to large increase in loss")
+                break
+            else:
+                best_loss = epoch_loss
+        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
+        
+        weights = optax.apply_updates(weights, updates)
+        #print(f"weights post update {weights}")
+        
+        # if config["optimizer"]["save_state"]:
+        #     if i_epoch % config["optimizer"]["save_state_freq"] == 0:
+        #         state_weights[i_epoch] = weights
 
-    return best_loss, best_weights
+        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
+
+    #with open('state_weights.txt', 'wb') as file:
+    #    file.write(pickle.dumps(state_weights))
+
+    #mlflow.log_artifact('state_weights.txt')
+    return epoch_loss, weights
+    #return weights, epoch_loss, ts_fitter
+
+
+    
+#     best_loss = 1e16
+#     epoch_loss = 1e19
+#     for i_epoch in range(config["optimizer"]["num_epochs"]):
+#         tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
+#         # if config["nn"]["use"]:
+#         #     np.random.shuffle(batch_indices)
+
+#         init_weights, opt_state = solver.update(params=init_weights, state=opt_state, batch=batch)
+#         epoch_loss = opt_state.value
+#         if epoch_loss < best_loss:
+#             best_loss = epoch_loss
+#             best_weights = init_weights
 
 
 def _1d_scipy_loop_(config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict) -> Tuple[float, Dict]:

@@ -10,7 +10,7 @@ data:
   shotnum: 111411
 mlflow:
   experiment: shot_day_3_27_24
-  run: shot111411_late_fract_scan_90-10
+  run: shot111411_wograd_1
 other:
   PhysParams:
     widIRF:
@@ -31,15 +31,15 @@ parameters:
     Te_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 10
+      num_grad_points: 1
       ub: 10.0
-      val: 6.0
+      val: 0.0
     Va:
-      active: false
+      active: true
       angle: 0.0
       lb: -20.5
-      ub: 20.5
-      val: 5.0
+      ub: 80.5
+      val: 16.0
     amp1:
       active: true
       lb: 0.01
@@ -51,7 +51,7 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -59,28 +59,28 @@ parameters:
       active: true
       lb: 523.0
       ub: 528.0
-      val: 526.5
+      val: 526.7
     ne_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 10
+      num_grad_points: 1
       ub: 15.0
-      val: 4.0
+      val: 0.0
     type:
       active: false
       general: null
     ud:
-      active: false
+      active: true
       angle: 0.0
-      lb: -10.0
-      ub: 10.0
-      val: 9.0
+      lb: -30.0
+      ub: 30.0
+      val: 8.0
   species1:
     Te:
       active: true
       lb: 0.01
       ub: 2.0
-      val: 0.6
+      val: 0.66
     fe:
       active: false
       dim: 1
@@ -100,14 +100,14 @@ parameters:
       active: false
       intens: 2.0
       lb: 2.0
-      matte: true
+      matte: false
       ub: 5.0
-      val: 2.5
+      val: 2.2
     ne:
       active: true
       lb: 0.03
       ub: 2.0
-      val: 0.5
+      val: 0.43
     type:
       active: false
       electron: null
@@ -120,14 +120,16 @@ parameters:
       lb: 0.01
       same: false
       ub: 1.0
-      val: 0.09
+      val: 0.08
     Z:
       active: True
       lb: 1.0
       ub: 18.0
-      val: 11.0
+      val: 10.0
     fract:
       active: false
+      lb: 0.0
+      ub: 1.0
       val: 0.1
     type:
       active: false
@@ -141,7 +143,7 @@ parameters:
       lb: 0.01
       same: true
       ub: 1.0
-      val: 0.04
+      val: 0.08
     Z:
       active: false
       lb: 0.5

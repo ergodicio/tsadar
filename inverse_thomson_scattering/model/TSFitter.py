@@ -174,6 +174,8 @@ class TSFitter:
         """
         Te_mult=1.0
         ne_mult=1.0
+        tot_fract = 0.0
+        fract_fit = False
         these_params = copy.deepcopy(input_weights)
         for species in self.cfg["parameters"].keys():
             for param_name, param_config in self.cfg["parameters"][species].items():
@@ -185,6 +187,9 @@ class TSFitter:
                             these_params[species][param_name] * self.cfg["units"]["norms"][species][param_name]
                             + self.cfg["units"]["shifts"][species][param_name]
                         )
+                        if param_name == 'fract':
+                            tot_fract+=these_params[species][param_name]
+                            fract_fit = True
                     else:
 #                         fe_shape = jnp.shape(these_params[species][param_name])
 #                         #convert EDF from 01 bounded log units to unbounded log units
@@ -240,7 +245,11 @@ class TSFitter:
 
                 else:
                     if return_static_params:
-                        these_params[species][param_name] = self.static_params[species][param_name]
+                        if param_name == 'fract' and fract_fit:
+                            #we need a better way to do this, will fail if the final fract is not held
+                            these_params[species][param_name] = 1.0 - tot_fract
+                        else:
+                            these_params[species][param_name] = self.static_params[species][param_name]
 
         #need to confirm this works due to jax imutability
         #jax.debug.print("Temult {total_loss}", total_loss=Te_mult)

@@ -647,7 +647,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
         titlestr = (
             r"|Error|$^2$" + f" = {sorted_losses[i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[i]]]}"
         )
-        filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[i]]}.png"
+        filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[i]]}.png"
 
         lineout_plot(
             np.array(sorted_data)[:, i, :],
@@ -670,7 +670,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             r"|Error|$^2$"
             + f" = {sorted_losses[-1 - i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[-1 - i]]]}"
         )
-        filename = f"loss={sorted_losses[-1 - i]:.2e}-reduced_loss={sorted_red_losses[-1 - i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[-1 - i]]}.png"
+        filename = f"loss={sorted_losses[-1 - i]:.2e}-reduced_loss={sorted_red_losses[-1 - i]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[-1 - i]]}.png"
 
         lineout_plot(
             np.array(sorted_data)[:, -1 - i, :],
