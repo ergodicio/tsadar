@@ -1,8 +1,5 @@
 parameters:
-    species1:
-        type:
-            electron:
-            active: False
+    electron:
         Te:
             val: .6
             active: False
@@ -21,9 +18,7 @@ parameters:
         fe:
             val: [ ]
             active: False
-            length: 3999
-            type:
-                DLM:
+            type: "DLM"
             lb: -100.
             ub: -0.5
             fe_decrease_strict: False
@@ -34,10 +29,7 @@ parameters:
             m_theta: 0.0
             m_asym: 1.
 
-    species2:
-        type:
-            ion:
-            active: False
+    ion-1:
         Ti:
             val: 0.2
             active: True
@@ -57,9 +49,6 @@ parameters:
             active: False
 
     general:
-        type:
-            general:
-            active: False
         amp1:
             val: 1.
             active: False

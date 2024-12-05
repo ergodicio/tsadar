@@ -135,15 +135,13 @@ parameters:
       num_grad_points: 1
       ub: 15.0
       val: 0.0
-    type:
-      general: null
     ud:
       active: false
       angle: 0.0
       lb: -100.0
       ub: 100.0
       val: 0.0
-  species1:
+  electron:
     Te:
       active: false
       lb: 0.01
@@ -159,8 +157,7 @@ parameters:
       m_theta: 0.0
       symmetric: false
       temp_asym: 1.0
-      type:
-        DLM: null
+      type: "DLM"
       ub: -0.5
       v_res: 0.1
       val: []
@@ -175,9 +172,8 @@ parameters:
       lb: 0.001
       ub: 1.0
       val: 0.2
-    type:
-      electron: null
-  species2:
+
+  ion-1:
     A:
       active: false
       val: 40.0
@@ -194,8 +190,7 @@ parameters:
     fract:
       active: false
       val: 0.1
-    type:
-      ion: null
+
 plotting:
   data_cbar_l: 0
   data_cbar_u: data
