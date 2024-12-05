@@ -243,15 +243,7 @@ class FormFactor:
         sin_angle = jnp.sin(rad_angle)
         rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]])
 
-        # rotated_mesh = vmap(vmap(jnp.dot, in_axes=(None, 0)), in_axes=(None, 1), out_axes=1)(
-        #     rotation_matrix, self.coords
-        # )
-
-        # rotated_mesh = jnp.matmul(rotation_matrix, self.coords.T).T
-
         rotated_coords = jnp.einsum("ij, ki->kj", rotation_matrix, self.coords)
-        # xq = rotated_mesh[..., 0].flatten()
-        # yq = rotated_mesh[..., 1].flatten()
         xq = rotated_coords[:, 0]
         yq = rotated_coords[:, 1]
 
