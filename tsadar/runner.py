@@ -176,7 +176,7 @@ def calc_series(config):
     """
     # get scattering angles and weights
     config["optimizer"]["batch_size"] = 1
-    config["other"]["extraoptions"]["spectype"] = "1d"
+    # config["other"]["extraoptions"]["spectype"] = "1d"
     config["other"]["lamrangE"] = [
         config["data"]["fit_rng"]["forward_epw_start"],
         config["data"]["fit_rng"]["forward_epw_end"],
@@ -190,7 +190,7 @@ def calc_series(config):
     electron_params = config["parameters"]["electron"]
     dist_obj = DistFunc(electron_params)
     electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
-    electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
+    # electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
 
     config["units"] = init_param_norm_and_shift(config)
 
@@ -303,7 +303,6 @@ def calc_series(config):
                 np.zeros_like(electron_params["fe"]["val"]),
                 td,
             )
-            print(np.shape(electron_params["fe"]["val"]))
             if len(np.shape(np.squeeze(electron_params["fe"]["val"]))) == 1:
                 final_dist = pandas.DataFrame(
                     {

@@ -1,0 +1,190 @@
+parameters:
+  electron:
+    Te:
+        val: .5
+        active: False
+        lb: 0.01
+        ub: 3.
+        gradient: 0.0
+    m:
+        val: 2.
+        active: False
+        lb: 2.
+        ub: 5.
+    fe:
+        val: []
+        active: False
+        type: "DLM"
+        lb: -100.
+        ub: -0.5
+        fe_decrease_strict: True
+    ne:
+        val: .2
+        active: False
+        lb: .001
+        ub: 10.
+
+  ion-1:
+    Ti:
+        val: .2
+        active: False
+        lb: 0.01
+        ub: 3.
+    Z:
+        val: 1.
+        active: False
+        lb: 1.
+        ub: 25.
+    A:
+        val: 40
+        active: False
+    fract:
+        val: 1
+        active: False
+  general:
+    amp1:
+        val: 1.
+        active: False
+        lb: 0.
+        ub: 10.
+    amp2:
+        val: 1.
+        active: False
+        lb: 0.
+        ub: 10.
+    amp3:
+        val: 1.
+        active: False
+        lb: 0.
+        ub: 10.
+    lam:
+        val: 526.5
+        active: False
+        lb: 523.
+        ub: 528.
+    ud:
+        val: 0
+        active: False
+    Va:
+        val: 0
+        active: False
+
+    blur:
+        val: []
+        active: False
+        lb: 0.
+        ub: 10.
+    specCurvature:
+        val: []
+        active: False
+        lb: .1
+        ub: 10.
+    fitprops:
+        val: []
+        active: False
+
+other:
+    crop_window: 1
+    BinWidth: 10
+    NumBinInRng: 0
+    TotalNumBin: 1023
+    expandedions: False
+    extraoptions:
+        load_ion_spec: False
+        load_ele_spec: True
+        fit_IAW: False
+        fit_EPWb: True
+        fit_EPWr: True
+    PhysParams:
+        background: [0, 0]
+        norm: 0
+    iawoff: 0
+    iawfilter: [1, 4, 24, 528]
+    CCDsize: [1024, 1024]
+    flatbg: 0
+    gain: 1
+    points_per_pixel: 2
+    ang_res_unit: 10
+    lam_res_unit: 5
+    refit: True
+    refit_thresh: 0.25
+    calc_sigmas: False
+
+plotting:
+    n_sigmas: 3
+    rolling_std_width: 5
+    data_cbar_u: data #1.1
+    data_cbar_l: data #0
+    ion_window_start: 525
+    ion_window_end: 528
+    ele_window_start: 425
+    ele_window_end: 625
+    
+
+data:
+    launch_data_visualizer: False
+    shotnum: 101675
+    shotDay: False
+    fit_rng:
+        blue_min: 450
+        blue_max: 510
+        red_min: 545
+        red_max: 650
+        iaw_min: 350
+        iaw_max: 352
+        iaw_cf_min: 526.4
+        iaw_cf_max: 526.6
+        forward_epw_start: 400
+        forward_epw_end: 700
+        forward_iaw_start: 524
+        forward_iaw_end: 528
+    bgscaleE: 1.0
+    bgscaleI: 0.1
+    bgshotmult: 1
+    ele_lam_shift: 0.0
+    ion_loss_scale: 1.0
+    probe_beam: P9
+    dpixel: 2
+    lineouts:
+        type:
+            pixel
+        start: 500
+        end: 502
+        skip: 1
+    background:
+        type:
+            pixel
+        slice: 900
+
+
+    
+optimizer:
+    # use adam for nn / stochastic gradient descent
+    # use L-BFGS-B for full batch / parameter learning
+    # although adam will work here too
+    method: l-bfgs-b
+    hessian: False
+    y_norm: True
+    x_norm: False
+    grad_method: AD
+    grad_scalar: 0.5
+    batch_size: 5
+    num_epochs: 1
+    learning_rate: 1.0e-4
+    parameter_norm: True
+    refine_factor: 1
+    num_mins: 2
+
+nn:
+    use: false
+    conv_filters: 32|16|16 #|32|32
+    linear_widths: 32|16
+
+dist_fit:
+    window:
+        len: 0.2 #should be even
+        type: hamming # one of [hamming, hann, bartlett]
+
+mlflow:
+    experiment: inverse-thomson-scattering
+    run: base

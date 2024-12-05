@@ -19,9 +19,7 @@ parameters:
         fe:
             val: [ ]
             active: False
-            length: 3999
-            type:
-                "DLM"
+            type: "DLM"
             lb: -100.
             ub: -0.5
             fe_decrease_strict: False
@@ -100,6 +98,7 @@ parameters:
 other:
     expandedions: False
     extraoptions:
+        spectype: 1d
         load_ion_spec: False
         load_ele_spec: True
         fit_IAW: False
@@ -198,4 +197,4 @@ dist_fit:
         
 mlflow:
     experiment: inverse-thomson-scattering
-    run: base
+    run: gradne-5

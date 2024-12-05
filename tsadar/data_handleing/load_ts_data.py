@@ -49,23 +49,23 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     t0 = [0, 0]
 
     for fl in files:
-        if "epw" in fl or "EPW" in fl:
+        if "epw" in fl.casefold():
             hdfnameE = join(folder, fl)
-            if "ccd" in fl or "CCD" in fl:
+            if "ccd" in fl.casefold():
                 xlab = "Radius (\mum)"
                 specType = "imaging"
             else:
                 xlab = "Time (ps)"
                 specType = "temporal"
-        if "iaw" in fl or "IAW" in fl:
+        if "iaw" in fl.casefold():
             hdfnameI = join(folder, fl)
-            if "ccd" in fl or "CCD" in fl:
+            if "ccd" in fl.casefold():
                 xlab = "Radius (\mum)"
                 specType = "imaging"
             else:
                 xlab = "Time (ps)"
                 specType = "temporal"
-        if "ats" in fl or "ATS" in fl:
+        if "ats" in fl.casefold():
             hdfnameE = join(folder, fl)
             specType = "angular"
             xlab = "Scattering angle (degrees)"

@@ -1,9 +1,11 @@
 from typing import Dict
 import numpy as np
 import scipy.io as sio
-from os.path import join
+import os
 
 from tsadar.data_handleing.calibrations.sa_table import sa_lookup
+
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "aux")
 
 
 def get_calibrations(shotNum, tstype, t0, CCDsize):
@@ -170,7 +172,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magE = 5.13 / 0.36175 * 1.118  # um / px times strech factor accounting for tilt in view
 
             EPWtcc = 1024 - 503  # 562;
-            IAWtcc = 1024 - 450 #578  # 469;
+            IAWtcc = 1024 - 450  # 578  # 469;
 
         else:
             # needs to be updated with the calibrations from 7-26-22
@@ -204,7 +206,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             axisxI = axisxI - IAWtcc * magI
             # axisxI = axisxI + 200
     else:
-        imp = sio.loadmat(join("files", "angsFRED.mat"), variable_names="angsFRED")
+        imp = sio.loadmat(os.path.join(BASE_FILES_PATH, "files", "angsFRED.mat"), variable_names="angsFRED")
         axisxE = imp["angsFRED"][0, :]
         # axisxE = np.vstack(np.loadtxt("files/angsFRED.txt"))
         axisxI = np.arange(1, CCDsize[1] + 1)
@@ -234,7 +236,9 @@ def get_scattering_angles(config: Dict) -> Dict:
         sa = sa_lookup(config["data"]["probe_beam"])
     else:
         # Scattering angle in degrees for Artemis
-        imp = sio.loadmat(join("files", "angleWghtsFredfine.mat"), variable_names="weightMatrix")
+        imp = sio.loadmat(
+            os.path.join(BASE_FILES_PATH, "files", "angleWghtsFredfine.mat"), variable_names="weightMatrix"
+        )
         weights = imp["weightMatrix"]
         sa = dict(sa=np.arange(19, 139.5, 0.5), weights=weights)
     return sa

@@ -78,8 +78,9 @@ class FormFactor:
         self.Zpi = jnp.array(zprimeMaxw(self.xi2))
 
         if (vax is not None) and (fe_dim == 2):
-            self.coords = jnp.concatenate([np.copy(vax[0][..., None]), np.copy(vax[1][..., None])], axis=-1)
-            self.v = vax[0][0]
+            vx, vy = jnp.meshgrid(vax[0], vax[1])
+            self.coords = jnp.concatenate([vx.flatten()[..., None], vy.flatten()[..., None]], axis=-1)
+            self.v = vax[0]
 
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
 
@@ -188,9 +189,10 @@ class FormFactor:
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
         def this_ratintn(this_dx):
-            return jnp.real(ratintn.ratintn(ratdf, this_dx, self.xi1))
+            return ratintn.ratintn(ratdf, this_dx, self.xi1)
 
         chiERratprim = vmap(this_ratintn)(self.xi1[None, :] - self.xi2[:, None])
+
         # if len(fe) == 2:
         chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
         # else:
@@ -241,11 +243,17 @@ class FormFactor:
         sin_angle = jnp.sin(rad_angle)
         rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]])
 
-        rotated_mesh = vmap(vmap(jnp.dot, in_axes=(None, 0)), in_axes=(None, 1), out_axes=1)(
-            rotation_matrix, self.coords
-        )
-        xq = rotated_mesh[..., 0].flatten()
-        yq = rotated_mesh[..., 1].flatten()
+        # rotated_mesh = vmap(vmap(jnp.dot, in_axes=(None, 0)), in_axes=(None, 1), out_axes=1)(
+        #     rotation_matrix, self.coords
+        # )
+
+        # rotated_mesh = jnp.matmul(rotation_matrix, self.coords.T).T
+
+        rotated_coords = jnp.einsum("ij, ki->kj", rotation_matrix, self.coords)
+        # xq = rotated_mesh[..., 0].flatten()
+        # yq = rotated_mesh[..., 1].flatten()
+        xq = rotated_coords[:, 0]
+        yq = rotated_coords[:, 1]
 
         return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="cubic").reshape(
             (self.v.size, self.v.size), order="F"
@@ -303,7 +311,8 @@ class FormFactor:
         fe_vphi = fe_1D_k[loc]
 
         # derivative of f along k
-        df = jnp.real(jnp.gradient(fe_1D_k, x[1] - x[0]))
+        df = jnp.gradient(fe_1D_k, x[1] - x[0])
+        # df = jnp.gradient(fe_1D_k, x[1] - x[0])
 
         # Chi is really chi evaluated at the points xie
         # so the imaginary part is
@@ -312,7 +321,7 @@ class FormFactor:
         # the real part is solved with rational integration
         # giving the value at a single point where the pole is located at xie_mag[ind]
         chiERrat = (
-            -1.0 / (klde_mag_at**2) * jnp.real(ratintn.ratintn(df, x - xie_mag_at, x))
+            -1.0 / (klde_mag_at**2) * ratintn.ratintn(df, x - xie_mag_at, x)
         )  # this may need to be downsampled for run time
         return fe_vphi, chiEI, chiERrat
 

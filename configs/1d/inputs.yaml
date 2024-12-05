@@ -68,11 +68,11 @@ parameters:
             ub: 10.
             num_grad_points: 1
         ne_gradient:
-            val: 0.
+            val: 5.
             active: False
             lb: 0.
             ub: 15.
-            num_grad_points: 1
+            num_grad_points: 10
         ud:
             val: 0.0
             angle: 0.0

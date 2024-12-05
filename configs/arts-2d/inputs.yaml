@@ -72,16 +72,13 @@ parameters:
       num_grad_points: 1
       ub: 15.0
       val: 0.0
-    type:
-      active: false
-      general: null
     ud:
       active: false
       angle: 0.0
       lb: -10.0
       ub: 30.0
       val: 5.0
-  species1:
+  electron:
     Te:
       active: false
       gradient_scalar: 10.0
@@ -89,7 +86,7 @@ parameters:
       ub: 2.0
       val: 1.1
     fe:
-      active: true
+      active: false
       dim: 2
       fe_decrease_strict: false
       lb: -100.0
@@ -97,8 +94,7 @@ parameters:
       m_theta: 0.0
       symmetric: false
       temp_asym: 1.0
-      type:
-        DLM: null
+      type: "DLM"
       ub: -0.5
       v_res: 0.1
       val: []
@@ -115,10 +111,8 @@ parameters:
       lb: 0.03
       ub: 2.0
       val: 0.44
-    type:
-      active: false
-      electron: null
-  species2:
+    
+  ion-1:
     A:
       active: false
       val: 1.0
@@ -136,6 +130,4 @@ parameters:
     fract:
       active: false
       val: 1.0
-    type:
-      active: false
-      ion: null
+    

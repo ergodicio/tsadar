@@ -48,13 +48,13 @@ class FitModel:
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=self.num_dist_func.vx,
+            vax=self.num_dist_func.v,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=self.num_dist_func.vx,
+            vax=self.num_dist_func.v,
         )
 
     def __call__(self, all_params: Dict):
@@ -93,31 +93,33 @@ class FitModel:
         return modlE, modlI, lamAxisE, lamAxisI, all_params
 
     def calculate_distribution(self, all_params, cur_Te, Z, fract):
-        if self.config["parameters"]["electron"]["m"]["active"]:
-            (
-                self.config["parameters"]["electron"]["fe"]["velocity"],
-                all_params["electron"]["fe"],
-            ) = self.num_dist_func(all_params["electron"]["m"])
-            all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
+        if self.num_dist_func.fe_name.casefold() == "dlm":
+            if self.config["parameters"]["electron"]["m"]["matte"]:
+                # Intensity should be given in effective 3omega intensity e.i. I*lamda^2/lamda_3w^2 and in units of 10^14 W/cm^2
+                alpha = (
+                    0.042
+                    * self.config["parameters"]["electron"]["m"]["intens"]
+                    / 9.0
+                    * jnp.sum(Z**2 * fract)
+                    / (jnp.sum(Z * fract) * cur_Te)
+                )
+                mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
+            else:
+                mcur = all_params["electron"]["m"]
 
-        elif self.config["parameters"]["electron"]["m"]["matte"]:
-            # Intensity should be given in effective 3omega intensity e.i. I*lamda^2/lamda_3w^2 and in units of 10^14 W/cm^2
-            alpha = (
-                0.042
-                * self.config["parameters"]["electron"]["m"]["intens"]
-                / 9.0
-                * jnp.sum(Z**2 * fract)
-                / (jnp.sum(Z * fract) * cur_Te)
-            )
-            mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
-            (
-                self.config["parameters"]["electron"]["fe"]["velocity"],
-                all_params["electron"]["fe"],
-            ) = self.num_dist_func(mcur.squeeze())
-            all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
+            # if self.config["parameters"]["electron"]["m"]["active"]:
+            vcur, fecur = self.num_dist_func(mcur)
+            # all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
 
-        fecur = jnp.exp(all_params["electron"]["fe"])
-        vcur = self.config["parameters"]["electron"]["fe"]["velocity"]
+            # (
+            #     self.config["parameters"]["electron"]["fe"]["velocity"],
+            #     all_params["electron"]["fe"],
+            # ) = self.num_dist_func(mcur.squeeze())
+            # all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
+        else:
+            raise NotImplementedError(f"Functional form {f.type} not implemented")
+        # fecur = jnp.exp(all_params["electron"]["fe"])
+        # vcur = self.config["parameters"]["electron"]["fe"]["velocity"]
         if self.config["parameters"]["electron"]["fe"]["symmetric"]:
             fecur = jnp.concatenate((jnp.flip(fecur[1:]), fecur))
             vcur = jnp.concatenate((-jnp.flip(vcur[1:]), vcur))
@@ -190,8 +192,6 @@ class FitModel:
 
             # remove extra dimensions and rescale to nm
             lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
-
-            ThryI = jnp.real(ThryI)
             ThryI = jnp.mean(ThryI, axis=0)
             modlI = jnp.sum(ThryI * self.sa["weights"][0], axis=1)
         else:
@@ -233,7 +233,6 @@ class FitModel:
             # remove extra dimensions and rescale to nm
             lamAxisE = jnp.squeeze(lamAxisE) * 1e7  # TODO hardcoded
 
-            ThryE = jnp.real(ThryE)
             ThryE = jnp.mean(ThryE, axis=0)
             if self.config["other"]["extraoptions"]["spectype"] == "angular_full":
                 modlE = jnp.matmul(self.sa["weights"], ThryE.transpose())

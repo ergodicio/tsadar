@@ -86,7 +86,12 @@ def _validate_inputs_(config: Dict) -> Dict:
         if isinstance(electron_params["fe"]["val"]) in [list, np.array]:
             pass
         elif isinstance(electron_params["fe"]["val"], str):
-            electron_params["fe"]["val"] = DLM1D(electron_params)(electron_params["m"]["val"])
+            if electron_params["fe"]["val"].casefold() == "dlm":
+                electron_params["fe"]["val"] = DLM1D(electron_params)(electron_params["m"]["val"])
+            elif "file" in electron_params["fe"]["val"]:  # file-/pscratch/a/.../file.txt
+                filename = electron_params["fe"]["val"].split("-")[1]
+            else:
+                raise NotImplementedError(f"Functional form {electron_params['fe']['val']} not implemented")
 
     elif electron_params["fe"]["type"].casefold() == "dlm":
         assert electron_params["m"]["val"] >= 2, "DLM requires m >= 2"

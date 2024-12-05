@@ -51,4 +51,4 @@ def ratcen(f: jnp.ndarray, g: jnp.ndarray) -> jnp.ndarray:
     rfn = fdif / gdif + tmp * jnp.log((gav + (0.5 + 0j) * gdif) / (gav - 0.5 * gdif)) / gdif**2
 
     out = jnp.where((jnp.abs(gdif) < 1.0e-4 * jnp.abs(gav))[None, :], rf, rfn)
-    return out
+    return jnp.real(out)

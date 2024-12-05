@@ -79,7 +79,6 @@ def test_iaw():
         config["parameters"]["general"]["lam"]["val"],
     )
 
-    ThryI = jnp.real(ThryI)
     ThryI = jnp.mean(ThryI, axis=0)
 
     ThryI = np.squeeze(ThryI)
