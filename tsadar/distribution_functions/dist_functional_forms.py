@@ -97,21 +97,27 @@ def BiDLM(mx, my, tasym, theta, h):
     x0y = jnp.sqrt(3 * gamma(3 / my) / gamma(5 / my))
     fe_num = jnp.exp(-((jnp.abs(vx) / x0x) ** mx) - (jnp.abs(vy) / (x0y * jnp.sqrt(tasym))) ** my)
     fe_num = rotate(fe_num, theta)
-    #fe_num = fe_num / calc_moment(fe_num,(vx,vy),0)
+    # fe_num = fe_num / calc_moment(fe_num,(vx,vy),0)
 
-    renorm = jnp.sqrt(calc_moment(fe_num,(vx,vy),2)/ (2*calc_moment(fe_num,(vx,vy),0)))#the 2 is to make the moment equal the number of dimensions, not sure on this
-    h2 = h/renorm
-    #vx2 = jnp.arange(-8/renorm, 8/renorm, h2)
-    vx2 = vx[0]/renorm
-    vy2 = vx[0]/renorm
-    #vy2 = jnp.arange(-8/renorm, 8/renorm, h2)
+    renorm = jnp.sqrt(
+        calc_moment(fe_num, (vx, vy), 2) / (2 * calc_moment(fe_num, (vx, vy), 0))
+    )  # the 2 is to make the moment equal the number of dimensions, not sure on this
+    h2 = h / renorm
+    # vx2 = jnp.arange(-8/renorm, 8/renorm, h2)
+    vx2 = vx[0] / renorm
+    vy2 = vx[0] / renorm
+    # vy2 = jnp.arange(-8/renorm, 8/renorm, h2)
     print(jnp.shape(fe_num))
     print(jnp.shape(vx2))
     print(h2)
     print(jnp.shape(jnp.log(fe_num)))
-    fe_num = jnp.exp(interp2d(vx.flatten(), vy.flatten(), vx2, vy2, jnp.log(fe_num), extrap=[-100, -100], method="linear").reshape(jnp.shape(vx),order="F"))
-    fe_num = fe_num / calc_moment(fe_num,(vx,vy),0)
-    
+    fe_num = jnp.exp(
+        interp2d(vx.flatten(), vy.flatten(), vx2, vy2, jnp.log(fe_num), extrap=[-100, -100], method="linear").reshape(
+            jnp.shape(vx), order="F"
+        )
+    )
+    fe_num = fe_num / calc_moment(fe_num, (vx, vy), 0)
+
     return (vx, vy), fe_num
 
 
@@ -158,9 +164,9 @@ def Spitzer_2V(dt, vq, h):
     Produces a 2-D Spitzer-Harm distribution with the f1 direction given in the plane.
 
     Args:
-        dt: (int) Knudsen number determining the magnitude of the perturbation
+        dt: (float) Knudsen number determining the magnitude of the perturbation
         vq: array or list with 2 elements giving the direction of the f1 perturbation in x,y
-        h: (int) resolution of normalized velocity grid, i.e. spacing of the grid
+        h: (float) resolution of normalized velocity grid, i.e. spacing of the grid
 
     Returns:
         (vx, vy): tuple of the normalized velocity grids in x and y
@@ -177,26 +183,30 @@ def Spitzer_2V(dt, vq, h):
 
     return (vx, vy), fe_num
 
-def calc_moment(f,v,m):
+
+def calc_moment(f, v, m):
     """
     Calculates the moment of the distribtuion function specified by m
-    
+
     Args:
         f: function to calculate the moment of
         m: moment 0, 1, or 2
         v: velocity grid
-    
+
     Returns:
         moment_val: value of the mth moment
     """
-    #print(jnp.shape(f))
-    #print(jnp.shape(v))
-    if len(jnp.shape(f))==1:
-        moment_val = trapz(v**m *f, v[1]-v[0])
-    elif len(jnp.shape(f))==2:
-        moment_val = trapz(trapz((v[0]**2 + v[1]**2)**(m/2) *f, v[0][0][1]-v[0][0][0]), v[1][1][0]-v[1][0][0])
+    # print(jnp.shape(f))
+    # print(jnp.shape(v))
+    if len(jnp.shape(f)) == 1:
+        moment_val = trapz(v**m * f, v[1] - v[0])
+    elif len(jnp.shape(f)) == 2:
+        moment_val = trapz(
+            trapz((v[0] ** 2 + v[1] ** 2) ** (m / 2) * f, v[0][0][1] - v[0][0][0]), v[1][1][0] - v[1][0][0]
+        )
 
     return moment_val
+
 
 def trapz(y, dx):
     """

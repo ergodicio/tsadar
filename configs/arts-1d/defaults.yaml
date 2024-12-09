@@ -17,7 +17,7 @@ parameters:
         type: "DLM"
         lb: -100.
         ub: -0.5
-        fe_decrease_strict: True
+        fe_decrease_strict: False
     ne:
         val: .2
         active: False
@@ -162,8 +162,9 @@ optimizer:
     # use adam for nn / stochastic gradient descent
     # use L-BFGS-B for full batch / parameter learning
     # although adam will work here too
-    method: l-bfgs-b
+    method: adam
     hessian: False
+    loss_method: l2
     y_norm: True
     x_norm: False
     grad_method: AD
@@ -174,6 +175,8 @@ optimizer:
     parameter_norm: True
     refine_factor: 1
     num_mins: 2
+    moment_loss: false
+    save_state: False
 
 nn:
     use: false

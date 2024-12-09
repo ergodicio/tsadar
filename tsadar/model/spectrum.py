@@ -25,17 +25,22 @@ class SpectrumCalculator:
         self.cfg = cfg
         self.sas = sas
 
-        self.forward_pass = FitModel(cfg, sas)
+        self.model = FitModel(cfg, sas)
         self.lam = cfg["parameters"]["general"]["lam"]["val"]
 
-        if cfg["other"]["extraoptions"]["spectype"] == "angular_full":
-            self.vmap_forward_pass = self.forward_pass
-            self.vmap_postprocess_thry = self.postprocess_thry
+        if (
+            "temporal" in cfg["other"]["extraoptions"]["spectype"]
+            or "imaging" in cfg["other"]["extraoptions"]["spectype"]
+            or "1d" in cfg["other"]["extraoptions"]["spectype"]
+        ):
+            self.model = vmap(self.model)
+            self.postprocess_theory = vmap(self.postprocess_theory)
+        elif "angular" in cfg["other"]["extraoptions"]["spectype"]:
+            pass
         else:
-            self.vmap_forward_pass = vmap(self.forward_pass)
-            self.vmap_postprocess_thry = vmap(self.postprocess_thry)
+            raise NotImplementedError(f"Unknown spectype: {cfg['other']['extraoptions']['spectype']}")
 
-    def postprocess_thry(self, modlE, modlI, lamAxisE, lamAxisI, amps, TSins):
+    def postprocess_theory(self, modlE, modlI, lamAxisE, lamAxisI, amps, TSins):
         """
         Adds instrumental broadening to the synthetic Thomson spectrum.
 
@@ -53,18 +58,15 @@ class SpectrumCalculator:
         if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
             lamAxisI, ThryI = irf.add_ion_IRF(self.cfg, lamAxisI, modlI, amps["i_amps"], TSins)
         else:
-            # lamAxisI = jnp.nan
-            ThryI = modlI  # jnp.nan
+            ThryI = modlI
 
-        if self.cfg["other"]["extraoptions"]["load_ele_spec"] & (
-            self.cfg["other"]["extraoptions"]["spectype"] == "angular_full"
-        ):
-            lamAxisE, ThryE = irf.add_ATS_IRF(self.cfg, self.sas, lamAxisE, modlE, amps["e_amps"], TSins, self.lam)
-        elif self.cfg["other"]["extraoptions"]["load_ele_spec"]:
-            lamAxisE, ThryE = irf.add_electron_IRF(self.cfg, lamAxisE, modlE, amps["e_amps"], TSins, self.lam)
+        if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
+            if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
+                lamAxisE, ThryE = irf.add_ATS_IRF(self.cfg, self.sas, lamAxisE, modlE, amps["e_amps"], TSins)
+            else:
+                lamAxisE, ThryE = irf.add_electron_IRF(self.cfg, lamAxisE, modlE, amps["e_amps"], TSins)
         else:
-            # lamAxisE = jnp.nan
-            ThryE = modlE  # jnp.nan
+            ThryE = modlE
 
         return ThryE, ThryI, lamAxisE, lamAxisI
 
@@ -108,9 +110,14 @@ class SpectrumCalculator:
         Returns:
 
         """
-        modlE, modlI, lamAxisE, lamAxisI, live_TSinputs = self.vmap_forward_pass(params)
-        ThryE, ThryI, lamAxisE, lamAxisI = self.vmap_postprocess_thry(
-            modlE, modlI, lamAxisE, lamAxisI, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, live_TSinputs
+        modlE, modlI, lamAxisE, lamAxisI, live_TSinputs = self.model(params)
+        ThryE, ThryI, lamAxisE, lamAxisI = self.postprocess_theory(
+            modlE,
+            modlI,
+            lamAxisE,
+            lamAxisI,
+            {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]},
+            live_TSinputs,
         )
         if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
             ThryE, lamAxisE = self.reduce_ATS_to_resunit(ThryE, lamAxisE, live_TSinputs, batch)

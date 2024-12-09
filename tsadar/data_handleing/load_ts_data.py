@@ -43,7 +43,6 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     else:
         folder = join(BASE_FILES_PATH, "data")
 
-    print(f"{folder=}")
     file_list = listdir(folder)
     files = [name for name in file_list if str(sNum) in name]
     t0 = [0, 0]
@@ -93,8 +92,6 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             loadspecs["load_ion_spec"] = False
     else:
         iDat = []
-
-    print(f"{hdfnameE=}")
 
     if loadspecs["load_ele_spec"]:
         try:

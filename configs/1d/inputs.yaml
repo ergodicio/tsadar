@@ -72,7 +72,7 @@ parameters:
             active: False
             lb: 0.
             ub: 15.
-            num_grad_points: 10
+            num_grad_points: 1
         ud:
             val: 0.0
             angle: 0.0
