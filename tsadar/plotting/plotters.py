@@ -30,7 +30,7 @@ def get_final_params(config, best_weights, all_axes, td):
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
             if k == "fe":
-                fitted_dist =True
+                fitted_dist = True
                 dist[k] = v.squeeze()
                 dist["v"] = config["parameters"][species]["fe"]["velocity"]
             else:
@@ -45,18 +45,17 @@ def get_final_params(config, best_weights, all_axes, td):
     if config["other"]["extraoptions"]["load_ion_spec"]:
         final_params.insert(0, all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]]))
         final_params.insert(0, "lineout pixel", config["data"]["lineouts"]["pixelI"])
-    elif config["other"]["extraoptions"]["spectype"] != "angular_full":    
+    elif config["other"]["extraoptions"]["spectype"] != "angular_full":
         final_params.insert(0, all_axes["x_label"], np.array(all_axes["epw_x"][config["data"]["lineouts"]["pixelE"]]))
         final_params.insert(0, "lineout pixel", config["data"]["lineouts"]["pixelE"])
     final_params.to_csv(os.path.join(td, "csv", "learned_parameters.csv"))
 
-    
     if fitted_dist:
-        if len(np.shape(dist['fe']))==1:
-            final_dist = pandas.DataFrame({'fe':[l for l in dist['fe']], 'vx':[vx for vx in dist['v']]})
-        elif len(np.shape(dist['fe']))==2:
-            final_dist = pandas.DataFrame(data=dist['fe'], columns=dist['v'][0][0], index=dist['v'][0][:,0]) 
-            #final_dist = pandas.DataFrame({'fe':[l for l in dist['fe']], 'vx':[vx for vx in dist['v'][0]], 'vy':[vy for vy in dist['v'][1]]})
+        if len(np.shape(dist["fe"])) == 1:
+            final_dist = pandas.DataFrame({"fe": [l for l in dist["fe"]], "vx": [vx for vx in dist["v"]]})
+        elif len(np.shape(dist["fe"])) == 2:
+            final_dist = pandas.DataFrame(data=dist["fe"], columns=dist["v"][0][0], index=dist["v"][0][:, 0])
+            # final_dist = pandas.DataFrame({'fe':[l for l in dist['fe']], 'vx':[vx for vx in dist['v'][0]], 'vy':[vy for vy in dist['v'][1]]})
         final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
 
     return all_params | dist
@@ -516,17 +515,16 @@ def plot_2D_data_vs_fit(
     Returns:
 
     """
+
+    if "angular" in config["other"]["extraoptions"]["spectype"]:
+        vmin, vmax = 0.0, 1.5
+    else:
+        vmin = np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"]
+        vmax = np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]
+
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
-    pc = ax[0].pcolormesh(
-        x,
-        y,
-        fit,
-        shading="nearest",
-        cmap="gist_ncar",
-        vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-        vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
-    )
+    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap="gist_ncar", vmin=vmin, vmax=vmax)
     ax[0].set_xlabel(xlabel)
     ax[0].set_ylabel(ylabel)
     ax[1].pcolormesh(
@@ -640,7 +638,8 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
     for i in range(num_plots):
         # plot model vs actual
         titlestr = (
-            r"|Error|$^2$" + f" = {sorted_losses[i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[i]]]}"
+            r"|Error|$^2$"
+            + f" = {sorted_losses[i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[i]]]}"
         )
         filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[i]]}.png"
 

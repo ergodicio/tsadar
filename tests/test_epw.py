@@ -31,14 +31,9 @@ def test_epw():
 
     # Test #1: Bohm-Gross test, calculate a spectrum and compare the resonance to the Bohm gross dispersion relation
     npts = 2048
-    num_dist_func = DistFunc(config["parameters"]["species1"])
-    vcur, fecur = num_dist_func(config["parameters"]["species1"]["m"]["val"])
-    electron_form_factor = FormFactor(
-        [400, 700],
-        npts=npts,
-        fe_dim=num_dist_func.dim,
-        vax=vcur,
-    )
+    num_dist_func = DistFunc(config["parameters"]["electron"])
+    vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
+    electron_form_factor = FormFactor([400, 700], npts=npts, fe_dim=num_dist_func.dim, vax=vcur)
 
     sa = np.array([60])
     params = {
@@ -50,12 +45,12 @@ def test_epw():
 
     ThryE, lamAxisE = jit(electron_form_factor)(
         params,
-        jnp.array(config["parameters"]["species1"]["ne"]["val"] * 1e20).reshape(1, 1),
-        jnp.array(config["parameters"]["species1"]["Te"]["val"]).reshape(1, 1),
-        config["parameters"]["species2"]["A"]["val"],
-        config["parameters"]["species2"]["Z"]["val"],
-        config["parameters"]["species2"]["Ti"]["val"],
-        config["parameters"]["species2"]["fract"]["val"],
+        jnp.array(config["parameters"]["electron"]["ne"]["val"] * 1e20).reshape(1, 1),
+        jnp.array(config["parameters"]["electron"]["Te"]["val"]).reshape(1, 1),
+        config["parameters"]["ion-1"]["A"]["val"],
+        config["parameters"]["ion-1"]["Z"]["val"],
+        config["parameters"]["ion-1"]["Ti"]["val"],
+        config["parameters"]["ion-1"]["fract"]["val"],
         sa,
         (fecur, vcur),
         config["parameters"]["general"]["lam"]["val"],

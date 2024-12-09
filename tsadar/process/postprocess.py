@@ -65,12 +65,8 @@ def recalculate_with_chosen_weights(
             "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
             "i_data": all_data["i_data"],
             "i_amps": all_data["i_amps"],
-            "noise_e": all_data["noiseE"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "noise_i": all_data["noiseI"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
+            "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         }
         losses, sqds, used_points, [ThryE, _, params] = ts_fitter.array_loss(fitted_weights, batch)
         fits["ele"] = ThryE
@@ -78,7 +74,7 @@ def recalculate_with_chosen_weights(
 
         for species in all_params.keys():
             for k in all_params[species].keys():
-                if k != 'fe':
+                if k != "fe":
                     # all_params[k] = np.concatenate([all_params[k], params[k].reshape(-1)])
                     all_params[species][k] = params[species][k].reshape(-1)
                 else:
@@ -102,9 +98,9 @@ def recalculate_with_chosen_weights(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            #loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
+            # loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
             loss, sqds, used_points, ThryE, ThryI, params = ts_fitter.array_loss(fitted_weights[i_batch], batch)
-            #calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean)
+            # calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean)
             # these_params = ts_fitter.weights_to_params(fitted_weights[i_batch], return_static_params=False)
 
             if calc_sigma:
@@ -205,67 +201,92 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter
     t1 = time.time()
 
     for species in config["parameters"].keys():
-        if "electron" in config["parameters"][species]["type"].keys():
+        if "electron" == species:
             elec_species = species
-    
+
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        losses_init, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-            config, batch_indices, all_data, ts_fitter, False, fitted_weights
-        )
+        refit_bad_fits(config, batch_indices, all_data, ts_fitter, sa, fitted_weights)
 
-        # refit bad fits
-        red_losses_init = losses_init / (1.1 * (used_points - len(all_params)))
-        true_batch_size = config["optimizer"]["batch_size"]
-        # config["optimizer"]["batch_size"] = 1
-        mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
-        mlflow.log_metrics({"number of refits": int(np.sum(red_losses_init > config["other"]["refit_thresh"]))})
+    mlflow.log_metrics({"refitting time": round(time.time() - t1, 2)})
 
-        for i in batch_indices.flatten()[red_losses_init > config["other"]["refit_thresh"]]:
-            if i == 0:
-                continue
-
-            batch = {
-                "e_data": np.reshape(all_data["e_data"][i], (1, -1)),
-                "e_amps": np.reshape(all_data["e_amps"][i], (1, -1)),
-                "i_data": np.reshape(all_data["i_data"][i], (1, -1)),
-                "i_amps": np.reshape(all_data["i_amps"][i], (1, -1)),
-                "noise_e": np.reshape(all_data["noiseE"][i], (1, -1)),
-                "noise_i": np.reshape(all_data["noiseI"][i], (1, -1)),
-            }
-
-            # previous_weights = {}
-            temp_cfg = copy.copy(config)
-            temp_cfg["optimizer"]["batch_size"] = 1
-            for species in fitted_weights[(i - 1) // true_batch_size].keys():
-                for key in fitted_weights[(i - 1) // true_batch_size][species].keys():
-                    if config["parameters"][species][key]["active"]:
-                        temp_cfg["parameters"][species][key]["val"] = float(
-                            fitted_weights[(i - 1) // true_batch_size][species][key][(i - 1) % true_batch_size]
-                        )
-
-            ts_fitter_refit = TSFitter(temp_cfg, sa, batch)
-
-            # ts_fitter_refit.flattened_weights, ts_fitter_refit.unravel_pytree = ravel_pytree(previous_weights)
-
-            res = spopt.minimize(
-                ts_fitter_refit.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_fitter_refit.loss,
-                np.copy(ts_fitter_refit.flattened_weights),
-                args=batch,
-                method=config["optimizer"]["method"],
-                jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-                bounds=ts_fitter_refit.bounds,
-                options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
+    with tempfile.TemporaryDirectory() as td:
+        _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
+        if config["other"]["extraoptions"]["spectype"] == "angular_full":
+            t1 = process_angular_data(
+                config, batch_indices, all_data, all_axes, ts_fitter, fitted_weights, t1, elec_species, td
             )
-            cur_result = ts_fitter_refit.unravel_pytree(res["x"])
 
-            for species in cur_result.keys():
-                for key in cur_result[species].keys():
-                    fitted_weights[i // true_batch_size][species][key] = (
-                        fitted_weights[i // true_batch_size][species][key]
-                        .at[i % true_batch_size]
-                        .set(cur_result[species][key][0])
+        else:
+            t1, final_params = process_data(
+                config, batch_indices, all_data, all_axes, ts_fitter, fitted_weights, t1, td
+            )
+
+        mlflow.log_artifacts(td)
+    mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
+
+    mlflow.set_tag("status", "done plotting")
+
+    return final_params
+
+
+def refit_bad_fits(config, batch_indices, all_data, ts_fitter, sa, fitted_weights):
+    losses_init, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+        config, batch_indices, all_data, ts_fitter, False, fitted_weights
+    )
+
+    # refit bad fits
+    red_losses_init = losses_init / (1.1 * (used_points - len(all_params)))
+    true_batch_size = config["optimizer"]["batch_size"]
+    # config["optimizer"]["batch_size"] = 1
+    mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
+    mlflow.log_metrics({"number of refits": int(np.sum(red_losses_init > config["other"]["refit_thresh"]))})
+
+    for i in batch_indices.flatten()[red_losses_init > config["other"]["refit_thresh"]]:
+        if i == 0:
+            continue
+
+        batch = {
+            "e_data": np.reshape(all_data["e_data"][i], (1, -1)),
+            "e_amps": np.reshape(all_data["e_amps"][i], (1, -1)),
+            "i_data": np.reshape(all_data["i_data"][i], (1, -1)),
+            "i_amps": np.reshape(all_data["i_amps"][i], (1, -1)),
+            "noise_e": np.reshape(all_data["noiseE"][i], (1, -1)),
+            "noise_i": np.reshape(all_data["noiseI"][i], (1, -1)),
+        }
+
+        # previous_weights = {}
+        temp_cfg = copy.copy(config)
+        temp_cfg["optimizer"]["batch_size"] = 1
+        for species in fitted_weights[(i - 1) // true_batch_size].keys():
+            for key in fitted_weights[(i - 1) // true_batch_size][species].keys():
+                if config["parameters"][species][key]["active"]:
+                    temp_cfg["parameters"][species][key]["val"] = float(
+                        fitted_weights[(i - 1) // true_batch_size][species][key][(i - 1) % true_batch_size]
                     )
-                    # fitted_weights[i // true_batch_size][species][key][i % true_batch_size] = cur_result[species][key]
+
+        ts_fitter_refit = TSFitter(temp_cfg, sa, batch)
+
+        # ts_fitter_refit.flattened_weights, ts_fitter_refit.unravel_pytree = ravel_pytree(previous_weights)
+
+        res = spopt.minimize(
+            ts_fitter_refit.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_fitter_refit.loss,
+            np.copy(ts_fitter_refit.flattened_weights),
+            args=batch,
+            method=config["optimizer"]["method"],
+            jac=True if config["optimizer"]["grad_method"] == "AD" else False,
+            bounds=ts_fitter_refit.bounds,
+            options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
+        )
+        cur_result = ts_fitter_refit.unravel_pytree(res["x"])
+
+        for species in cur_result.keys():
+            for key in cur_result[species].keys():
+                fitted_weights[i // true_batch_size][species][key] = (
+                    fitted_weights[i // true_batch_size][species][key]
+                    .at[i % true_batch_size]
+                    .set(cur_result[species][key][0])
+                )
+                # fitted_weights[i // true_batch_size][species][key][i % true_batch_size] = cur_result[species][key]
 
             # for key in fitted_weights[i // true_batch_size].keys():
             #     cur_value = cur_result[key][0, 0]
@@ -273,81 +294,53 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_fitter
             #     new_vals = new_vals.at[tuple([i % true_batch_size, 0])].set(cur_value)
             #     fitted_weights[i // true_batch_size][key] = new_vals
 
-        config["optimizer"]["batch_size"] = true_batch_size
+    config["optimizer"]["batch_size"] = true_batch_size
 
-    mlflow.log_metrics({"refitting time": round(time.time() - t1, 2)})
 
-    with tempfile.TemporaryDirectory() as td:
-        os.makedirs(os.path.join(td, "plots"), exist_ok=True)
-        os.makedirs(os.path.join(td, "binary"), exist_ok=True)
-        os.makedirs(os.path.join(td, "csv"), exist_ok=True)
-        if config["other"]["extraoptions"]["spectype"] == "angular_full":
-            best_weights_val = {}
-            best_weights_std = {}
-            if config["optimizer"]["num_mins"]>1:
-                for k, v in fitted_weights.items():
-                    best_weights_val[k] = np.average(v, axis=0)  # [0, :]
-                    best_weights_std[k] = np.std(v, axis=0)  # [0, :]
-            else:
-                best_weights_val = fitted_weights
-                
-            losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-                config, batch_indices, all_data, ts_fitter, config["other"]["calc_sigmas"], best_weights_val
-            )
-            
-            mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
-            mlflow.set_tag("status", "plotting")
-            t1 = time.time()
+def process_data(config, batch_indices, all_data, all_axes, ts_fitter, fitted_weights, t1, td):
+    losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+        config, batch_indices, all_data, ts_fitter, config["other"]["calc_sigmas"], fitted_weights
+    )
+    if "losses_init" not in locals():
+        losses_init = losses
+    mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
+    mlflow.set_tag("status", "plotting")
+    t1 = time.time()
 
-            final_params = plotters.get_final_params(config, all_params, all_axes, td)
-            if config["other"]["calc_sigmas"]:
-                sigma_fe = plotters.save_sigmas_fe(final_params, best_weights_std, sigmas, td)
-            else:
-                sigma_fe = np.zeros_like(final_params["fe"])
-            savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
-            plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
-            plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
+    final_params = plotters.get_final_params(config, all_params, all_axes, td)
 
-        else:
-            losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-                config, batch_indices, all_data, ts_fitter, config["other"]["calc_sigmas"], fitted_weights
-            )
-            if "losses_init" not in locals():
-                losses_init = losses
-            mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
-            mlflow.set_tag("status", "plotting")
-            t1 = time.time()
+    red_losses = plotters.plot_loss_hist(config, losses_init, losses, all_params, used_points, td)
+    savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
+    plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
+    sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)
+    plotters.plot_final_params(config, all_params, sigma_ds, td)
+    return t1, final_params
 
-            final_params = plotters.get_final_params(config, all_params, all_axes, td)
-            # for species in config["parameters"].keys():
-            #     if "m" in config["parameters"][species].keys():
-            #         if not config["parameters"][species]["m"]["active"] and config["parameters"][species]["matte"]:
-            #             alpha = (
-            #                 0.042
-            #                 * config["parameters"][species]["m"]["intens"]
-            #                 / 9.0
-            #                 * np.sum(Z**2 * fract)
-            #                 / (np.sum(Z * fract) * all_params[species]["Te"])
-            #             )
-            #             mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
-            #             (
-            #                 self.config["parameters"][self.e_species]["fe"]["velocity"],
-            #                 all_params[self.e_species]["fe"],
-            #             ) = self.num_dist_func(mcur.squeeze())
 
-            red_losses = plotters.plot_loss_hist(config, losses_init, losses, all_params, used_points, td)
-            savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
-            plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
-            sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)
-            plotters.plot_final_params(config, all_params, sigma_ds, td)
-            # plotters.plot_dist(config, final_params, sigma_fe, td)
+def process_angular_data(config, batch_indices, all_data, all_axes, ts_fitter, fitted_weights, t1, elec_species, td):
+    best_weights_val = {}
+    best_weights_std = {}
+    if config["optimizer"]["num_mins"] > 1:
+        for k, v in fitted_weights.items():
+            best_weights_val[k] = np.average(v, axis=0)  # [0, :]
+            best_weights_std[k] = np.std(v, axis=0)  # [0, :]
+    else:
+        best_weights_val = fitted_weights
 
-            # final_params = plotters.plot_regular(
-            #     config, losses, all_params, used_points, all_axes, fits, all_data, sqdevs, sigmas, td
-            # )
-        mlflow.log_artifacts(td)
-    mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
+    losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+        config, batch_indices, all_data, ts_fitter, config["other"]["calc_sigmas"], best_weights_val
+    )
 
-    mlflow.set_tag("status", "done plotting")
+    mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
+    mlflow.set_tag("status", "plotting")
+    t1 = time.time()
 
-    return final_params
+    final_params = plotters.get_final_params(config, all_params, all_axes, td)
+    if config["other"]["calc_sigmas"]:
+        sigma_fe = plotters.save_sigmas_fe(final_params, best_weights_std, sigmas, td)
+    else:
+        sigma_fe = np.zeros_like(final_params["fe"])
+    savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
+    plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
+    plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
+    return t1
