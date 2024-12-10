@@ -29,6 +29,7 @@ parameters:
             active: False
             lb: 0.01
             ub: 3.
+            same: False
         Z:
             val: 8.
             active: False
@@ -38,7 +39,25 @@ parameters:
             val: 40.
             active: False
         fract:
-            val: 1.0
+            val: 1.
+            active: False
+    ion-2:
+        Ti:
+            val: .4
+            active: False
+            lb: 0.01
+            ub: 3.
+            same: False
+        Z:
+            val: 16.
+            active: False
+            lb: 1.
+            ub: 25.
+        A:
+            val: 50.
+            active: False
+        fract:
+            val: 0.0
             active: False
     general:
         amp1:
@@ -57,7 +76,7 @@ parameters:
             lb: 0.
             ub: 10.
         lam:
-            val: 524.0
+            val: 526.5
             active: True
             lb: 523.
             ub: 528.

@@ -216,6 +216,24 @@ def plot_dist(config, ele_species, final_params, sigma_fe, td):
         ax[2].set_ylabel("f_e")
         ax[2].grid()
     else:
+        fig, ax = plt.subplots(1, 2, figsize=(12, 4), tight_layout=True)
+        c = ax[0].contourf(final_params["v"][0], final_params["v"][1], final_params["fe"].T)
+        ax[0].set_xlabel("$v_x/v_{th}$", fontsize=14)
+        ax[0].set_ylabel("$v_y/v_{th}$", fontsize=14)
+        ax[0].set_title("$f_e$", fontsize=14)
+        fig.colorbar(c)
+
+        c = ax[1].contourf(final_params["v"][0], final_params["v"][1], np.log10(final_params["fe"].T))
+        ax[1].set_xlabel("$v_x/v_{th}$", fontsize=14)
+        ax[1].set_ylabel("$v_y/v_{th}$", fontsize=14)
+        ax[1].set_title("log$_{10}(f_e)$", fontsize=14)
+        fig.colorbar(c)
+
+        print(np.isnan(final_params["fe"]).any())
+
+        fig.savefig(os.path.join(td, "plots", "fe_contourf.png"), bbox_inches="tight")
+        plt.close()
+
         fig = plt.figure(figsize=(15, 5))
         ax = fig.add_subplot(1, 3, 1, projection="3d")
         curfe = np.where(final_params["fe"] < -50.0, -50.0, final_params["fe"])

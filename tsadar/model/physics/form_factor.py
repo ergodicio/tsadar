@@ -15,7 +15,7 @@ from tsadar.model.physics import ratintn
 from tsadar.data_handleing import lam_parse
 from tsadar.misc.vector_tools import vsub, vdot, vdiv
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
 
 def zprimeMaxw(xi):
@@ -247,7 +247,7 @@ class FormFactor:
         xq = rotated_coords[:, 0]
         yq = rotated_coords[:, 1]
 
-        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="cubic").reshape(
+        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="linear").reshape(
             (self.v.size, self.v.size), order="F"
         )
 
@@ -282,10 +282,10 @@ class FormFactor:
             carry: container for
                 x: 1D array
                 DF: 2D array
-            xs: container for
-                element: angle in radians
-                xie_mag_at: float
-                klde_mag_at: float
+                inputs: container for
+                    element: angle in radians
+                    xie_mag_at: float
+                    klde_mag_at: float
 
         Returns:
             fe_vphi: float, value of the projected distribution function at the point xie
@@ -296,19 +296,23 @@ class FormFactor:
         element, xie_mag_at, klde_mag_at = inputs
         fe_2D_k = checkpoint(self.rotate)(DF, element * 180 / jnp.pi, reshape=False)
         fe_1D_k = jnp.sum(fe_2D_k, axis=0) * (x[1] - x[0])
+        df = jnp.gradient(fe_1D_k, x[1] - x[0])
 
         # find the location of xie in axis array
-        loc = jnp.argmin(jnp.abs(x - xie_mag_at))
+        # loc = jnp.argmin(jnp.abs(x - xie_mag_at))
         # add the value of fe to the fe container
-        fe_vphi = fe_1D_k[loc]
+        # fe_vphi = fe_1D_k[loc]
+        # dfe = df[loc]
+        fe_vphi = jnp.interp(xie_mag_at, x, fe_1D_k)
+        dfe = jnp.interp(xie_mag_at, x, df)
 
         # derivative of f along k
-        df = jnp.gradient(fe_1D_k, x[1] - x[0])
+
         # df = jnp.gradient(fe_1D_k, x[1] - x[0])
 
         # Chi is really chi evaluated at the points xie
         # so the imaginary part is
-        chiEI = jnp.pi / (klde_mag_at**2) * df[loc]
+        chiEI = jnp.pi / (klde_mag_at**2) * dfe
 
         # the real part is solved with rational integration
         # giving the value at a single point where the pole is located at xie_mag[ind]
@@ -334,7 +338,7 @@ class FormFactor:
             chiERrat: real part of the electron susceptibility
 
         """
-        calc_chi_vals = "batch_vmap"
+        calc_chi_vals = "scan"
 
         flattened_inputs = (beta.flatten(), xie_mag.flatten(), klde_mag.flatten())
 
@@ -348,7 +352,7 @@ class FormFactor:
 
         elif calc_chi_vals == "batch_vmap":
             batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, x, jnp.squeeze(DF))
-            fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=8)
+            fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=1024)
         else:
             raise NotImplementedError
 
@@ -476,7 +480,7 @@ class FormFactor:
 
         fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(x[0, :], DF, beta, xie_mag, klde_mag)
 
-        chiE = chiERrat + jnp.sqrt(-1 + 0j) * chiEI
+        chiE = chiERrat + 1j * chiEI
         epsilon = 1.0 + chiE + chiI
 
         # This line needs to be changed if ion distribution is changed!!!

@@ -1,9 +1,10 @@
 from jax import numpy as jnp
 import scipy.io as sio
 import jax, os
+from jax.scipy.special import gamma
 
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 from tsadar.distribution_functions import dist_functional_forms
 
@@ -64,10 +65,33 @@ class DistFunc:
         else:
             self.m_theta = 0.0
 
-        if cfg["fe"]["type"] == "DLM":
+        if cfg["fe"]["type"].casefold() == "dlm":
             self.v = jnp.arange(-8, 8, self.velocity_res)
             if self.dim == 2:
                 self.v = (self.v, jnp.arange(-8, 8, self.velocity_res))
+
+        elif cfg["fe"]["type"].casefold() == "sphericalharmonic":
+            self.Nl = 1  # cfg["fe"]["params"]["Nl"]
+            self.Nm = 1  # cfg["fe"]["params"]["Nm"]
+            vmax = 8
+            nv = 32
+            self.vr = jnp.linspace(vmax / nv / 2, vmax - vmax / nv / 2, nv)
+            m = 2.0
+            tt = 1.0
+            vth = 1.0
+
+            # single_dist = (2 * jnp.pi * (vth**2.0 / 2)) ** -1.5 * np.exp(-(vax**2.0) / (2 * tt * (vth**2.0 / 2)))
+
+            # from Ridgers2008
+            vth_x = vth * tt
+            alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
+            cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
+            self.f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+            self.f10 = jnp.zeros(self.vr.size)
+            self.f11 = jnp.zeros(self.vr.size)
+            vx = jnp.concatenate([-self.vr[::-1], self.vr])
+            self.v = (vx, vx)
+
         #     self._df_ = dist_functional_forms.DLM_1D
         # elif cfg["fe"]["type"] == "Spitzer":
         #     self._df_ = dist_functional_forms.Spitzer_2V
@@ -75,8 +99,8 @@ class DistFunc:
         #     self._df_ = dist_functional_forms.MoraYahi_2V
         # elif cfg["fe"]["type"] == "Arbitrary":
         #     self._df_ = lambda dist_params: dist_params["fe"]
-        # else:
-        #     raise NotImplementedError(f"Functional form {cfg['fe']['type']} not implemented")
+        else:
+            raise NotImplementedError(f"Functional form {cfg['fe']['type']} not implemented")
 
     def __call__(self, dist_params):
         """
@@ -93,16 +117,19 @@ class DistFunc:
 
         """
 
-        if self.fe_name == "DLM":
+        if self.fe_name.casefold() == "dlm":
             v, fe = self.dlm(dist_params)
 
-        elif self.fe_name == "Spitzer":
+        elif self.fe_name.casefold() == "spitzer":
             v, fe = self.spitzer()
 
-        elif self.fe_name == "MYDLM":
+        elif self.fe_name.casefold() == "mydlm":
             v, fe = self.mora_yahi()
 
-        elif self.fe_name == "Arbitrary":
+        elif self.fe_name.casefold() == "sphericalharmonic":
+            v, fe = self.sph(dist_params)
+
+        elif self.fe_name.casefold() == "arbitrary":
             v, fe = dist_params["fe"]
 
         else:
@@ -131,6 +158,15 @@ class DistFunc:
 
         return v, fe
 
+    def sph(self, dist_params):
+        # flm = dist_params["flm"]
+
+        flm = {0: {0: self.f00}, 1: {0: self.f10, 1: self.f11}}
+        v, fe = dist_functional_forms.sph_harm_dist(self.Nl, self.Nm, self.vr, flm)
+        # fe = (fe, nan=1e-16) * 3
+
+        return v, fe
+
     def dlm(self, dist_params):
         mval = dist_params
         if self.dim == 1:
@@ -153,19 +189,11 @@ class DistFunc:
             fe = jax.scipy.ndimage.map_coordinates(IT, indices.T, order=1, mode="constant", cval=0.0)
             v = vx
         elif self.dim == 2:
-            # v, fe = dist_functional_forms.DLM_2D(mdict["val"], self.velocity_res)
-            # v, fe = dist_functional_forms.BiDLM(
-            #    mval,
-            #    jnp.max(jnp.array([mval * self.m_asym, 2.0])),
-            #    jnp.max(jnp.array([jnp.array(mval * self.m_asym).squeeze(), 2.0])),
-            #    self.temp_asym,
-            #    self.m_theta,
-            #    self.velocity_res,
-            # )
             # this will cause issues if my is less then 2
             v, fe = dist_functional_forms.BiDLM(
                 mval, mval * self.m_asym, self.temp_asym, self.m_theta, self.velocity_res
             )
+
         else:
             raise NotImplementedError("DLM distribution can only be computed in 1D or 2D")
 

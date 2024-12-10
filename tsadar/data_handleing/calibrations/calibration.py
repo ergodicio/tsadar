@@ -5,7 +5,7 @@ import os
 
 from tsadar.data_handleing.calibrations.sa_table import sa_lookup
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
 
 def get_calibrations(shotNum, tstype, t0, CCDsize):

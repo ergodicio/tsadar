@@ -97,6 +97,9 @@ def _validate_inputs_(config: Dict) -> Dict:
         assert electron_params["m"]["val"] >= 2, "DLM requires m >= 2"
         assert electron_params["m"]["val"] <= 5, "DLM requires m <= 5"
 
+    elif electron_params["fe"]["type"].casefold() == "sphericalharmonic":
+        pass
+
     elif electron_params["fe"]["type"].casefold() == "spitzer":
         pass  # dont need anything here
     elif electron_params["fe"]["type"].casefold() == "mydlm":

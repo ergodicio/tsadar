@@ -214,14 +214,14 @@ def calc_series(config):
         dummy_batch["i_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
         dummy_batch["e_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
 
-    else:
-        axisxE, axisxI, axisyE, axisyI, magE, stddev = get_calibrations(
-            shotNum=config["data"]["shotnum"],
-            tstype=config["other"]["extraoptions"]["spectype"],
-            t0=[0.0, 0.0],
-            CCDsize=config["other"]["CCDsize"],
-        )
-        config["other"]["PhysParams"]["widIRF"] = stddev
+    # else:
+    #     axisxE, axisxI, axisyE, axisyI, magE, stddev = get_calibrations(
+    #         shotNum=config["data"]["shotnum"],
+    #         tstype=config["other"]["extraoptions"]["spectype"],
+    #         t0=[0.0, 0.0],
+    #         CCDsize=config["other"]["CCDsize"],
+    #     )
+    #     config["other"]["PhysParams"]["widIRF"] = stddev
 
     if "series" in config.keys():
         serieslen = len(config["series"]["vals1"])

@@ -6,7 +6,7 @@ import numpy as np
 from scipy.signal import find_peaks
 from tsadar.process.warpcorr import perform_warp_correction
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
 def loadData(sNum, sDay, loadspecs, custom_path=False):

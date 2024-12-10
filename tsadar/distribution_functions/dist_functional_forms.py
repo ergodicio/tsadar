@@ -1,7 +1,28 @@
 from jax.scipy.special import gamma
 from jax import numpy as jnp
+from jax import vmap
+from jax.scipy.special import sph_harm
 from tsadar.misc.vector_tools import rotate
 from interpax import interp2d
+
+
+def sph_harm_dist(Nl, Nm, vr, flm):
+    phi = 0.0
+    vx = jnp.concatenate([-vr[::-1], vr])
+    vx, vy = jnp.meshgrid(vx, vx)
+    th = jnp.arctan2(vy, vx)
+    vr_vxvy = jnp.sqrt(vx**2 + vy**2)
+    fvxvy = jnp.zeros(jnp.shape(vx))
+
+    for i in range(Nl + 1):
+        for j in range(i + 1):
+            _flmvxvy = jnp.interp(vr_vxvy, vr, flm[i][j], right=1e-16)
+            _sph_harm = vmap(sph_harm, in_axes=(None, None, None, 0, None))(
+                jnp.array([j]), jnp.array([i]), phi, th.reshape(-1, order="C"), 2
+            ).reshape(jnp.shape(vx), order="C")
+            fvxvy += _flmvxvy * jnp.real(_sph_harm)
+
+    return (vx, vy), fvxvy
 
 
 # we will probably want to add input checks to ensure the proper fields are defined
@@ -107,10 +128,10 @@ def BiDLM(mx, my, tasym, theta, h):
     vx2 = vx[0] / renorm
     vy2 = vx[0] / renorm
     # vy2 = jnp.arange(-8/renorm, 8/renorm, h2)
-    print(jnp.shape(fe_num))
-    print(jnp.shape(vx2))
-    print(h2)
-    print(jnp.shape(jnp.log(fe_num)))
+    # print(jnp.shape(fe_num))
+    # print(jnp.shape(vx2))
+    # print(h2)
+    # print(jnp.shape(jnp.log(fe_num)))
     fe_num = jnp.exp(
         interp2d(vx.flatten(), vy.flatten(), vx2, vy2, jnp.log(fe_num), extrap=[-100, -100], method="linear").reshape(
             jnp.shape(vx), order="F"

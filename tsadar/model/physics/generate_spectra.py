@@ -116,10 +116,12 @@ class FitModel:
             #     all_params["electron"]["fe"],
             # ) = self.num_dist_func(mcur.squeeze())
             # all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
+        elif self.num_dist_func.fe_name.casefold() == "sphericalharmonic":
+            vcur, fecur = self.num_dist_func(all_params["electron"])
+
         else:
-            raise NotImplementedError(f"Functional form {f.type} not implemented")
-        # fecur = jnp.exp(all_params["electron"]["fe"])
-        # vcur = self.config["parameters"]["electron"]["fe"]["velocity"]
+            raise NotImplementedError(f"Functional form {self.num_dist_func.fe_name.casefold()} not implemented")
+
         if self.config["parameters"]["electron"]["fe"]["symmetric"]:
             fecur = jnp.concatenate((jnp.flip(fecur[1:]), fecur))
             vcur = jnp.concatenate((-jnp.flip(vcur[1:]), vcur))

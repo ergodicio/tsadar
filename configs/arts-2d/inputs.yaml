@@ -94,7 +94,7 @@ parameters:
       m_theta: 0.0
       symmetric: false
       temp_asym: 1.0
-      type: "DLM"
+      type: "sphericalharmonic"
       ub: -0.5
       v_res: 0.1
       val: []
