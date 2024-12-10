@@ -12,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 import jaxopt
 
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.TSFitter import TSFitter
+from tsadar.model.ThomsonScattering import ThomsonScattering
 from tsadar.process import prepare, postprocess
 
 
@@ -157,7 +157,7 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
     Returns:
         best_weights: best parameter weights as returned by the minimizer
         best_loss: best value of the fit metric found by ther minimizer
-        ts_fitter: instance of the TSFitter object used for minimization
+        ts_instance: instance of the ThomsonScattering object used for minimization
 
     """
 
@@ -191,7 +191,7 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
     else:
         test_batch = batch1
 
-    ts_fitter = TSFitter(config, sa, batch1)
+    ts_fitter = ThomsonScattering(config, sa, batch1)
     minimizer = getattr(optax, config["optimizer"]["method"])
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
@@ -250,7 +250,7 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
 
 
 def _1d_adam_loop_(
-    config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict, tbatch
+    config: Dict, ts_fitter: ThomsonScattering, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
     jaxopt_kwargs = dict(
         fun=ts_fitter.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
@@ -286,7 +286,9 @@ def _1d_adam_loop_(
     return best_loss, best_weights
 
 
-def _1d_scipy_loop_(config: Dict, ts_fitter: TSFitter, previous_weights: np.ndarray, batch: Dict) -> Tuple[float, Dict]:
+def _1d_scipy_loop_(
+    config: Dict, ts_fitter: ThomsonScattering, previous_weights: np.ndarray, batch: Dict
+) -> Tuple[float, Dict]:
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         init_weights = np.copy(ts_fitter.flattened_weights)
     else:
@@ -315,7 +317,7 @@ def _1d_scipy_loop_(config: Dict, ts_fitter: TSFitter, previous_weights: np.ndar
 
 def one_d_loop(
     config: Dict, all_data: Dict, sa: Tuple, batch_indices: np.ndarray, num_batches: int
-) -> Tuple[List, float, TSFitter]:
+) -> Tuple[List, float, ThomsonScattering]:
     """
     This is the higher level wrapper that prepares the data and the fitting code for the 1D fits
 
@@ -338,7 +340,7 @@ def one_d_loop(
         "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
         "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
     } | sample
-    ts_fitter = TSFitter(config, sa, sample)
+    ts_fitter = ThomsonScattering(config, sa, sample)
 
     print("minimizing")
     mlflow.set_tag("status", "minimizing")
@@ -362,7 +364,7 @@ def one_d_loop(
                 best_loss, best_weights = _1d_adam_loop_(config, ts_fitter, previous_weights, batch, tbatch)
             else:
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
-                ts_fitter = TSFitter(config, sa, batch)
+                ts_fitter = ThomsonScattering(config, sa, batch)
                 best_loss, best_weights = _1d_scipy_loop_(config, ts_fitter, previous_weights, batch)
 
             all_weights.append(best_weights)

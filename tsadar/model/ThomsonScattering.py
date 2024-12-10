@@ -15,7 +15,7 @@ from tsadar.distribution_functions.dist_functional_forms import calc_moment, tra
 from tsadar.misc.vector_tools import rotate
 
 
-class TSFitter:
+class ThomsonScattering:
     """
     This class is responsible for handling the forward pass and using that to create a loss function
 

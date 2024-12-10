@@ -11,7 +11,7 @@ from flatten_dict import flatten, unflatten
 
 from tsadar import fitter
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.TSFitter import TSFitter
+from tsadar.model.ThomsonScattering import ThomsonScattering
 from tsadar.fitter import init_param_norm_and_shift
 from tsadar.misc import utils
 from tsadar.plotting import plotters
@@ -274,7 +274,7 @@ def calc_series(config):
             if "param4" in config["series"].keys():
                 config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        ts_fitter = TSFitter(config, sas, dummy_batch)
+        ts_fitter = ThomsonScattering(config, sas, dummy_batch)
         params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_fitter.spec_calc(params, dummy_batch)
 
