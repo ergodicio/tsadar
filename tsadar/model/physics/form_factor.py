@@ -85,8 +85,8 @@ class FormFactor:
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
 
         # Create a Sharding object to distribute a value across devices:
-        mesh = Mesh(devices=mesh_utils.create_device_mesh(1), axis_names=("x"))
-        self.sharding = NamedSharding(mesh, P("x"))
+        # mesh = Mesh(devices=mesh_utils.create_device_mesh(1), axis_names=("x"))
+        # self.sharding = NamedSharding(mesh, P("x"))
 
     def __call__(self, params, cur_ne, cur_Te, A, Z, Ti, fract, sa, f_and_v, lam):
         """
