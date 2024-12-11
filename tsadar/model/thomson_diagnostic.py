@@ -263,7 +263,9 @@ class ThomsonScatteringDiagnostic:
 
         if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
             if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
-                lamAxisE, ThryE = irf.add_ATS_IRF(self.cfg, self.sas, lamAxisE, modlE, amps["e_amps"], TSins)
+                lamAxisE, ThryE = irf.add_ATS_IRF(
+                    self.cfg, self.scattering_angles, lamAxisE, modlE, amps["e_amps"], TSins
+                )
             else:
                 lamAxisE, ThryE = irf.add_electron_IRF(self.cfg, lamAxisE, modlE, amps["e_amps"], TSins)
         else:

@@ -11,7 +11,7 @@ from flatten_dict import flatten, unflatten
 
 from tsadar import fitter
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.loss_function import LossFunction
+from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.fitter import init_param_norm_and_shift
 from tsadar.misc import utils
 from tsadar.plotting import plotters
@@ -265,9 +265,10 @@ def calc_series(config):
             if "param4" in config["series"].keys():
                 config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        loss_fn = LossFunction(config, sas, dummy_batch)
-        params = loss_fn.spec_calc.get_plasma_parameters(loss_fn.pytree_weights["active"])
-        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = loss_fn.spec_calc(params, dummy_batch)
+        # loss_fn = LossFunction(config, sas, dummy_batch)
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+        params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
+        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(params, dummy_batch)
 
     spectime = time.time() - t_start
     ThryE = np.array(ThryE)
