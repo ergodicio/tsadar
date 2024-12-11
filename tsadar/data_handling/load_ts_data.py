@@ -6,7 +6,8 @@ import numpy as np
 from scipy.signal import find_peaks
 from tsadar.process.warpcorr import perform_warp_correction
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
+
 
 def loadData(sNum, sDay, loadspecs, custom_path=False):
     """
@@ -42,31 +43,28 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     else:
         folder = join(BASE_FILES_PATH, "data")
 
-
     file_list = listdir(folder)
     files = [name for name in file_list if str(sNum) in name]
     t0 = [0, 0]
-    #print(sNum)
-    #print(files)
 
     for fl in files:
-        if "epw" in fl or "EPW" in fl:
+        if "epw" in fl.casefold():
             hdfnameE = join(folder, fl)
-            if "ccd" in fl or "CCD" in fl:
+            if "ccd" in fl.casefold():
                 xlab = "Radius (\mum)"
                 specType = "imaging"
             else:
                 xlab = "Time (ps)"
                 specType = "temporal"
-        if "iaw" in fl or "IAW" in fl:
+        if "iaw" in fl.casefold():
             hdfnameI = join(folder, fl)
-            if "ccd" in fl or "CCD" in fl:
+            if "ccd" in fl.casefold():
                 xlab = "Radius (\mum)"
                 specType = "imaging"
             else:
                 xlab = "Time (ps)"
                 specType = "temporal"
-        if "ats" in fl or "ATS" in fl:
+        if "ats" in fl.casefold():
             hdfnameE = join(folder, fl)
             specType = "angular"
             xlab = "Scattering angle (degrees)"

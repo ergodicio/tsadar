@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from scipy.signal import convolve2d as conv2
 
-from tsadar.data_handleing.load_ts_data import loadData
+from tsadar.data_handling.load_ts_data import loadData
 from tsadar.process.correct_throughput import correctThroughput
 
 

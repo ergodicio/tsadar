@@ -11,11 +11,11 @@ from flatten_dict import flatten, unflatten
 
 from tsadar import fitter
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.TSFitter import TSFitter
+from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.fitter import init_param_norm_and_shift
 from tsadar.misc import utils
 from tsadar.plotting import plotters
-from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
+from tsadar.data_handling.calibrations.calibration import get_calibrations, get_scattering_angles
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
@@ -120,7 +120,7 @@ def _run_(config: Dict, mode: str = "fit"):
     """
     utils.log_params(config)
     t0 = time.time()
-    if mode in ("fit", "FIT", "Fit"):
+    if mode.casefold() == "fit":
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
         calc_series(config=config)
@@ -176,6 +176,7 @@ def calc_series(config):
     """
     # get scattering angles and weights
     config["optimizer"]["batch_size"] = 1
+    # config["other"]["extraoptions"]["spectype"] = "1d"
     config["other"]["lamrangE"] = [
         config["data"]["fit_rng"]["forward_epw_start"],
         config["data"]["fit_rng"]["forward_epw_end"],
@@ -186,14 +187,10 @@ def calc_series(config):
     ]
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
 
-    for species in config["parameters"].keys():
-        if "electron" in config["parameters"][species]["type"].keys():
-            elec_species = species
-            dist_obj = DistFunc(config["parameters"][species])
-            config["parameters"][species]["fe"]["velocity"], config["parameters"][species]["fe"]["val"] = dist_obj(
-                config["parameters"][species]["m"]["val"]
-            )
-            config["parameters"][species]["fe"]["val"] = np.log(config["parameters"][species]["fe"]["val"])[None, :]
+    electron_params = config["parameters"]["electron"]
+    dist_obj = DistFunc(electron_params)
+    electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
+    # electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
 
     config["units"] = init_param_norm_and_shift(config)
 
@@ -268,9 +265,10 @@ def calc_series(config):
             if "param4" in config["series"].keys():
                 config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        ts_fitter = TSFitter(config, sas, dummy_batch)
-        params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
-        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_fitter.spec_calc(params, dummy_batch)
+        # loss_fn = LossFunction(config, sas, dummy_batch)
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+        params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
+        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(params, dummy_batch)
 
     spectime = time.time() - t_start
     ThryE = np.array(ThryE)
@@ -292,30 +290,32 @@ def calc_series(config):
             )
             plotters.plot_dist(
                 config,
-                elec_species,
-                {
-                    "fe": np.squeeze(config["parameters"][elec_species]["fe"]["val"]),
-                    "v": config["parameters"][elec_species]["fe"]["velocity"],
-                },
-                np.zeros_like(config["parameters"][elec_species]["fe"]["val"]),
+                "electron",
+                {"fe": np.squeeze(electron_params["fe"]["val"]), "v": electron_params["fe"]["velocity"]},
+                np.zeros_like(electron_params["fe"]["val"]),
                 td,
             )
-            print(np.shape(config["parameters"][elec_species]["fe"]["val"]))
-            if len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"])))==1:
-                final_dist = pandas.DataFrame({'fe':[l for l in config["parameters"][elec_species]["fe"]["val"]], 'vx':[vx for vx in config["parameters"][elec_species]["fe"]["velocity"]]})
-            elif len(np.shape(np.squeeze(config["parameters"][elec_species]["fe"]["val"])))==2:
-                final_dist = pandas.DataFrame(data=np.squeeze(config["parameters"][elec_species]["fe"]["val"]), columns=config["parameters"][elec_species]["fe"]["velocity"][0][0], index=config["parameters"][elec_species]["fe"]["velocity"][0][:,0]) 
+            if len(np.shape(np.squeeze(electron_params["fe"]["val"]))) == 1:
+                final_dist = pandas.DataFrame(
+                    {
+                        "fe": [l for l in electron_params["fe"]["val"]],
+                        "vx": [vx for vx in electron_params["fe"]["velocity"]],
+                    }
+                )
+            elif len(np.shape(np.squeeze(electron_params["fe"]["val"]))) == 2:
+                final_dist = pandas.DataFrame(
+                    data=np.squeeze(electron_params["fe"]["val"]),
+                    columns=electron_params["fe"]["velocity"][0][0],
+                    index=electron_params["fe"]["velocity"][0][:, 0],
+                )
             final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
-            if config["parameters"][elec_species]["fe"]["dim"] == 2:
+            if electron_params["fe"]["dim"] == 2:
                 plotters.plot_dist(
                     config,
-                    elec_species,
-                    {
-                        "fe": config["parameters"][elec_species]["fe"]["val"],
-                        "v": config["parameters"][elec_species]["fe"]["velocity"],
-                    },
-                    np.zeros_like(config["parameters"][elec_species]["fe"]["val"]),
+                    "electron",
+                    {"fe": electron_params["fe"]["val"], "v": electron_params["fe"]["velocity"]},
+                    np.zeros_like(electron_params["fe"]["val"]),
                     td,
                 )
 
@@ -324,7 +324,7 @@ def calc_series(config):
                 ax[0].plot(
                     lamAxisE.squeeze().transpose(), ThryE.squeeze().transpose()
                 )  # transpose might break single specs?
-                ax[0].set_title("Simulated Data, fontsize=14")
+                ax[0].set_title("Simulated Data", fontsize=14)
                 ax[0].set_ylabel("Amp (arb. units)")
                 ax[0].set_xlabel("Wavelength (nm)")
                 ax[0].grid()
@@ -344,11 +344,11 @@ def calc_series(config):
                     coords_ele = (("series", [0]), ("Wavelength", lamAxisE[0, :].squeeze()))
                     ele_dat = {"Sim": ThryE.squeeze(0)}
                     ele_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ele) for k, v in ele_dat.items()})
-                ele_data.to_netcdf(os.path.join(td, "binary", "ele_fit_and_data.nc"))
+                ele_data.to_netcdf(os.path.join(td, "binary", "electron_data.nc"))
 
             if config["other"]["extraoptions"]["load_ion_spec"]:
                 ax[1].plot(lamAxisI.squeeze().transpose(), ThryI.squeeze().transpose())
-                ax[1].set_title("Simulated Data, fontsize=14")
+                ax[1].set_title("Simulated Data", fontsize=14)
                 ax[1].set_ylabel("Amp (arb. units)")
                 ax[1].set_xlabel("Wavelength (nm)")
                 ax[1].grid()
@@ -368,7 +368,7 @@ def calc_series(config):
                     coords_ion = (("series", [0]), ("Wavelength", lamAxisI[0, :].squeeze()))
                     ion_dat = {"Sim": ThryI.squeeze(0)}
                     ion_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ion) for k, v in ion_dat.items()})
-                ion_data.to_netcdf(os.path.join(td, "binary", "ion_fit_and_data.nc"))
+                ion_data.to_netcdf(os.path.join(td, "binary", "ion_data.nc"))
             fig.savefig(os.path.join(td, "plots", "simulated_data"), bbox_inches="tight")
         mlflow.log_artifacts(td)
         metrics_dict = {"spectrum_calc_time": spectime}

@@ -2,7 +2,7 @@ from typing import Tuple
 from jax import numpy as jnp
 
 
-def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins, lam) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Applies a 2D gaussian smoothing to angular Thomson data to account for the instrument response of the diagnostic.
     todo: improve doc and typehints
@@ -41,9 +41,9 @@ def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins, lam) -> Tuple[jnp.nda
 
     if config["other"]["PhysParams"]["norm"] > 0:
         ThryE = jnp.where(
-            lamAxisE < lam,
-            TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < lam])),
-            TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > lam])),
+            lamAxisE < TSins["general"]["lam"],
+            TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < TSins["general"]["lam"]])),
+            TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > TSins["general"]["lam"]])),
         )
     return lamAxisE, ThryE
 
@@ -85,7 +85,7 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
     return lamAxisI, ThryI
 
 
-def add_electron_IRF(config, lamAxisE, modlE, amps, TSins, lam) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def add_electron_IRF(config, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     electron IRF (Instrument Response Function?)
 
@@ -114,14 +114,16 @@ def add_electron_IRF(config, lamAxisE, modlE, amps, TSins, lam) -> Tuple[jnp.nda
     if config["other"]["PhysParams"]["norm"] > 0:
         ThryE = jnp.where(
             lamAxisE < lam,
-            TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < lam])),
-            TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > lam])),
+            TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < TSins["general"]["lam"]])),
+            TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > TSins["general"]["lam"]])),
         )
 
     ThryE = jnp.average(ThryE.reshape(1024, -1), axis=1)
     if config["other"]["PhysParams"]["norm"] == 0:
         lamAxisE = jnp.average(lamAxisE.reshape(1024, -1), axis=1)
         ThryE = amps * ThryE / jnp.amax(ThryE)
-        ThryE = jnp.where(lamAxisE < lam, TSins["general"]["amp1"] * ThryE, TSins["general"]["amp2"] * ThryE)
+        ThryE = jnp.where(
+            lamAxisE < TSins["general"]["lam"], TSins["general"]["amp1"] * ThryE, TSins["general"]["amp2"] * ThryE
+        )
 
     return lamAxisE, ThryE

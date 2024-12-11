@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import math, os
 from os.path import join, exists
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
 def perform_warp_correction(warpedData, instrument="EPW", sweepSpeed=5, flatField=True):

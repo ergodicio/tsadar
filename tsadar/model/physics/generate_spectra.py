@@ -1,8 +1,6 @@
 from typing import Dict
 
 from tsadar.model.physics.form_factor import FormFactor
-
-# from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 from jax import numpy as jnp
@@ -19,7 +17,7 @@ class FitModel:
         weights of each of the scattering angles in the final spectrum
     """
 
-    def __init__(self, config: Dict, sa):
+    def __init__(self, config: Dict, scattering_angles: Dict):
         """
         FitModel class constructor, sets the static properties associated with spectrum generation that will not be
         modified from one iteration of the fitter to the next.
@@ -30,30 +28,33 @@ class FitModel:
                 weights of each of the scattering angles in the final spectrum
         """
         self.config = config
-        self.sa = sa
+        self.scattering_angles = scattering_angles
         # this will need to be fixed for multi electron
         self.num_ions = 0
         self.num_electrons = 0
         for species in config["parameters"].keys():
-            if "electron" in config["parameters"][species]["type"].keys():
+            if "electron" == species:
                 self.num_dist_func = DistFunc(config["parameters"][species])
-                self.e_species = species
                 self.num_electrons += 1
-            elif "ion" in config["parameters"][species]["type"].keys():
+            elif "ion" in species:
                 self.num_ions += 1
+            elif "general" in species:
+                pass
+            else:
+                raise ValueError(f"Unknown species in input: {species}")
 
-        #print(f"{config['other']['npts']=}")
+        # print(f"{config['other']['npts']=}")
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=config["parameters"][self.e_species]["fe"]["velocity"],
+            vax=self.num_dist_func.v,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
             npts=config["other"]["npts"],
             fe_dim=self.num_dist_func.dim,
-            vax=config["parameters"][self.e_species]["fe"]["velocity"],
+            vax=self.num_dist_func.v,
         )
 
     def __call__(self, all_params: Dict):
@@ -81,21 +82,44 @@ class FitModel:
             all_params: The input all_params is returned
 
         """
-        if self.config["parameters"][self.e_species]["m"]["active"]:
-            (
-                self.config["parameters"][self.e_species]["fe"]["velocity"],
-                all_params[self.e_species]["fe"],
-            ) = self.num_dist_func(all_params[self.e_species]["m"])
-            # self.config["velocity"], all_params["fe"] = self.num_dist_func(self.config["parameters"]["m"]["val"])
-            all_params[self.e_species]["fe"] = jnp.log(all_params[self.e_species]["fe"])
-            # all_params["fe"] = jnp.log(self.num_dist_func(self.config["parameters"]["m"]))
-            if (
-                self.config["parameters"][self.e_species]["m"]["active"]
-                and self.config["parameters"][self.e_species]["fe"]["active"]
-            ):
-                raise ValueError("m and fe cannot be actively fit at the same time")
 
         # Add gradients to electron temperature and density just being applied to EPW
+        cur_Te, cur_ne, A, Z, Ti, fract = self.populate_plasma_properties(all_params)
+        lam = all_params["general"]["lam"]
+        fecur, vcur = self.calculate_distribution(all_params, cur_Te, Z, fract)
+        lamAxisI, modlI = self.ion_spectrum(all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur)
+        lamAxisE, modlE = self.electron_spectrum(all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur)
+
+        return modlE, modlI, lamAxisE, lamAxisI, all_params
+
+    def calculate_distribution(self, all_params, cur_Te, Z, fract):
+        if self.num_dist_func.fe_name.casefold() == "dlm":
+            if self.config["parameters"]["electron"]["m"]["matte"]:
+                # Intensity should be given in effective 3omega intensity e.i. I*lamda^2/lamda_3w^2 and in units of 10^14 W/cm^2
+                alpha = (
+                    0.042
+                    * self.config["parameters"]["electron"]["m"]["intens"]
+                    / 9.0
+                    * jnp.sum(Z**2 * fract)
+                    / (jnp.sum(Z * fract) * cur_Te)
+                )
+                mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
+            else:
+                mcur = all_params["electron"]["m"]
+            vcur, fecur = self.num_dist_func(mcur)
+
+        elif self.num_dist_func.fe_name.casefold() == "sphericalharmonic":
+            vcur, fecur = self.num_dist_func(all_params["electron"])
+
+        else:
+            raise NotImplementedError(f"Functional form {self.num_dist_func.fe_name.casefold()} not implemented")
+
+        if self.config["parameters"]["electron"]["fe"]["symmetric"]:
+            fecur = jnp.concatenate((jnp.flip(fecur[1:]), fecur))
+            vcur = jnp.concatenate((-jnp.flip(vcur[1:]), vcur))
+        return fecur, vcur
+
+    def populate_plasma_properties(self, all_params):
         cur_Te = jnp.zeros((self.config["parameters"]["general"]["Te_gradient"]["num_grad_points"], self.num_electrons))
         cur_ne = jnp.zeros((self.config["parameters"]["general"]["ne_gradient"]["num_grad_points"], self.num_electrons))
         A = jnp.zeros(self.num_ions)
@@ -106,7 +130,7 @@ class FitModel:
         ion_c = 0
         ele_c = 0
         for species in self.config["parameters"].keys():
-            if "electron" in self.config["parameters"][species]["type"].keys():
+            if "electron" == species:
                 cur_Te = cur_Te.at[:, ele_c].set(
                     jnp.linspace(
                         (1 - all_params["general"]["Te_gradient"] / 200) * all_params[species]["Te"],
@@ -127,7 +151,7 @@ class FitModel:
                 )
                 ele_c += 1
 
-            elif "ion" in self.config["parameters"][species]["type"].keys():
+            elif "ion" in species:
                 A = A.at[ion_c].set(all_params[species]["A"].squeeze())
                 Z = Z.at[ion_c].set(all_params[species]["Z"].squeeze())
                 if self.config["parameters"][species]["Ti"]["same"]:
@@ -136,46 +160,13 @@ class FitModel:
                     Ti = Ti.at[ion_c].set(all_params[species]["Ti"].squeeze())
                 fract = fract.at[ion_c].set(all_params[species]["fract"].squeeze())
                 ion_c += 1
+        return cur_Te, cur_ne, A, Z, Ti, fract
 
-        lam = all_params["general"]["lam"]
-
-        if self.config["parameters"][self.e_species]["m"]["active"]:
-            (
-                self.config["parameters"][self.e_species]["fe"]["velocity"],
-                all_params[self.e_species]["fe"],
-            ) = self.num_dist_func(all_params[self.e_species]["m"])
-            all_params[self.e_species]["fe"] = jnp.log(all_params[self.e_species]["fe"])
-            if (
-                self.config["parameters"][self.e_species]["m"]["active"]
-                and self.config["parameters"][self.e_species]["fe"]["active"]
-            ):
-                raise ValueError("m and fe cannot be actively fit at the same time")
-        elif self.config["parameters"][self.e_species]["m"]["matte"]:
-            # Intensity should be given in effective 3omega intensity e.i. I*lamda^2/lamda_3w^2 and in units of 10^14 W/cm^2
-            alpha = (
-                0.042
-                * self.config["parameters"][self.e_species]["m"]["intens"]
-                / 9.0
-                * jnp.sum(Z**2 * fract)
-                / (jnp.sum(Z * fract) * cur_Te)
-            )
-            mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
-            (
-                self.config["parameters"][self.e_species]["fe"]["velocity"],
-                all_params[self.e_species]["fe"],
-            ) = self.num_dist_func(mcur.squeeze())
-            all_params[self.e_species]["fe"] = jnp.log(all_params[self.e_species]["fe"])
-
-        fecur = jnp.exp(all_params[self.e_species]["fe"])
-        vcur = self.config["parameters"][self.e_species]["fe"]["velocity"]
-        if self.config["parameters"][self.e_species]["fe"]["symmetric"]:
-            fecur = jnp.concatenate((jnp.flip(fecur[1:]), fecur))
-            vcur = jnp.concatenate((-jnp.flip(vcur[1:]), vcur))
-
+    def ion_spectrum(self, all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur):
         if self.config["other"]["extraoptions"]["load_ion_spec"]:
             if self.num_dist_func.dim == 1:
                 ThryI, lamAxisI = self.ion_form_factor(
-                    all_params, cur_ne, cur_Te, A, Z, Ti, fract, self.sa["sa"], (fecur, vcur), lam
+                    all_params, cur_ne, cur_Te, A, Z, Ti, fract, self.scattering_angles["sa"], (fecur, vcur), lam
                 )
             else:
                 ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(
@@ -188,21 +179,21 @@ class FitModel:
                     Z,
                     Ti,
                     fract,
-                    self.sa["sa"],
+                    self.scattering_angles["sa"],
                     (fecur, vcur),
                     lam,
                 )
 
             # remove extra dimensions and rescale to nm
             lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
-
-            ThryI = jnp.real(ThryI)
             ThryI = jnp.mean(ThryI, axis=0)
-            modlI = jnp.sum(ThryI * self.sa["weights"][0], axis=1)
+            modlI = jnp.sum(ThryI * self.scattering_angles["weights"][0], axis=1)
         else:
             modlI = 0
             lamAxisI = []
+        return lamAxisI, modlI
 
+    def electron_spectrum(self, all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur):
         if self.config["other"]["extraoptions"]["load_ele_spec"]:
             if self.num_dist_func.dim == 1:
                 ThryE, lamAxisE = self.electron_form_factor(
@@ -213,7 +204,7 @@ class FitModel:
                     Z,
                     Ti,
                     fract,
-                    self.sa["sa"],
+                    self.scattering_angles["sa"],
                     (fecur, vcur),
                     lam + self.config["data"]["ele_lam_shift"],
                 )
@@ -228,7 +219,7 @@ class FitModel:
                     Z,
                     Ti,
                     fract,
-                    self.sa["sa"],
+                    self.scattering_angles["sa"],
                     (fecur, vcur),
                     lam + self.config["data"]["ele_lam_shift"],
                 )
@@ -236,12 +227,11 @@ class FitModel:
             # remove extra dimensions and rescale to nm
             lamAxisE = jnp.squeeze(lamAxisE) * 1e7  # TODO hardcoded
 
-            ThryE = jnp.real(ThryE)
             ThryE = jnp.mean(ThryE, axis=0)
             if self.config["other"]["extraoptions"]["spectype"] == "angular_full":
-                modlE = jnp.matmul(self.sa["weights"], ThryE.transpose())
+                modlE = jnp.matmul(self.scattering_angles["weights"], ThryE.transpose())
             else:
-                modlE = jnp.sum(ThryE * self.sa["weights"][0], axis=1)
+                modlE = jnp.sum(ThryE * self.scattering_angles["weights"][0], axis=1)
 
             if self.config["other"]["iawoff"] and (
                 self.config["other"]["lamrangE"][0] < lam < self.config["other"]["lamrangE"][1]
@@ -263,5 +253,4 @@ class FitModel:
         else:
             modlE = 0
             lamAxisE = []
-
-        return modlE, modlI, lamAxisE, lamAxisI, all_params
+        return lamAxisE, modlE
