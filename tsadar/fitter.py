@@ -12,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 import jaxopt
 
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.ThomsonScattering import ThomsonScattering
+from tsadar.loss_function import LossFunction
 from tsadar.process import prepare, postprocess
 
 
@@ -143,7 +143,7 @@ def _validate_inputs_(config: Dict) -> Dict:
     return config
 
 
-def angular_optax(config, all_data, sa, batch_indices, num_batches):
+def angular_optax(config, all_data, sa):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
 
@@ -151,8 +151,6 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
         config: Configuration dictionary build from the input decks
         all_data: dictionary of the datasets, amplitudes, and backgrounds as constructed by the prepare.py code
         sa: dictionary of the scattering angles and thier relative weights
-        batch_indices: NA
-        num_batches: NA
 
     Returns:
         best_weights: best parameter weights as returned by the minimizer
@@ -187,11 +185,11 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
             "i_amps": all_data["i_amps"],
             "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         }
-        test_batch = {"b1": batch1, "b2": batch2}
+        actual_data = {"b1": batch1, "b2": batch2}
     else:
-        test_batch = batch1
+        actual_data = batch1
 
-    ts_fitter = ThomsonScattering(config, sa, batch1)
+    ts_fitter = LossFunction(config, sa, batch1)
     minimizer = getattr(optax, config["optimizer"]["method"])
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
@@ -208,10 +206,7 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
     num_g_wait = 0
     num_b_wait = 0
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        if config["nn"]["use"]:
-            np.random.shuffle(batch_indices)
-
-        (val, aux), grad = ts_fitter.vg_loss(weights, test_batch)
+        (val, aux), grad = ts_fitter.vg_loss(weights, actual_data)
         updates, opt_state = solver.update(grad, opt_state, weights)
 
         epoch_loss = val
@@ -250,7 +245,7 @@ def angular_optax(config, all_data, sa, batch_indices, num_batches):
 
 
 def _1d_adam_loop_(
-    config: Dict, ts_fitter: ThomsonScattering, previous_weights: np.ndarray, batch: Dict, tbatch
+    config: Dict, ts_fitter: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
     jaxopt_kwargs = dict(
         fun=ts_fitter.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
@@ -287,7 +282,7 @@ def _1d_adam_loop_(
 
 
 def _1d_scipy_loop_(
-    config: Dict, ts_fitter: ThomsonScattering, previous_weights: np.ndarray, batch: Dict
+    config: Dict, ts_fitter: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         init_weights = np.copy(ts_fitter.flattened_weights)
@@ -317,7 +312,7 @@ def _1d_scipy_loop_(
 
 def one_d_loop(
     config: Dict, all_data: Dict, sa: Tuple, batch_indices: np.ndarray, num_batches: int
-) -> Tuple[List, float, ThomsonScattering]:
+) -> Tuple[List, float, LossFunction]:
     """
     This is the higher level wrapper that prepares the data and the fitting code for the 1D fits
 
@@ -340,7 +335,7 @@ def one_d_loop(
         "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
         "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
     } | sample
-    ts_fitter = ThomsonScattering(config, sa, sample)
+    ts_fitter = LossFunction(config, sa, sample)
 
     print("minimizing")
     mlflow.set_tag("status", "minimizing")
@@ -364,7 +359,7 @@ def one_d_loop(
                 best_loss, best_weights = _1d_adam_loop_(config, ts_fitter, previous_weights, batch, tbatch)
             else:
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
-                ts_fitter = ThomsonScattering(config, sa, batch)
+                ts_fitter = LossFunction(config, sa, batch)
                 best_loss, best_weights = _1d_scipy_loop_(config, ts_fitter, previous_weights, batch)
 
             all_weights.append(best_weights)
@@ -411,6 +406,32 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     config = _validate_inputs_(config)
 
     # prepare data
+    all_data, sa, all_axes = load_data_for_fitting(config)
+    batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
+    num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1
+    mlflow.log_metrics({"setup_time": round(time.time() - t1, 2)})
+
+    # perform fit
+    t1 = time.time()
+    mlflow.set_tag("status", "minimizing")
+    print("minimizing")
+
+    if "angular" in config["other"]["extraoptions"]["spectype"]:
+        fitted_weights, overall_loss, ts_fitter = angular_optax(config, all_data, sa)
+    else:
+        fitted_weights, overall_loss, ts_fitter = one_d_loop(config, all_data, sa, batch_indices, num_batches)
+
+    mlflow.log_metrics({"overall loss": float(overall_loss)})
+    mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
+    mlflow.set_tag("status", "postprocessing")
+    print("postprocessing")
+
+    final_params = postprocess.postprocess(config, batch_indices, all_data, all_axes, ts_fitter, sa, fitted_weights)
+
+    return final_params, float(overall_loss)
+
+
+def load_data_for_fitting(config):
     if isinstance(config["data"]["shotnum"], list):
         startCCDsize = config["other"]["CCDsize"]
         all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"][0])
@@ -429,26 +450,4 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
             raise NotImplementedError("Muliplexed data fitting is only availible for angular data")
     else:
         all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"])
-
-    batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
-    num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1
-    mlflow.log_metrics({"setup_time": round(time.time() - t1, 2)})
-
-    # perform fit
-    t1 = time.time()
-    mlflow.set_tag("status", "minimizing")
-    print("minimizing")
-
-    if "angular" in config["other"]["extraoptions"]["spectype"]:
-        fitted_weights, overall_loss, ts_fitter = angular_optax(config, all_data, sa, batch_indices, num_batches)
-    else:
-        fitted_weights, overall_loss, ts_fitter = one_d_loop(config, all_data, sa, batch_indices, num_batches)
-
-    mlflow.log_metrics({"overall loss": float(overall_loss)})
-    mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
-    mlflow.set_tag("status", "postprocessing")
-    print("postprocessing")
-
-    final_params = postprocess.postprocess(config, batch_indices, all_data, all_axes, ts_fitter, sa, fitted_weights)
-
-    return final_params, float(overall_loss)
+    return all_data, sa, all_axes

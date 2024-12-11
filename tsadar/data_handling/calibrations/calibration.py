@@ -3,7 +3,7 @@ import numpy as np
 import scipy.io as sio
 import os
 
-from tsadar.data_handleing.calibrations.sa_table import sa_lookup
+from tsadar.data_handling.calibrations.sa_table import sa_lookup
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 

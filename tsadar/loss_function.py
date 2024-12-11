@@ -15,7 +15,7 @@ from tsadar.distribution_functions.dist_functional_forms import calc_moment, tra
 from tsadar.misc.vector_tools import rotate
 
 
-class ThomsonScattering:
+class LossFunction:
     """
     This class is responsible for handling the forward pass and using that to create a loss function
 
@@ -51,7 +51,7 @@ class ThomsonScattering:
         # boolean used to determine if the analyis is performed twice with rotation of the EDF
         self.multiplex_ang = isinstance(cfg["data"]["shotnum"], list)
 
-        self.spec_calc = SpectrumCalculator(cfg, sas, dummy_batch)
+        self.spec_calc = SpectrumCalculator(cfg, sas)
 
         self._loss_ = jit(self.__loss__)
         self._vg_func_ = jit(value_and_grad(self.__loss__, argnums=0, has_aux=True))
@@ -205,16 +205,10 @@ class ThomsonScattering:
                             )
                         )
                         Te_mult = renorm**2
-                        # h2 = self.cfg["parameters"]["electron"]["fe"]["v_res"]/renorm
+
                         vx2 = self.cfg["parameters"]["electron"]["fe"]["velocity"][0][0] / renorm
                         vy2 = self.cfg["parameters"]["electron"]["fe"]["velocity"][0][0] / renorm
-                        # fe_cur = interp2d(
-                        #     self.cfg["parameters"]["electron"]["fe"]["velocity"][0].flatten(),
-                        #     self.cfg["parameters"]["electron"]["fe"]["velocity"][1].flatten(),
-                        #     vx2, vy2,
-                        #     jnp.squeeze(fe_cur),
-                        #     extrap=[0, 0], method="linear").reshape(
-                        #         jnp.shape(self.cfg["parameters"]["electron"]["fe"]["velocity"][0]),order="F")
+
                         fe_cur = jnp.exp(
                             interp2d(
                                 self.cfg["parameters"]["electron"]["fe"]["velocity"][0].flatten(),
@@ -238,10 +232,6 @@ class ThomsonScattering:
                             )
                         elif self.cfg["dist_fit"]["smooth"]:
                             these_params[species]["fe"] = self.smooth2D(these_params[species]["fe"])
-                            # jnp.log(
-                            #     self.smooth2D(jnp.exp(these_params[species]["fe"][0]))
-                            # )
-                        # these_params["fe"] = jnp.log(self.smooth(jnp.exp(these_params["fe"])))
 
                 else:
                     if return_static_params:

@@ -6,11 +6,11 @@ import numpy as np
 import scipy.optimize as spopt
 
 from tsadar.plotting import plotters
-from tsadar.model.ThomsonScattering import ThomsonScattering
+from tsadar.loss_function import LossFunction
 
 
 def recalculate_with_chosen_weights(
-    config: Dict, batch_indices, all_data: Dict, ts_instance: ThomsonScattering, calc_sigma: bool, fitted_weights: Dict
+    config: Dict, batch_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
 ):
     """
     Gets parameters and the result of the full forward pass i.e. fits
@@ -20,7 +20,7 @@ def recalculate_with_chosen_weights(
         config: Dict- configuration dictionary built from input deck
         batch_indices:
         all_data: Dict- contains the electron data, ion data, and their respective amplitudes
-        ts_instance: Instance of the ThomsonScattering class
+        loss_fn: Instance of the LossFunction class
         fitted_weights: Dict- best values of the parameters returned by the minimizer
 
     Returns:
@@ -68,7 +68,7 @@ def recalculate_with_chosen_weights(
             "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
             "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         }
-        losses, sqds, used_points, [ThryE, _, params] = ts_instance.array_loss(fitted_weights, batch)
+        losses, sqds, used_points, [ThryE, _, params] = loss_fn.array_loss(fitted_weights, batch)
         fits["ele"] = ThryE
         sqdevs["ele"] = sqds["ele"]
 
@@ -82,8 +82,8 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             # this line may need to be omited since the weights may be transformed by line 77
-            active_params = ts_instance.weights_to_params(fitted_weights, return_static_params=False)
-            hess = ts_instance.h_loss_wrt_params(active_params, batch)
+            active_params = loss_fn.weights_to_params(fitted_weights, return_static_params=False)
+            hess = loss_fn.h_loss_wrt_params(active_params, batch)
             sigmas = get_sigmas(hess, config["optimizer"]["batch_size"])
             print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}")
 
@@ -98,15 +98,15 @@ def recalculate_with_chosen_weights(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            # loss, sqds, used_points, ThryE, ThryI, params = ts_instance.array_loss(fitted_weights[i_batch], batch)
-            loss, sqds, used_points, ThryE, ThryI, params = ts_instance.array_loss(fitted_weights[i_batch], batch)
+            # loss, sqds, used_points, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
+            loss, sqds, used_points, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
             # calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean)
-            # these_params = ts_instance.weights_to_params(fitted_weights[i_batch], return_static_params=False)
+            # these_params = loss_fn.weights_to_params(fitted_weights[i_batch], return_static_params=False)
 
             if calc_sigma:
-                hess = ts_instance.h_loss_wrt_params(fitted_weights[i_batch], batch)
+                hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
                 try:
-                    hess = ts_instance.h_loss_wrt_params(fitted_weights[i_batch], batch)
+                    hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
                 except:
                     print("Error calculating Hessian, no hessian based uncertainties have been calculated")
                     calc_sigma = False
@@ -197,7 +197,7 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
     return sigmas
 
 
-def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_instance, sa, fitted_weights):
+def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
     t1 = time.time()
 
     for species in config["parameters"].keys():
@@ -205,7 +205,7 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_instan
             elec_species = species
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        refit_bad_fits(config, batch_indices, all_data, ts_instance, sa, fitted_weights)
+        refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights)
 
     mlflow.log_metrics({"refitting time": round(time.time() - t1, 2)})
 
@@ -213,13 +213,11 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_instan
         _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
         if config["other"]["extraoptions"]["spectype"] == "angular_full":
             t1 = process_angular_data(
-                config, batch_indices, all_data, all_axes, ts_instance, fitted_weights, t1, elec_species, td
+                config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, elec_species, td
             )
 
         else:
-            t1, final_params = process_data(
-                config, batch_indices, all_data, all_axes, ts_instance, fitted_weights, t1, td
-            )
+            t1, final_params = process_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td)
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -229,9 +227,9 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, ts_instan
     return final_params
 
 
-def refit_bad_fits(config, batch_indices, all_data, ts_instance, sa, fitted_weights):
+def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights):
     losses_init, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, batch_indices, all_data, ts_instance, False, fitted_weights
+        config, batch_indices, all_data, loss_fn, False, fitted_weights
     )
 
     # refit bad fits
@@ -264,20 +262,20 @@ def refit_bad_fits(config, batch_indices, all_data, ts_instance, sa, fitted_weig
                         fitted_weights[(i - 1) // true_batch_size][species][key][(i - 1) % true_batch_size]
                     )
 
-        ts_instance_refit = ThomsonScattering(temp_cfg, sa, batch)
+        loss_fn_refit = LossFunction(temp_cfg, sa, batch)
 
-        # ts_instance_refit.flattened_weights, ts_instance_refit.unravel_pytree = ravel_pytree(previous_weights)
+        # loss_fn_refit.flattened_weights, loss_fn_refit.unravel_pytree = ravel_pytree(previous_weights)
 
         res = spopt.minimize(
-            ts_instance_refit.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_instance_refit.loss,
-            np.copy(ts_instance_refit.flattened_weights),
+            loss_fn_refit.vg_loss if config["optimizer"]["grad_method"] == "AD" else loss_fn_refit.loss,
+            np.copy(loss_fn_refit.flattened_weights),
             args=batch,
             method=config["optimizer"]["method"],
             jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-            bounds=ts_instance_refit.bounds,
+            bounds=loss_fn_refit.bounds,
             options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
         )
-        cur_result = ts_instance_refit.unravel_pytree(res["x"])
+        cur_result = loss_fn_refit.unravel_pytree(res["x"])
 
         for species in cur_result.keys():
             for key in cur_result[species].keys():
@@ -297,9 +295,9 @@ def refit_bad_fits(config, batch_indices, all_data, ts_instance, sa, fitted_weig
     config["optimizer"]["batch_size"] = true_batch_size
 
 
-def process_data(config, batch_indices, all_data, all_axes, ts_instance, fitted_weights, t1, td):
+def process_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td):
     losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, batch_indices, all_data, ts_instance, config["other"]["calc_sigmas"], fitted_weights
+        config, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
     if "losses_init" not in locals():
         losses_init = losses
@@ -317,7 +315,7 @@ def process_data(config, batch_indices, all_data, all_axes, ts_instance, fitted_
     return t1, final_params
 
 
-def process_angular_data(config, batch_indices, all_data, all_axes, ts_instance, fitted_weights, t1, elec_species, td):
+def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, elec_species, td):
     best_weights_val = {}
     best_weights_std = {}
     if config["optimizer"]["num_mins"] > 1:
@@ -328,7 +326,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, ts_instance,
         best_weights_val = fitted_weights
 
     losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, batch_indices, all_data, ts_instance, config["other"]["calc_sigmas"], best_weights_val
+        config, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], best_weights_val
     )
 
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})

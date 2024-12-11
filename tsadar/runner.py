@@ -11,11 +11,11 @@ from flatten_dict import flatten, unflatten
 
 from tsadar import fitter
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.ThomsonScattering import ThomsonScattering
+from tsadar.loss_function import LossFunction
 from tsadar.fitter import init_param_norm_and_shift
 from tsadar.misc import utils
 from tsadar.plotting import plotters
-from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
+from tsadar.data_handling.calibrations.calibration import get_calibrations, get_scattering_angles
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
@@ -214,15 +214,6 @@ def calc_series(config):
         dummy_batch["i_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
         dummy_batch["e_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
 
-    # else:
-    #     axisxE, axisxI, axisyE, axisyI, magE, stddev = get_calibrations(
-    #         shotNum=config["data"]["shotnum"],
-    #         tstype=config["other"]["extraoptions"]["spectype"],
-    #         t0=[0.0, 0.0],
-    #         CCDsize=config["other"]["CCDsize"],
-    #     )
-    #     config["other"]["PhysParams"]["widIRF"] = stddev
-
     if "series" in config.keys():
         serieslen = len(config["series"]["vals1"])
     else:
@@ -274,7 +265,7 @@ def calc_series(config):
             if "param4" in config["series"].keys():
                 config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        ts_fitter = ThomsonScattering(config, sas, dummy_batch)
+        ts_fitter = LossFunction(config, sas, dummy_batch)
         params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_fitter.spec_calc(params, dummy_batch)
 
