@@ -7,11 +7,10 @@ from jax import numpy as jnp
 
 from jax import jit, value_and_grad
 from jax.flatten_util import ravel_pytree
-from interpax import interp2d
 import numpy as np
 
-from tsadar.model.spectrum import SpectrumCalculator
-from tsadar.distribution_functions.dist_functional_forms import calc_moment, trapz
+from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic
+from tsadar.distribution_functions.dist_functional_forms import trapz
 from tsadar.misc.vector_tools import rotate
 
 
@@ -19,19 +18,14 @@ class LossFunction:
     """
     This class is responsible for handling the forward pass and using that to create a loss function
 
-    Args:
-            cfg: Configuration dictionary
-            sas: TODO
-            dummy_batch: Dictionary of dummy data
-
     """
 
-    def __init__(self, cfg: Dict, sas, dummy_batch):
+    def __init__(self, cfg: Dict, scattering_angles, dummy_batch):
         """
 
         Args:
             cfg: Configuration dictionary constructed from the inputs
-            sas: Dictionary containing the scattering angles and thier relative weights
+            scattering_angles: Dictionary containing the scattering angles and thier relative weights
             dummy_batch: Dictionary of dummy data
         """
         self.cfg = cfg
@@ -51,23 +45,15 @@ class LossFunction:
         # boolean used to determine if the analyis is performed twice with rotation of the EDF
         self.multiplex_ang = isinstance(cfg["data"]["shotnum"], list)
 
-        self.spec_calc = SpectrumCalculator(cfg, sas)
+        ############
+
+        self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
 
         self._loss_ = jit(self.__loss__)
         self._vg_func_ = jit(value_and_grad(self.__loss__, argnums=0, has_aux=True))
         ##this will be replaced with jacobian params jacobian inverse
         self._h_func_ = jit(jax.hessian(self._loss_for_hess_fn_, argnums=0))
         self.array_loss = jit(self.calc_loss)
-
-        ############
-
-        lb, ub, init_weights = init_weights_and_bounds(cfg, num_slices=cfg["optimizer"]["batch_size"])
-        self.flattened_weights, self.unravel_pytree = ravel_pytree(init_weights["active"])
-        self.static_params = init_weights["inactive"]
-        self.pytree_weights = init_weights
-        self.lb = lb
-        self.ub = ub
-        self.construct_bounds()
 
         # this needs to be rethought and does not work in all cases
         if cfg["parameters"]["electron"]["fe"]["active"]:
@@ -92,20 +78,6 @@ class LossFunction:
                 Warning(
                     "\n !!! Distribution function not fitted !!! Make sure this is what you thought you were running \n"
                 )
-
-    def construct_bounds(self):
-        """
-        This method construct a bounds zip from the upper and lower bounds. This allows the iterable to be reconstructed
-        after being used in a fit.
-
-        Args:
-
-        Returns:
-
-        """
-        flattened_lb, _ = ravel_pytree(self.lb)
-        flattened_ub, _ = ravel_pytree(self.ub)
-        self.bounds = zip(flattened_lb, flattened_ub)
 
     def smooth(self, distribution: jnp.ndarray) -> jnp.ndarray:
         """
@@ -147,110 +119,8 @@ class LossFunction:
 
         smoothing_kernel = jnp.outer(jnp.bartlett(5), jnp.bartlett(5))
         smoothing_kernel = smoothing_kernel / jnp.sum(smoothing_kernel)
-        # print(distribution)
-        # print(jnp.shape(distribution))
 
         return jax.scipy.signal.convolve2d(distribution, smoothing_kernel, "same")
-
-    def weights_to_params(self, input_weights: Dict, return_static_params: bool = True) -> Dict:
-        """
-        This function creates the physical parameters used in the TS algorithm from the weights. The input input_weights
-        is mapped to these_params causing the input_weights to also be modified.
-
-        This could be a 1:1 mapping, or it could be a linear transformation e.g. "normalized" parameters, or it could
-        be something else altogether e.g. a neural network
-
-        Args:
-            input_weights: dictionary of weights used or supplied by the minimizer, these are bounded from 0 to 1
-            return_static_params: boolean determining if the static parameters (these not modified during fitting) will
-            be inculded in the retuned dictionary. This is nessesary for the physics model which requires values for all
-            parameters.
-
-        Returns:
-            these_params: dictionary of the paramters in physics units
-
-        """
-        Te_mult = 1.0
-        ne_mult = 1.0
-        these_params = copy.deepcopy(input_weights)
-        for species in self.cfg["parameters"].keys():
-            for param_name, param_config in self.cfg["parameters"][species].items():
-                if param_config["active"]:
-                    if param_name != "fe":
-                        these_params[species][param_name] = (
-                            these_params[species][param_name] * self.cfg["units"]["norms"][species][param_name]
-                            + self.cfg["units"]["shifts"][species][param_name]
-                        )
-                    else:
-                        fe_shape = jnp.shape(these_params[species][param_name])
-                        # convert EDF from 01 bounded log units to unbounded log units
-                        # jax.debug.print("these params {a}", a=these_params[species][param_name])
-
-                        fe_cur = jnp.exp(
-                            these_params[species][param_name]
-                            * self.cfg["units"]["norms"][species][param_name].reshape(fe_shape)
-                            + self.cfg["units"]["shifts"][species][param_name].reshape(fe_shape)
-                        )
-                        # commented out the renormalization to see effect on 2D edfs 9/26/24
-                        # jax.debug.print("fe_cur {a}", a=fe_cur)
-                        # this only works for 2D edfs and will have to be genralized to 1D
-                        # recaclulate the moments of the EDF
-                        renorm = jnp.sqrt(
-                            calc_moment(jnp.squeeze(fe_cur), self.cfg["parameters"]["electron"]["fe"]["velocity"], 2)
-                            / (
-                                2
-                                * calc_moment(
-                                    jnp.squeeze(fe_cur), self.cfg["parameters"]["electron"]["fe"]["velocity"], 0
-                                )
-                            )
-                        )
-                        Te_mult = renorm**2
-
-                        vx2 = self.cfg["parameters"]["electron"]["fe"]["velocity"][0][0] / renorm
-                        vy2 = self.cfg["parameters"]["electron"]["fe"]["velocity"][0][0] / renorm
-
-                        fe_cur = jnp.exp(
-                            interp2d(
-                                self.cfg["parameters"]["electron"]["fe"]["velocity"][0].flatten(),
-                                self.cfg["parameters"]["electron"]["fe"]["velocity"][1].flatten(),
-                                vx2,
-                                vy2,
-                                jnp.log(jnp.squeeze(fe_cur)),
-                                extrap=[-100, -100],
-                                method="linear",
-                            ).reshape(jnp.shape(self.cfg["parameters"]["electron"]["fe"]["velocity"][0]), order="F")
-                        )
-                        ne_mult = calc_moment(
-                            jnp.squeeze(fe_cur), self.cfg["parameters"]["electron"]["fe"]["velocity"], 0
-                        )
-                        fe_cur = fe_cur / ne_mult
-                        these_params[species][param_name] = jnp.log(fe_cur)
-
-                        if self.cfg["parameters"][species]["fe"]["dim"] == 1:
-                            these_params[species]["fe"] = jnp.log(
-                                self.smooth(jnp.exp(these_params[species]["fe"][0]))[None, :]
-                            )
-                        elif self.cfg["dist_fit"]["smooth"]:
-                            these_params[species]["fe"] = self.smooth2D(these_params[species]["fe"])
-
-                else:
-                    if return_static_params:
-                        if param_name == "fe":
-                            if param_config["type"].casefold() == "arbitrary":
-                                these_params[species][param_name] = self.static_params[species][param_name]
-                        else:
-                            these_params[species][param_name] = self.static_params[species][param_name]
-
-        # need to confirm this works due to jax imutability
-        # jax.debug.print("Temult {total_loss}", total_loss=Te_mult)
-        # jax.debug.print("nemult {total_loss}", total_loss=ne_mult)
-        # jax.debug.print("Tebefore {total_loss}", total_loss=these_params["electron"]['Te'])
-        these_params["electron"]["Te"] *= Te_mult
-        these_params["electron"]["ne"] *= ne_mult
-        # jax.debug.print("Teafter {total_loss}", total_loss=these_params["electron"]['Te'])
-        # jax.debug.print("fe after has NANs {total_loss}", total_loss=jnp.isnan(fe_cur))
-
-        return these_params
 
     def _get_normed_batch_(self, batch: Dict):
         """
@@ -284,7 +154,7 @@ class LossFunction:
 
         """
         if self.cfg["optimizer"]["method"] == "l-bfgs-b":
-            pytree_weights = self.unravel_pytree(weights)
+            pytree_weights = self.ts_diag.unravel_pytree(weights)
             (value, aux), grad = self._vg_func_(pytree_weights, batch)
 
             if "fe" in grad:
@@ -307,8 +177,8 @@ class LossFunction:
 
     def _loss_for_hess_fn_(self, weights, batch):
         # params = params | self.static_params
-        params = self.weights_to_params(weights)
-        ThryE, ThryI, lamAxisE, lamAxisI = self.spec_calc(params, batch)
+        params = self.ts_diag.get_plasma_parameters(weights)
+        ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
         i_error, e_error, _, _ = self.calc_ei_error(
             batch,
             ThryI,
@@ -422,16 +292,16 @@ class LossFunction:
         Returns:
 
         """
-        params = self.weights_to_params(weights)
+        params = self.ts_diag.get_plasma_parameters(weights)
 
         if self.multiplex_ang:
-            ThryE, ThryI, lamAxisE, lamAxisI = self.spec_calc(params, batch["b1"])
+            ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch["b1"])
             # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params["electron"]['fe']))
             params["electron"]["fe"] = rotate(
                 jnp.squeeze(params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
             )
 
-            ThryE_rot, _, _, _ = self.spec_calc(params, batch["b2"])
+            ThryE_rot, _, _, _ = self.ts_diag(params, batch["b2"])
             i_error1, e_error1, sqdev, used_points = self.calc_ei_error(
                 batch["b1"],
                 ThryI,
@@ -455,7 +325,7 @@ class LossFunction:
 
             normed_batch = self._get_normed_batch_(batch["b1"])
         else:
-            ThryE, ThryI, lamAxisE, lamAxisI = self.spec_calc(params, batch)
+            ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
 
             i_error, e_error, sqdev, used_points = self.calc_ei_error(
                 batch,
@@ -671,76 +541,3 @@ class LossFunction:
             momentum_loss = 0.0
             # print(temperature_loss)
         return density_loss, temperature_loss, momentum_loss
-
-
-def init_weights_and_bounds(config, num_slices):
-    """
-    this dict form will be unpacked for scipy consumption, we assemble them all in the same way so that we can then
-    use ravel pytree from JAX utilities to unpack it
-    Args:
-        config:
-        init_weights:
-        num_slices:
-
-    Returns:
-
-    """
-    lb = {"active": {}, "inactive": {}}
-    ub = {"active": {}, "inactive": {}}
-    iw = {"active": {}, "inactive": {}}
-
-    for species in config["parameters"].keys():
-        lb["active"][species] = {}
-        ub["active"][species] = {}
-        iw["active"][species] = {}
-        lb["inactive"][species] = {}
-        ub["inactive"][species] = {}
-        iw["inactive"][species] = {}
-
-    for species in config["parameters"].keys():
-        for param_name, param_dict in config["parameters"][species].items():
-            if param_dict["active"]:
-                active_or_inactive = "active"
-            else:
-                active_or_inactive = "inactive"
-
-            if param_name == "fe":
-                # if config["parameters"][species]["fe"]["type"].casefold() == "dlm":
-                # iw[active_or_inactive][species]["m"] = np.ones((num_slices, 1)) * param_dict["params"]["m"]["val"]
-                if config["parameters"][species]["fe"]["type"].casefold() == "arbitrary":
-                    iw[active_or_inactive][species]["fe"] = np.repeat(param_dict["val"][None, :], num_slices, axis=0)
-                # else:
-                # raise NotImplementedError(
-                # f"Functional form {config['parameters'][species]['fe']['type']} not implemented"
-                # )
-
-            else:
-                iw[active_or_inactive][species][param_name] = np.ones((num_slices, 1)) * param_dict["val"]
-
-            if param_dict["active"]:
-                # shift
-                lb[active_or_inactive][species][param_name] = np.zeros(num_slices)
-                ub[active_or_inactive][species][param_name] = np.ones(num_slices)
-
-                # normalize
-                if param_name == "fe":
-                    if config["parameters"][species]["fe"]["type"].casefold() == "dlm":
-                        iw[active_or_inactive][species]["m"] = (
-                            iw[active_or_inactive][species]["m"] - config["units"]["shifts"][species]["m"]
-                        ) / config["units"]["norms"][species]["m"]
-
-                    else:
-                        iw[active_or_inactive][species]["fe"] = (
-                            iw[active_or_inactive][species]["fe"]
-                            - config["units"]["shifts"][species]["fe"].reshape(
-                                jnp.shape(iw[active_or_inactive][species]["fe"])
-                            )
-                        ) / config["units"]["norms"][species]["fe"].reshape(
-                            jnp.shape(iw[active_or_inactive][species]["fe"])
-                        )
-                else:
-                    iw[active_or_inactive][species][param_name] = (
-                        iw[active_or_inactive][species][param_name] - config["units"]["shifts"][species][param_name]
-                    ) / config["units"]["norms"][species][param_name]
-
-    return lb, ub, iw

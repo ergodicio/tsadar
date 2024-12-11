@@ -265,9 +265,9 @@ def calc_series(config):
             if "param4" in config["series"].keys():
                 config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        ts_fitter = LossFunction(config, sas, dummy_batch)
-        params = ts_fitter.weights_to_params(ts_fitter.pytree_weights["active"])
-        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_fitter.spec_calc(params, dummy_batch)
+        loss_fn = LossFunction(config, sas, dummy_batch)
+        params = loss_fn.spec_calc.get_plasma_parameters(loss_fn.pytree_weights["active"])
+        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = loss_fn.spec_calc(params, dummy_batch)
 
     spectime = time.time() - t_start
     ThryE = np.array(ThryE)

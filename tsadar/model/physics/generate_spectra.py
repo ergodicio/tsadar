@@ -17,7 +17,7 @@ class FitModel:
         weights of each of the scattering angles in the final spectrum
     """
 
-    def __init__(self, config: Dict, sa):
+    def __init__(self, config: Dict, scattering_angles: Dict):
         """
         FitModel class constructor, sets the static properties associated with spectrum generation that will not be
         modified from one iteration of the fitter to the next.
@@ -28,7 +28,7 @@ class FitModel:
                 weights of each of the scattering angles in the final spectrum
         """
         self.config = config
-        self.sa = sa
+        self.scattering_angles = scattering_angles
         # this will need to be fixed for multi electron
         self.num_ions = 0
         self.num_electrons = 0
@@ -106,16 +106,8 @@ class FitModel:
                 mcur = 2.0 + 3.0 / (1.0 + 1.66 / (alpha**0.724))
             else:
                 mcur = all_params["electron"]["m"]
-
-            # if self.config["parameters"]["electron"]["m"]["active"]:
             vcur, fecur = self.num_dist_func(mcur)
-            # all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
 
-            # (
-            #     self.config["parameters"]["electron"]["fe"]["velocity"],
-            #     all_params["electron"]["fe"],
-            # ) = self.num_dist_func(mcur.squeeze())
-            # all_params["electron"]["fe"] = jnp.log(all_params["electron"]["fe"])
         elif self.num_dist_func.fe_name.casefold() == "sphericalharmonic":
             vcur, fecur = self.num_dist_func(all_params["electron"])
 
@@ -174,7 +166,7 @@ class FitModel:
         if self.config["other"]["extraoptions"]["load_ion_spec"]:
             if self.num_dist_func.dim == 1:
                 ThryI, lamAxisI = self.ion_form_factor(
-                    all_params, cur_ne, cur_Te, A, Z, Ti, fract, self.sa["sa"], (fecur, vcur), lam
+                    all_params, cur_ne, cur_Te, A, Z, Ti, fract, self.scattering_angles["sa"], (fecur, vcur), lam
                 )
             else:
                 ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(
@@ -187,7 +179,7 @@ class FitModel:
                     Z,
                     Ti,
                     fract,
-                    self.sa["sa"],
+                    self.scattering_angles["sa"],
                     (fecur, vcur),
                     lam,
                 )
@@ -195,7 +187,7 @@ class FitModel:
             # remove extra dimensions and rescale to nm
             lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
             ThryI = jnp.mean(ThryI, axis=0)
-            modlI = jnp.sum(ThryI * self.sa["weights"][0], axis=1)
+            modlI = jnp.sum(ThryI * self.scattering_angles["weights"][0], axis=1)
         else:
             modlI = 0
             lamAxisI = []
@@ -212,7 +204,7 @@ class FitModel:
                     Z,
                     Ti,
                     fract,
-                    self.sa["sa"],
+                    self.scattering_angles["sa"],
                     (fecur, vcur),
                     lam + self.config["data"]["ele_lam_shift"],
                 )
@@ -227,7 +219,7 @@ class FitModel:
                     Z,
                     Ti,
                     fract,
-                    self.sa["sa"],
+                    self.scattering_angles["sa"],
                     (fecur, vcur),
                     lam + self.config["data"]["ele_lam_shift"],
                 )
@@ -237,9 +229,9 @@ class FitModel:
 
             ThryE = jnp.mean(ThryE, axis=0)
             if self.config["other"]["extraoptions"]["spectype"] == "angular_full":
-                modlE = jnp.matmul(self.sa["weights"], ThryE.transpose())
+                modlE = jnp.matmul(self.scattering_angles["weights"], ThryE.transpose())
             else:
-                modlE = jnp.sum(ThryE * self.sa["weights"][0], axis=1)
+                modlE = jnp.sum(ThryE * self.scattering_angles["weights"][0], axis=1)
 
             if self.config["other"]["iawoff"] and (
                 self.config["other"]["lamrangE"][0] < lam < self.config["other"]["lamrangE"][1]

@@ -82,7 +82,7 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             # this line may need to be omited since the weights may be transformed by line 77
-            active_params = loss_fn.weights_to_params(fitted_weights, return_static_params=False)
+            active_params = loss_fn.spec_calc.get_plasma_parameters(fitted_weights, return_static_params=False)
             hess = loss_fn.h_loss_wrt_params(active_params, batch)
             sigmas = get_sigmas(hess, config["optimizer"]["batch_size"])
             print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}")
@@ -98,10 +98,7 @@ def recalculate_with_chosen_weights(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            # loss, sqds, used_points, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
             loss, sqds, used_points, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
-            # calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean)
-            # these_params = loss_fn.weights_to_params(fitted_weights[i_batch], return_static_params=False)
 
             if calc_sigma:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)

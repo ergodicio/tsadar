@@ -189,13 +189,13 @@ def angular_optax(config, all_data, sa):
     else:
         actual_data = batch1
 
-    ts_fitter = LossFunction(config, sa, batch1)
+    loss_fn = LossFunction(config, sa, batch1)
     minimizer = getattr(optax, config["optimizer"]["method"])
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
     solver = minimizer(config["optimizer"]["learning_rate"])
 
-    weights = ts_fitter.pytree_weights["active"]
+    weights = loss_fn.pytree_weights["active"]
     opt_state = solver.init(weights)
 
     # start train loop
@@ -206,7 +206,7 @@ def angular_optax(config, all_data, sa):
     num_g_wait = 0
     num_b_wait = 0
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        (val, aux), grad = ts_fitter.vg_loss(weights, actual_data)
+        (val, aux), grad = loss_fn.vg_loss(weights, actual_data)
         updates, opt_state = solver.update(grad, opt_state, weights)
 
         epoch_loss = val
@@ -241,20 +241,20 @@ def angular_optax(config, all_data, sa):
         file.write(pickle.dumps(state_weights))
 
     mlflow.log_artifact("state_weights.txt")
-    return weights, epoch_loss, ts_fitter
+    return weights, epoch_loss, loss_fn
 
 
 def _1d_adam_loop_(
-    config: Dict, ts_fitter: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
+    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
     jaxopt_kwargs = dict(
-        fun=ts_fitter.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
+        fun=loss_fn.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
     )
     opt = optax.adam(config["optimizer"]["learning_rate"])
     solver = jaxopt.OptaxSolver(opt=opt, **jaxopt_kwargs)
 
     if previous_weights is None:
-        init_weights = ts_fitter.pytree_weights["active"]
+        init_weights = loss_fn.pytree_weights["active"]
     else:
         init_weights = previous_weights
 
@@ -282,10 +282,10 @@ def _1d_adam_loop_(
 
 
 def _1d_scipy_loop_(
-    config: Dict, ts_fitter: LossFunction, previous_weights: np.ndarray, batch: Dict
+    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        init_weights = np.copy(ts_fitter.flattened_weights)
+        init_weights = np.copy(loss_fn.ts_diag.flattened_weights)
     else:
         init_weights = np.array(previous_weights)
 
@@ -295,17 +295,17 @@ def _1d_scipy_loop_(
     #             init_weights = previous_weights
 
     res = spopt.minimize(
-        ts_fitter.vg_loss if config["optimizer"]["grad_method"] == "AD" else ts_fitter.loss,
+        loss_fn.vg_loss if config["optimizer"]["grad_method"] == "AD" else loss_fn.loss,
         init_weights,
         args=batch,
         method=config["optimizer"]["method"],
         jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-        bounds=ts_fitter.bounds,
+        bounds=loss_fn.ts_diag.bounds,
         options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
     )
 
     best_loss = res["fun"]
-    best_weights = ts_fitter.unravel_pytree(res["x"])
+    best_weights = loss_fn.ts_diag.unravel_pytree(res["x"])
 
     return best_loss, best_weights
 
@@ -335,7 +335,7 @@ def one_d_loop(
         "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
         "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
     } | sample
-    ts_fitter = LossFunction(config, sa, sample)
+    loss_fn = LossFunction(config, sa, sample)
 
     print("minimizing")
     mlflow.set_tag("status", "minimizing")
@@ -356,11 +356,11 @@ def one_d_loop(
             }
 
             if config["optimizer"]["method"] == "adam":  # Stochastic Gradient Descent
-                best_loss, best_weights = _1d_adam_loop_(config, ts_fitter, previous_weights, batch, tbatch)
+                best_loss, best_weights = _1d_adam_loop_(config, loss_fn, previous_weights, batch, tbatch)
             else:
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
-                ts_fitter = LossFunction(config, sa, batch)
-                best_loss, best_weights = _1d_scipy_loop_(config, ts_fitter, previous_weights, batch)
+                loss_fn = LossFunction(config, sa, batch)
+                best_loss, best_weights = _1d_scipy_loop_(config, loss_fn, previous_weights, batch)
 
             all_weights.append(best_weights)
             mlflow.log_metrics({"batch loss": float(best_loss)}, step=i_batch)
@@ -374,7 +374,7 @@ def one_d_loop(
                     else:
                         previous_weights, _ = ravel_pytree(best_weights)
 
-    return all_weights, overall_loss, ts_fitter
+    return all_weights, overall_loss, loss_fn
 
 
 def fit(config) -> Tuple[pd.DataFrame, float]:
@@ -417,16 +417,16 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     print("minimizing")
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
-        fitted_weights, overall_loss, ts_fitter = angular_optax(config, all_data, sa)
+        fitted_weights, overall_loss, loss_fn = angular_optax(config, all_data, sa)
     else:
-        fitted_weights, overall_loss, ts_fitter = one_d_loop(config, all_data, sa, batch_indices, num_batches)
+        fitted_weights, overall_loss, loss_fn = one_d_loop(config, all_data, sa, batch_indices, num_batches)
 
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
     mlflow.set_tag("status", "postprocessing")
     print("postprocessing")
 
-    final_params = postprocess.postprocess(config, batch_indices, all_data, all_axes, ts_fitter, sa, fitted_weights)
+    final_params = postprocess.postprocess(config, batch_indices, all_data, all_axes, loss_fn, sa, fitted_weights)
 
     return final_params, float(overall_loss)
 
