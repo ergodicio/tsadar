@@ -70,23 +70,17 @@ parameters:
         active: True
         lb: .001
         ub: 1.0
-    m:
-        val: 2.0
-        active: False
-        lb: 2.0
-        ub: 5.0
-        matte: false
     fe:
-        val: []
+
         active: False
-        type: "DLM"
-        lb: -100.
-        ub: -0.5
-        fe_decrease_strict: False
-        symmetric: False
+        type: dlm
+        params:
+            m: 
+                val: 2.5
+                lb: 2.0
+                ub: 5.0
         dim: 1
-        v_res: 0.01
-        temp_asym: 2.0
+        nv: 256
 
 data:
     shotnum: 94475

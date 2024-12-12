@@ -6,18 +6,9 @@ parameters:
         lb: 0.01
         ub: 3.
         gradient: 0.0
-    m:
-        val: 2.
-        active: False
-        lb: 2.
-        ub: 5.
     fe:
-        val: []
         active: False
-        type: "DLM"
-        lb: -100.
-        ub: -0.5
-        fe_decrease_strict: False
+        type: dlm
     ne:
         val: .2
         active: False
