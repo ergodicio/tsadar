@@ -80,7 +80,7 @@ parameters:
                 lb: 2.0
                 ub: 5.0
         dim: 1
-        nv: 256
+        nv: 2048
 
 data:
     shotnum: 94475
