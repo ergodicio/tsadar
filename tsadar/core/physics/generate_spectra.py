@@ -1,7 +1,6 @@
 from typing import Dict
 
-from tsadar.model.physics.form_factor import FormFactor
-from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from .form_factor import FormFactor
 
 from jax import numpy as jnp
 

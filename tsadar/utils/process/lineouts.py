@@ -3,7 +3,7 @@ from typing import Dict
 from collections import defaultdict
 
 import numpy as np
-from tsadar.process.evaluate_background import get_lineout_bg
+from tsadar.utils.process.evaluate_background import get_lineout_bg
 
 
 def get_lineouts(

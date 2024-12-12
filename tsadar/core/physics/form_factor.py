@@ -11,9 +11,9 @@ from interpax import interp2d
 from jax.lax import scan, map as jmap
 from jax import checkpoint
 
-from tsadar.model.physics import ratintn
-from tsadar.data_handling import lam_parse
-from tsadar.misc.vector_tools import vsub, vdot, vdiv
+from . import ratintn
+from ...utils.data_handling import lam_parse
+from ...utils.vector_tools import vsub, vdot, vdiv
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 

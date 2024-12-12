@@ -7,10 +7,11 @@ from jax import numpy as jnp, vmap
 from jax.flatten_util import ravel_pytree
 from interpax import interp2d
 
-from tsadar.model.physics.generate_spectra import FitModel
-from tsadar.model.modules import ThomsonParams
-from tsadar.distribution_functions.dist_functional_forms import calc_moment
-from tsadar.process import irf
+from .physics.generate_spectra import FitModel
+from .modules import ThomsonParams
+
+# from tsadar.distribution_functions.dist_functional_forms import calc_moment
+from .physics import irf
 
 
 def init_weights_and_bounds(config, num_slices):

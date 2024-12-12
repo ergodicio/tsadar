@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 
-from tsadar.plotting.lineout_plot import lineout_plot
+from tsadar.utils.plotting.lineout_plot import lineout_plot
 
 
 def get_final_params(config, best_weights, all_axes, td):

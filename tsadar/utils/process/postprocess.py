@@ -6,8 +6,8 @@ import time, tempfile, mlflow, os, copy
 import numpy as np
 import scipy.optimize as spopt
 
-from tsadar.plotting import plotters
-from tsadar.loss_function import LossFunction
+from tsadar.utils.plotting import plotters
+from tsadar.inverse.loss_function import LossFunction
 
 
 def recalculate_with_chosen_weights(

@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 
 from scipy.signal import convolve2d as conv2
 
-from tsadar.data_handling.load_ts_data import loadData
-from tsadar.process.correct_throughput import correctThroughput
+from ..data_handling.load_ts_data import loadData
+from .correct_throughput import correctThroughput
 
 
 def get_shot_bg(config, shotNum, axisyE, elecData):

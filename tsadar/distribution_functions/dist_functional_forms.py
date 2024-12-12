@@ -2,7 +2,7 @@ from jax.scipy.special import gamma
 from jax import numpy as jnp
 from jax import vmap
 from jax.scipy.special import sph_harm
-from tsadar.misc.vector_tools import rotate
+from tsadar.utils.vector_tools import rotate
 from interpax import interp2d
 
 

@@ -3,12 +3,12 @@ from typing import Dict
 import numpy as np
 import os
 
-from tsadar.process.evaluate_background import get_shot_bg
-from tsadar.data_handling.load_ts_data import loadData
-from tsadar.process.correct_throughput import correctThroughput
-from tsadar.data_handling.calibrations.calibration import get_calibrations, get_scattering_angles
-from tsadar.process.lineouts import get_lineouts
-from tsadar.data_handling.data_visualizer import launch_data_visualizer
+from .evaluate_background import get_shot_bg
+from ..data_handling.load_ts_data import loadData
+from .correct_throughput import correctThroughput
+from ..data_handling.calibrations.calibration import get_calibrations, get_scattering_angles
+from .lineouts import get_lineouts
+from ..data_handling.data_visualizer import launch_data_visualizer
 
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:

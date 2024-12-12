@@ -10,8 +10,8 @@ config.update("jax_enable_x64", True)
 # config.update("jax_disable_jit", True)
 # config.update("jax_check_tracer_leaks", True)
 
-from tsadar import fitter
-from tsadar.misc import utils
+from tsadar.inverse import fitter
+from tsadar.utils import misc
 
 
 @pytest.mark.parametrize("nn", [False])
@@ -37,7 +37,7 @@ def test_data(nn):
     mlflow.set_experiment(config["mlflow"]["experiment"])
 
     with mlflow.start_run() as run:
-        utils.log_params(config)
+        misc.log_params(config)
         config["num_cores"] = int(mp.cpu_count())
 
         t0 = time.time()

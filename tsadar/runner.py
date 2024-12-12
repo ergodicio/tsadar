@@ -9,14 +9,14 @@ import xarray as xr
 from tqdm import tqdm
 from flatten_dict import flatten, unflatten
 
-from tsadar import fitter
+from tsadar.inverse import fitter
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
-from tsadar.model.modules import ThomsonParams
-from tsadar.fitter import init_param_norm_and_shift
-from tsadar.misc import utils
-from tsadar.plotting import plotters
-from tsadar.data_handling.calibrations.calibration import get_calibrations, get_scattering_angles
+from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
+from tsadar.core.modules import ThomsonParams
+from tsadar.inverse.fitter import init_param_norm_and_shift
+from tsadar.utils import misc
+from tsadar.utils.plotting import plotters
+from tsadar.utils.data_handling.calibrations.calibration import get_calibrations, get_scattering_angles
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
@@ -87,17 +87,17 @@ def run_for_app(run_id: str) -> str:
         # download config
         with tempfile.TemporaryDirectory(dir=BASE_TEMPDIR) as temp_path:
 
-            dest_file_path = utils.download_file(f"config.yaml", mlflow_run.info.artifact_uri, temp_path)
+            dest_file_path = misc.download_file(f"config.yaml", mlflow_run.info.artifact_uri, temp_path)
             with open(dest_file_path, "r") as fi:
                 config = yaml.safe_load(fi)
 
             if config["data"]["filenames"]["epw"] is not None:
-                config["data"]["filenames"]["epw-local"] = utils.download_file(
+                config["data"]["filenames"]["epw-local"] = misc.download_file(
                     config["data"]["filenames"]["epw"], mlflow_run.info.artifact_uri, temp_path
                 )
 
             if config["data"]["filenames"]["iaw"] is not None:
-                config["data"]["filenames"]["iaw-local"] = utils.download_file(
+                config["data"]["filenames"]["iaw-local"] = misc.download_file(
                     config["data"]["filenames"]["iaw"], mlflow_run.info.artifact_uri, temp_path
                 )
 
@@ -119,7 +119,7 @@ def _run_(config: Dict, mode: str = "fit"):
     Returns:
 
     """
-    utils.log_params(config)
+    misc.log_params(config)
     t0 = time.time()
     if mode.casefold() == "fit":
         fit_results, loss = fitter.fit(config=config)
@@ -149,7 +149,7 @@ def run_job(run_id: str, mode: str, nested: bool):
         with tempfile.TemporaryDirectory(dir=BASE_TEMPDIR) as temp_path:
             all_configs = {}
             for k in ["defaults", "inputs"]:
-                dest_file_path = utils.download_file(f"{k}.yaml", run.info.artifact_uri, temp_path)
+                dest_file_path = misc.download_file(f"{k}.yaml", run.info.artifact_uri, temp_path)
                 with open(f"{os.path.join(temp_path, k)}.yaml", "r") as fi:
                     all_configs[k] = yaml.safe_load(fi)
             defaults = flatten(all_configs["defaults"])

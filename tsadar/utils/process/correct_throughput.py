@@ -6,7 +6,7 @@ import scipy.io as sio
 from os.path import join
 import os
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
 
 def correctThroughput(data, tstype, axisy, shotNum):

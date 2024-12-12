@@ -10,7 +10,7 @@ from flatten_dict import flatten, unflatten
 config.update("jax_enable_x64", True)
 
 from scipy.signal import find_peaks
-from tsadar.model.physics.form_factor import FormFactor
+from tsadar.core.physics.form_factor import FormFactor
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 

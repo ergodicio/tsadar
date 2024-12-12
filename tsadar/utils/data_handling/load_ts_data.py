@@ -4,9 +4,9 @@ import os
 from pyhdf.SD import SD, SDC
 import numpy as np
 from scipy.signal import find_peaks
-from tsadar.process.warpcorr import perform_warp_correction
+from tsadar.utils.process.warpcorr import perform_warp_correction
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
 
 def loadData(sNum, sDay, loadspecs, custom_path=False):
@@ -44,8 +44,10 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         folder = join(BASE_FILES_PATH, "data")
 
     file_list = listdir(folder)
-    print(file_list)
+    print(f"{file_list=}")
+    print(f"{sNum=}")
     files = [name for name in file_list if str(sNum) in name]
+    print(f"Files found: {files}")
     t0 = [0, 0]
 
     for fl in files:
@@ -95,31 +97,31 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         iDat = []
 
     if loadspecs["load_ele_spec"]:
-        try:
-            eDatfile = SD(hdfnameE, SDC.READ)
-            sds_obj = eDatfile.select("Streak_array")  # select sds
-            eDat = sds_obj.get()  # get sds data
-            eDat = eDat.astype("float64")
-            eDat = eDat[0, :, :] - eDat[1, :, :]
+        # try:
+        eDatfile = SD(hdfnameE, SDC.READ)
+        sds_obj = eDatfile.select("Streak_array")  # select sds
+        eDat = sds_obj.get()  # get sds data
+        eDat = eDat.astype("float64")
+        eDat = eDat[0, :, :] - eDat[1, :, :]
 
-            if specType == "angular":
-                eDat = np.fliplr(eDat)
-                print("found angular data")
-            elif specType == "temporal":
-                eDat = perform_warp_correction(eDat)
-            elif specType == "imaging":
-                eDat = np.rot90(np.squeeze(eDat), 3)
+        if specType == "angular":
+            eDat = np.fliplr(eDat)
+            print("found angular data")
+        elif specType == "temporal":
+            eDat = perform_warp_correction(eDat)
+        elif specType == "imaging":
+            eDat = np.rot90(np.squeeze(eDat), 3)
 
-            if specType == "temporal" and loadspecs["absolute_timing"]:
-                # this sets t0 by locating the fiducial and placing t0 164px earlier
-                fidu = np.sum(eDat[0:100, :], 0)
-                res = find_peaks(fidu, prominence=1000, width=10)
-                peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
-                t0[1] = round(peak_center - 95)
-        except BaseException:
-            print("Unable to find EPW")
-            eDat = []
-            loadspecs["load_ele_spec"] = False
+        if specType == "temporal" and loadspecs["absolute_timing"]:
+            # this sets t0 by locating the fiducial and placing t0 164px earlier
+            fidu = np.sum(eDat[0:100, :], 0)
+            res = find_peaks(fidu, prominence=1000, width=10)
+            peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
+            t0[1] = round(peak_center - 95)
+        # except BaseException:
+        #     print("Unable to find EPW")
+        #     eDat = []
+        #     loadspecs["load_ele_spec"] = False
     else:
         eDat = []
 

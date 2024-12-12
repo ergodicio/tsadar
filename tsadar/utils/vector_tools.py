@@ -46,8 +46,8 @@ def vdot(a, b):
     Returns:
         c: ND-array or tuple of ND-arrays based off the operation being a dot product or scalar product
     """
-    if type(a) is tuple:
-        if type(b) is tuple:
+    if isinstance(type(a), tuple):
+        if isinstance(type(b), tuple):
             return a[0] * b[0] + a[1] * b[1]
         else:
             return (a[0] * b, a[1] * b)
@@ -67,8 +67,8 @@ def vdiv(a, b):
         c: tuple of ND-arrays
     """
     # custom function for vector divided by a scalar
-    if type(a) is tuple:
-        if type(b) is tuple:
+    if isinstance(type(a), tuple):
+        if isinstance(type(b), tuple):
             raise ValueError("vector must be divided by a scalar")
         else:
             return (a[0] / b, a[1] / b)

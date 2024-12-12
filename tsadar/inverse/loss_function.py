@@ -8,9 +8,9 @@ from jax.flatten_util import ravel_pytree
 import numpy as np
 import equinox as eqx
 
-from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
-from tsadar.distribution_functions.dist_functional_forms import trapz
-from tsadar.misc.vector_tools import rotate
+from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
+from ..distribution_functions.dist_functional_forms import trapz
+from tsadar.utils.vector_tools import rotate
 
 
 class LossFunction:

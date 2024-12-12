@@ -11,10 +11,9 @@ from optax import tree_utils as otu
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
 
-from tsadar.model.modules import get_filter_spec
-from tsadar.loss_function import LossFunction
-from tsadar.model.modules import ThomsonParams
-from tsadar.process import prepare, postprocess
+from .loss_function import LossFunction
+from ..core.modules import get_filter_spec, ThomsonParams
+from ..utils.process import prepare, postprocess
 
 
 def init_param_norm_and_shift(config: Dict) -> Dict:
