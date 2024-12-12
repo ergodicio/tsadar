@@ -6,13 +6,14 @@ import pickle
 import scipy.optimize as spopt
 
 import mlflow, optax
+import equinox as eqx
 from optax import tree_utils as otu
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
-import jaxopt
 
-from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.model.modules import get_filter_spec
 from tsadar.loss_function import LossFunction
+from tsadar.model.modules import ThomsonParams
 from tsadar.process import prepare, postprocess
 
 
@@ -80,32 +81,32 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     """
     # get derived quantities
-    electron_params = config["parameters"]["electron"]
+    # electron_params = config["parameters"]["electron"]
 
-    if electron_params["fe"]["type"].casefold() == "arbitrary":
-        if isinstance(electron_params["fe"]["val"]) in [list, np.array]:
-            pass
-        elif isinstance(electron_params["fe"]["val"], str):
-            if electron_params["fe"]["val"].casefold() == "dlm":
-                electron_params["fe"]["val"] = DLM1D(electron_params)(electron_params["m"]["val"])
-            elif "file" in electron_params["fe"]["val"]:  # file-/pscratch/a/.../file.txt
-                filename = electron_params["fe"]["val"].split("-")[1]
-            else:
-                raise NotImplementedError(f"Functional form {electron_params['fe']['val']} not implemented")
+    # if electron_params["fe"]["type"].casefold() == "arbitrary":
+    #     if isinstance(electron_params["fe"]["val"]) in [list, np.array]:
+    #         pass
+    #     elif isinstance(electron_params["fe"]["val"], str):
+    #         if electron_params["fe"]["val"].casefold() == "dlm":
+    #             electron_params["fe"]["val"] = DLM1D(electron_params)(electron_params["m"]["val"])
+    #         elif "file" in electron_params["fe"]["val"]:  # file-/pscratch/a/.../file.txt
+    #             filename = electron_params["fe"]["val"].split("-")[1]
+    #         else:
+    #             raise NotImplementedError(f"Functional form {electron_params['fe']['val']} not implemented")
 
-    elif electron_params["fe"]["type"].casefold() == "dlm":
-        assert electron_params["m"]["val"] >= 2, "DLM requires m >= 2"
-        assert electron_params["m"]["val"] <= 5, "DLM requires m <= 5"
+    # elif electron_params["fe"]["type"].casefold() == "dlm":
+    #     assert electron_params["m"]["val"] >= 2, "DLM requires m >= 2"
+    #     assert electron_params["m"]["val"] <= 5, "DLM requires m <= 5"
 
-    elif electron_params["fe"]["type"].casefold() == "sphericalharmonic":
-        pass
+    # elif electron_params["fe"]["type"].casefold() == "sphericalharmonic":
+    #     pass
 
-    elif electron_params["fe"]["type"].casefold() == "spitzer":
-        pass  # dont need anything here
-    elif electron_params["fe"]["type"].casefold() == "mydlm":
-        pass  # don't need anything here
-    else:
-        raise NotImplementedError(f"Functional form {electron_params['fe']['type']} not implemented")
+    # elif electron_params["fe"]["type"].casefold() == "spitzer":
+    #     pass  # dont need anything here
+    # elif electron_params["fe"]["type"].casefold() == "mydlm":
+    #     pass  # don't need anything here
+    # else:
+    #     raise NotImplementedError(f"Functional form {electron_params['fe']['type']} not implemented")
 
     # dist_obj = DistFunc(electron_params)
     # electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
@@ -247,23 +248,25 @@ def angular_optax(config, all_data, sa):
 def _1d_adam_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
-    jaxopt_kwargs = dict(
-        fun=loss_fn.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
-    )
+    # jaxopt_kwargs = dict(
+    #     fun=loss_fn.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
+    # )
     opt = optax.adam(config["optimizer"]["learning_rate"])
-    solver = jaxopt.OptaxSolver(opt=opt, **jaxopt_kwargs)
+    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    opt_state = opt.init(diff_params)
 
-    if previous_weights is None:
-        init_weights = loss_fn.pytree_weights["active"]
-    else:
-        init_weights = previous_weights
+    # if previous_weights is None:
+    #     init_weights = loss_fn.pytree_weights["active"]
+    # else:
+    #     init_weights = previous_weights
 
     # if "sequential" in config["optimizer"]:
     #     if config["optimizer"]["sequential"]:
     #         if previous_weights is not None:
     #             init_weights = previous_weights
 
-    opt_state = solver.init_state(init_weights, batch=batch)
+    # opt_state = solver.init_state(init_weights, batch=batch)
 
     best_loss = 1e16
     epoch_loss = 1e19
@@ -271,12 +274,15 @@ def _1d_adam_loop_(
         tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
         # if config["nn"]["use"]:
         #     np.random.shuffle(batch_indices)
+        (epoch_loss, aux), grad = loss_fn.vg_loss(diff_params, static_params, batch)
+        updates, opt_state = opt.update(grad, opt_state)
+        diff_params = eqx.apply_updates(diff_params, updates)
 
-        init_weights, opt_state = solver.update(params=init_weights, state=opt_state, batch=batch)
-        epoch_loss = opt_state.value
+        # init_weights, opt_state = solver.update(params=init_weights, state=opt_state, batch=batch)
+        # epoch_loss = opt_state.value
         if epoch_loss < best_loss:
             best_loss = epoch_loss
-            best_weights = init_weights
+            best_weights = eqx.combine(diff_params, static_params)
 
     return best_loss, best_weights
 
@@ -284,10 +290,14 @@ def _1d_adam_loop_(
 def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
-    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        init_weights = np.copy(loss_fn.ts_diag.flattened_weights)
-    else:
-        init_weights = np.array(previous_weights)
+    # if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+    #     init_weights = np.copy(loss_fn.ts_diag.flattened_weights)
+    # else:
+    #     init_weights = np.array(previous_weights)
+
+    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    init_weights, loss_fn.unravel_weights = ravel_pytree(diff_params)
 
     # if "sequential" in config["optimizer"]:
     #     if config["optimizer"]["sequential"]:
@@ -297,15 +307,15 @@ def _1d_scipy_loop_(
     res = spopt.minimize(
         loss_fn.vg_loss if config["optimizer"]["grad_method"] == "AD" else loss_fn.loss,
         init_weights,
-        args=batch,
+        args=(static_params, batch),
         method=config["optimizer"]["method"],
         jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-        bounds=loss_fn.ts_diag.bounds,
+        bounds=((0, 1) for _ in range(len(init_weights))),
         options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
     )
 
     best_loss = res["fun"]
-    best_weights = loss_fn.ts_diag.unravel_pytree(res["x"])
+    best_weights = loss_fn.unravel_weights(res["x"])
 
     return best_loss, best_weights
 

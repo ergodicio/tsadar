@@ -3,13 +3,12 @@ from typing import Dict
 
 import jax
 from jax import numpy as jnp
-
-
-from jax import jit, value_and_grad
+from equinox import filter_value_and_grad, filter_hessian, filter_jit
 from jax.flatten_util import ravel_pytree
 import numpy as np
+import equinox as eqx
 
-from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic
+from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
 from tsadar.distribution_functions.dist_functional_forms import trapz
 from tsadar.misc.vector_tools import rotate
 
@@ -47,80 +46,80 @@ class LossFunction:
 
         ############
 
-        self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
+        self.ts_diag = ThomsonScatteringDiagnostic2(cfg, scattering_angles=scattering_angles)
 
-        self._loss_ = jit(self.__loss__)
-        self._vg_func_ = jit(value_and_grad(self.__loss__, argnums=0, has_aux=True))
+        self._loss_ = filter_jit(self.__loss__)
+        self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
         ##this will be replaced with jacobian params jacobian inverse
-        self._h_func_ = jit(jax.hessian(self._loss_for_hess_fn_, argnums=0))
-        self.array_loss = jit(self.calc_loss)
+        self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
+        self.array_loss = filter_jit(self.calc_loss)
 
         # this needs to be rethought and does not work in all cases
-        if cfg["parameters"]["electron"]["fe"]["active"]:
-            if "dist_fit" in cfg:
-                if cfg["parameters"]["electron"]["fe"]["dim"] == 1:
-                    self.smooth_window_len = round(
-                        cfg["parameters"]["electron"]["fe"]["velocity"].size * cfg["dist_fit"]["window"]["len"]
-                    )
-                    self.smooth_window_len = self.smooth_window_len if self.smooth_window_len > 1 else 2
+        # if cfg["parameters"]["electron"]["fe"]["active"]:
+        #     if "dist_fit" in cfg:
+        #         if cfg["parameters"]["electron"]["fe"]["dim"] == 1:
+        #             self.smooth_window_len = round(
+        #                 cfg["parameters"]["electron"]["fe"]["velocity"].size * cfg["dist_fit"]["window"]["len"]
+        #             )
+        #             self.smooth_window_len = self.smooth_window_len if self.smooth_window_len > 1 else 2
 
-                    if cfg["dist_fit"]["window"]["type"] == "hamming":
-                        self.w = jnp.hamming(self.smooth_window_len)
-                    elif cfg["dist_fit"]["window"]["type"] == "hann":
-                        self.w = jnp.hanning(self.smooth_window_len)
-                    elif cfg["dist_fit"]["window"]["type"] == "bartlett":
-                        self.w = jnp.bartlett(self.smooth_window_len)
-                    else:
-                        raise NotImplementedError
-                else:
-                    Warning("Smoothing not enabled for 2D distributions")
-            else:
-                Warning(
-                    "\n !!! Distribution function not fitted !!! Make sure this is what you thought you were running \n"
-                )
+        #             if cfg["dist_fit"]["window"]["type"] == "hamming":
+        #                 self.w = jnp.hamming(self.smooth_window_len)
+        #             elif cfg["dist_fit"]["window"]["type"] == "hann":
+        #                 self.w = jnp.hanning(self.smooth_window_len)
+        #             elif cfg["dist_fit"]["window"]["type"] == "bartlett":
+        #                 self.w = jnp.bartlett(self.smooth_window_len)
+        #             else:
+        #                 raise NotImplementedError
+        #         else:
+        #             Warning("Smoothing not enabled for 2D distributions")
+        #     else:
+        #         Warning(
+        #             "\n !!! Distribution function not fitted !!! Make sure this is what you thought you were running \n"
+        #         )
 
-    def smooth(self, distribution: jnp.ndarray) -> jnp.ndarray:
-        """
-        This method is used to smooth the distribution function. It sits right in between the optimization algorithm
-        that provides the weights/values of the distribution function and the fitting code that uses it.
+    # def smooth(self, distribution: jnp.ndarray) -> jnp.ndarray:
+    #     """
+    #     This method is used to smooth the distribution function. It sits right in between the optimization algorithm
+    #     that provides the weights/values of the distribution function and the fitting code that uses it.
 
-        Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
-        the output. This is a differentiable operation and we train/fit our weights through this.
+    #     Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
+    #     the output. This is a differentiable operation and we train/fit our weights through this.
 
-        Args:
-            distribution:
+    #     Args:
+    #         distribution:
 
-        Returns:
+    #     Returns:
 
-        """
-        s = jnp.r_[
-            distribution[self.smooth_window_len - 1 : 0 : -1],
-            distribution,
-            distribution[-2 : -self.smooth_window_len - 1 : -1],
-        ]
-        return jnp.convolve(self.w / self.w.sum(), s, mode="same")[
-            self.smooth_window_len - 1 : -(self.smooth_window_len - 1)
-        ]
+    #     """
+    #     s = jnp.r_[
+    #         distribution[self.smooth_window_len - 1 : 0 : -1],
+    #         distribution,
+    #         distribution[-2 : -self.smooth_window_len - 1 : -1],
+    #     ]
+    #     return jnp.convolve(self.w / self.w.sum(), s, mode="same")[
+    #         self.smooth_window_len - 1 : -(self.smooth_window_len - 1)
+    #     ]
 
-    def smooth2D(self, distribution: jnp.ndarray) -> jnp.ndarray:
-        """
-        This method is used to smooth the distribution function. It sits right in between the optimization algorithm
-        that provides the weights/values of the distribution function and the fitting code that uses it.
+    # def smooth2D(self, distribution: jnp.ndarray) -> jnp.ndarray:
+    #     """
+    #     This method is used to smooth the distribution function. It sits right in between the optimization algorithm
+    #     that provides the weights/values of the distribution function and the fitting code that uses it.
 
-        Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
-        the output. This is a differentiable operation and we train/fit our weights through this.
+    #     Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
+    #     the output. This is a differentiable operation and we train/fit our weights through this.
 
-        Args:
-            distribution:
+    #     Args:
+    #         distribution:
 
-        Returns:
+    #     Returns:
 
-        """
+    #     """
 
-        smoothing_kernel = jnp.outer(jnp.bartlett(5), jnp.bartlett(5))
-        smoothing_kernel = smoothing_kernel / jnp.sum(smoothing_kernel)
+    #     smoothing_kernel = jnp.outer(jnp.bartlett(5), jnp.bartlett(5))
+    #     smoothing_kernel = smoothing_kernel / jnp.sum(smoothing_kernel)
 
-        return jax.scipy.signal.convolve2d(distribution, smoothing_kernel, "same")
+    #     return jax.scipy.signal.convolve2d(distribution, smoothing_kernel, "same")
 
     def _get_normed_batch_(self, batch: Dict):
         """
@@ -137,7 +136,7 @@ class LossFunction:
         normed_batch["e_data"] = normed_batch["e_data"] / self.e_input_norm
         return normed_batch
 
-    def vg_loss(self, weights: Dict, batch: Dict):
+    def vg_loss(self, diff_weights, static_weights: Dict, batch: Dict):
         """
         This is the primary workhorse high level function. This function returns the value of the loss function which
         is used to assess goodness-of-fit and the gradient of that value with respect to the weights, which is used to
@@ -154,30 +153,32 @@ class LossFunction:
 
         """
         if self.cfg["optimizer"]["method"] == "l-bfgs-b":
-            pytree_weights = self.ts_diag.unravel_pytree(weights)
-            (value, aux), grad = self._vg_func_(pytree_weights, batch)
+            # pytree_weights = self.ts_diag.unravel_pytree(weights)
 
-            if "fe" in grad:
-                grad["fe"] = self.cfg["optimizer"]["grad_scalar"] * grad["fe"]
+            diff_weights = self.unravel_weights(diff_weights)
+            (value, aux), grad = self._vg_func_(diff_weights, static_weights, batch)
 
-            for species in self.cfg["parameters"].keys():
-                for k, param_dict in self.cfg["parameters"][species].items():
-                    if param_dict["active"]:
-                        scalar = param_dict["gradient_scalar"] if "gradient_scalar" in param_dict else 1.0
-                        grad[species][k] *= scalar
+            # if "fe" in grad:
+            #     grad["fe"] = self.cfg["optimizer"]["grad_scalar"] * grad["fe"]
+
+            # for species in self.cfg["parameters"].keys():
+            #     for k, param_dict in self.cfg["parameters"][species].items():
+            #         if param_dict["active"]:
+            #             scalar = param_dict["gradient_scalar"] if "gradient_scalar" in param_dict else 1.0
+            #             grad[species][k] *= scalar
 
             temp_grad, _ = ravel_pytree(grad)
             flattened_grads = np.array(temp_grad)
             return value, flattened_grads
         else:
-            return self._vg_func_(weights, batch)
+            return self._vg_func_(diff_weights, static_weights, batch)
 
     def h_loss_wrt_params(self, weights, batch):
         return self._h_func_(weights, batch)
 
     def _loss_for_hess_fn_(self, weights, batch):
         # params = params | self.static_params
-        params = self.ts_diag.get_plasma_parameters(weights)
+        # params = self.ts_diag.get_plasma_parameters(weights)
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
         i_error, e_error, _, _ = self.calc_ei_error(
             batch,
@@ -281,7 +282,7 @@ class LossFunction:
 
         return i_error, e_error, sqdev, used_points
 
-    def calc_loss(self, weights, batch: Dict):
+    def calc_loss(self, ts_params, batch: Dict):
         """
         This function calculates the value of the loss function
 
@@ -292,7 +293,7 @@ class LossFunction:
         Returns:
 
         """
-        params = self.ts_diag.get_plasma_parameters(weights)
+        # params = self.ts_diag.get_plasma_parameters(weights)
 
         if self.multiplex_ang:
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch["b1"])
@@ -325,7 +326,7 @@ class LossFunction:
 
             normed_batch = self._get_normed_batch_(batch["b1"])
         else:
-            ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
+            ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch)
 
             i_error, e_error, sqdev, used_points = self.calc_ei_error(
                 batch,
@@ -342,11 +343,11 @@ class LossFunction:
         normed_e_data = normed_batch["e_data"]
         ion_error = self.cfg["data"]["ion_loss_scale"] * i_error
 
-        penalty_error = self.penalties(weights)
+        penalty_error = 0.0  # self.penalties(weights)
         total_loss = ion_error + e_error + penalty_error
         # jax.debug.print("e_error {total_loss}", total_loss=e_error)
 
-        return total_loss, sqdev, used_points, ThryE, ThryI, params
+        return total_loss, sqdev, used_points, ThryE, ThryI, ts_params()
         # return total_loss, [ThryE, params]
 
     def loss(self, weights, batch: Dict):
@@ -367,11 +368,12 @@ class LossFunction:
         else:
             return self._loss_(weights, batch)
 
-    def __loss__(self, weights, batch: Dict):
+    def __loss__(self, diff_weights, static_weights, batch: Dict):
         """
         Output wrapper
         """
 
+        weights = eqx.combine(static_weights, diff_weights)
         total_loss, sqdev, used_points, ThryE, normed_e_data, params = self.calc_loss(weights, batch)
         return total_loss, [ThryE, params]
 

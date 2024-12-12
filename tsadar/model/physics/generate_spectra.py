@@ -34,7 +34,7 @@ class FitModel:
         self.num_electrons = 0
         for species in config["parameters"].keys():
             if "electron" == species:
-                self.num_dist_func = DistFunc(config["parameters"][species])
+                # self.num_dist_func = DistFunc(config["parameters"][species])
                 self.num_electrons += 1
             elif "ion" in species:
                 self.num_ions += 1
@@ -47,14 +47,14 @@ class FitModel:
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
-            fe_dim=self.num_dist_func.dim,
-            vax=self.num_dist_func.v,
+            # fe_dim=self.num_dist_func.dim,
+            # vax=self.num_dist_func.v,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
             npts=config["other"]["npts"],
-            fe_dim=self.num_dist_func.dim,
-            vax=self.num_dist_func.v,
+            # fe_dim=self.num_dist_func.dim,
+            # vax=self.num_dist_func.v,
         )
 
     def __call__(self, all_params: Dict):
@@ -86,7 +86,9 @@ class FitModel:
         # Add gradients to electron temperature and density just being applied to EPW
         cur_Te, cur_ne, A, Z, Ti, fract = self.populate_plasma_properties(all_params)
         lam = all_params["general"]["lam"]
-        fecur, vcur = self.calculate_distribution(all_params, cur_Te, Z, fract)
+        # fecur, vcur = self.calculate_distribution(all_params, cur_Te, Z, fract)
+        fecur = all_params["electron"]["fe"]
+        vcur = all_params["electron"]["v"]
         lamAxisI, modlI = self.ion_spectrum(all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur)
         lamAxisE, modlE = self.electron_spectrum(all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur)
 
@@ -195,34 +197,34 @@ class FitModel:
 
     def electron_spectrum(self, all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur):
         if self.config["other"]["extraoptions"]["load_ele_spec"]:
-            if self.num_dist_func.dim == 1:
-                ThryE, lamAxisE = self.electron_form_factor(
-                    all_params,
-                    cur_ne,
-                    cur_Te,
-                    A,
-                    Z,
-                    Ti,
-                    fract,
-                    self.scattering_angles["sa"],
-                    (fecur, vcur),
-                    lam + self.config["data"]["ele_lam_shift"],
-                )
-            else:
-                ThryE, lamAxisE = self.electron_form_factor.calc_in_2D(
-                    all_params,
-                    self.config["parameters"]["general"]["ud"]["angle"],
-                    self.config["parameters"]["general"]["ud"]["angle"],
-                    cur_ne,
-                    cur_Te,
-                    A,
-                    Z,
-                    Ti,
-                    fract,
-                    self.scattering_angles["sa"],
-                    (fecur, vcur),
-                    lam + self.config["data"]["ele_lam_shift"],
-                )
+            # if self.num_dist_func.dim == 1:
+            ThryE, lamAxisE = self.electron_form_factor(
+                all_params,
+                cur_ne,
+                cur_Te,
+                A,
+                Z,
+                Ti,
+                fract,
+                self.scattering_angles["sa"],
+                (fecur, vcur),
+                lam + self.config["data"]["ele_lam_shift"],
+            )
+            # else:
+            #     ThryE, lamAxisE = self.electron_form_factor.calc_in_2D(
+            #         all_params,
+            #         self.config["parameters"]["general"]["ud"]["angle"],
+            #         self.config["parameters"]["general"]["ud"]["angle"],
+            #         cur_ne,
+            #         cur_Te,
+            #         A,
+            #         Z,
+            #         Ti,
+            #         fract,
+            #         self.scattering_angles["sa"],
+            #         (fecur, vcur),
+            #         lam + self.config["data"]["ele_lam_shift"],
+            #     )
 
             # remove extra dimensions and rescale to nm
             lamAxisE = jnp.squeeze(lamAxisE) * 1e7  # TODO hardcoded

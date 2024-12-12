@@ -118,12 +118,16 @@ def recalculate_with_chosen_weights(
             fits["ele"][inds] = ThryE
             fits["ion"][inds] = ThryI
 
+            # ts_params.append()
+            physical_params = fitted_weights[i_batch]()
             for species in all_params.keys():
                 for k in all_params[species].keys():
-                    if np.size(np.shape(params[species][k])) == 3:
-                        all_params[species][k][inds] = np.squeeze(params[species][k][inds])
-                    else:
-                        all_params[species][k][inds] = params[species][k]
+                    if k != "fe":
+                        all_params[species][k][inds, 0] = physical_params[species][k]
+            #         if np.size(np.shape(params[species][k])) == 3:
+            #             all_params[species][k][inds] = np.squeeze(params[species][k][inds])
+            #         else:
+            #             all_params[species][k][inds] = params[species][k]
 
     return losses, sqdevs, used_points, fits, sigmas, all_params
 

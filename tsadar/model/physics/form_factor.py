@@ -49,7 +49,7 @@ def zprimeMaxw(xi):
 
 
 class FormFactor:
-    def __init__(self, lamrang, npts, fe_dim, vax=None):
+    def __init__(self, lamrang, npts):  # , fe_dim, vax=None):
         """
         Creates a FormFactor object holding all the static values to use for repeated calculations of the Thomson
         scattering structure factor or spectral density function.
@@ -77,10 +77,10 @@ class FormFactor:
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
         self.Zpi = jnp.array(zprimeMaxw(self.xi2))
 
-        if (vax is not None) and (fe_dim == 2):
-            vx, vy = jnp.meshgrid(vax[0], vax[1])
-            self.coords = jnp.concatenate([vx.flatten()[..., None], vy.flatten()[..., None]], axis=-1)
-            self.v = vax[0]
+        # if (vax is not None) and (fe_dim == 2):
+        #     vx, vy = jnp.meshgrid(vax[0], vax[1])
+        #     self.coords = jnp.concatenate([vx.flatten()[..., None], vy.flatten()[..., None]], axis=-1)
+        #     self.v = vax[0]
 
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
 

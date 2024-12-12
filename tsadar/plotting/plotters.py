@@ -30,9 +30,10 @@ def get_final_params(config, best_weights, all_axes, td):
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
             if k == "fe":
-                fitted_dist = True
-                dist[k] = v.squeeze()
-                dist["v"] = config["parameters"][species]["fe"]["velocity"]
+                # fitted_dist = True
+                # dist[k] = v.squeeze()
+                # dist["v"] = config["parameters"][species]["fe"]["velocity"]
+                pass
             else:
                 all_params[k + "_" + species] = pandas.Series(v.reshape(-1))
                 # if np.shape(v)[1] > 1:

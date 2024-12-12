@@ -82,7 +82,7 @@ parameters:
         type: "DLM"
         lb: -100.
         ub: -0.5
-        fe_decrease_strict: True
+        fe_decrease_strict: False
         symmetric: False
         dim: 1
         v_res: 0.01

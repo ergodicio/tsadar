@@ -11,7 +11,8 @@ from flatten_dict import flatten, unflatten
 
 from tsadar import fitter
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
-from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic
+from tsadar.model.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
+from tsadar.model.modules import ThomsonParams
 from tsadar.fitter import init_param_norm_and_shift
 from tsadar.misc import utils
 from tsadar.plotting import plotters
@@ -123,7 +124,7 @@ def _run_(config: Dict, mode: str = "fit"):
     if mode.casefold() == "fit":
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
-        calc_series(config=config)
+        forward_pass(config=config)
     else:
         raise NotImplementedError(f"Mode {mode} not implemented")
 
@@ -158,7 +159,7 @@ def run_job(run_id: str, mode: str, nested: bool):
         _run_(config, mode)
 
 
-def calc_series(config):
+def forward_pass(config):
     """
     Calculates a spectrum or series of spectra from the input deck, i.e. performs a forward pass or series of forward
      passes.
@@ -187,14 +188,15 @@ def calc_series(config):
     ]
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
 
-    electron_params = config["parameters"]["electron"]
-    dist_obj = DistFunc(electron_params)
-    electron_params["fe"]["velocity"], electron_params["fe"]["val"] = dist_obj(electron_params["m"]["val"])
-    # electron_params["fe"]["val"] = np.log(electron_params["fe"]["val"])[None, :]
+    # electron_params = config["parameters"]["electron"]
+    # dist_obj = DistFunc(electron_params)
+    # electron_params["fe"]["velocity"], fe_val = dist_obj(electron_params["m"]["val"])
+    # fe_val = np.log(fe_val)[None, :]
 
-    config["units"] = init_param_norm_and_shift(config)
+    # config["units"] = init_param_norm_and_shift(config)
 
     sas = get_scattering_angles(config)
+
     dummy_batch = {
         "i_data": np.array([1]),
         "e_data": np.array([1]),
@@ -224,16 +226,16 @@ def calc_series(config):
     lamAxisI = [None] * serieslen
 
     t_start = time.time()
-    for i in tqdm(range(serieslen), total=serieslen):
-        if "series" in config.keys():
+    # for i in tqdm(range(serieslen), total=serieslen):
+    # if "series" in config.keys():
 
-            config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
-            if "param2" in config["series"].keys():
-                config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
-            if "param3" in config["series"].keys():
-                config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
-            if "param4" in config["series"].keys():
-                config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
+    #     config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
+    #     if "param2" in config["series"].keys():
+    #         config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
+    #     if "param3" in config["series"].keys():
+    #         config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
+    #     if "param4" in config["series"].keys():
+    #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
     if config["other"]["extraoptions"]["spectype"] == "angular":
         [axisxE, _, _, _, _, _] = get_calibrations(
@@ -256,25 +258,29 @@ def calc_series(config):
 
     t_start = time.time()
     for i in range(serieslen):
-        if "series" in config.keys():
-            config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
-            if "param2" in config["series"].keys():
-                config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
-            if "param3" in config["series"].keys():
-                config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
-            if "param4" in config["series"].keys():
-                config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
+        # if "series" in config.keys():
+        #     config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
+        #     if "param2" in config["series"].keys():
+        #         config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
+        #     if "param3" in config["series"].keys():
+        #         config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
+        #     if "param4" in config["series"].keys():
+        #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        # loss_fn = LossFunction(config, sas, dummy_batch)
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-        params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
-        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(params, dummy_batch)
+        ts_diag = ThomsonScatteringDiagnostic2(config, scattering_angles=sas)
+        ts_params = ThomsonParams(config["parameters"], num_params=1)
+        # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
+        ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)
 
     spectime = time.time() - t_start
     ThryE = np.array(ThryE)
     ThryI = np.array(ThryI)
     lamAxisE = np.array(lamAxisE)
     lamAxisI = np.array(lamAxisI)
+
+    physical_params = ts_params()
+    fe_val = physical_params["electron"]["fe"][0]
+    velocity = physical_params["electron"]["v"][0]
 
     with tempfile.TemporaryDirectory() as td:
         os.makedirs(os.path.join(td, "plots"), exist_ok=True)
@@ -291,31 +297,31 @@ def calc_series(config):
             plotters.plot_dist(
                 config,
                 "electron",
-                {"fe": np.squeeze(electron_params["fe"]["val"]), "v": electron_params["fe"]["velocity"]},
-                np.zeros_like(electron_params["fe"]["val"]),
+                {"fe": np.squeeze(fe_val), "v": velocity},
+                np.zeros_like(fe_val),
                 td,
             )
-            if len(np.shape(np.squeeze(electron_params["fe"]["val"]))) == 1:
+            if len(np.shape(np.squeeze(fe_val))) == 1:
                 final_dist = pandas.DataFrame(
                     {
-                        "fe": [l for l in electron_params["fe"]["val"]],
-                        "vx": [vx for vx in electron_params["fe"]["velocity"]],
+                        "fe": [l for l in fe_val],
+                        "vx": [vx for vx in velocity],
                     }
                 )
-            elif len(np.shape(np.squeeze(electron_params["fe"]["val"]))) == 2:
+            elif len(np.shape(np.squeeze(fe_val))) == 2:
                 final_dist = pandas.DataFrame(
-                    data=np.squeeze(electron_params["fe"]["val"]),
-                    columns=electron_params["fe"]["velocity"][0][0],
-                    index=electron_params["fe"]["velocity"][0][:, 0],
+                    data=np.squeeze(fe_val),
+                    columns=velocity[0][0],
+                    index=velocity[0][:, 0],
                 )
             final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
-            if electron_params["fe"]["dim"] == 2:
+            if config["parameters"]["electron"]["fe"]["dim"] == 2:
                 plotters.plot_dist(
                     config,
                     "electron",
-                    {"fe": electron_params["fe"]["val"], "v": electron_params["fe"]["velocity"]},
-                    np.zeros_like(electron_params["fe"]["val"]),
+                    {"fe": fe_val, "v": velocity},
+                    np.zeros_like(fe_val),
                     td,
                 )
 
