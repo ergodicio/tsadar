@@ -44,6 +44,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         folder = join(BASE_FILES_PATH, "data")
 
     file_list = listdir(folder)
+    print(file_list)
     files = [name for name in file_list if str(sNum) in name]
     t0 = [0, 0]
 

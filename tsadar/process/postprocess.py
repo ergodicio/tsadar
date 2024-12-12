@@ -1,4 +1,5 @@
 from typing import Dict
+from collections import defaultdict
 
 import time, tempfile, mlflow, os, copy
 
@@ -10,7 +11,7 @@ from tsadar.loss_function import LossFunction
 
 
 def recalculate_with_chosen_weights(
-    config: Dict, batch_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
+    config: Dict, sample_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
 ):
     """
     Gets parameters and the result of the full forward pass i.e. fits
@@ -18,7 +19,7 @@ def recalculate_with_chosen_weights(
 
     Args:
         config: Dict- configuration dictionary built from input deck
-        batch_indices:
+        sample_indices:
         all_data: Dict- contains the electron data, ion data, and their respective amplitudes
         loss_fn: Instance of the LossFunction class
         fitted_weights: Dict- best values of the parameters returned by the minimizer
@@ -27,20 +28,39 @@ def recalculate_with_chosen_weights(
 
     """
 
-    all_params = {}
+    # all_params = {}
+    # num_params = 0
+    # for species in config["parameters"].keys():
+    #     all_params[species] = {}
+    #     for key in config["parameters"][species].keys():
+    #         if config["parameters"][species][key]["active"]:
+    #             if key != "fe":
+    #                 all_params[species][key] = np.zeros(
+    #                     (batch_indices.flatten()[-1] + 1, np.size(config["parameters"][species][key]["val"])),
+    #                     dtype=np.float64,
+    #                 )
+    #                 num_params += np.shape(all_params[species][key])[1]
+
+    losses = np.zeros_like(sample_indices, dtype=np.float64)
+    sample_indices.sort()
+    batch_indices = np.reshape(sample_indices, (-1, config["optimizer"]["batch_size"]))
+
+    # turn list of dictionaries into dictionary of lists
+
+    all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
+
+    for _fw in fitted_weights:
+        unnormed_params = _fw.get_unnormed_params()
+        for k in all_params.keys():
+            for k2 in unnormed_params[k].keys():
+                all_params[k][k2].append(unnormed_params[k][k2])
+
+    # concatenate all the lists in the dictionary
     num_params = 0
-    for species in config["parameters"].keys():
-        all_params[species] = {}
-        for key in config["parameters"][species].keys():
-            if config["parameters"][species][key]["active"]:
-                all_params[species][key] = np.zeros(
-                    (batch_indices.flatten()[-1] + 1, np.size(config["parameters"][species][key]["val"])),
-                    dtype=np.float64,
-                )
-                num_params += np.shape(all_params[species][key])[1]
-    batch_indices.sort()
-    losses = np.zeros(batch_indices.flatten()[-1] + 1, dtype=np.float64)
-    batch_indices = np.reshape(batch_indices, (-1, config["optimizer"]["batch_size"]))
+    for k in all_params.keys():
+        for k2 in all_params[k].keys():
+            all_params[k][k2] = np.concatenate(all_params[k][k2])
+            num_params += len(all_params[k][k2])
 
     fits = {}
     sqdevs = {}
@@ -48,10 +68,6 @@ def recalculate_with_chosen_weights(
     sqdevs["ion"] = np.zeros(all_data["i_data"].shape)
     fits["ele"] = np.zeros(all_data["e_data"].shape)
     sqdevs["ele"] = np.zeros(all_data["e_data"].shape)
-
-    # num_params = 0
-    # for key, vec in all_params.items():
-    #     num_params += np.shape(vec)[1]
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
@@ -119,15 +135,15 @@ def recalculate_with_chosen_weights(
             fits["ion"][inds] = ThryI
 
             # ts_params.append()
-            physical_params = fitted_weights[i_batch]()
-            for species in all_params.keys():
-                for k in all_params[species].keys():
-                    if k != "fe":
-                        all_params[species][k][inds, 0] = physical_params[species][k]
-            #         if np.size(np.shape(params[species][k])) == 3:
-            #             all_params[species][k][inds] = np.squeeze(params[species][k][inds])
-            #         else:
-            #             all_params[species][k][inds] = params[species][k]
+            # physical_params = fitted_weights[i_batch]()
+            # for species in all_params.keys():
+            #     for k in all_params[species].keys():
+            #         if k != "fe":
+            #             all_params[species][k][inds, 0] = physical_params[species][k]
+            # #         if np.size(np.shape(params[species][k])) == 3:
+            # #             all_params[species][k][inds] = np.squeeze(params[species][k][inds])
+            # #         else:
+            # #             all_params[species][k][inds] = params[species][k]
 
     return losses, sqdevs, used_points, fits, sigmas, all_params
 
@@ -198,7 +214,7 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
     return sigmas
 
 
-def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
+def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
     t1 = time.time()
 
     for species in config["parameters"].keys():
@@ -206,7 +222,7 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, loss_fn, 
             elec_species = species
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights)
+        refit_bad_fits(config, sample_indices, all_data, loss_fn, sa, fitted_weights)
 
     mlflow.log_metrics({"refitting time": round(time.time() - t1, 2)})
 
@@ -214,11 +230,11 @@ def postprocess(config, batch_indices, all_data: Dict, all_axes: Dict, loss_fn, 
         _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
         if config["other"]["extraoptions"]["spectype"] == "angular_full":
             t1 = process_angular_data(
-                config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, elec_species, td
+                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, elec_species, td
             )
 
         else:
-            t1, final_params = process_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td)
+            t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td)
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -296,9 +312,9 @@ def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights)
     config["optimizer"]["batch_size"] = true_batch_size
 
 
-def process_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td):
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td):
     losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
+        config, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
     if "losses_init" not in locals():
         losses_init = losses

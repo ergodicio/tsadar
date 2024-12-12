@@ -92,7 +92,7 @@ class FitModel:
         lamAxisI, modlI = self.ion_spectrum(all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur)
         lamAxisE, modlE = self.electron_spectrum(all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur)
 
-        return modlE, modlI, lamAxisE, lamAxisI, all_params
+        return modlE, modlI, lamAxisE, lamAxisI
 
     def calculate_distribution(self, all_params, cur_Te, Z, fract):
         if self.num_dist_func.fe_name.casefold() == "dlm":
@@ -192,7 +192,7 @@ class FitModel:
             modlI = jnp.sum(ThryI * self.scattering_angles["weights"][0], axis=1)
         else:
             modlI = 0
-            lamAxisI = []
+            lamAxisI = jnp.zeros(1)
         return lamAxisI, modlI
 
     def electron_spectrum(self, all_params, cur_Te, cur_ne, A, Z, Ti, fract, lam, fecur, vcur):

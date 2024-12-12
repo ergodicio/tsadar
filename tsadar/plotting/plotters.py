@@ -80,35 +80,34 @@ def plot_final_params(config, all_params, sigmas_ds, td):
     """
     for species in all_params.keys():
         for param in all_params[species].keys():
-            for i in range(all_params[species][param].shape[1]):
-                vals = pandas.Series(all_params[species][param][:, i].squeeze(), dtype=float)
-                fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-                lineouts = np.array(config["data"]["lineouts"]["val"])
-                std = vals.rolling(config["plotting"]["rolling_std_width"], min_periods=1, center=True).std()
+            vals = pandas.Series(all_params[species][param], dtype=float)
+            fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+            lineouts = np.array(config["data"]["lineouts"]["val"])
+            std = vals.rolling(config["plotting"]["rolling_std_width"], min_periods=1, center=True).std()
 
-                ax.plot(lineouts, vals)
-                ax.fill_between(
-                    lineouts,
-                    (vals.values - config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
-                    (vals.values + config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
-                    color="b",
-                    alpha=0.1,
-                )
-                ax.fill_between(
-                    lineouts,
-                    (vals.values - config["plotting"]["n_sigmas"] * std.values),
-                    (vals.values + config["plotting"]["n_sigmas"] * std.values),
-                    color="r",
-                    alpha=0.1,
-                )
-                ax.set_xlabel("lineout", fontsize=14)
-                ax.grid()
-                ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
-                ax.set_ylabel(param, fontsize=14)
-                fig.savefig(
-                    os.path.join(td, "plots", "learned_" + param + "_" + species + "_" + str(i) + ".png"),
-                    bbox_inches="tight",
-                )
+            ax.plot(lineouts, vals)
+            ax.fill_between(
+                lineouts,
+                (vals.values - config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
+                (vals.values + config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
+                color="b",
+                alpha=0.1,
+            )
+            ax.fill_between(
+                lineouts,
+                (vals.values - config["plotting"]["n_sigmas"] * std.values),
+                (vals.values + config["plotting"]["n_sigmas"] * std.values),
+                color="r",
+                alpha=0.1,
+            )
+            ax.set_xlabel("lineout", fontsize=14)
+            ax.grid()
+            ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
+            ax.set_ylabel(param, fontsize=14)
+            fig.savefig(
+                os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
+                bbox_inches="tight",
+            )
     return
 
 
@@ -543,18 +542,13 @@ def plot_2D_data_vs_fit(
 
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
-    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap="gist_ncar", vmin=vmin, vmax=vmax)
+    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap="gist_ncar")  # , vmin=vmin, vmax=vmax)
     ax[0].set_xlabel(xlabel)
     ax[0].set_ylabel(ylabel)
-    ax[1].pcolormesh(
-        x,
-        y,
-        data,
-        shading="nearest",
-        cmap="gist_ncar",
-        vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-        vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
-    )
+    ax[1].pcolormesh(x, y, data, shading="nearest", cmap="gist_ncar")
+    # vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+    # vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
+    # )
     ax[1].set_xlabel(xlabel)
     ax[1].set_ylabel(ylabel)
     fig.colorbar(pc)

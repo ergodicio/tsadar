@@ -113,7 +113,7 @@ def add_electron_IRF(config, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
 
     if config["other"]["PhysParams"]["norm"] > 0:
         ThryE = jnp.where(
-            lamAxisE < lam,
+            lamAxisE < TSins["general"]["lam"],
             TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < TSins["general"]["lam"]])),
             TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > TSins["general"]["lam"]])),
         )

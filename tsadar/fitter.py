@@ -139,7 +139,7 @@ def _validate_inputs_(config: Dict) -> Dict:
         config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
         print(f"final {num_slices % batch_size} lineouts have been removed")
 
-    config["units"] = init_param_norm_and_shift(config)
+    # config["units"] = init_param_norm_and_shift(config)
 
     return config
 
@@ -315,7 +315,7 @@ def _1d_scipy_loop_(
     )
 
     best_loss = res["fun"]
-    best_weights = loss_fn.unravel_weights(res["x"])
+    best_weights = eqx.combine(loss_fn.unravel_weights(res["x"]), static_params)
 
     return best_loss, best_weights
 
@@ -417,8 +417,8 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
 
     # prepare data
     all_data, sa, all_axes = load_data_for_fitting(config)
-    batch_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
-    num_batches = len(batch_indices) // config["optimizer"]["batch_size"] or 1
+    sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
+    num_batches = len(sample_indices) // config["optimizer"]["batch_size"] or 1
     mlflow.log_metrics({"setup_time": round(time.time() - t1, 2)})
 
     # perform fit
@@ -429,14 +429,14 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     if "angular" in config["other"]["extraoptions"]["spectype"]:
         fitted_weights, overall_loss, loss_fn = angular_optax(config, all_data, sa)
     else:
-        fitted_weights, overall_loss, loss_fn = one_d_loop(config, all_data, sa, batch_indices, num_batches)
+        fitted_weights, overall_loss, loss_fn = one_d_loop(config, all_data, sa, sample_indices, num_batches)
 
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
     mlflow.set_tag("status", "postprocessing")
     print("postprocessing")
 
-    final_params = postprocess.postprocess(config, batch_indices, all_data, all_axes, loss_fn, sa, fitted_weights)
+    final_params = postprocess.postprocess(config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights)
 
     return final_params, float(overall_loss)
 

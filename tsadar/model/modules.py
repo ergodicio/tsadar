@@ -1,34 +1,14 @@
-from typing import List, Dict
+from typing import List, Dict, Union
+from collections import defaultdict
+
 from jax import Array, numpy as jnp, tree_util as jtu
 from jax.nn import sigmoid
 from jax.scipy.special import gamma
 import equinox as eqx
 
 
-class DLM1D(eqx.Module):
-    normed_m: Array
-    m_scale: float
-    m_shift: float
-
-    def __init__(self, dist_cfg):
-        super().__init__()
-        self.m_scale = dist_cfg["m"]["ub"] - dist_cfg["m"]["lb"]
-        self.m_shift = dist_cfg["m"]["lb"]
-        self.normed_m = (dist_cfg["m"]["val"] - self.m_shift) / self.m_scale
-
-    def __call__(self, vx):
-        unnormed_m = self.normed_m * self.m_scale + self.m_shift
-        vth_x = 1.0
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
-        cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
-        fdlm = cst / vth_x**3.0 * jnp.exp(-((vx / alpha / vth_x) ** unnormed_m))
-
-        return fdlm / jnp.sum(fdlm) / (vx[1] - vx[0])
-
-
 class DistributionFunction1D(eqx.Module):
     vx: Array
-    fvx: eqx.Module
 
     def __init__(self, dist_cfg: Dict):
         super().__init__()
@@ -36,15 +16,32 @@ class DistributionFunction1D(eqx.Module):
         dv = 2 * vmax / dist_cfg["nv"]
         self.vx = jnp.linspace(-vmax + dv / 2, vmax - dv / 2, dist_cfg["nv"])
 
-        if dist_cfg["type"].casefold() == "dlm":
-            self.fvx = DLM1D(dist_cfg["params"])
-        elif dist_cfg["type"].casefold() == "mx":
-            self.fvx = lambda vx: jnp.exp(-(vx**2 / 2)) / jnp.sum(jnp.exp(-(vx**2 / 2))) / (vx[1] - vx[0])
-        else:
-            raise NotImplementedError(f"Unknown distribution type: {dist_cfg['type']}")
+    def __call__(self):
+        raise NotImplementedError
+
+
+class DLM1D(DistributionFunction1D):
+    normed_m: Array
+    m_scale: float
+    m_shift: float
+
+    def __init__(self, dist_cfg):
+        super().__init__(dist_cfg)
+        self.m_scale = dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
+        self.m_shift = dist_cfg["params"]["m"]["lb"]
+        self.normed_m = (dist_cfg["params"]["m"]["val"] - self.m_shift) / self.m_scale
+
+    def get_unnormed_params(self):
+        return {"m": self.normed_m * self.m_scale + self.m_shift}
 
     def __call__(self):
-        return self.fvx(self.vx)
+        unnormed_m = self.normed_m * self.m_scale + self.m_shift
+        vth_x = jnp.sqrt(2.0)
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
+        cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
+        fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
+
+        return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
 
 
 class DistributionFunction2D(eqx.Module):
@@ -69,7 +66,7 @@ class ElectronParams(eqx.Module):
     Te_shift: float
     ne_scale: float
     ne_shift: float
-    fe: eqx.Module
+    distribution_functions: Union[DistributionFunction1D, DistributionFunction2D]
 
     def __init__(self, cfg, batch_size):
         super().__init__()
@@ -82,20 +79,36 @@ class ElectronParams(eqx.Module):
         self.normed_ne = jnp.full(batch_size, (cfg["ne"]["val"] - self.ne_shift) / self.ne_scale)
 
         if cfg["fe"]["dim"] == 1:
-            self.fe = [DistributionFunction1D(cfg["fe"]) for _ in range(batch_size)]
+            if cfg["fe"]["type"].casefold() == "dlm":
+                self.distribution_functions = [DLM1D(cfg["fe"]) for _ in range(batch_size)]
+            elif cfg["fe"]["type"].casefold() == "mx":
+                self.distribution_functions = [
+                    lambda vx: jnp.exp(-(vx**2 / 2)) / jnp.sum(jnp.exp(-(vx**2 / 2))) / (vx[1] - vx[0])
+                ]
+            else:
+                raise NotImplementedError(f"Unknown distribution type: {cfg['fe']['type']}")
         elif cfg["fe"]["dim"] == 2:
-            self.fe = [DistributionFunction2D(cfg["fe"]) for _ in range(batch_size)]
+            self.distribution_functions = [DistributionFunction2D(cfg["fe"]) for _ in range(batch_size)]
         else:
             raise NotImplementedError(f"Unknown distribution dimension: {cfg['fe']['dim']}")
 
-    def __call__(self):
-        unnormed_Te = self.normed_Te * self.Te_scale + self.Te_shift
-        unnormed_ne = self.normed_ne * self.ne_scale + self.ne_shift
+    def get_unnormed_params(self):
+        unnormed_fe_params = defaultdict(list)
+        for fe in self.distribution_functions:
+            for k, v in fe.get_unnormed_params().items():
+                unnormed_fe_params[k].append(v)
+        unnormed_fe_params = {k: jnp.array(v) for k, v in unnormed_fe_params.items()}
         return {
-            "Te": unnormed_Te,
-            "ne": unnormed_ne,
-            "fe": jnp.concatenate([fe()[None, :] for fe in self.fe]),
-            "v": jnp.concatenate([fe.vx[None, :] for fe in self.fe]),
+            "Te": self.normed_Te * self.Te_scale + self.Te_shift,
+            "ne": self.normed_ne * self.ne_scale + self.ne_shift,
+        } | unnormed_fe_params
+
+    def __call__(self):
+        return {
+            "fe": jnp.concatenate([df()[None, :] for df in self.distribution_functions]),
+            "v": jnp.concatenate([df.vx[None, :] for df in self.distribution_functions]),
+            "Te": self.normed_Te * self.Te_scale + self.Te_shift,
+            "ne": self.normed_ne * self.ne_scale + self.ne_shift,
         }
 
 
@@ -125,11 +138,16 @@ class IonParams(eqx.Module):
         self.A = jnp.full(batch_size, cfg["A"]["val"])
         self.fract = jnp.full(batch_size, cfg["fract"]["val"])
 
-    def __call__(self):
-        unnormed_Ti = self.normed_Ti * self.Ti_scale + self.Ti_shift
-        unnormed_Z = self.normed_Z * self.Z_scale + self.Z_shift
+    def get_unnormed_params(self):
+        return self()
 
-        return {"Ti": unnormed_Ti, "Z": unnormed_Z, "A": self.A, "fract": self.fract}
+    def __call__(self):
+        return {
+            "A": self.A,
+            "fract": self.fract,
+            "Ti": self.normed_Ti * self.Ti_scale + self.Ti_shift,
+            "Z": self.normed_Z * self.Z_scale + self.Z_shift,
+        }
 
 
 class GeneralParams(eqx.Module):
@@ -189,6 +207,9 @@ class GeneralParams(eqx.Module):
         self.normed_vA = jnp.full(batch_size, (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale)
         self.normed_lam = jnp.full(batch_size, (cfg["lam"]["val"] - self.lam_shift) / self.lam_scale)
 
+    def get_unnormed_params(self):
+        return self()
+
     def __call__(self):
         unnormed_lam = self.normed_lam * self.lam_scale + self.lam_shift
         unnormed_amp1 = self.normed_amp1 * self.amp1_scale + self.amp1_shift
@@ -226,9 +247,16 @@ class ThomsonParams(eqx.Module):
         assert len(self.ions) > 0, "No ion species found in input deck"
         self.general = GeneralParams(param_cfg["general"], num_params)
 
+    def get_unnormed_params(self):
+        return {
+            "electron": self.electron.get_unnormed_params(),
+            "general": self.general.get_unnormed_params(),
+        } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
+
     def __call__(self):
-        ion_params = {f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)}
-        return {"electron": self.electron(), "general": self.general()} | ion_params
+        return {"electron": self.electron(), "general": self.general()} | {
+            f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
+        }
 
 
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
@@ -252,9 +280,11 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
 
 def get_distribution_filter_spec(filter_spec: Dict, dist_type: str) -> Dict:
     if dist_type.casefold() == "dlm":
-        num_dists = len(filter_spec.electron.fe)
+        num_dists = len(filter_spec.electron.distribution_functions)
         for i in range(num_dists):
-            filter_spec = eqx.tree_at(lambda tree: tree.electron.fe[i].fvx.normed_m, filter_spec, replace=True)
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+            )
 
     elif dist_type.casefold() == "mx":
         pass
