@@ -119,7 +119,7 @@ class FormFactor:
             cur_ne.squeeze(-1),
             params["general"]["Va"],
             params["general"]["ud"],
-            f_and_v,  # this is now a DistFunc object
+            f_and_v,
         )
 
         Mi = jnp.array(A) * self.Mp  # ion mass
@@ -406,7 +406,7 @@ class FormFactor:
             cur_ne.squeeze(-1),
             params["general"]["Va"],
             params["general"]["ud"],
-            f_and_v,  # this is now a DistFunc object
+            f_and_v,
         )
 
         Mi = jnp.array(A) * self.Mp  # ion mass

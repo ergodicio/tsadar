@@ -175,6 +175,7 @@ def forward_pass(config):
         Ion data, electron data, and plots are saved to mlflow
 
     """
+    is_angular = True if "angular" in config["other"]["extraoptions"]["spectype"] else False
     # get scattering angles and weights
     config["optimizer"]["batch_size"] = 1
     # config["other"]["extraoptions"]["spectype"] = "1d"
@@ -206,7 +207,7 @@ def forward_pass(config):
         "i_amps": np.array([1]),
     }
 
-    if config["other"]["extraoptions"]["spectype"] == "angular":
+    if is_angular:
         [axisxE, _, _, _, _, _] = get_calibrations(
             104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
         )  # shot number hardcoded to get calibration
@@ -237,9 +238,9 @@ def forward_pass(config):
     #     if "param4" in config["series"].keys():
     #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-    if config["other"]["extraoptions"]["spectype"] == "angular":
+    if is_angular:
         [axisxE, _, _, _, _, _] = get_calibrations(
-            104000, config["other"]["extraoptions"]["spectype"], config["other"]["CCDsize"]
+            104000, config["other"]["extraoptions"]["spectype"], (0.0, 0.0), config["other"]["CCDsize"]
         )  # shot number hardcoded to get calibration
         config["other"]["extraoptions"]["spectype"] = "angular_full"
 
@@ -268,7 +269,7 @@ def forward_pass(config):
         #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
         ts_diag = ThomsonScatteringDiagnostic2(config, scattering_angles=sas)
-        ts_params = ThomsonParams(config["parameters"], num_params=1)
+        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=not is_angular)
         # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)
 
@@ -278,15 +279,19 @@ def forward_pass(config):
     lamAxisE = np.array(lamAxisE)
     lamAxisI = np.array(lamAxisI)
 
-    physical_params = ts_params()
-    fe_val = physical_params["electron"]["fe"][0]
-    velocity = physical_params["electron"]["v"][0]
+    # physical_params = ts_params()
+    # fe_val = physical_params["electron"]["fe"][0]
+    # velocity = physical_params["electron"]["v"][0]
 
     with tempfile.TemporaryDirectory() as td:
         os.makedirs(os.path.join(td, "plots"), exist_ok=True)
         os.makedirs(os.path.join(td, "binary"), exist_ok=True)
         os.makedirs(os.path.join(td, "csv"), exist_ok=True)
-        if config["other"]["extraoptions"]["spectype"] == "angular_full":
+        if is_angular:
+            physical_params = ts_params()
+            fe_val = physical_params["electron"]["fe"]
+            velocity = physical_params["electron"]["v"]
+
             savedata = plotters.plot_data_angular(
                 config,
                 {"ele": np.squeeze(ThryE)},

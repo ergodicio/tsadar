@@ -39,12 +39,7 @@ def test_iaw():
     num_dist_func = DistFunc(config["parameters"]["electron"])
     vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
 
-    ion_form_factor = FormFactor(
-        [525, 528],
-        npts=8192,
-        fe_dim=num_dist_func.dim,
-        vax=vcur,
-    )
+    ion_form_factor = FormFactor([525, 528], npts=8192)
 
     # xie = np.linspace(-7, 7, 1024)
     # ion_form_factor = FormFactor([525, 528], npts=8192)

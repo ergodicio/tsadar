@@ -33,7 +33,7 @@ def test_epw():
     npts = 2048
     num_dist_func = DistFunc(config["parameters"]["electron"])
     vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
-    electron_form_factor = FormFactor([400, 700], npts=npts, fe_dim=num_dist_func.dim, vax=vcur)
+    electron_form_factor = FormFactor([400, 700], npts=npts)
 
     sa = np.array([60])
     params = {

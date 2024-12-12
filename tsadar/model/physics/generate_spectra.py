@@ -154,13 +154,13 @@ class FitModel:
                 ele_c += 1
 
             elif "ion" in species:
-                A = A.at[ion_c].set(all_params[species]["A"].squeeze())
-                Z = Z.at[ion_c].set(all_params[species]["Z"].squeeze())
+                A = A.at[ion_c].set(all_params[species]["A"])
+                Z = Z.at[ion_c].set(all_params[species]["Z"])
                 if self.config["parameters"][species]["Ti"]["same"]:
                     Ti = Ti.at[ion_c].set(Ti[ion_c - 1])
                 else:
-                    Ti = Ti.at[ion_c].set(all_params[species]["Ti"].squeeze())
-                fract = fract.at[ion_c].set(all_params[species]["fract"].squeeze())
+                    Ti = Ti.at[ion_c].set(all_params[species]["Ti"])
+                fract = fract.at[ion_c].set(all_params[species]["fract"])
                 ion_c += 1
         return cur_Te, cur_ne, A, Z, Ti, fract
 

@@ -28,25 +28,11 @@ def recalculate_with_chosen_weights(
 
     """
 
-    # all_params = {}
-    # num_params = 0
-    # for species in config["parameters"].keys():
-    #     all_params[species] = {}
-    #     for key in config["parameters"][species].keys():
-    #         if config["parameters"][species][key]["active"]:
-    #             if key != "fe":
-    #                 all_params[species][key] = np.zeros(
-    #                     (batch_indices.flatten()[-1] + 1, np.size(config["parameters"][species][key]["val"])),
-    #                     dtype=np.float64,
-    #                 )
-    #                 num_params += np.shape(all_params[species][key])[1]
-
     losses = np.zeros_like(sample_indices, dtype=np.float64)
     sample_indices.sort()
     batch_indices = np.reshape(sample_indices, (-1, config["optimizer"]["batch_size"]))
 
     # turn list of dictionaries into dictionary of lists
-
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
 
     for _fw in fitted_weights:
@@ -133,17 +119,6 @@ def recalculate_with_chosen_weights(
 
             fits["ele"][inds] = ThryE
             fits["ion"][inds] = ThryI
-
-            # ts_params.append()
-            # physical_params = fitted_weights[i_batch]()
-            # for species in all_params.keys():
-            #     for k in all_params[species].keys():
-            #         if k != "fe":
-            #             all_params[species][k][inds, 0] = physical_params[species][k]
-            # #         if np.size(np.shape(params[species][k])) == 3:
-            # #             all_params[species][k][inds] = np.squeeze(params[species][k][inds])
-            # #         else:
-            # #             all_params[species][k][inds] = params[species][k]
 
     return losses, sqdevs, used_points, fits, sigmas, all_params
 
