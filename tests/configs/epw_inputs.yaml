@@ -10,24 +10,15 @@ parameters:
             active: False
             lb: 0.001
             ub: 1.0
-        m:
-            val: 2.0
-            active: False
-            lb: 2.0
-            ub: 4.9
         fe:
-            val: [ ]
-            active: False
             type: "DLM"
-            lb: -100.
-            ub: -0.5
-            fe_decrease_strict: False
-            symmetric: False
             dim: 1
-            v_res: 0.1
-            temp_asym: 1.0
-            m_theta: 0.0
-            m_asym: 1.
+            nv: 64
+            params:
+                m:
+                    val: 2.0
+                    ub: 5.0
+                    lb: 2.0
 
     ion-1:
         Ti:

@@ -49,7 +49,7 @@ def zprimeMaxw(xi):
 
 
 class FormFactor:
-    def __init__(self, lamrang, npts):  # , fe_dim, vax=None):
+    def __init__(self, lamrang, npts, lam_shift, scattering_angles, num_grad_points):
         """
         Creates a FormFactor object holding all the static values to use for repeated calculations of the Thomson
         scattering structure factor or spectral density function.
@@ -76,11 +76,9 @@ class FormFactor:
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
         self.Zpi = jnp.array(zprimeMaxw(self.xi2))
-
-        # if (vax is not None) and (fe_dim == 2):
-        #     vx, vy = jnp.meshgrid(vax[0], vax[1])
-        #     self.coords = jnp.concatenate([vx.flatten()[..., None], vy.flatten()[..., None]], axis=-1)
-        #     self.v = vax[0]
+        self.lam_shift = lam_shift
+        self.scattering_angles = scattering_angles
+        self.num_grad_points = num_grad_points
 
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
 
@@ -88,7 +86,7 @@ class FormFactor:
         # mesh = Mesh(devices=mesh_utils.create_device_mesh(1), axis_names=("x"))
         # self.sharding = NamedSharding(mesh, P("x"))
 
-    def __call__(self, params, cur_ne, cur_Te, A, Z, Ti, fract, sa, f_and_v, lam):
+    def __call__(self, params):
         """
         Calculates the standard collisionless Thomson spectral density function S(k,omg) and is capable of handling
         multiple plasma conditions and scattering angles. Distribution functions can be arbitrary as calculations of the
@@ -114,19 +112,35 @@ class FormFactor:
                 wavelength points, number of angles]
         """
 
-        Te, ne, Va, ud, fe = (
-            cur_Te.squeeze(-1),
-            cur_ne.squeeze(-1),
-            params["general"]["Va"],
-            params["general"]["ud"],
-            f_and_v,
+        ne = (
+            1.0e20
+            * params["electron"]["ne"]
+            * jnp.linspace(
+                (1 - params["general"]["ne_gradient"] / 200),
+                (1 + params["general"]["ne_gradient"] / 200),
+                self.num_grad_points,
+            )
         )
+        Te = params["electron"]["Te"] * jnp.linspace(
+            (1 - params["general"]["Te_gradient"] / 200),
+            (1 + params["general"]["Te_gradient"] / 200),
+            self.num_grad_points,
+        )
+        lam = params["general"]["lam"] + self.lam_shift
+        A = [params[species]["A"] for species in params.keys() if "ion" in species]
+        Z = [params[species]["Z"] for species in params.keys() if "ion" in species]
+        Ti = [params[species]["Ti"] for species in params.keys() if "ion" in species]
+        fract = [params[species]["fract"] for species in params.keys() if "ion" in species]
+        Va = params["general"]["Va"]
+        ud = params["general"]["ud"]
+        fe = params["electron"]["fe"]
+        vx = params["electron"]["v"]
 
         Mi = jnp.array(A) * self.Mp  # ion mass
         re = 2.8179e-13  # classical electron radius cm
         Esq = self.Me * self.C**2 * re  # sq of the electron charge keV cm
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
-        sarad = sa * jnp.pi / 180  # scattering angle in radians
+        sarad = self.scattering_angles["sa"] * jnp.pi / 180  # scattering angle in radians
         sarad = jnp.reshape(sarad, [1, 1, -1])
 
         Va = Va * 1e6  # flow velocity in 1e6 cm/s
@@ -177,21 +191,20 @@ class FormFactor:
         # calculating normilized phase velcoity(xi's) for electrons
         xie = omgdop / (k * vTe) - ud / vTe
 
-        DF, x = fe
-        fe_vphi = jnp.exp(jnp.interp(xie, x, jnp.log(jnp.squeeze(DF))))
+        # DF, x = fe
+        fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
 
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
-        df = jnp.append(df, jnp.zeros((len(ne), 1, len(sa))), 1)
+        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]))), 1)
 
         chiEI = jnp.pi / (klde**2) * 1j * df
 
-        ratmod = jnp.exp(jnp.interp(self.xi1, x, jnp.log(jnp.squeeze(DF))))
+        ratmod = jnp.exp(jnp.interp(self.xi1, vx, jnp.log(fe)))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
-        def this_ratintn(this_dx):
-            return ratintn.ratintn(ratdf, this_dx, self.xi1)
-
-        chiERratprim = vmap(this_ratintn)(self.xi1[None, :] - self.xi2[:, None])
+        chiERratprim = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
+            ratdf, self.xi1[None, :] - self.xi2[:, None], self.xi1
+        )
 
         # if len(fe) == 2:
         chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
@@ -299,16 +312,9 @@ class FormFactor:
         df = jnp.gradient(fe_1D_k, x[1] - x[0])
 
         # find the location of xie in axis array
-        # loc = jnp.argmin(jnp.abs(x - xie_mag_at))
         # add the value of fe to the fe container
-        # fe_vphi = fe_1D_k[loc]
-        # dfe = df[loc]
         fe_vphi = jnp.interp(xie_mag_at, x, fe_1D_k)
         dfe = jnp.interp(xie_mag_at, x, df)
-
-        # derivative of f along k
-
-        # df = jnp.gradient(fe_1D_k, x[1] - x[0])
 
         # Chi is really chi evaluated at the points xie
         # so the imaginary part is
@@ -504,11 +510,5 @@ class FormFactor:
         # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = PsLam
         # formfactorE = PsLamE # commented because unused
-        #
-        # from matplotlib import pyplot as plt
-        #
-        # fig, ax = plt.subplots(1, 2, figsize=(12, 6), tight_layout=True, sharex=False)
-        # ax[0].plot(fe_vphi[1, :, 0])
-        # plt.show()
 
         return formfactor, lams

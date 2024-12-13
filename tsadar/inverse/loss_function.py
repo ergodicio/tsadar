@@ -8,7 +8,7 @@ from jax.flatten_util import ravel_pytree
 import numpy as np
 import equinox as eqx
 
-from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic, ThomsonScatteringDiagnostic2
+from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..distribution_functions.dist_functional_forms import trapz
 from tsadar.utils.vector_tools import rotate
 
@@ -46,80 +46,13 @@ class LossFunction:
 
         ############
 
-        self.ts_diag = ThomsonScatteringDiagnostic2(cfg, scattering_angles=scattering_angles)
+        self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
 
         self._loss_ = filter_jit(self.__loss__)
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
-        ##this will be replaced with jacobian params jacobian inverse
+        ## this will be replaced with jacobian params jacobian inverse
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
         self.array_loss = filter_jit(self.calc_loss)
-
-        # this needs to be rethought and does not work in all cases
-        # if cfg["parameters"]["electron"]["fe"]["active"]:
-        #     if "dist_fit" in cfg:
-        #         if cfg["parameters"]["electron"]["fe"]["dim"] == 1:
-        #             self.smooth_window_len = round(
-        #                 cfg["parameters"]["electron"]["fe"]["velocity"].size * cfg["dist_fit"]["window"]["len"]
-        #             )
-        #             self.smooth_window_len = self.smooth_window_len if self.smooth_window_len > 1 else 2
-
-        #             if cfg["dist_fit"]["window"]["type"] == "hamming":
-        #                 self.w = jnp.hamming(self.smooth_window_len)
-        #             elif cfg["dist_fit"]["window"]["type"] == "hann":
-        #                 self.w = jnp.hanning(self.smooth_window_len)
-        #             elif cfg["dist_fit"]["window"]["type"] == "bartlett":
-        #                 self.w = jnp.bartlett(self.smooth_window_len)
-        #             else:
-        #                 raise NotImplementedError
-        #         else:
-        #             Warning("Smoothing not enabled for 2D distributions")
-        #     else:
-        #         Warning(
-        #             "\n !!! Distribution function not fitted !!! Make sure this is what you thought you were running \n"
-        #         )
-
-    # def smooth(self, distribution: jnp.ndarray) -> jnp.ndarray:
-    #     """
-    #     This method is used to smooth the distribution function. It sits right in between the optimization algorithm
-    #     that provides the weights/values of the distribution function and the fitting code that uses it.
-
-    #     Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
-    #     the output. This is a differentiable operation and we train/fit our weights through this.
-
-    #     Args:
-    #         distribution:
-
-    #     Returns:
-
-    #     """
-    #     s = jnp.r_[
-    #         distribution[self.smooth_window_len - 1 : 0 : -1],
-    #         distribution,
-    #         distribution[-2 : -self.smooth_window_len - 1 : -1],
-    #     ]
-    #     return jnp.convolve(self.w / self.w.sum(), s, mode="same")[
-    #         self.smooth_window_len - 1 : -(self.smooth_window_len - 1)
-    #     ]
-
-    # def smooth2D(self, distribution: jnp.ndarray) -> jnp.ndarray:
-    #     """
-    #     This method is used to smooth the distribution function. It sits right in between the optimization algorithm
-    #     that provides the weights/values of the distribution function and the fitting code that uses it.
-
-    #     Because the optimizer is not constrained to provide a smooth distribution function, this operation smoothens
-    #     the output. This is a differentiable operation and we train/fit our weights through this.
-
-    #     Args:
-    #         distribution:
-
-    #     Returns:
-
-    #     """
-
-    #     smoothing_kernel = jnp.outer(jnp.bartlett(5), jnp.bartlett(5))
-    #     smoothing_kernel = smoothing_kernel / jnp.sum(smoothing_kernel)
-
-    #     return jax.scipy.signal.convolve2d(distribution, smoothing_kernel, "same")
 
     def _get_normed_batch_(self, batch: Dict):
         """
@@ -293,7 +226,6 @@ class LossFunction:
         Returns:
 
         """
-        # params = self.ts_diag.get_plasma_parameters(weights)
 
         if self.multiplex_ang:
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch["b1"])

@@ -11,6 +11,7 @@ from numpy.testing import assert_allclose
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
 from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.core.modules import ThomsonParams
 
 
 def test_iaw():
@@ -36,21 +37,27 @@ def test_iaw():
     re = 2.8179e-13  # classical electron radius cm
     Esq = Me * C**2 * re  # sq of the electron charge keV cm
 
-    num_dist_func = DistFunc(config["parameters"]["electron"])
-    vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
+    # num_dist_func = DistFunc(config["parameters"]["electron"])
+    # vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
 
-    ion_form_factor = FormFactor([525, 528], npts=8192)
+    ion_form_factor = FormFactor(
+        [525, 528],
+        npts=8192,
+        lam_shift=0.0,
+        scattering_angles={"sa": np.array([60])},
+        num_grad_points=config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
+    )
 
     # xie = np.linspace(-7, 7, 1024)
     # ion_form_factor = FormFactor([525, 528], npts=8192)
 
-    sa = np.array([60])
-    params = {
-        "general": {
-            "Va": config["parameters"]["general"]["Va"]["val"],
-            "ud": config["parameters"]["general"]["ud"]["val"],
-        }
-    }
+    # sa = np.array([60])
+    # params = {
+    #     "general": {
+    #         "Va": config["parameters"]["general"]["Va"]["val"],
+    #         "ud": config["parameters"]["general"]["ud"]["val"],
+    #     }
+    # }
     # num_dist_func = get_num_dist_func({"DLM": []}, xie)
     # fecur = num_dist_func(2.0)
     # lam = 526.5
@@ -61,18 +68,20 @@ def test_iaw():
     # cur_Te = 0.5
 
     # ThryI, lamAxisI = jit(ion_form_factor)(inps, cur_ne, cur_Te, sa, (fecur, xie), lam)
-    ThryI, lamAxisI = jit(ion_form_factor)(
-        params,
-        jnp.array(config["parameters"]["electron"]["ne"]["val"] * 1e20).reshape(1, 1),
-        jnp.array(config["parameters"]["electron"]["Te"]["val"]).reshape(1, 1),
-        config["parameters"]["ion-1"]["A"]["val"],
-        config["parameters"]["ion-1"]["Z"]["val"],
-        config["parameters"]["ion-1"]["Ti"]["val"],
-        config["parameters"]["ion-1"]["fract"]["val"],
-        sa,
-        (fecur, vcur),
-        config["parameters"]["general"]["lam"]["val"],
-    )
+    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
+    physical_params = ts_params()
+    ThryI, lamAxisI = jit(ion_form_factor)(physical_params)
+    #     params,
+    #     jnp.array(config["parameters"]["electron"]["ne"]["val"] * 1e20).reshape(1, 1),
+    #     jnp.array(config["parameters"]["electron"]["Te"]["val"]).reshape(1, 1),
+    #     config["parameters"]["ion-1"]["A"]["val"],
+    #     config["parameters"]["ion-1"]["Z"]["val"],
+    #     config["parameters"]["ion-1"]["Ti"]["val"],
+    #     config["parameters"]["ion-1"]["fract"]["val"],
+    #     sa,
+    #     (fecur, vcur),
+    #     config["parameters"]["general"]["lam"]["val"],
+    # )
 
     ThryI = jnp.mean(ThryI, axis=0)
 

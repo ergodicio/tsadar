@@ -11,7 +11,9 @@ config.update("jax_enable_x64", True)
 
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
-from tsadar.distribution_functions.gen_num_dist_func import DistFunc
+from tsadar.core.modules import ThomsonParams
+
+# from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 
 def test_epw():
@@ -31,31 +33,27 @@ def test_epw():
 
     # Test #1: Bohm-Gross test, calculate a spectrum and compare the resonance to the Bohm gross dispersion relation
     npts = 2048
-    num_dist_func = DistFunc(config["parameters"]["electron"])
-    vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
-    electron_form_factor = FormFactor([400, 700], npts=npts)
-
-    sa = np.array([60])
-    params = {
-        "general": {
-            "Va": config["parameters"]["general"]["Va"]["val"],
-            "ud": config["parameters"]["general"]["ud"]["val"],
-        }
-    }
-
-    ThryE, lamAxisE = jit(electron_form_factor)(
-        params,
-        jnp.array(config["parameters"]["electron"]["ne"]["val"] * 1e20).reshape(1, 1),
-        jnp.array(config["parameters"]["electron"]["Te"]["val"]).reshape(1, 1),
-        config["parameters"]["ion-1"]["A"]["val"],
-        config["parameters"]["ion-1"]["Z"]["val"],
-        config["parameters"]["ion-1"]["Ti"]["val"],
-        config["parameters"]["ion-1"]["fract"]["val"],
-        sa,
-        (fecur, vcur),
-        config["parameters"]["general"]["lam"]["val"],
+    # num_dist_func = DistFunc(config["parameters"]["electron"])
+    # vcur, fecur = num_dist_func(config["parameters"]["electron"]["m"]["val"])
+    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
+    electron_form_factor = FormFactor(
+        [400, 700],
+        npts=npts,
+        lam_shift=config["data"]["ele_lam_shift"],
+        scattering_angles={"sa": np.array([60])},
+        num_grad_points=config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
     )
 
+    sa = np.array([60])
+    # params = {
+    #     "general": {
+    #         "Va": config["parameters"]["general"]["Va"]["val"],
+    #         "ud": config["parameters"]["general"]["ud"]["val"],
+    #     }
+    # }
+
+    physical_params = ts_params()
+    ThryE, lamAxisE = jit(electron_form_factor)(physical_params)
     ThryE = np.squeeze(ThryE)
     test = deepcopy(np.asarray(ThryE))
     peaks, peak_props = find_peaks(test, height=(0.01, 0.5), prominence=0.05)
