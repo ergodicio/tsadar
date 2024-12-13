@@ -8,7 +8,7 @@ import xarray as xr
 import pandas
 
 from ..utils.plotting import plotters
-from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic2
+from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules import ThomsonParams
 from ..utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
@@ -32,7 +32,7 @@ def forward_pass(config):
     is_angular = True if "angular" in config["other"]["extraoptions"]["spectype"] else False
     # get scattering angles and weights
     config["optimizer"]["batch_size"] = 1
-    # config["other"]["extraoptions"]["spectype"] = "1d"
+
     config["other"]["lamrangE"] = [
         config["data"]["fit_rng"]["forward_epw_start"],
         config["data"]["fit_rng"]["forward_epw_end"],
@@ -42,13 +42,6 @@ def forward_pass(config):
         config["data"]["fit_rng"]["forward_iaw_end"],
     ]
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
-
-    # electron_params = config["parameters"]["electron"]
-    # dist_obj = DistFunc(electron_params)
-    # electron_params["fe"]["velocity"], fe_val = dist_obj(electron_params["m"]["val"])
-    # fe_val = np.log(fe_val)[None, :]
-
-    # config["units"] = init_param_norm_and_shift(config)
 
     sas = get_scattering_angles(config)
 
@@ -122,7 +115,7 @@ def forward_pass(config):
         #     if "param4" in config["series"].keys():
         #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        ts_diag = ThomsonScatteringDiagnostic2(config, scattering_angles=sas)
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=not is_angular)
         # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)

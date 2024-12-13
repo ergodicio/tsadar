@@ -138,8 +138,6 @@ def _validate_inputs_(config: Dict) -> Dict:
         config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
         print(f"final {num_slices % batch_size} lineouts have been removed")
 
-    # config["units"] = init_param_norm_and_shift(config)
-
     return config
 
 

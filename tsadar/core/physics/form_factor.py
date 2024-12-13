@@ -49,13 +49,13 @@ def zprimeMaxw(xi):
 
 
 class FormFactor:
-    def __init__(self, lamrang, npts, lam_shift, scattering_angles, num_grad_points):
+    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points):
         """
         Creates a FormFactor object holding all the static values to use for repeated calculations of the Thomson
         scattering structure factor or spectral density function.
 
         Args:
-            lamrang: list of the starting and ending wavelengths over which to calculate the spectrum.
+            lambda_range: list of the starting and ending wavelengths over which to calculate the spectrum.
             npts: number of wavelength points to use in the calculation
             fe_dim: dimension of the electron velocity distribution function (EDF), should be 1 or 2
             vax: (optional) velocity axis coordinates that the 2D EDF is defined on
@@ -68,11 +68,17 @@ class FormFactor:
         self.C = 2.99792458e10
         self.Me = 510.9896 / self.C**2  # electron mass keV/C^2
         self.Mp = self.Me * 1836.1  # proton mass keV/C^2
-        self.lamrang = lamrang
+        # self.lambda_range = lambda_range
         self.npts = npts
         self.h = 0.01
         minmax = 8.2
-        h1 = 1024  # 1024  # 1024
+        h1 = 1024  # 1024
+        c = 2.99792458e10
+        lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
+        self.omgL_num = 2 * jnp.pi * 1e7 * c
+        omgs = 2e7 * jnp.pi * c / lamAxis  # Scattered frequency axis(1 / sec)
+        self.omgs = omgs[None, ..., None]
+
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
         self.Zpi = jnp.array(zprimeMaxw(self.xi2))
@@ -131,8 +137,8 @@ class FormFactor:
         Z = [params[species]["Z"] for species in params.keys() if "ion" in species]
         Ti = [params[species]["Ti"] for species in params.keys() if "ion" in species]
         fract = [params[species]["fract"] for species in params.keys() if "ion" in species]
-        Va = params["general"]["Va"]
-        ud = params["general"]["ud"]
+        Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s
+        ud = params["general"]["ud"] * 1e6  # drift velocity in 1e6 cm/s
         fe = params["electron"]["fe"]
         vx = params["electron"]["v"]
 
@@ -142,18 +148,13 @@ class FormFactor:
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
         sarad = self.scattering_angles["sa"] * jnp.pi / 180  # scattering angle in radians
         sarad = jnp.reshape(sarad, [1, 1, -1])
-
-        Va = Va * 1e6  # flow velocity in 1e6 cm/s
-        ud = ud * 1e6  # drift velocity in 1e6 cm/s
-
-        omgL, omgs, lamAxis, _ = lam_parse.lamParse(self.lamrang, lam, npts=self.npts)  # , True)
+        omgL = self.omgL_num / lam  # laser frequency Rad / s
 
         # calculate k and omega vectors
         omgpe = constants * jnp.sqrt(ne[..., jnp.newaxis, jnp.newaxis])  # plasma frequency Rad/cm
-        omgs = omgs[jnp.newaxis, ..., jnp.newaxis]
-        omg = omgs - omgL
+        omg = self.omgs - omgL
 
-        ks = jnp.sqrt(omgs**2 - omgpe**2) / self.C
+        ks = jnp.sqrt(self.omgs**2 - omgpe**2) / self.C
         kL = jnp.sqrt(omgL**2 - omgpe**2) / self.C
         k = jnp.sqrt(ks**2 + kL**2 - 2 * ks * kL * jnp.cos(sarad))
 
@@ -161,7 +162,6 @@ class FormFactor:
         omgdop = omg - kdotv
 
         # plasma parameters
-
         # electrons
         vTe = jnp.sqrt(Te[..., jnp.newaxis, jnp.newaxis] / self.Me)  # electron thermal velocity
         klde = (vTe / omgpe) * k
@@ -176,11 +176,12 @@ class FormFactor:
 
         vTi = jnp.sqrt(jnp.array(Ti) / Mi)  # ion thermal velocity
         kldi = (vTi / omgpi) * (k[..., jnp.newaxis])
+
         # ion susceptibilities
         # finding derivative of plasma dispersion function along xii array
         # proper handeling of multiple ion temperatures is not implemented
         xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k)[..., jnp.newaxis])
-        num_species = len(fract)
+
         num_ion_pts = jnp.shape(xii)
         chiI = jnp.zeros(num_ion_pts)
         ZpiR = jnp.interp(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
@@ -191,7 +192,6 @@ class FormFactor:
         # calculating normilized phase velcoity(xi's) for electrons
         xie = omgdop / (k * vTe) - ud / vTe
 
-        # DF, x = fe
         fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
 
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
@@ -232,7 +232,7 @@ class FormFactor:
 
         PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne[:, None, None]
         # PsOmgE = (SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * jnp.transpose(ne) # commented because unused
-        lams = 2 * jnp.pi * self.C / omgs
+        lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
         # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = PsLam
@@ -429,15 +429,14 @@ class FormFactor:
         # convert ua from mag, angle to x,y
         ud = (ud * jnp.cos(ud_ang * jnp.pi / 180), ud * jnp.sin(ud_ang * jnp.pi / 180))
 
-        omgL, omgs, lamAxis, _ = lam_parse.lamParse(self.lamrang, lam, npts=self.npts)  # , True)
-
+        omgL = self.omgL_num / lam  # laser frequency Rad / s
         # calculate k and omega vectors
         omgpe = constants * jnp.sqrt(ne[..., jnp.newaxis, jnp.newaxis])  # plasma frequency Rad/cm
-        omgs = omgs[jnp.newaxis, ..., jnp.newaxis]
-        omg = omgs - omgL
+        # omgs = omgs[jnp.newaxis, ..., jnp.newaxis]
+        omg = self.omgs - omgL
 
         kL = (jnp.sqrt(omgL**2 - omgpe**2) / self.C, jnp.zeros_like(omgpe))  # defined to be along the x axis
-        ks_mag = jnp.sqrt(omgs**2 - omgpe**2) / self.C
+        ks_mag = jnp.sqrt(self.omgs**2 - omgpe**2) / self.C
         ks = (jnp.cos(sarad) * ks_mag, jnp.sin(sarad) * ks_mag)
         k = vsub(ks, kL)  # 2D
         k_mag = jnp.sqrt(vdot(k, k))  # 1D
@@ -505,7 +504,7 @@ class FormFactor:
 
         PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne[:, None, None]
         # PsOmgE = (SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * jnp.transpose(ne) # commented because unused
-        lams = 2 * jnp.pi * self.C / omgs
+        lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
         # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = PsLam
