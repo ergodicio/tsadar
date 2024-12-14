@@ -1,9 +1,9 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Callable
 from collections import defaultdict
 
-from jax import Array, numpy as jnp, tree_util as jtu
+from jax import Array, numpy as jnp, tree_util as jtu, vmap
 from jax.nn import sigmoid
-from jax.scipy.special import gamma
+from jax.scipy.special import gamma, sph_harm
 import equinox as eqx
 
 
@@ -46,17 +46,63 @@ class DLM1D(DistributionFunction1D):
 
 class DistributionFunction2D(eqx.Module):
     vx: Array
-    vy: Array
-    fvxvy: Array
 
-    def __init__(self, cfg):
+    def __init__(self, dist_cfg):
         super().__init__()
-        self.vx = cfg["vx"]
-        self.vy = cfg["vy"]
-        self.fvxvy = cfg["fvxvy"]
+        vmax = 8.0
+        dvx = 2 * vmax / dist_cfg["nvx"]
+        self.vx = jnp.linspace(-vmax + dvx / 2, vmax - dvx / 2, dist_cfg["nvx"])
 
     def __call__(self, *args, **kwds):
         return super().__call__(*args, **kwds)
+
+
+class SphericalHarmonics(DistributionFunction2D):
+    vr: Array
+    th: Array
+    sph_harm: Callable
+    vr_vxvy: Array
+    Nl: int
+    flm: Dict[str, Dict[str, Array]]
+
+    def __init__(self, dist_cfg):
+        super().__init__(dist_cfg)
+
+        vmax = 8.0 * 1.05 * jnp.sqrt(2.0)
+        dvr = vmax / dist_cfg["params"]["nvr"]
+        self.vr = jnp.linspace(dvr / 2, vmax - dvr / 2, dist_cfg["params"]["nvr"])
+
+        vx, vy = jnp.meshgrid(self.vx, self.vx)
+        self.th = jnp.arctan2(vy, vx)
+        self.vr_vxvy = jnp.sqrt(vx**2 + vy**2)
+        self.Nl = dist_cfg["params"]["Nl"]
+
+        self.sph_harm = vmap(sph_harm, in_axes=(None, None, None, 0, None))
+        self.flm = defaultdict(dict)
+        for i in range(self.Nl + 1):
+            self.flm[i] = {j: jnp.zeros(dist_cfg["params"]["nvr"]) for j in range(i + 1)}
+
+        m = dist_cfg["params"]["init_m"]
+        vth_x = 1.0
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
+        cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
+        self.flm[0][0] = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+        self.flm[0][0] /= jnp.sum(self.flm[0][0]) * (self.vr[1] - self.vr[0])
+
+    def get_unnormed_params(self):
+        return {"flm": self.flm}
+
+    def __call__(self):
+        fvxvy = jnp.zeros(jnp.shape(self.vr_vxvy))
+        for i in range(self.Nl + 1):
+            for j in range(i + 1):
+                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, self.flm[i][j], right=1e-16)
+                _sph_harm = self.sph_harm(
+                    jnp.array([j]), jnp.array([i]), 0.0, self.th.reshape(-1, order="C"), 2
+                ).reshape(self.vr_vxvy.shape, order="C")
+                fvxvy += _flmvxvy * jnp.real(_sph_harm)
+
+        return fvxvy
 
 
 class ElectronParams(eqx.Module):
@@ -108,11 +154,20 @@ class ElectronParams(eqx.Module):
                     )
 
             else:
-                raise NotImplementedError(f"Unknown distribution type: {dist_cfg['type']}")
+                raise NotImplementedError(f"Unknown 1D distribution type: {dist_cfg['type']}")
         elif dist_cfg["dim"] == 2:
-            distribution_functions = [DistributionFunction2D(dist_cfg) for _ in range(batch_size)]
+            if "sph" in dist_cfg["type"].casefold():
+                if batch:
+                    raise NotImplementedError(
+                        "Batch mode not implemented for 2D distributions as a precautionary measure against memory issues"
+                    )
+                    distribution_functions = [SphericalHarmonics(dist_cfg) for _ in range(batch_size)]
+                else:
+                    distribution_functions = SphericalHarmonics(dist_cfg)
+            else:
+                raise NotImplementedError(f"Unknown 2D distribution type: {dist_cfg['type']}")
         else:
-            raise NotImplementedError(f"Unknown distribution dimension: {dist_cfg['dim']}")
+            raise NotImplementedError(f"Not implemented distribution dimension: {dist_cfg['dim']}")
 
         return distribution_functions
 

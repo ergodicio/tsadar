@@ -149,24 +149,13 @@ parameters:
       val: 0.6
     fe:
       active: false
-      dim: 1
-      fe_decrease_strict: false
-      lb: -100.0
-      length: 3999
-      m_asym: 1.0
-      m_theta: 0.0
-      symmetric: false
-      temp_asym: 1.0
-      type: "DLM"
-      ub: -0.5
-      v_res: 0.1
-      val: []
-    m:
-      active: true
-      lb: 2.0
-      matte: false
-      ub: 5.0
-      val: 3.0
+      dim: 2
+      type: sphericalharmonic
+      nvx: 128
+      params:
+        init_m: 2.0
+        Nl: 1
+        nvr: 64
     ne:
       active: false
       lb: 0.001

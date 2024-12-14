@@ -73,38 +73,7 @@ def forward_pass(config):
     lamAxisE = [None] * serieslen
     lamAxisI = [None] * serieslen
 
-    t_start = time.time()
-    # for i in tqdm(range(serieslen), total=serieslen):
-    # if "series" in config.keys():
-
-    #     config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
-    #     if "param2" in config["series"].keys():
-    #         config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
-    #     if "param3" in config["series"].keys():
-    #         config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
-    #     if "param4" in config["series"].keys():
-    #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
-
-    if is_angular:
-        [axisxE, _, _, _, _, _] = get_calibrations(
-            104000, config["other"]["extraoptions"]["spectype"], (0.0, 0.0), config["other"]["CCDsize"]
-        )  # shot number hardcoded to get calibration
-        config["other"]["extraoptions"]["spectype"] = "angular_full"
-
-        sas["angAxis"] = axisxE
-        dummy_batch["i_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
-        dummy_batch["e_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
-
-    if "series" in config.keys():
-        serieslen = len(config["series"]["vals1"])
-    else:
-        serieslen = 1
-    ThryE = [None] * serieslen
-    ThryI = [None] * serieslen
-    lamAxisE = [None] * serieslen
-    lamAxisI = [None] * serieslen
-
-    t_start = time.time()
+    t_start = time()
     for i in range(serieslen):
         # if "series" in config.keys():
         #     config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
@@ -115,12 +84,13 @@ def forward_pass(config):
         #     if "param4" in config["series"].keys():
         #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
 
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=not is_angular)
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+
         # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)
 
-    spectime = time.time() - t_start
+    spectime = time() - t_start
     ThryE = np.array(ThryE)
     ThryI = np.array(ThryI)
     lamAxisE = np.array(lamAxisE)
@@ -146,36 +116,19 @@ def forward_pass(config):
                 {"epw_x": sas["angAxis"], "epw_y": lamAxisE},
                 td,
             )
-            plotters.plot_dist(
-                config,
-                "electron",
-                {"fe": np.squeeze(fe_val), "v": velocity},
-                np.zeros_like(fe_val),
-                td,
-            )
-            if len(np.shape(np.squeeze(fe_val))) == 1:
-                final_dist = pandas.DataFrame(
-                    {
-                        "fe": [l for l in fe_val],
-                        "vx": [vx for vx in velocity],
-                    }
-                )
-            elif len(np.shape(np.squeeze(fe_val))) == 2:
-                final_dist = pandas.DataFrame(
-                    data=np.squeeze(fe_val),
-                    columns=velocity[0][0],
-                    index=velocity[0][:, 0],
-                )
-            final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
+            # plotters.plot_dist(config, "electron", {"fe": np.squeeze(fe_val), "v": velocity}, np.zeros_like(fe_val), td)
+            # if len(np.shape(np.squeeze(fe_val))) == 1:
+            #     final_dist = pandas.DataFrame({"fe": [l for l in fe_val], "vx": [vx for vx in velocity]})
+            # elif len(np.shape(np.squeeze(fe_val))) == 2:
+            #     final_dist = pandas.DataFrame(
+            #         data=np.squeeze(fe_val),
+            #         columns=velocity[0][0],
+            #         index=velocity[0][:, 0],
+            #     )
+            # final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
             if config["parameters"]["electron"]["fe"]["dim"] == 2:
-                plotters.plot_dist(
-                    config,
-                    "electron",
-                    {"fe": fe_val, "v": velocity},
-                    np.zeros_like(fe_val),
-                    td,
-                )
+                plotters.plot_dist(config, "electron", {"fe": fe_val, "v": velocity}, np.zeros_like(fe_val), td)
 
             fig, ax = plt.subplots(1, 2, figsize=(12, 6), tight_layout=True, sharex=False)
             if config["other"]["extraoptions"]["load_ele_spec"]:

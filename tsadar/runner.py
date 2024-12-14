@@ -6,6 +6,7 @@ import multiprocessing as mp
 from flatten_dict import flatten, unflatten
 
 from .inverse import fitter
+from .forward import calc_series
 from .utils import misc
 
 if "BASE_TEMPDIR" in os.environ:
@@ -114,7 +115,7 @@ def _run_(config: Dict, mode: str = "fit"):
     if mode.casefold() == "fit":
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
-        forward_pass(config=config)
+        calc_series.forward_pass(config=config)
     else:
         raise NotImplementedError(f"Mode {mode} not implemented")
 

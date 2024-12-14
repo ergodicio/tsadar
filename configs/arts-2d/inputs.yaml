@@ -88,23 +88,13 @@ parameters:
     fe:
       active: false
       dim: 2
-      fe_decrease_strict: false
-      lb: -100.0
-      m_asym: 1.0
-      m_theta: 0.0
-      symmetric: false
-      temp_asym: 1.0
-      type: "sphericalharmonic"
-      ub: -0.5
-      v_res: 0.1
-      val: []
-    m:
-      active: false
-      intens: 4.55
-      lb: 2.0
-      matte: false
-      ub: 5.0
-      val: 2.0
+      type: sphericalharmonic
+      nvx: 128
+      params:
+        init_m: 2.0
+        Nl: 1
+        nvr: 64
+        
     ne:
       active: false
       gradient_scalar: 10.0

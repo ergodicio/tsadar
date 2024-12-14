@@ -1,0 +1,120 @@
+parameters:
+  general:
+    amp1:
+        val: 1.0
+        active: True
+        lb: 0.01
+        ub: 3.75
+    amp2:
+        val: 1.0
+        active: True
+        lb: 0.01
+        ub: 3.75
+    amp3:
+        val: 1.
+        active: False
+        lb: 0.01
+        ub: 3.75
+    lam:
+        val: 524.5
+        active: True
+        lb: 523.0
+        ub: 528.0
+    Te_gradient:
+        val: 0.0
+        active: False
+        lb: 0.
+        ub: 10.
+        num_grad_points: 1
+    ud:
+        val: 0.0
+        angle: 0.0
+        active: False
+        lb: -2.0
+        ub: 2.0
+    Va:
+        val: 0.0
+        angle: 0.0
+        active: False
+        lb: -1.1
+        ub: 2.5
+    ne_gradient:
+        val: 0.
+        active: False
+        lb: 0.
+        ub: 15.
+        num_grad_points: 1
+  ion-1:
+    Ti:
+        val: 0.2
+        active: False
+        lb: 0.01
+        ub: 3.0
+        same: False
+    Z:
+        val: 8.
+        active: False
+        lb: 1.0
+        ub: 25.0
+    A:
+        val: 14.
+        active: False
+  electron:
+    Te:
+        val: 1.0
+        active: True
+        lb: 0.01
+        ub: 1.5
+    ne:
+        val: 0.4
+        active: True
+        lb: .001
+        ub: 1.0
+    fe:
+
+        active: False
+        type: dlm
+        params:
+            m: 
+                val: 2.5
+                lb: 2.0
+                ub: 5.0
+        dim: 1
+        nv: 2048
+
+data:
+    shotnum: 94475
+    lineouts:
+        type:
+            range
+        start: 90
+        end: 950
+        skip: 20
+    background:
+        type:
+            Fit
+        slice: 94477
+
+other:
+    extraoptions:
+        load_ion_spec: False
+        load_ele_spec: True
+        fit_IAW: False
+        fit_EPWb: True
+        fit_EPWr: True
+        spectype: angular
+    PhysParams:
+        widIRF:
+            spect_stddev_ion: 0.015
+            spect_stddev_ele: 0.1
+            spect_FWHM_ele: 0.9
+            ang_FWHM_ele: 1.0
+    refit: False
+    refit_thresh: 5.0
+    calc_sigmas: False
+
+mlflow:
+    experiment: tsadar-tests
+    run: arts1d-fwd
+    
+machine: gpu

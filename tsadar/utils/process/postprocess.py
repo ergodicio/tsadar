@@ -332,5 +332,5 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         sigma_fe = np.zeros_like(final_params["fe"])
     savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
     plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
-    plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
+    # plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
     return t1

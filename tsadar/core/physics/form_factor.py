@@ -49,7 +49,7 @@ def zprimeMaxw(xi):
 
 
 class FormFactor:
-    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points):
+    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang):
         """
         Creates a FormFactor object holding all the static values to use for repeated calculations of the Thomson
         scattering structure factor or spectral density function.
@@ -87,6 +87,7 @@ class FormFactor:
         self.num_grad_points = num_grad_points
 
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
+        self.ud_angle, self.va_angle = ud_ang, va_ang
 
         # Create a Sharding object to distribute a value across devices:
         # mesh = Mesh(devices=mesh_utils.create_device_mesh(1), axis_names=("x"))
@@ -239,7 +240,7 @@ class FormFactor:
 
         return formfactor, lams
 
-    def rotate(self, df, angle, reshape: bool = False) -> jnp.ndarray:
+    def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
         Rotate a 2D array by a given angle in radians
 
@@ -255,14 +256,13 @@ class FormFactor:
         cos_angle = jnp.cos(rad_angle)
         sin_angle = jnp.sin(rad_angle)
         rotation_matrix = jnp.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]])
-
-        rotated_coords = jnp.einsum("ij, ki->kj", rotation_matrix, self.coords)
+        _vx, _vy = jnp.meshgrid(vx, vx)
+        coords = jnp.stack((_vx.flatten(), _vy.flatten()))
+        rotated_coords = jnp.einsum("ij, ik->kj", rotation_matrix, coords)
         xq = rotated_coords[:, 0]
         yq = rotated_coords[:, 1]
 
-        return interp2d(xq, yq, self.v, self.v, df, extrap=True, method="linear").reshape(
-            (self.v.size, self.v.size), order="F"
-        )
+        return interp2d(xq, yq, vx, vx, df, extrap=True, method="linear").reshape((vx.size, vx.size), order="F")
 
     def scan_calc_chi_vals(self, carry, xs):
         """
@@ -287,7 +287,7 @@ class FormFactor:
         fe_vphi, chiEI, chiERrat = self.calc_chi_vals(x, DF, xs)
         return (x, DF), (fe_vphi, chiEI, chiERrat)
 
-    def calc_chi_vals(self, x, DF, inputs):
+    def calc_chi_vals(self, vx, DF, inputs):
         """
         Calculate the values of the susceptibility at a given point in the distribution function
 
@@ -307,14 +307,15 @@ class FormFactor:
 
         """
         element, xie_mag_at, klde_mag_at = inputs
-        fe_2D_k = checkpoint(self.rotate)(DF, element * 180 / jnp.pi, reshape=False)
-        fe_1D_k = jnp.sum(fe_2D_k, axis=0) * (x[1] - x[0])
-        df = jnp.gradient(fe_1D_k, x[1] - x[0])
+        dvx = vx[1] - vx[0]
+        fe_2D_k = checkpoint(self.rotate)(vx, DF, element * 180 / jnp.pi, reshape=False)
+        fe_1D_k = jnp.sum(fe_2D_k, axis=0) * dvx
+        df = jnp.gradient(fe_1D_k, dvx)
 
         # find the location of xie in axis array
         # add the value of fe to the fe container
-        fe_vphi = jnp.interp(xie_mag_at, x, fe_1D_k)
-        dfe = jnp.interp(xie_mag_at, x, df)
+        fe_vphi = jnp.interp(xie_mag_at, vx, fe_1D_k)
+        dfe = jnp.interp(xie_mag_at, vx, df)
 
         # Chi is really chi evaluated at the points xie
         # so the imaginary part is
@@ -323,11 +324,11 @@ class FormFactor:
         # the real part is solved with rational integration
         # giving the value at a single point where the pole is located at xie_mag[ind]
         chiERrat = (
-            -1.0 / (klde_mag_at**2) * ratintn.ratintn(df, x - xie_mag_at, x)
+            -1.0 / (klde_mag_at**2) * ratintn.ratintn(df, vx - xie_mag_at, vx)
         )  # this may need to be downsampled for run time
         return fe_vphi, chiEI, chiERrat
 
-    def calc_all_chi_vals(self, x, DF, beta, xie_mag, klde_mag):
+    def calc_all_chi_vals(self, vx, DF, beta, xie_mag, klde_mag):
         """
         Calculate the susceptibility values for all the desired points xie
 
@@ -344,20 +345,20 @@ class FormFactor:
             chiERrat: real part of the electron susceptibility
 
         """
-        calc_chi_vals = "scan"
+        calc_chi_vals = "batch_vmap"
 
         flattened_inputs = (beta.flatten(), xie_mag.flatten(), klde_mag.flatten())
 
         if calc_chi_vals == "scan":
             _, (fe_vphi, chiEI, chiERrat) = scan(
-                self.scan_calc_chi_vals, (x, jnp.squeeze(DF)), flattened_inputs, unroll=1
+                self.scan_calc_chi_vals, (vx, jnp.squeeze(DF)), flattened_inputs, unroll=1
             )
 
         elif calc_chi_vals == "vmap":
-            fe_vphi, chiEI, chiERrat = self.vmap_calc_chi_vals(x, jnp.squeeze(DF), flattened_inputs)
+            fe_vphi, chiEI, chiERrat = self.vmap_calc_chi_vals(vx, jnp.squeeze(DF), flattened_inputs)
 
         elif calc_chi_vals == "batch_vmap":
-            batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, x, jnp.squeeze(DF))
+            batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, vx, jnp.squeeze(DF))
             fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=1024)
         else:
             raise NotImplementedError
@@ -378,7 +379,7 @@ class FormFactor:
 
         return self.calc_all_chi_vals(x, DF, (flat_beta, flat_xie_mag, flat_klde_mag))
 
-    def calc_in_2D(self, params, ud_ang, va_ang, cur_ne, cur_Te, A, Z, Ti, fract, sa, f_and_v, lam):
+    def calc_in_2D(self, params):
         """
         Calculates the collisionless Thomson spectral density function S(k,omg) for a 2D numerical EDF, capable of
         handling multiple plasma conditions and scattering angles. Distribution functions can be arbitrary as
@@ -407,27 +408,43 @@ class FormFactor:
                 wavelength points, number of angles]
         """
 
-        Te, ne, Va, ud, fe = (
-            cur_Te.squeeze(-1),
-            cur_ne.squeeze(-1),
-            params["general"]["Va"],
-            params["general"]["ud"],
-            f_and_v,
+        ne = (
+            1.0e20
+            * params["electron"]["ne"]
+            * jnp.linspace(
+                (1 - params["general"]["ne_gradient"] / 200),
+                (1 + params["general"]["ne_gradient"] / 200),
+                self.num_grad_points,
+            )
         )
+        Te = params["electron"]["Te"] * jnp.linspace(
+            (1 - params["general"]["Te_gradient"] / 200),
+            (1 + params["general"]["Te_gradient"] / 200),
+            self.num_grad_points,
+        )
+        lam = params["general"]["lam"] + self.lam_shift
+        A = jnp.array([params[species]["A"] for species in params.keys() if "ion" in species])
+        Z = jnp.array([params[species]["Z"] for species in params.keys() if "ion" in species])
+        Ti = jnp.array([params[species]["Ti"] for species in params.keys() if "ion" in species])
+        fract = jnp.array([params[species]["fract"] for species in params.keys() if "ion" in species])
+        Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s
+        ud = params["general"]["ud"] * 1e6  # drift velocity in 1e6 cm/s
+        fe = params["electron"]["fe"]
+        vx = params["electron"]["v"]
 
         Mi = jnp.array(A) * self.Mp  # ion mass
         re = 2.8179e-13  # classical electron radius cm
         Esq = self.Me * self.C**2 * re  # sq of the electron charge keV cm
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
-        sarad = sa * jnp.pi / 180  # scattering angle in radians
+        sarad = self.scattering_angles["sa"] * jnp.pi / 180  # scattering angle in radians
         sarad = jnp.reshape(sarad, [1, 1, -1])
 
-        Va = Va * 1e6  # flow velocity in 1e6 cm/s
+        # Va = Va * 1e6  # flow velocity in 1e6 cm/s
         # convert Va from mag, angle to x,y
-        Va = (Va * jnp.cos(va_ang * jnp.pi / 180), Va * jnp.sin(va_ang * jnp.pi / 180))
-        ud = ud * 1e6  # drift velocity in 1e6 cm/s
+        Va = (Va * jnp.cos(self.va_angle * jnp.pi / 180), Va * jnp.sin(self.va_angle * jnp.pi / 180))
+        # ud = ud * 1e6  # drift velocity in 1e6 cm/s
         # convert ua from mag, angle to x,y
-        ud = (ud * jnp.cos(ud_ang * jnp.pi / 180), ud * jnp.sin(ud_ang * jnp.pi / 180))
+        ud = (ud * jnp.cos(self.ud_angle * jnp.pi / 180), ud * jnp.sin(self.ud_angle * jnp.pi / 180))
 
         omgL = self.omgL_num / lam  # laser frequency Rad / s
         # calculate k and omega vectors
@@ -451,9 +468,9 @@ class FormFactor:
         klde_mag = (vTe / omgpe) * (k_mag[..., jnp.newaxis])  # 1D
 
         # ions
-        Z = jnp.reshape(Z, [1, 1, 1, -1])
+        Z = jnp.reshape(jnp.array(Z), [1, 1, 1, -1])
         Mi = jnp.reshape(Mi, [1, 1, 1, -1])
-        fract = jnp.reshape(fract, [1, 1, 1, -1])
+        fract = jnp.reshape(jnp.array(fract), [1, 1, 1, -1])
         Zbar = jnp.sum(Z * fract)
         ni = fract * ne[..., jnp.newaxis, jnp.newaxis, jnp.newaxis] / Zbar
         omgpi = constants * Z * jnp.sqrt(ni * self.Me / Mi)
@@ -477,13 +494,13 @@ class FormFactor:
         # xie = vsub(vdiv(omgdop, vdot(k, vTe)), vdiv(ud, vTe))
         xie = vdiv(vsub(vdot(omgdop / k_mag**2, k), ud), vTe)
         xie_mag = jnp.sqrt(vdot(xie, xie))
-        DF, (x, y) = fe
-
+        # DF, (x, y) = fe
+        #
         # for each vector in xie
         # find the rotation angle beta, the heaviside changes the angles to [0, 2pi)
         beta = jnp.arctan(xie[1] / xie[0]) + jnp.pi * (-jnp.heaviside(xie[0], 1) + 1)
 
-        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(x[0, :], DF, beta, xie_mag, klde_mag)
+        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(vx, fe, beta, xie_mag, klde_mag)
 
         chiE = chiERrat + 1j * chiEI
         epsilon = 1.0 + chiE + chiI

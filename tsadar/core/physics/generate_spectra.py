@@ -35,12 +35,19 @@ class FitModel:
         ), "Number of gradient points for Te and ne must be the same"
         num_grad_points = config["parameters"]["general"]["Te_gradient"]["num_grad_points"]
 
+        angle = (
+            None
+            if config["parameters"]["electron"]["fe"]["dim"] < 2
+            else config["parameters"]["general"]["ud"]["angle"]
+        )
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
             lam_shift=config["data"]["ele_lam_shift"],
             scattering_angles=self.scattering_angles,
             num_grad_points=num_grad_points,
+            va_ang=angle,
+            ud_ang=angle,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -48,6 +55,8 @@ class FitModel:
             lam_shift=0,
             scattering_angles=scattering_angles,
             num_grad_points=num_grad_points,
+            va_ang=angle,
+            ud_ang=angle,
         )
 
     def __call__(self, all_params: Dict):
@@ -87,20 +96,7 @@ class FitModel:
                 ThryI, lamAxisI = self.ion_form_factor(all_params)
 
             else:
-                ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(
-                    all_params,
-                    self.config["parameters"]["general"]["ud"]["angle"],
-                    self.config["parameters"]["general"]["ud"]["angle"],
-                    cur_ne,
-                    cur_Te,
-                    A,
-                    Z,
-                    Ti,
-                    fract,
-                    self.scattering_angles["sa"],
-                    (fecur, vcur),
-                    lam,
-                )
+                ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(all_params)
 
             # remove extra dimensions and rescale to nm
             lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
@@ -113,24 +109,10 @@ class FitModel:
 
     def electron_spectrum(self, all_params):
         if self.config["other"]["extraoptions"]["load_ele_spec"]:
-            # if self.num_dist_func.dim == 1:
-
-            ThryE, lamAxisE = self.electron_form_factor(all_params)
-            # else:
-            #     ThryE, lamAxisE = self.electron_form_factor.calc_in_2D(
-            #         all_params,
-            #         self.config["parameters"]["general"]["ud"]["angle"],
-            #         self.config["parameters"]["general"]["ud"]["angle"],
-            #         cur_ne,
-            #         cur_Te,
-            #         A,
-            #         Z,
-            #         Ti,
-            #         fract,
-            #         self.scattering_angles["sa"],
-            #         (fecur, vcur),
-            #         lam + self.config["data"]["ele_lam_shift"],
-            #     )
+            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
+                ThryE, lamAxisE = self.electron_form_factor(all_params)
+            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
+                ThryE, lamAxisE = self.electron_form_factor.calc_in_2D(all_params)
 
             # remove extra dimensions and rescale to nm
             lamAxisE = jnp.squeeze(lamAxisE) * 1e7  # TODO hardcoded

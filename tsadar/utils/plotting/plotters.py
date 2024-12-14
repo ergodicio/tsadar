@@ -455,10 +455,10 @@ def plot_ts_data(config, fits, all_data, all_axes, td):
     Returns:
     """
     if config["other"]["extraoptions"]["load_ion_spec"]:
-        coords = (all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]])), (
-            "Wavelength",
-            all_axes["iaw_y"],
-        )
+        coords_x = all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]])
+        coords_y = "Wavelength", all_axes["iaw_y"]
+        coords = coords_x, coords_y
+
         ion_dat = {"fit": fits["ion"], "data": all_data["i_data"]}
         # fit vs data storage and plot
         ion_savedata = xr.Dataset({k: xr.DataArray(v, coords=coords) for k, v in ion_dat.items()})
