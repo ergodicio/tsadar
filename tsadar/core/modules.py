@@ -262,7 +262,7 @@ class IonParams(eqx.Module):
             self.normed_Ti = inv_act_fun((cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
             self.normed_Z = inv_act_fun((cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
             self.A = cfg["A"]["val"]
-            self.fract = inv_act_fun(cfg["fract"]["val"])
+            self.fract = float(inv_act_fun(cfg["fract"]["val"]))
 
     def get_unnormed_params(self):
         return self()
