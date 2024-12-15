@@ -59,6 +59,9 @@ parameters:
     A:
         val: 14.
         active: False
+    fract:
+        val: 1.0
+        active: False
   electron:
     Te:
         val: 1.0

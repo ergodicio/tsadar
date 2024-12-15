@@ -30,7 +30,7 @@ parameters:
         val: 40
         active: False
     fract:
-        val: 1
+        val: 1.0
         active: False
   general:
     amp1:
