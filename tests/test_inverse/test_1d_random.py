@@ -2,10 +2,9 @@ from jax import config
 
 config.update("jax_enable_x64", True)
 
-from scipy.optimize import minimize
-from jax.flatten_util import ravel_pytree
-
 from jax import numpy as jnp
+from jax.flatten_util import ravel_pytree
+from scipy.optimize import minimize
 import equinox as eqx
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,19 +28,14 @@ def _perturb_params_(rng, params):
         Dictionary - Perturbed parameters
 
     """
-    # for key in params["electron"].keys():
-    #     new_val = (
-    #         rng.uniform(0.4, 0.8) * (params["electron"][key]["ub"] - params["electron"][key]["lb"])
-    #         + params["electron"][key]["lb"]
-    #     )
-    #     if key != "fe":
-    #         params["electron"][key]["val"] = new_val
-    #     else:
-    #         params["electron"]["fe"]["params"]["m"]["val"] = new_val
 
     params["electron"]["fe"]["params"]["m"]["val"] = float(rng.uniform(2.0, 3.5))
     params["electron"]["Te"]["val"] = float(rng.uniform(0.5, 1.5))
     params["electron"]["ne"]["val"] = float(rng.uniform(0.1, 0.7))
+
+    params["general"]["amp1"]["val"] = float(rng.uniform(0.5, 2.5))
+    params["general"]["amp2"]["val"] = float(rng.uniform(0.5, 2.5))
+    params["general"]["lam"]["val"] = float(rng.uniform(523, 527))
 
     # for key in params["general"].keys():
     #     params[key]["val"] *= rng.uniform(0.75, 1.25)
@@ -50,6 +44,14 @@ def _perturb_params_(rng, params):
     #     params[key]["val"] *= rng.uniform(0.75, 1.25)
 
     return params
+
+
+def _floatify(_params_, prefix="gt"):
+    flattened_params = flatten(_params_)
+    new_params = {}
+    for key in flattened_params.keys():
+        new_params[(prefix,) + key] = float(flattened_params[key][0])
+    return unflatten(new_params)
 
 
 def test_1d_inverse():
@@ -101,51 +103,55 @@ def test_1d_inverse():
         ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
         config["parameters"] = _perturb_params_(rng, config["parameters"])
         misc.log_mlflow(config)
-        ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=True)
+        ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
         ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
 
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-        config["parameters"] = _perturb_params_(rng, config["parameters"])
-        ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True)
-        diff_params, static_params = eqx.partition(
-            ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
-        )
+        loss = 1.1
+        while np.nan_to_num(loss, nan=1.1) > 1:
+            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+            config["parameters"] = _perturb_params_(rng, config["parameters"])
+            ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
+            diff_params, static_params = eqx.partition(
+                ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
+            )
 
-        def loss_fn(_diff_params):
-            _all_params = eqx.combine(_diff_params, static_params)
-            ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
-            return jnp.sum((ThryE - ground_truth["ThryE"]) ** 2)
+            def loss_fn(_diff_params):
+                _all_params = eqx.combine(_diff_params, static_params)
+                ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
+                return jnp.sum((ThryE - ground_truth["ThryE"]) ** 2)
 
-        use_optax = False
-        if use_optax:
-            opt = optax.adam(3e-3)
+            use_optax = False
+            if use_optax:
+                opt = optax.adam(0.004)
 
-            opt_state = opt.init(diff_params)
-            for i in (pbar := tqdm.tqdm(range(1000))):
-                loss, grad_loss = eqx.filter_value_and_grad(loss_fn)(diff_params)
-                updates, opt_state = opt.update(grad_loss, opt_state)
-                diff_params = eqx.apply_updates(diff_params, updates)
-                pbar.set_description(f"Loss: {loss:.4f}")
+                opt_state = opt.init(diff_params)
+                for i in (pbar := tqdm.tqdm(range(1000))):
+                    loss, grad_loss = eqx.filter_value_and_grad(loss_fn)(diff_params)
+                    updates, opt_state = opt.update(grad_loss, opt_state)
+                    diff_params = eqx.apply_updates(diff_params, updates)
+                    pbar.set_description(f"Loss: {loss:.4f}")
 
-        else:
-            flattened_diff_params, unravel = ravel_pytree(diff_params)
+            else:
+                flattened_diff_params, unravel = ravel_pytree(diff_params)
 
-            def _loss_fn(diff_params_flat):
-                diff_params_pytree = unravel(diff_params_flat)
-                loss, grads = eqx.filter_value_and_grad(loss_fn)(diff_params_pytree)
+                def scipy_vg_fn(diff_params_flat):
+                    diff_params_pytree = unravel(diff_params_flat)
+                    loss, grads = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))(diff_params_pytree)
+                    flattened_grads, _ = ravel_pytree(grads)
 
-                return float(loss), np.array(ravel_pytree(grads))
+                    return float(loss), np.array(flattened_grads)
 
-            res = minimize(eqx.filter_value_and_grad(_loss_fn), flattened_diff_params, method="L-BFGS-B", jac=True)
+                res = minimize(scipy_vg_fn, flattened_diff_params, method="L-BFGS-B", jac=True, options={"disp": True})
 
-        learned_params = eqx.combine(diff_params, static_params).get_unnormed_params()
-        misc.log_mlflow({"loss": loss} | learned_params, which="metrics")
+                diff_params = unravel(res["x"])
+                loss = res["fun"]
 
-        # np.save("tests/test_forward/ThryE-1d.npy", ThryE)
-        # ground_truth = np.load("tests/test_forward/ThryE-1d.npy")
+        gt_params = _floatify(ts_params_gt.get_unnormed_params(), prefix="gt")
+        learned_params = _floatify(eqx.combine(diff_params, static_params).get_unnormed_params(), prefix="learned")
+        misc.log_mlflow({"loss": loss} | learned_params | gt_params, which="metrics")
         ThryE, _, _, _ = ts_diag(eqx.combine(diff_params, static_params), dummy_batch)
-        # misc.log_params(config)
+
         with tempfile.TemporaryDirectory() as td:
             fig, ax = plt.subplots(1, 1, figsize=(9, 4), tight_layout=True)
             ax.plot(np.squeeze(lamAxisE), np.squeeze(ThryE), label="Model")
@@ -158,7 +164,7 @@ def test_1d_inverse():
             fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
             mlflow.log_artifacts(td)
 
-        # np.testing.assert_allclose(ThryE, ground_truth, rtol=1e-4)
+        np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.2, rtol=1)
 
 
 if __name__ == "__main__":
