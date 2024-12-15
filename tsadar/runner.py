@@ -110,7 +110,7 @@ def _run_(config: Dict, mode: str = "fit"):
     Returns:
 
     """
-    misc.log_params(config)
+    misc.log_mlflow(config)
     t0 = time.time()
     if mode.casefold() == "fit":
         fit_results, loss = fitter.fit(config=config)

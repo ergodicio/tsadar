@@ -37,7 +37,7 @@ def test_data(nn):
     mlflow.set_experiment(config["mlflow"]["experiment"])
 
     with mlflow.start_run() as run:
-        misc.log_params(config)
+        misc.log_mlflow(config)
         config["num_cores"] = int(mp.cpu_count())
 
         t0 = time.time()

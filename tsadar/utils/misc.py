@@ -2,7 +2,7 @@ import os, mlflow, flatten_dict, boto3, yaml, botocore, shutil, time, tempfile
 from urllib.parse import urlparse
 
 
-def log_params(cfg):
+def log_mlflow(cfg, which="params"):
     """
     Logs the parameters form the input deck in the parameters section of MLFlow.
 
@@ -16,16 +16,22 @@ def log_params(cfg):
     flattened_dict = flatten_dict.flatten(cfg, reducer="dot")  # dict(flatdict.FlatDict(cfg, delimiter="."))
     num_entries = len(flattened_dict.keys())
 
+    if which == "params":
+        log_func = mlflow.log_params
+    elif which == "metrics":
+        log_func = mlflow.log_metrics
+    else:
+        raise ValueError("which must be either 'params' or 'metrics'")
+
     if num_entries > 100:
         num_batches = num_entries % 100
         fl_list = list(flattened_dict.items())
         for i in range(num_batches):
             end_ind = min((i + 1) * 100, num_entries)
             trunc_dict = {k: v for k, v in fl_list[i * 100 : end_ind]}
-            mlflow.log_params(trunc_dict)
+            log_func(trunc_dict)
     else:
-        mlflow.log_params(flattened_dict)
-        
+        log_func(flattened_dict)
 
 
 def update(base_dict, new_dict):

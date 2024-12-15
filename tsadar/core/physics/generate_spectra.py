@@ -35,10 +35,15 @@ class FitModel:
         ), "Number of gradient points for Te and ne must be the same"
         num_grad_points = config["parameters"]["general"]["Te_gradient"]["num_grad_points"]
 
-        angle = (
+        ud_angle = (
             None
             if config["parameters"]["electron"]["fe"]["dim"] < 2
             else config["parameters"]["general"]["ud"]["angle"]
+        )
+        va_angle = (
+            None
+            if config["parameters"]["electron"]["fe"]["dim"] < 2
+            else config["parameters"]["general"]["va"]["angle"]
         )
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
@@ -46,8 +51,8 @@ class FitModel:
             lam_shift=config["data"]["ele_lam_shift"],
             scattering_angles=self.scattering_angles,
             num_grad_points=num_grad_points,
-            va_ang=angle,
-            ud_ang=angle,
+            va_ang=va_angle,
+            ud_ang=ud_angle,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -55,8 +60,8 @@ class FitModel:
             lam_shift=0,
             scattering_angles=scattering_angles,
             num_grad_points=num_grad_points,
-            va_ang=angle,
-            ud_ang=angle,
+            va_ang=va_angle,
+            ud_ang=ud_angle,
         )
 
     def __call__(self, all_params: Dict):

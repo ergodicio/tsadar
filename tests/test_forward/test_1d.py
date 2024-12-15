@@ -67,7 +67,7 @@ def test_1d_forward_pass():
         # np.save("tests/test_forward/ThryE-1d.npy", ThryE)
         ground_truth = np.load("tests/test_forward/ThryE-1d.npy")
 
-        misc.log_params(config)
+        misc.log_mlflow(config)
         with tempfile.TemporaryDirectory() as td:
             fig, ax = plt.subplots(1, 1, figsize=(9, 4), tight_layout=True)
             ax.plot(np.squeeze(lamAxisE), np.squeeze(ThryE), label="Model")

@@ -12,7 +12,7 @@ class DistributionFunction1D(eqx.Module):
 
     def __init__(self, dist_cfg: Dict):
         super().__init__()
-        vmax = 8.0
+        vmax = 6.0
         dv = 2 * vmax / dist_cfg["nv"]
         self.vx = jnp.linspace(-vmax + dv / 2, vmax - dv / 2, dist_cfg["nv"])
 
@@ -24,18 +24,27 @@ class DLM1D(DistributionFunction1D):
     normed_m: Array
     m_scale: float
     m_shift: float
+    act_fun: Callable
 
-    def __init__(self, dist_cfg):
+    def __init__(self, dist_cfg, activate=False):
         super().__init__(dist_cfg)
         self.m_scale = dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
         self.m_shift = dist_cfg["params"]["m"]["lb"]
-        self.normed_m = (dist_cfg["params"]["m"]["val"] - self.m_shift) / self.m_scale
+
+        if activate:
+            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+            self.act_fun = sigmoid
+        else:
+            inv_act_fun = lambda x: x
+            self.act_fun = lambda x: x
+
+        self.normed_m = inv_act_fun((dist_cfg["params"]["m"]["val"] - self.m_shift) / self.m_scale)
 
     def get_unnormed_params(self):
-        return {"m": self.normed_m * self.m_scale + self.m_shift}
+        return {"m": self.act_fun(self.normed_m) * self.m_scale + self.m_shift}
 
     def __call__(self):
-        unnormed_m = self.normed_m * self.m_scale + self.m_shift
+        unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
         vth_x = jnp.sqrt(2.0)
         alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
         cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
@@ -49,7 +58,7 @@ class DistributionFunction2D(eqx.Module):
 
     def __init__(self, dist_cfg):
         super().__init__()
-        vmax = 8.0
+        vmax = 6.0
         dvx = 2 * vmax / dist_cfg["nvx"]
         self.vx = jnp.linspace(-vmax + dvx / 2, vmax - dvx / 2, dist_cfg["nvx"])
 
@@ -68,7 +77,7 @@ class SphericalHarmonics(DistributionFunction2D):
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
 
-        vmax = 8.0 * 1.05 * jnp.sqrt(2.0)
+        vmax = 6.0 * 1.05 * jnp.sqrt(2.0)
         dvr = vmax / dist_cfg["params"]["nvr"]
         self.vr = jnp.linspace(dvr / 2, vmax - dvr / 2, dist_cfg["params"]["nvr"])
 
@@ -116,8 +125,9 @@ class ElectronParams(eqx.Module):
         List[DistributionFunction1D], List[DistributionFunction2D], DistributionFunction1D, DistributionFunction2D
     ]
     batch: bool
+    act_fun: Callable
 
-    def __init__(self, cfg, batch_size, batch=True):
+    def __init__(self, cfg, batch_size, batch=True, activate=False):
         super().__init__()
 
         self.Te_scale = cfg["Te"]["ub"] - cfg["Te"]["lb"]
@@ -126,22 +136,29 @@ class ElectronParams(eqx.Module):
         self.ne_shift = cfg["ne"]["lb"]
         self.batch = batch
 
-        if batch:
-            self.normed_Te = jnp.full(batch_size, (cfg["Te"]["val"] - self.Te_shift) / self.Te_scale)
-            self.normed_ne = jnp.full(batch_size, (cfg["ne"]["val"] - self.ne_shift) / self.ne_scale)
+        if activate:
+            self.act_fun = sigmoid
+            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
         else:
-            self.normed_Te = (cfg["Te"]["val"] - self.Te_shift) / self.Te_scale
-            self.normed_ne = (cfg["ne"]["val"] - self.ne_shift) / self.ne_scale
+            self.act_fun = lambda x: x
+            inv_act_fun = lambda x: x
 
-        self.distribution_functions = self.init_dists(cfg["fe"], batch_size, batch)
+        if batch:
+            self.normed_Te = inv_act_fun(jnp.full(batch_size, (cfg["Te"]["val"] - self.Te_shift) / self.Te_scale))
+            self.normed_ne = inv_act_fun(jnp.full(batch_size, (cfg["ne"]["val"] - self.ne_shift) / self.ne_scale))
+        else:
+            self.normed_Te = inv_act_fun((cfg["Te"]["val"] - self.Te_shift) / self.Te_scale)
+            self.normed_ne = inv_act_fun((cfg["ne"]["val"] - self.ne_shift) / self.ne_scale)
 
-    def init_dists(self, dist_cfg, batch_size, batch):
+        self.distribution_functions = self.init_dists(cfg["fe"], batch_size, batch, activate)
+
+    def init_dists(self, dist_cfg, batch_size, batch, activate):
         if dist_cfg["dim"] == 1:
             if dist_cfg["type"].casefold() == "dlm":
                 if batch:
-                    distribution_functions = [DLM1D(dist_cfg) for _ in range(batch_size)]
+                    distribution_functions = [DLM1D(dist_cfg, activate) for _ in range(batch_size)]
                 else:
-                    distribution_functions = DLM1D(dist_cfg)
+                    distribution_functions = DLM1D(dist_cfg, activate)
 
             elif dist_cfg["type"].casefold() == "mx":
                 if batch:
@@ -182,27 +199,27 @@ class ElectronParams(eqx.Module):
             unnormed_fe_params = self.distribution_functions.get_unnormed_params()
 
         return {
-            "Te": self.normed_Te * self.Te_scale + self.Te_shift,
-            "ne": self.normed_ne * self.ne_scale + self.ne_shift,
+            "Te": self.act_fun(self.normed_Te) * self.Te_scale + self.Te_shift,
+            "ne": self.act_fun(self.normed_ne) * self.ne_scale + self.ne_shift,
         } | unnormed_fe_params
 
     def __call__(self):
+        physical_params = {
+            "Te": self.act_fun(self.normed_Te) * self.Te_scale + self.Te_shift,
+            "ne": self.act_fun(self.normed_ne) * self.ne_scale + self.ne_shift,
+        }
         if self.batch:
-            physical_params = {
+            dist_params = {
                 "fe": jnp.concatenate([df()[None, :] for df in self.distribution_functions]),
                 "v": jnp.concatenate([df.vx[None, :] for df in self.distribution_functions]),
-                "Te": self.normed_Te * self.Te_scale + self.Te_shift,
-                "ne": self.normed_ne * self.ne_scale + self.ne_shift,
             }
         else:
-            physical_params = {
+            dist_params = {
                 "fe": self.distribution_functions(),
                 "v": self.distribution_functions.vx,
-                "Te": self.normed_Te * self.Te_scale + self.Te_shift,
-                "ne": self.normed_ne * self.ne_scale + self.ne_shift,
             }
 
-        return physical_params
+        return physical_params | dist_params
 
 
 class IonParams(eqx.Module):
@@ -217,35 +234,46 @@ class IonParams(eqx.Module):
     # A_scale: float
     # A_shift: float
     A: int
+    act_fun: Callable
 
-    def __init__(self, cfg, batch_size, batch=True):
+    def __init__(self, cfg, batch_size, batch=True, activate=False):
         super().__init__()
         self.Ti_scale = cfg["Ti"]["ub"] - cfg["Ti"]["lb"]
         self.Ti_shift = cfg["Ti"]["lb"]
         self.Z_scale = cfg["Z"]["ub"] - cfg["Z"]["lb"]
         self.Z_shift = cfg["Z"]["lb"]
+
         # self.A_scale = cfg["A"]["ub"] - cfg["A"]["lb"]
         # self.A_shift = cfg["A"]["lb"]
-        if batch:
-            self.normed_Ti = jnp.full(batch_size, (cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
-            self.normed_Z = jnp.full(batch_size, (cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
-            self.A = jnp.full(batch_size, cfg["A"]["val"])
-            self.fract = jnp.full(batch_size, cfg["fract"]["val"])
+
+        if activate:
+            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+            self.act_fun = sigmoid
         else:
-            self.normed_Ti = (cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale
-            self.normed_Z = (cfg["Z"]["val"] - self.Z_shift) / self.Z_scale
+            inv_act_fun = lambda x: x
+            self.act_fun = lambda x: x
+
+        if batch:
+            self.normed_Ti = inv_act_fun(jnp.full(batch_size, (cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale))
+            self.normed_Z = inv_act_fun(jnp.full(batch_size, (cfg["Z"]["val"] - self.Z_shift) / self.Z_scale))
+            self.A = jnp.full(batch_size, cfg["A"]["val"])
+            self.fract = inv_act_fun(jnp.full(batch_size, cfg["fract"]["val"]))
+        else:
+            self.normed_Ti = inv_act_fun((cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
+            self.normed_Z = inv_act_fun((cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
             self.A = cfg["A"]["val"]
-            self.fract = cfg["fract"]["val"]
+            self.fract = inv_act_fun(cfg["fract"]["val"])
 
     def get_unnormed_params(self):
         return self()
 
     def __call__(self):
+
         return {
             "A": self.A,
-            "fract": self.fract,
-            "Ti": self.normed_Ti * self.Ti_scale + self.Ti_shift,
-            "Z": self.normed_Z * self.Z_scale + self.Z_shift,
+            "fract": self.act_fun(self.fract),
+            "Ti": self.act_fun(self.normed_Ti) * self.Ti_scale + self.Ti_shift,
+            "Z": self.act_fun(self.normed_Z) * self.Z_scale + self.Z_shift,
         }
 
 
@@ -274,8 +302,9 @@ class GeneralParams(eqx.Module):
     ud_shift: float
     vA_scale: float
     vA_shift: float
+    act_fun: Callable
 
-    def __init__(self, cfg, batch_size: int, batch=True):
+    def __init__(self, cfg, batch_size: int, batch=True, activate=False):
         super().__init__()
         self.lam_scale = cfg["lam"]["ub"] - cfg["lam"]["lb"]
         self.lam_shift = cfg["lam"]["lb"]
@@ -294,41 +323,59 @@ class GeneralParams(eqx.Module):
         self.vA_scale = cfg["Va"]["ub"] - cfg["Va"]["lb"]
         self.vA_shift = cfg["Va"]["lb"]
 
-        if batch:
-            self.normed_amp1 = jnp.full(batch_size, (cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale)
-            self.normed_amp2 = jnp.full(batch_size, (cfg["amp2"]["val"] - self.amp2_shift) / self.amp2_scale)
-            self.normed_amp3 = jnp.full(batch_size, (cfg["amp3"]["val"] - self.amp3_shift) / self.amp3_scale)
-            self.normed_ne_gradient = jnp.full(
-                batch_size, (cfg["ne_gradient"]["val"] - self.ne_gradient_shift) / self.ne_gradient_scale
-            )
-            self.normed_Te_gradient = jnp.full(
-                batch_size, (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale
-            )
-            self.normed_ud = jnp.full(batch_size, (cfg["ud"]["val"] - self.ud_shift) / self.ud_scale)
-            self.normed_vA = jnp.full(batch_size, (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale)
-            self.normed_lam = jnp.full(batch_size, (cfg["lam"]["val"] - self.lam_shift) / self.lam_scale)
+        if activate:
+            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+            self.act_fun = sigmoid
         else:
-            self.normed_amp1 = (cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale
-            self.normed_amp2 = (cfg["amp2"]["val"] - self.amp2_shift) / self.amp2_scale
-            self.normed_amp3 = (cfg["amp3"]["val"] - self.amp3_shift) / self.amp3_scale
-            self.normed_ne_gradient = (cfg["ne_gradient"]["val"] - self.ne_gradient_shift) / self.ne_gradient_scale
-            self.normed_Te_gradient = (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale
-            self.normed_ud = (cfg["ud"]["val"] - self.ud_shift) / self.ud_scale
-            self.normed_vA = (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale
-            self.normed_lam = (cfg["lam"]["val"] - self.lam_shift) / self.lam_scale
+            inv_act_fun = lambda x: x
+            self.act_fun = lambda x: x
+
+        if batch:
+            self.normed_amp1 = inv_act_fun(
+                jnp.full(batch_size, (cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale)
+            )
+            self.normed_amp2 = inv_act_fun(
+                jnp.full(batch_size, (cfg["amp2"]["val"] - self.amp2_shift) / self.amp2_scale)
+            )
+            self.normed_amp3 = inv_act_fun(
+                jnp.full(batch_size, (cfg["amp3"]["val"] - self.amp3_shift) / self.amp3_scale)
+            )
+            self.normed_ne_gradient = inv_act_fun(
+                jnp.full(batch_size, (cfg["ne_gradient"]["val"] - self.ne_gradient_shift) / self.ne_gradient_scale)
+            )
+            self.normed_Te_gradient = inv_act_fun(
+                jnp.full(batch_size, (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale)
+            )
+            self.normed_ud = inv_act_fun(jnp.full(batch_size, (cfg["ud"]["val"] - self.ud_shift) / self.ud_scale))
+            self.normed_vA = inv_act_fun(jnp.full(batch_size, (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale))
+            self.normed_lam = inv_act_fun(jnp.full(batch_size, (cfg["lam"]["val"] - self.lam_shift) / self.lam_scale))
+        else:
+            self.normed_amp1 = inv_act_fun((cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale)
+            self.normed_amp2 = inv_act_fun((cfg["amp2"]["val"] - self.amp2_shift) / self.amp2_scale)
+            self.normed_amp3 = inv_act_fun((cfg["amp3"]["val"] - self.amp3_shift) / self.amp3_scale)
+            self.normed_ne_gradient = inv_act_fun(
+                (cfg["ne_gradient"]["val"] - self.ne_gradient_shift) / self.ne_gradient_scale
+            )
+            self.normed_Te_gradient = inv_act_fun(
+                (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale
+            )
+            self.normed_ud = inv_act_fun((cfg["ud"]["val"] - self.ud_shift) / self.ud_scale)
+            self.normed_vA = inv_act_fun((cfg["Va"]["val"] - self.vA_shift) / self.vA_scale)
+            self.normed_lam = inv_act_fun((cfg["lam"]["val"] - self.lam_shift) / self.lam_scale)
 
     def get_unnormed_params(self):
         return self()
 
     def __call__(self):
-        unnormed_lam = self.normed_lam * self.lam_scale + self.lam_shift
-        unnormed_amp1 = self.normed_amp1 * self.amp1_scale + self.amp1_shift
-        unnormed_amp2 = self.normed_amp2 * self.amp2_scale + self.amp2_shift
-        unnormed_amp3 = self.normed_amp3 * self.amp3_scale + self.amp3_shift
-        unnormed_ne_gradient = self.normed_ne_gradient * self.ne_gradient_scale + self.ne_gradient_shift
-        unnormed_Te_gradient = self.normed_Te_gradient * self.Te_gradient_scale + self.Te_gradient_shift
-        unnormed_ud = self.normed_ud * self.ud_scale + self.ud_shift
-        unnormed_vA = self.normed_vA * self.vA_scale + self.vA_shift
+        unnormed_lam = self.act_fun(self.normed_lam) * self.lam_scale + self.lam_shift
+        unnormed_amp1 = self.act_fun(self.normed_amp1) * self.amp1_scale + self.amp1_shift
+        unnormed_amp2 = self.act_fun(self.normed_amp2) * self.amp2_scale + self.amp2_shift
+        unnormed_amp3 = self.act_fun(self.normed_amp3) * self.amp3_scale + self.amp3_shift
+        unnormed_ne_gradient = self.act_fun(self.normed_ne_gradient) * self.ne_gradient_scale + self.ne_gradient_shift
+        unnormed_Te_gradient = self.act_fun(self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
+        unnormed_ud = self.act_fun(self.normed_ud) * self.ud_scale + self.ud_shift
+        unnormed_vA = self.act_fun(self.normed_vA) * self.vA_scale + self.vA_shift
+
         return {
             "lam": unnormed_lam,
             "amp1": unnormed_amp1,
@@ -346,16 +393,16 @@ class ThomsonParams(eqx.Module):
     ions: List[IonParams]
     general: GeneralParams
 
-    def __init__(self, param_cfg, num_params: int, batch=True):
+    def __init__(self, param_cfg, num_params: int, batch=True, activate=False):
         super().__init__()
-        self.electron = ElectronParams(param_cfg["electron"], num_params, batch)
+        self.electron = ElectronParams(param_cfg["electron"], num_params, batch, activate)
         self.ions = []
         for species in param_cfg.keys():
             if "ion" in species:
-                self.ions.append(IonParams(param_cfg[species], num_params, batch))
+                self.ions.append(IonParams(param_cfg[species], num_params, batch, activate))
 
         assert len(self.ions) > 0, "No ion species found in input deck"
-        self.general = GeneralParams(param_cfg["general"], num_params, batch)
+        self.general = GeneralParams(param_cfg["general"], num_params, batch, activate)
 
     def get_unnormed_params(self):
         return {

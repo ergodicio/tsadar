@@ -74,7 +74,7 @@ def test_arts2d_forward_pass():
 
         ground_truth = np.load("tests/test_forward/ThryE-arts2d.npy")
 
-        misc.log_params(config)
+        misc.log_mlflow(config)
         fig, ax = plt.subplots(1, 2, figsize=(12, 6), tight_layout=True)
         c = ax[0].contourf(ThryE.T)
         ax[0].set_title("Forward Model")
