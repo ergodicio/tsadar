@@ -107,8 +107,8 @@ def test_1d_inverse():
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
         ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
 
-        loss = 1.1
-        while np.nan_to_num(loss, nan=1.1) > 1:
+        loss = 1
+        while np.nan_to_num(loss, nan=1) > 1e-2:
             ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
             config["parameters"] = _perturb_params_(rng, config["parameters"])
             ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
@@ -119,7 +119,7 @@ def test_1d_inverse():
             def loss_fn(_diff_params):
                 _all_params = eqx.combine(_diff_params, static_params)
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
-                return jnp.sum((ThryE - ground_truth["ThryE"]) ** 2)
+                return jnp.sum(jnp.mean(jnp.square(ThryE - ground_truth["ThryE"])))
 
             use_optax = False
             if use_optax:
@@ -127,7 +127,7 @@ def test_1d_inverse():
 
                 opt_state = opt.init(diff_params)
                 for i in (pbar := tqdm.tqdm(range(1000))):
-                    loss, grad_loss = eqx.filter_value_and_grad(loss_fn)(diff_params)
+                    loss, grad_loss = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))(diff_params)
                     updates, opt_state = opt.update(grad_loss, opt_state)
                     diff_params = eqx.apply_updates(diff_params, updates)
                     pbar.set_description(f"Loss: {loss:.4f}")
@@ -165,6 +165,12 @@ def test_1d_inverse():
             mlflow.log_artifacts(td)
 
         np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.2, rtol=1)
+
+        gt_flat = flatten(gt_params)
+        learned_flat = flatten(learned_params)
+
+        for key in gt_flat.keys():
+            np.testing.assert_approx_equal(gt_flat[key], learned_flat[("learned",) + key[1:]], significant=1)
 
 
 if __name__ == "__main__":

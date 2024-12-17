@@ -68,7 +68,7 @@ def test_arts1d_forward_pass():
         }
 
         ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
+        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
         # np.save("tests/test_forward/ThryE-arts1d.npy", ThryE)
 

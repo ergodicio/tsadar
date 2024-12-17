@@ -1,4 +1,4 @@
-import os, mlflow, flatten_dict, boto3, yaml, botocore, shutil, time, tempfile
+import os, mlflow, flatten_dict, boto3, botocore, shutil, time, tempfile
 from urllib.parse import urlparse
 
 

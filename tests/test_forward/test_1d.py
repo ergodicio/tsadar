@@ -61,10 +61,11 @@ def test_1d_forward_pass():
         }
 
         ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True)
+        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
 
         # np.save("tests/test_forward/ThryE-1d.npy", ThryE)
+
         ground_truth = np.load("tests/test_forward/ThryE-1d.npy")
 
         misc.log_mlflow(config)
