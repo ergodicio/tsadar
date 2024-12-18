@@ -20,6 +20,34 @@ class DistributionFunction1D(eqx.Module):
         raise NotImplementedError
 
 
+class Arbitrary1D(DistributionFunction1D):
+    fval: Array
+    learn_log: bool
+
+    def __init__(self, dist_cfg):
+        super().__init__(dist_cfg)
+        self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
+        self.learn_log = dist_cfg["params"]["learn_log"]
+
+    def init_dlm(self, m):
+        vth_x = jnp.sqrt(2.0)
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
+
+        return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+
+    def __call__(self):
+        if self.learn_log:
+            # bound values between 1e-16 and 10
+            fval = 9 * jnp.tanh(self.fval) - 8
+            fval = jnp.exp(self.fval)
+        else:
+            fval = sigmoid(fval) * 10
+
+        return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
+
+
 class DLM1D(DistributionFunction1D):
     normed_m: Array
     m_scale: float
@@ -169,6 +197,11 @@ class ElectronParams(eqx.Module):
                     distribution_functions = (
                         lambda vx: jnp.exp(-(vx**2 / 2)) / jnp.sum(jnp.exp(-(vx**2 / 2))) / (vx[1] - vx[0])
                     )
+            elif dist_cfg["type"].casefold() == "arbitrary":
+                if batch:
+                    distribution_functions = [Arbitrary1D(dist_cfg) for _ in range(batch_size)]
+                else:
+                    distribution_functions = Arbitrary1D(dist_cfg)
 
             else:
                 raise NotImplementedError(f"Unknown 1D distribution type: {dist_cfg['type']}")
