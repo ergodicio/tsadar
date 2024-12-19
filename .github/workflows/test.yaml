@@ -15,10 +15,7 @@ on:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   test-tsadar-cpu:
-  
-
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
       - uses: conda-incubator/setup-miniconda@v3
@@ -31,13 +28,22 @@ jobs:
           environment-file: env.yml
       - shell: bash -el {0}
         run: |
-          conda info
-          conda list
-          conda config --show-sources
-          conda config --show
-          printenv | sort
-          python -m pip install pytest
           CPU_ONLY=True pytest tests/
+
+    runs-on: "gpu_runner"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: 3.11
+          mamba-version: "*"
+          channels: conda-forge,defaults
+          channel-priority: true
+          activate-environment: tsadar-gpu
+          environment-file: env_gpu.yml
+      - shell: bash -el {0}
+        run: |
+          CPU_ONLY=False pytest tests/
       
           
       # - shell: bash -el {0}
