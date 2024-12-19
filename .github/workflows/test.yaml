@@ -8,11 +8,6 @@ on:
   pull_request:
     branches:
       - main
-    types:
-      - opened
-      - synchronize
-      - ready_for_review
-
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -32,7 +27,7 @@ jobs:
           mamba-version: "*"
           channels: conda-forge,defaults
           channel-priority: true
-          activate-environment: anaconda-client-env
+          activate-environment: tsadar-cpu
           environment-file: env.yml
       - shell: bash -el {0}
         run: |
