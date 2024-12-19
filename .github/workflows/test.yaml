@@ -29,17 +29,17 @@ jobs:
           channel-priority: true
           activate-environment: tsadar-cpu
           environment-file: env.yml
-      # - shell: bash -el {0}
-      #   run: |
-      #     conda info
-          # conda list
-          # conda config --show-sources
-          # conda config --show
-          # printenv | sort
-      - name: Test with pytest
+      - shell: bash -el {0}
         run: |
+          conda info
+          conda list
+          conda config --show-sources
+          conda config --show
+          printenv | sort
           python -m pip install pytest
           CPU_ONLY=True pytest tests/
+      
+          
       # - shell: bash -el {0}
         # run: mamba env create -f env.yml
     # steps:
