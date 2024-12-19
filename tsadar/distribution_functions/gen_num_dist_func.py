@@ -1,9 +1,10 @@
 from jax import numpy as jnp
 import scipy.io as sio
 import jax, os
+from jax.scipy.special import gamma
 
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "aux")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 from tsadar.distribution_functions import dist_functional_forms
 
@@ -31,7 +32,7 @@ class DistFunc:
 
         """
         self.velocity_res = cfg["fe"]["v_res"]
-        self.fe_name = list(cfg["fe"]["type"].keys())[-1]
+        self.fe_name = cfg["fe"]["type"]
 
         if "dim" in cfg["fe"].keys():
             self.dim = cfg["fe"]["dim"]
@@ -64,7 +65,44 @@ class DistFunc:
         else:
             self.m_theta = 0.0
 
-    def __call__(self, mval):
+        if cfg["fe"]["type"].casefold() == "dlm":
+            self.v = jnp.arange(-8, 8, self.velocity_res)
+            if self.dim == 2:
+                self.v = (self.v, jnp.arange(-8, 8, self.velocity_res))
+
+        elif cfg["fe"]["type"].casefold() == "sphericalharmonic":
+            self.Nl = 1  # cfg["fe"]["params"]["Nl"]
+            self.Nm = 1  # cfg["fe"]["params"]["Nm"]
+            vmax = 8
+            nv = 32
+            self.vr = jnp.linspace(vmax / nv / 2, vmax - vmax / nv / 2, nv)
+            m = 2.0
+            tt = 1.0
+            vth = 1.0
+
+            # single_dist = (2 * jnp.pi * (vth**2.0 / 2)) ** -1.5 * np.exp(-(vax**2.0) / (2 * tt * (vth**2.0 / 2)))
+
+            # from Ridgers2008
+            vth_x = vth * tt
+            alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
+            cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
+            self.f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+            self.f10 = jnp.zeros(self.vr.size)
+            self.f11 = jnp.zeros(self.vr.size)
+            vx = jnp.concatenate([-self.vr[::-1], self.vr])
+            self.v = (vx, vx)
+
+        #     self._df_ = dist_functional_forms.DLM_1D
+        # elif cfg["fe"]["type"] == "Spitzer":
+        #     self._df_ = dist_functional_forms.Spitzer_2V
+        # elif cfg["fe"]["type"] == "MYDLM":
+        #     self._df_ = dist_functional_forms.MoraYahi_2V
+        # elif cfg["fe"]["type"] == "Arbitrary":
+        #     self._df_ = lambda dist_params: dist_params["fe"]
+        else:
+            raise NotImplementedError(f"Functional form {cfg['fe']['type']} not implemented")
+
+    def __call__(self, dist_params):
         """
         Distribution function class call, produces a numerical distribution function based of the object and the current
         m-value.
@@ -78,57 +116,85 @@ class DistFunc:
             fe: Numerical distribution function
 
         """
-        if self.fe_name == "DLM":
-            if self.dim == 1:
-                # v, fe = dist_functional_forms.DLM_1D(mval, self.velocity_res)
-                tabl = os.path.join(BASE_FILES_PATH, "numDistFuncs/DLM_x_-3_-10_10_m_-1_2_5.mat")
-                tablevar = sio.loadmat(tabl, variable_names="IT")
-                IT = tablevar["IT"]
-                vx = jnp.arange(-8, 8, self.velocity_res)
-                xs = jnp.arange(-10, 10, 0.001)
-                ms = jnp.arange(2, 5, 0.1)
-                x_float_inds = jnp.interp(vx, xs, jnp.linspace(0, xs.shape[0] - 1, xs.shape[0]))
-                m_float_inds = jnp.interp(mval, ms, jnp.linspace(0, ms.shape[0] - 1, ms.shape[0]))
 
-                # np.linspace(0, params["x"].size - 1, params["x"].size))
-                # m_float_inds = jnp.array(jnp.interp(m, params["m"], np.linspace(0, params["m"].size - 1, params["m"].size)))
-                m_float_inds = m_float_inds.reshape((1,))
-                ind_x_mesh, ind_m_mesh = jnp.meshgrid(x_float_inds, m_float_inds)
-                indices = jnp.concatenate([ind_x_mesh.flatten()[:, None], ind_m_mesh.flatten()[:, None]], axis=1)
+        if self.fe_name.casefold() == "dlm":
+            v, fe = self.dlm(dist_params)
 
-                fe = jax.scipy.ndimage.map_coordinates(IT, indices.T, order=1, mode="constant", cval=0.0)
-                v = vx
-            elif self.dim == 2:
-                # v, fe = dist_functional_forms.DLM_2D(mdict["val"], self.velocity_res)
-                # v, fe = dist_functional_forms.BiDLM(
-                #    mval,
-                #    jnp.max(jnp.array([mval * self.m_asym, 2.0])),
-                #    jnp.max(jnp.array([jnp.array(mval * self.m_asym).squeeze(), 2.0])),
-                #    self.temp_asym,
-                #    self.m_theta,
-                #    self.velocity_res,
-                # )
-                # this will cause issues if my is less then 2
-                v, fe = dist_functional_forms.BiDLM(
-                    mval, mval * self.m_asym, self.temp_asym, self.m_theta, self.velocity_res
-                )
+        elif self.fe_name.casefold() == "spitzer":
+            v, fe = self.spitzer()
 
-        elif self.fe_name == "Spitzer":
-            if self.dim == 2:
-                if len(self.f1_direction) == 2:
-                    v, fe = dist_functional_forms.Spitzer_2V(self.dt, self.f1_direction, self.velocity_res)
-                elif len(self.f1_direction) == 3:
-                    v, fe = dist_functional_forms.Spitzer_3V(self.dt, self.f1_direction, self.velocity_res)
-            else:
-                raise ValueError("Spitzer distribution can only be computed in 2D")
+        elif self.fe_name.casefold() == "mydlm":
+            v, fe = self.mora_yahi()
 
-        elif self.fe_name == "MYDLM":
-            if self.dim == 2:
-                if len(self.f1_direction) == 2:
-                    v, fe = dist_functional_forms.MoraYahi_2V(self.dt, self.f1_direction, self.velocity_res)
-                elif len(self.f1_direction) == 3:
-                    v, fe = dist_functional_forms.MoriYahi_3V(self.dt, self.f1_direction, self.velocity_res)
-            else:
-                raise ValueError("Mora and Yahi distribution can only be computed in 2D")
+        elif self.fe_name.casefold() == "sphericalharmonic":
+            v, fe = self.sph(dist_params)
+
+        elif self.fe_name.casefold() == "arbitrary":
+            v, fe = dist_params["fe"]
+
+        else:
+            raise NotImplementedError(f"Functional form {self.fe_name} not implemented")
+
+        return v, fe
+
+    def mora_yahi(self):
+        if self.dim == 2:
+            if len(self.f1_direction) == 2:
+                v, fe = dist_functional_forms.MoraYahi_2V(self.dt, self.f1_direction, self.velocity_res)
+            elif len(self.f1_direction) == 3:
+                v, fe = dist_functional_forms.MoriYahi_3V(self.dt, self.f1_direction, self.velocity_res)
+        else:
+            raise ValueError("Mora and Yahi distribution can only be computed in 2D")
+        return v, fe
+
+    def spitzer(self):
+        if self.dim == 2:
+            if len(self.f1_direction) == 2:
+                v, fe = dist_functional_forms.Spitzer_2V(self.dt, self.f1_direction, self.velocity_res)
+            elif len(self.f1_direction) == 3:
+                v, fe = dist_functional_forms.Spitzer_3V(self.dt, self.f1_direction, self.velocity_res)
+        else:
+            raise ValueError("Spitzer distribution can only be computed in 2D")
+
+        return v, fe
+
+    def sph(self, dist_params):
+        # flm = dist_params["flm"]
+
+        flm = {0: {0: self.f00}, 1: {0: self.f10, 1: self.f11}}
+        v, fe = dist_functional_forms.sph_harm_dist(self.Nl, self.Nm, self.vr, flm)
+        # fe = (fe, nan=1e-16) * 3
+
+        return v, fe
+
+    def dlm(self, dist_params):
+        mval = dist_params
+        if self.dim == 1:
+            # v, fe = dist_functional_forms.DLM_1D(mval, self.velocity_res)
+            tabl = os.path.join(BASE_FILES_PATH, "numDistFuncs/DLM_x_-3_-10_10_m_-1_2_5.mat")
+            tablevar = sio.loadmat(tabl, variable_names="IT")
+            IT = tablevar["IT"]
+            vx = jnp.arange(-8, 8, self.velocity_res)
+            xs = jnp.arange(-10, 10, 0.001)
+            ms = jnp.arange(2, 5, 0.1)
+            x_float_inds = jnp.interp(vx, xs, jnp.linspace(0, xs.shape[0] - 1, xs.shape[0]))
+            m_float_inds = jnp.interp(mval, ms, jnp.linspace(0, ms.shape[0] - 1, ms.shape[0]))
+
+            # np.linspace(0, params["x"].size - 1, params["x"].size))
+            # m_float_inds = jnp.array(jnp.interp(m, params["m"], np.linspace(0, params["m"].size - 1, params["m"].size)))
+            m_float_inds = m_float_inds.reshape((1,))
+            ind_x_mesh, ind_m_mesh = jnp.meshgrid(x_float_inds, m_float_inds)
+            indices = jnp.concatenate([ind_x_mesh.flatten()[:, None], ind_m_mesh.flatten()[:, None]], axis=1)
+
+            fe = jax.scipy.ndimage.map_coordinates(IT, indices.T, order=1, mode="constant", cval=0.0)
+            v = vx
+        elif self.dim == 2:
+            # this will cause issues if my is less then 2
+            v, fe = dist_functional_forms.BiDLM(
+                mval, mval * self.m_asym, self.temp_asym, self.m_theta, self.velocity_res
+            )
+
+        else:
+            raise NotImplementedError("DLM distribution can only be computed in 1D or 2D")
 
         return v, fe

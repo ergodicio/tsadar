@@ -26,7 +26,7 @@ setup(
     # cmdclass=versioneer.get_cmdclass(),
     packages=find_packages(),
     python_requires=">=3.11",
-    package_data={"tsadar": ["aux/**/*"]},
+    package_data={"tsadar": ["external/**/*"]},
     include_package_data=True,
     install_requires=[
         "numpy<2",

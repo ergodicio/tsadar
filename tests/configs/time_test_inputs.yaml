@@ -1,8 +1,5 @@
 parameters:
-    species1:
-        type:
-            electron:
-            active: False
+    electron:
         Te:
             val: .5
             active: True
@@ -13,25 +10,17 @@ parameters:
             active: True
             lb: .001
             ub: 1.
-        m:
-            val: 3.0
-            active: True
-            lb: 2.
-            ub: 5.
         fe:
-            val: [ ]
-            active: False
-            length: 3999
-            type:
-                DLM:
-            lb: -100.
-            ub: -0.5
+            active: True
+            type: dlm
+            params: 
+                m:
+                    val: 3.0
+                    lb: 2.0
+                    ub: 5.0
             dim: 1
-            v_res: 0.1
-    species2:
-        type:
-            ion:
-            active: False
+            nv: 64
+    ion-1:
         Ti:
             val: .2
             active: False
@@ -49,9 +38,6 @@ parameters:
             val: 1.0
             active: False
     general:
-        type:
-            general:
-            active: False
         amp1:
             val: 1.
             active: True
@@ -101,5 +87,5 @@ parameters:
 other:
     refit: False
     refit_thresh: 5.0
-    calc_sigmas: True
+    calc_sigmas: False
 
