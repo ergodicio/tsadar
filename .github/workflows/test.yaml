@@ -30,6 +30,7 @@ jobs:
         run: |
           CPU_ONLY=True pytest tests/
 
+  test-tsadar-gpu:
     runs-on: "gpu_runner"
     steps:
       - uses: actions/checkout@v4
