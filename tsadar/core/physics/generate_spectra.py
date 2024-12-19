@@ -43,7 +43,7 @@ class FitModel:
         va_angle = (
             None
             if config["parameters"]["electron"]["fe"]["dim"] < 2
-            else config["parameters"]["general"]["va"]["angle"]
+            else config["parameters"]["general"]["Va"]["angle"]
         )
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],

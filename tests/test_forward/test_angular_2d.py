@@ -1,3 +1,4 @@
+import pytest
 from jax import config
 
 config.update("jax_enable_x64", True)
@@ -25,6 +26,12 @@ def test_arts2d_forward_pass():
         Ion data, electron data, and plots are saved to mlflow
 
     """
+
+    if "CPU_ONLY" in os.environ:
+        if os.environ["CPU_ONLY"]:
+            pytest.skip("Skipping GPU test on CPU-only")
+    else:
+        pytest.skip("Assuming CPU test - Skipping GPU test")
 
     mlflow.set_experiment("tsadar-tests")
     with mlflow.start_run(run_name="test_arts2d_fwd"):
@@ -70,7 +77,7 @@ def test_arts2d_forward_pass():
         ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
-        np.save("tests/test_forward/ThryE-arts2d.npy", ThryE)
+        # np.save("tests/test_forward/ThryE-arts2d.npy", ThryE)
 
         ground_truth = np.load("tests/test_forward/ThryE-arts2d.npy")
 

@@ -46,6 +46,8 @@ def test_iaw():
         lam_shift=0.0,
         scattering_angles={"sa": np.array([60])},
         num_grad_points=config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
+        ud_ang=None,
+        va_ang=None,
     )
 
     # xie = np.linspace(-7, 7, 1024)

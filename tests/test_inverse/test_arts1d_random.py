@@ -1,3 +1,4 @@
+import pytest
 from jax import config
 
 config.update("jax_enable_x64", True)
@@ -17,7 +18,7 @@ from tsadar.core.modules import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 
-def _perturb_params_(rng, params):
+def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
     """
     Perturbs the parameters for the forward pass.
 
@@ -37,6 +38,11 @@ def _perturb_params_(rng, params):
     params["general"]["amp2"]["val"] = float(rng.uniform(0.5, 2.5))
     params["general"]["lam"]["val"] = float(rng.uniform(523, 527))
 
+    if arbitrary_distribution:
+        params["electron"]["fe"]["params"]["init_m"] = float(rng.uniform(2.0, 3.5))
+    else:
+        params["electron"]["fe"]["params"]["m"]["val"] = float(rng.uniform(2.0, 3.5))
+
     # for key in params["general"].keys():
     #     params[key]["val"] *= rng.uniform(0.75, 1.25)
 
@@ -46,7 +52,8 @@ def _perturb_params_(rng, params):
     return params
 
 
-def test_arts1d_inverse():
+@pytest.mark.parametrize("arbitrary_distribution", [True, False])
+def test_arts1d_inverse(arbitrary_distribution: bool):
     """
     Runs a forward pass with the Thomson scattering diagnostic and ThomsonParams classes. Saves the results to mlflow.
 
@@ -58,6 +65,11 @@ def test_arts1d_inverse():
         Ion data, electron data, and plots are saved to mlflow
 
     """
+    if "CPU_ONLY" in os.environ:
+        if os.environ["CPU_ONLY"]:
+            pytest.skip("Skipping GPU test on CPU-only")
+    else:
+        pytest.skip("Assuming CPU test - Skipping GPU test")
 
     mlflow.set_experiment("tsadar-tests")
     with mlflow.start_run(run_name="test_arts1d_inverse") as run:
@@ -101,7 +113,7 @@ def test_arts1d_inverse():
             }
             rng = np.random.default_rng()
             ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-            config["parameters"] = _perturb_params_(rng, config["parameters"])
+            config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=False)
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
 
@@ -121,8 +133,15 @@ def test_arts1d_inverse():
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
                 print("Starting while loop")
-                config["parameters"] = _perturb_params_(rng, config["parameters"])
-                ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+                config["parameters"] = _perturb_params_(
+                    rng, config["parameters"], arbitrary_distribution=arbitrary_distribution
+                )
+                ts_params_fit = ThomsonParams(
+                    config["parameters"],
+                    num_params=1,
+                    batch=False,
+                    activate=True,
+                )
                 diff_params, static_params = eqx.partition(
                     ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
                 )
@@ -193,5 +212,5 @@ def test_arts1d_inverse():
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.2, rtol=1)
 
 
-if __name__ == "__main__":
-    test_arts1d_inverse()
+# if __name__ == "__main__":
+#     test_arts1d_inverse(arbitrary_distribution=False)
