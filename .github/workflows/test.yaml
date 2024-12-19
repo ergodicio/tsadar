@@ -33,7 +33,7 @@ jobs:
           channels: conda-forge,defaults
           channel-priority: true
           activate-environment: anaconda-client-env
-          environment-file: etc/example-environment.yml
+          environment-file: env.yml
       - shell: bash -el {0}
         run: |
           conda info
@@ -41,8 +41,8 @@ jobs:
           conda config --show-sources
           conda config --show
           printenv | sort
-      - shell: bash -el {0}
-        run: mamba env create -f env.yml
+      # - shell: bash -el {0}
+        # run: mamba env create -f env.yml
     # steps:
     # - uses: actions/checkout@v3
     # - name: Set up Python 3.11
