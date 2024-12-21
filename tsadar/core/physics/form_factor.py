@@ -1,4 +1,4 @@
-from jax import numpy as jnp, vmap, device_put
+from jax import numpy as jnp, vmap, device_put, device_count
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
@@ -12,7 +12,6 @@ from jax.lax import scan, map as jmap
 from jax import checkpoint
 
 from . import ratintn
-from ...utils.data_handling import lam_parse
 from ...utils.vector_tools import vsub, vdot, vdiv
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
@@ -90,8 +89,14 @@ class FormFactor:
         self.ud_angle, self.va_angle = ud_ang, va_ang
 
         # Create a Sharding object to distribute a value across devices:
-        # mesh = Mesh(devices=mesh_utils.create_device_mesh(1), axis_names=("x"))
-        # self.sharding = NamedSharding(mesh, P("x"))
+        num_gpus = device_count(backend="gpu")
+        if num_gpus > 1:
+            print(f"Sharding 2D Angular Calculation across {num_gpus} GPUs, otherwise just single GPU")
+            mesh = Mesh(devices=mesh_utils.create_device_mesh((device_count(backend="gpu"),)), axis_names=("x"))
+            self.sharding = NamedSharding(mesh, P("x"))
+            self.calc_all_chi_vals = self.parallel_calc_all_chi_vals
+        else:
+            self.calc_all_chi_vals = self._calc_all_chi_vals_
 
     def __call__(self, params):
         """
@@ -183,8 +188,8 @@ class FormFactor:
         # proper handeling of multiple ion temperatures is not implemented
         xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k)[..., jnp.newaxis])
 
-        num_ion_pts = jnp.shape(xii)
-        chiI = jnp.zeros(num_ion_pts)
+        # num_ion_pts = jnp.shape(xii)
+        # chiI = jnp.zeros(num_ion_pts)
         ZpiR = jnp.interp(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
         ZpiI = jnp.interp(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
         chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
@@ -262,7 +267,7 @@ class FormFactor:
         xq = rotated_coords[:, 0]
         yq = rotated_coords[:, 1]
 
-        return interp2d(xq, yq, vx, vx, df, extrap=True, method="linear").reshape((vx.size, vx.size), order="F")
+        return interp2d(xq, yq, vx, vx, df, extrap=True, method="cubic").reshape((vx.size, vx.size), order="F")
 
     def scan_calc_chi_vals(self, carry, xs):
         """
@@ -328,7 +333,7 @@ class FormFactor:
         )  # this may need to be downsampled for run time
         return fe_vphi, chiEI, chiERrat
 
-    def calc_all_chi_vals(self, vx, DF, beta, xie_mag, klde_mag):
+    def _calc_all_chi_vals_(self, vx, DF, beta, xie_mag, klde_mag):
         """
         Calculate the susceptibility values for all the desired points xie
 
@@ -359,7 +364,7 @@ class FormFactor:
 
         elif calc_chi_vals == "batch_vmap":
             batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, vx, jnp.squeeze(DF))
-            fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=1024)
+            fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=128)
         else:
             raise NotImplementedError
 
@@ -369,15 +374,23 @@ class FormFactor:
 
         return fe_vphi, chiEI, chiERrat
 
-    def parallel_calc_all_chi_vals(self, x, DF, flattened_inputs):
+    def parallel_calc_all_chi_vals(self, x, DF, beta, xie_mag, klde_mag):
 
-        beta, xie_mag, klde_mag = flattened_inputs
+        f_beta = beta.reshape(-1)
+        f_xie_mag = xie_mag.reshape(-1)
+        f_klde_mag = klde_mag.reshape(-1)
 
-        flat_beta = device_put(beta, self.sharding)
-        flat_xie_mag = device_put(xie_mag, self.sharding)
-        flat_klde_mag = device_put(klde_mag, self.sharding)
+        flat_beta = device_put(f_beta, self.sharding)
+        flat_xie_mag = device_put(f_xie_mag, self.sharding)
+        flat_klde_mag = device_put(f_klde_mag, self.sharding)
 
-        return self.calc_all_chi_vals(x, DF, (flat_beta, flat_xie_mag, flat_klde_mag))
+        fe_vphi, chiEI, chiERrat = self._calc_all_chi_vals_(x, DF, flat_beta, flat_xie_mag, flat_klde_mag)
+
+        fe_vphi = fe_vphi.reshape(beta.shape)
+        chiEI = chiEI.reshape(beta.shape)
+        chiERrat = chiERrat.reshape(beta.shape)
+
+        return fe_vphi, chiEI, chiERrat
 
     def calc_in_2D(self, params):
         """

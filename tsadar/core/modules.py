@@ -2,7 +2,8 @@ from typing import List, Dict, Union, Callable
 from collections import defaultdict
 
 from jax import Array, numpy as jnp, tree_util as jtu, vmap
-from jax.nn import sigmoid
+from jax.nn import sigmoid, relu
+from jax.random import PRNGKey
 from jax.scipy.special import gamma, sph_harm
 import equinox as eqx
 
@@ -20,30 +21,70 @@ class DistributionFunction1D(eqx.Module):
         raise NotImplementedError
 
 
+class Arbitrary1DNN(DistributionFunction1D):
+    f_nn: eqx.Module
+
+    def __init__(self, dist_cfg):
+        super().__init__(dist_cfg)
+        # self.learn_log = dist_cfg["params"]["learn_log"]
+        self.f_nn = eqx.nn.MLP(1, 1, 32, 3, final_activation=relu, key=PRNGKey(0))
+
+    def get_unnormed_params(self):
+        return {"f": self()}
+
+    def __call__(self):
+        # if self.learn_log:
+        #     # bound values between 1e-15 and 10
+        #     f_nn = -16 * sigmoid(self.f_nn) + 1
+        #     f_nn = jnp.power(10.0, self.f_nn)
+        # else:
+        # f_nn = sigmoid(f_nn) * 10
+        fval = eqx.filter_vmap(self.f_nn)(self.vx[:, None])
+        fval = jnp.squeeze(fval)
+        # if self.learn_log:
+        # fval = jnp.power(10.0, -fval)
+
+        return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
+
+
 class Arbitrary1D(DistributionFunction1D):
     fval: Array
     learn_log: bool
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
-        self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
         self.learn_log = dist_cfg["params"]["learn_log"]
+        self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
 
     def init_dlm(self, m):
         vth_x = jnp.sqrt(2.0)
         alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
         cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
         fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
+        fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
 
-        return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+        if self.learn_log:
+            #     # logit function
+            # fdlm = 1 / 16 * jnp.log(fdlm / (1 - fdlm)) - 1
+            fdlm = -jnp.log10(fdlm)
+        # else:
+        #     fdlm = 0.1 * jnp.log(fdlm / (1 - fdlm))
+
+        return jnp.sqrt(fdlm)
+
+    def get_unnormed_params(self):
+        return {"f": self()}
 
     def __call__(self):
+        # if self.learn_log:
+        #     # bound values between 1e-15 and 10
+        #     fval = -16 * sigmoid(self.fval) + 1
+        #     fval = jnp.power(10.0, self.fval)
+        # else:
+        # fval = sigmoid(fval) * 10
+        fval = self.fval**2.0
         if self.learn_log:
-            # bound values between 1e-16 and 10
-            fval = 9 * jnp.tanh(self.fval) - 8
-            fval = jnp.exp(self.fval)
-        else:
-            fval = sigmoid(fval) * 10
+            fval = jnp.power(10.0, -fval)
 
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
 
@@ -56,8 +97,8 @@ class DLM1D(DistributionFunction1D):
 
     def __init__(self, dist_cfg, activate=False):
         super().__init__(dist_cfg)
-        self.m_scale = dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
-        self.m_shift = dist_cfg["params"]["m"]["lb"]
+        self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
+        self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
 
         if activate:
             inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
@@ -101,6 +142,10 @@ class SphericalHarmonics(DistributionFunction2D):
     vr_vxvy: Array
     Nl: int
     flm: Dict[str, Dict[str, Array]]
+    m_scale: float
+    m_shift: float
+    act_fun: Callable
+    normed_m: Array
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
@@ -119,19 +164,42 @@ class SphericalHarmonics(DistributionFunction2D):
         for i in range(self.Nl + 1):
             self.flm[i] = {j: jnp.zeros(dist_cfg["params"]["nvr"]) for j in range(i + 1)}
 
-        m = dist_cfg["params"]["init_m"]
-        vth_x = 1.0
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
-        cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
-        self.flm[0][0] = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
-        self.flm[0][0] /= jnp.sum(self.flm[0][0]) * (self.vr[1] - self.vr[0])
+        init_m = dist_cfg["params"]["init_m"]
+        self.flm[0][0] = self.get_f00(init_m)
+        if dist_cfg["params"]["init_f10"]:
+            self.flm[1][0] = (
+                dist_cfg["params"]["init_f10"] * jnp.gradient(jnp.gradient(self.flm[0][0])) * self.vr**2.0 * dvr
+            )
+        if dist_cfg["params"]["init_f11"]:
+            self.flm[1][1] = (
+                dist_cfg["params"]["init_f11"] * jnp.gradient(jnp.gradient(self.flm[0][0])) * self.vr**2.0 * dvr
+            )
+
+        self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
+        self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
+        inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+        self.act_fun = sigmoid
+        self.normed_m = inv_act_fun((init_m - self.m_shift) / self.m_scale)
 
     def get_unnormed_params(self):
         return {"flm": self.flm}
 
+    def get_f00(self, m):
+        vth_x = 1.0
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
+        cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
+        f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+        f00 /= jnp.sum(f00 * 4 * jnp.pi * self.vr**2.0) * (self.vr[1] - self.vr[0])
+
+        return f00
+
     def __call__(self):
-        fvxvy = jnp.zeros(jnp.shape(self.vr_vxvy))
-        for i in range(self.Nl + 1):
+        # fvxvy = jnp.zeros(jnp.shape(self.vr_vxvy))
+        unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
+        f00 = self.get_f00(unnormed_m)
+        fvxvy = jnp.interp(self.vr_vxvy, self.vr, f00, right=1e-16)
+
+        for i in range(1, self.Nl + 1):
             for j in range(i + 1):
                 _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, self.flm[i][j], right=1e-16)
                 _sph_harm = self.sph_harm(
@@ -202,6 +270,12 @@ class ElectronParams(eqx.Module):
                     distribution_functions = [Arbitrary1D(dist_cfg) for _ in range(batch_size)]
                 else:
                     distribution_functions = Arbitrary1D(dist_cfg)
+
+            elif dist_cfg["type"].casefold() == "arbitrary-nn":
+                if batch:
+                    distribution_functions = [Arbitrary1DNN(dist_cfg) for _ in range(batch_size)]
+                else:
+                    distribution_functions = Arbitrary1DNN(dist_cfg)
 
             else:
                 raise NotImplementedError(f"Unknown 1D distribution type: {dist_cfg['type']}")
@@ -470,16 +544,48 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
 
 def get_distribution_filter_spec(filter_spec: Dict, dist_type: str) -> Dict:
     if dist_type.casefold() == "dlm":
-        num_dists = len(filter_spec.electron.distribution_functions)
-        for i in range(num_dists):
+        if isinstance(filter_spec.electron.distribution_functions, list):
+            num_dists = len(filter_spec.electron.distribution_functions)
+            for i in range(num_dists):
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+                )
+        else:
             filter_spec = eqx.tree_at(
-                lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
             )
 
     elif dist_type.casefold() == "mx":
-        pass
+        raise Warning("No trainable parameters for Maxwellian distribution")
+
+    elif dist_type.casefold() == "arbitrary":
+        if isinstance(filter_spec.electron.distribution_functions, list):
+            num_dists = len(filter_spec.electron.distribution_functions)
+            for i in range(num_dists):
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].fval, filter_spec, replace=True
+                )
+        else:
+            filter_spec = eqx.tree_at(lambda tree: tree.electron.distribution_functions.fval, filter_spec, replace=True)
+    elif dist_type.casefold() == "arbitrary-nn":
+        df = filter_spec.electron.distribution_functions
+        if isinstance(df, list):
+            for i in range(len(df)):
+                filter_spec = update_distribution_layers(filter_spec, df=df[i])
+        else:
+            filter_spec = update_distribution_layers(filter_spec, df=df)
 
     else:
         raise NotImplementedError(f"Untrainable distribution type: {dist_type}")
+
+    return filter_spec
+
+
+def update_distribution_layers(filter_spec, df):
+    print(df.f_nn.layers)
+    for j in range(len(df.f_nn.layers)):
+        if df.f_nn.layers[j].weight:
+            filter_spec = eqx.tree_at(lambda tree: df.f_nn.layers[j].linear.weight, filter_spec, replace=True)
+            filter_spec = eqx.tree_at(lambda tree: df.f_nn.layers[j].linear.bias, filter_spec, replace=True)
 
     return filter_spec
