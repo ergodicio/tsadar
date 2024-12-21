@@ -187,7 +187,7 @@ def angular_optax(config, all_data, sa):
     else:
         actual_data = batch1
 
-    loss_fn = LossFunction(config, sa, batch1)
+    loss_fn = LossFunction(config, batch1)
     minimizer = getattr(optax, config["optimizer"]["method"])
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
@@ -342,7 +342,7 @@ def one_d_loop(
         "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
         "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
     } | sample
-    loss_fn = LossFunction(config, sa, sample)
+    loss_fn = LossFunction(config, sample)
 
     print("minimizing")
     mlflow.set_tag("status", "minimizing")
@@ -366,7 +366,7 @@ def one_d_loop(
                 best_loss, best_weights = _1d_adam_loop_(config, loss_fn, previous_weights, batch, tbatch)
             else:
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
-                loss_fn = LossFunction(config, sa, batch)
+                loss_fn = LossFunction(config, batch)
                 best_loss, best_weights = _1d_scipy_loop_(config, loss_fn, previous_weights, batch)
 
             all_weights.append(best_weights)

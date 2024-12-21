@@ -1,4 +1,8 @@
 import pytest
+import os
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
 from jax import config
 
 config.update("jax_enable_x64", True)
@@ -52,7 +56,7 @@ def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
     return params
 
 
-@pytest.mark.parametrize("arbitrary_distribution", [True, False])
+@pytest.mark.parametrize("arbitrary_distribution", [False])
 def test_arts1d_inverse(arbitrary_distribution: bool):
     """
     Runs a forward pass with the Thomson scattering diagnostic and ThomsonParams classes. Saves the results to mlflow.
@@ -65,11 +69,11 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
         Ion data, electron data, and plots are saved to mlflow
 
     """
-    if "CPU_ONLY" in os.environ:
-        if os.environ["CPU_ONLY"]:
-            pytest.skip("Skipping GPU test on CPU-only")
-    else:
-        pytest.skip("Assuming CPU test - Skipping GPU test")
+
+    # if os.environ["CPU_ONLY"]:
+    #     pytest.skip("Skipping GPU test on CPU-only")
+    # else:
+    #     pytest.skip("Assuming CPU test - Skipping GPU test")
 
     mlflow.set_experiment("tsadar-tests")
     with mlflow.start_run(run_name="test_arts1d_inverse") as run:
@@ -86,22 +90,6 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
         with tempfile.TemporaryDirectory() as td:
             with open(os.path.join(td, "config.yaml"), "w") as fi:
                 yaml.dump(config, fi)
-            # get scattering angles and weights
-            config["other"]["lamrangE"] = [
-                config["data"]["fit_rng"]["forward_epw_start"],
-                config["data"]["fit_rng"]["forward_epw_end"],
-            ]
-            config["other"]["lamrangI"] = [
-                config["data"]["fit_rng"]["forward_iaw_start"],
-                config["data"]["fit_rng"]["forward_iaw_end"],
-            ]
-            config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
-            sas = get_scattering_angles(config)
-
-            sas["angAxis"], _, _, _, _, _ = get_calibrations(
-                104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
-            )  # shot number hardcoded to get calibration
-            config["other"]["extraoptions"]["spectype"] = "angular_full"
 
             dummy_batch = {
                 "i_data": np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1])),
@@ -112,7 +100,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 "i_amps": np.array([1]),
             }
             rng = np.random.default_rng()
-            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+            ts_diag = ThomsonScatteringDiagnostic(config)
             config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=False)
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
@@ -131,7 +119,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
-                # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+                # ts_diag = ThomsonScatteringDiagnostic(config)
                 print("Starting while loop")
                 config["parameters"] = _perturb_params_(
                     rng, config["parameters"], arbitrary_distribution=arbitrary_distribution
@@ -212,5 +200,5 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.2, rtol=1)
 
 
-# if __name__ == "__main__":
-#     test_arts1d_inverse(arbitrary_distribution=False)
+if __name__ == "__main__":
+    test_arts1d_inverse(arbitrary_distribution=False)

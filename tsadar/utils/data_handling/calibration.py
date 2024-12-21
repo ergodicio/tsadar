@@ -189,7 +189,7 @@ def sa_lookup(beam):
             ),
         )
     else:
-        raise NotImplmentedError("Other probe geometrries are not yet supported")
+        raise NotImplementedError("Other probe geometrries are not yet supported")
 
     return sa
 
@@ -383,7 +383,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
     axisyE = axisy * EPWDisp + EPWoff  # (nm)
     axisyI = axisy * IAWDisp + IAWoff  # (nm)
 
-    if tstype != "angular":
+    if "angular" not in tstype:
         axisx = np.arange(1, CCDsize[1] + 1)
         axisxE = (axisx - t0[1]) * magE  # ps,um
         axisxI = (axisx - t0[0]) * magI  # ps,um
@@ -418,7 +418,7 @@ def get_scattering_angles(config: Dict) -> Dict:
         sa: Dictionary with scattering angles and weights
 
     """
-    if config["other"]["extraoptions"]["spectype"] != "angular":
+    if "angular" not in config["other"]["extraoptions"]["spectype"]:
         sa = sa_lookup(config["data"]["probe_beam"])
     else:
         # Scattering angle in degrees for Artemis

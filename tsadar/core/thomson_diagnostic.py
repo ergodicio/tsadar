@@ -4,6 +4,7 @@ from jax import numpy as jnp, vmap
 from .modules import ThomsonParams
 from .physics import irf
 from .physics.generate_spectra import FitModel
+from ..utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 
 class ThomsonScatteringDiagnostic:
@@ -20,11 +21,28 @@ class ThomsonScatteringDiagnostic:
         weights of each of the scattering angles in the final spectrum
     """
 
-    def __init__(self, cfg, scattering_angles):
+    def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        self.scattering_angles = scattering_angles
-        self.model = FitModel(cfg, scattering_angles)
+        # self.scattering_angles = scattering_angles
+        self.cfg["other"]["lamrangE"] = [
+            self.cfg["data"]["fit_rng"]["forward_epw_start"],
+            self.cfg["data"]["fit_rng"]["forward_epw_end"],
+        ]
+        self.cfg["other"]["lamrangI"] = [
+            self.cfg["data"]["fit_rng"]["forward_iaw_start"],
+            self.cfg["data"]["fit_rng"]["forward_iaw_end"],
+        ]
+        self.cfg["other"]["npts"] = int(self.cfg["other"]["CCDsize"][1] * self.cfg["other"]["points_per_pixel"])
+        self.scattering_angles = get_scattering_angles(self.cfg)
+
+        if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
+            # shot number hardcoded to get calibration
+            [self.scattering_angles["angAxis"], _, _, _, _, _] = get_calibrations(
+                104000, self.cfg["other"]["extraoptions"]["spectype"], 0.0, self.cfg["other"]["CCDsize"]
+            )
+
+        self.model = FitModel(cfg, self.scattering_angles)
 
         if (
             "temporal" in cfg["other"]["extraoptions"]["spectype"]

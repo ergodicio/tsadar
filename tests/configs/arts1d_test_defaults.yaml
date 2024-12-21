@@ -86,6 +86,7 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
+        spectype: angular_full
     PhysParams:
         background: [0, 0]
         norm: 0
