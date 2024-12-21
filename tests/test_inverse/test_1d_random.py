@@ -79,6 +79,18 @@ def test_1d_inverse():
         defaults.update(flatten(inputs))
         config = unflatten(defaults)
 
+        # get scattering angles and weights
+        config["other"]["lamrangE"] = [
+            config["data"]["fit_rng"]["forward_epw_start"],
+            config["data"]["fit_rng"]["forward_epw_end"],
+        ]
+        config["other"]["lamrangI"] = [
+            config["data"]["fit_rng"]["forward_iaw_start"],
+            config["data"]["fit_rng"]["forward_iaw_end"],
+        ]
+        config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+        sas = get_scattering_angles(config)
+
         dummy_batch = {
             "i_data": np.array([1]),
             "e_data": np.array([1]),
@@ -88,7 +100,7 @@ def test_1d_inverse():
             "i_amps": np.array([1]),
         }
         rng = np.random.default_rng()
-        ts_diag = ThomsonScatteringDiagnostic(config)
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
         config["parameters"] = _perturb_params_(rng, config["parameters"])
         misc.log_mlflow(config)
         ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
@@ -97,7 +109,7 @@ def test_1d_inverse():
 
         loss = 1
         while np.nan_to_num(loss, nan=1) > 1e-2:
-            ts_diag = ThomsonScatteringDiagnostic(config)
+            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
             config["parameters"] = _perturb_params_(rng, config["parameters"])
             ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
             diff_params, static_params = eqx.partition(

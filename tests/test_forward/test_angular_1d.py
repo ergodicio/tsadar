@@ -39,6 +39,25 @@ def test_arts1d_forward_pass():
         defaults.update(flatten(inputs))
         config = unflatten(defaults)
 
+        # get scattering angles and weights
+        config["other"]["lamrangE"] = [
+            config["data"]["fit_rng"]["forward_epw_start"],
+            config["data"]["fit_rng"]["forward_epw_end"],
+        ]
+        config["other"]["lamrangI"] = [
+            config["data"]["fit_rng"]["forward_iaw_start"],
+            config["data"]["fit_rng"]["forward_iaw_end"],
+        ]
+        config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+        sas = get_scattering_angles(config)
+
+        [axisxE, _, _, _, _, _] = get_calibrations(
+            104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
+        )  # shot number hardcoded to get calibration
+        config["other"]["extraoptions"]["spectype"] = "angular_full"
+
+        sas["angAxis"] = axisxE
+
         dummy_batch = {
             "i_data": np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1])),
             "e_data": np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1])),
@@ -48,7 +67,7 @@ def test_arts1d_forward_pass():
             "i_amps": np.array([1]),
         }
 
-        ts_diag = ThomsonScatteringDiagnostic(config)
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
         # np.save("tests/test_forward/ThryE-arts1d.npy", ThryE)

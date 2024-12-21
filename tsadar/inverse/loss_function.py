@@ -19,7 +19,7 @@ class LossFunction:
 
     """
 
-    def __init__(self, cfg: Dict, dummy_batch):
+    def __init__(self, cfg: Dict, scattering_angles, dummy_batch):
         """
 
         Args:
@@ -46,7 +46,7 @@ class LossFunction:
 
         ############
 
-        self.ts_diag = ThomsonScatteringDiagnostic(cfg)
+        self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
 
         self._loss_ = filter_jit(self.__loss__)
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))

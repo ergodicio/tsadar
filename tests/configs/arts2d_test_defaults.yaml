@@ -83,7 +83,6 @@ other:
     fit_IAW: false
     load_ele_spec: true
     load_ion_spec: false
-    spectype: angular_full
   flatbg: 0
   gain: 1
   iawfilter:

@@ -72,7 +72,7 @@ parameters:
         ub: 1.0
     fe:
 
-        active: True
+        active: False
         type: dlm
         params:
             m: 
@@ -102,7 +102,7 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
-        spectype: angular_full
+        spectype: angular
     PhysParams:
         widIRF:
             spect_stddev_ion: 0.015
