@@ -28,7 +28,7 @@ def test_arts1d_forward_pass():
     """
 
     mlflow.set_experiment("tsadar-tests")
-    with mlflow.start_run(run_name="test_arts1d_fwd"):
+    with mlflow.start_run(run_name="test_arts1d_fwd") as run:
         with open("tests/configs/arts1d_test_defaults.yaml", "r") as fi:
             defaults = yaml.safe_load(fi)
 
@@ -88,6 +88,8 @@ def test_arts1d_forward_pass():
             mlflow.log_artifacts(td)
 
         np.testing.assert_allclose(ThryE, ground_truth, rtol=1e-4)
+
+    misc.export_run(run.info.run_id)
 
 
 if __name__ == "__main__":

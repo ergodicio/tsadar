@@ -1,5 +1,5 @@
 import pytest
-from jax import config, block_until_ready, device_count
+from jax import config, block_until_ready, devices
 
 config.update("jax_enable_x64", True)
 
@@ -71,7 +71,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
         Ion data, electron data, and plots are saved to mlflow
 
     """
-    if device_count("gpu") == 0:
+    if not any(["gpu" == device.platform for device in devices()]):
         pytest.skip("Takes too long without a GPU")
 
     _t0 = time.time()
