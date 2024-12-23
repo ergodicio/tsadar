@@ -164,13 +164,13 @@ def test_1d_inverse():
             fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
             mlflow.log_artifacts(td)
 
-        np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.2, rtol=1)
+        np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0, rtol=0.2)
 
         gt_flat = flatten(gt_params)
         learned_flat = flatten(learned_params)
 
         for key in gt_flat.keys():
-            np.testing.assert_approx_equal(gt_flat[key], learned_flat[("learned",) + key[1:]], significant=1)
+            np.testing.assert_allclose(gt_flat[key], learned_flat[("learned",) + key[1:]], atol=0, rtol=0.1)
 
 
 if __name__ == "__main__":

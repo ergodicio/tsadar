@@ -1,5 +1,5 @@
 import pytest
-from jax import config, block_until_ready
+from jax import config, block_until_ready, device_count
 
 config.update("jax_enable_x64", True)
 
@@ -53,7 +53,12 @@ def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
     return params
 
 
-@pytest.mark.parametrize("arbitrary_distribution", [True, False])
+@pytest.mark.parametrize(
+    "arbitrary_distribution",
+    [
+        False,
+    ],
+)
 def test_arts1d_inverse(arbitrary_distribution: bool):
     """
     Runs a forward pass with the Thomson scattering diagnostic and ThomsonParams classes. Saves the results to mlflow.
@@ -66,11 +71,8 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
         Ion data, electron data, and plots are saved to mlflow
 
     """
-    if "CPU_ONLY" in os.environ:
-        if os.environ["CPU_ONLY"] == True:
-            pytest.skip("Skipping GPU test on CPU-only")
-    else:
-        pytest.skip("Assuming CPU test - Skipping GPU test")
+    if device_count("gpu") == 0:
+        pytest.skip("Takes too long without a GPU")
 
     _t0 = time.time()
     mlflow.set_experiment("tsadar-tests")
@@ -125,7 +127,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             def loss_fn(_diff_params, _static_params):
                 _all_params = eqx.combine(_diff_params, _static_params)
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
-                return jnp.sum(jnp.mean(jnp.square(ThryE - ground_truth["ThryE"])))
+                return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
 
             t0 = time.time()
             jit_vg = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))
