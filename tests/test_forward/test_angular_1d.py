@@ -89,8 +89,6 @@ def test_arts1d_forward_pass():
 
         np.testing.assert_allclose(ThryE, ground_truth, rtol=1e-4)
 
-    misc.export_run(run.info.run_id)
-
 
 if __name__ == "__main__":
     test_arts1d_forward_pass()
