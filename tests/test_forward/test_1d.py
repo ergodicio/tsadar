@@ -29,10 +29,10 @@ def test_1d_forward_pass():
 
     mlflow.set_experiment("tsadar-tests")
     with mlflow.start_run(run_name="test_1d_fwd"):
-        with open("configs/1d-new/defaults.yaml", "r") as fi:
+        with open("tests/configs/1d-defaults.yaml", "r") as fi:
             defaults = yaml.safe_load(fi)
 
-        with open("configs/1d-new/inputs.yaml", "r") as fi:
+        with open("tests/configs/1d-inputs.yaml", "r") as fi:
             inputs = yaml.safe_load(fi)
 
         defaults = flatten(defaults)

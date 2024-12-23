@@ -91,7 +91,9 @@ class FormFactor:
         # Create a Sharding object to distribute a value across devices:
         num_gpus = device_count(backend="gpu")
         if num_gpus > 1:
-            print(f"Sharding 2D Angular Calculation across {num_gpus} GPUs, otherwise just single GPU")
+            print(
+                f"If this is a 2D Angular calculation, it will be parallelized across {num_gpus} GPUs. Otherwise, only a single GPU is used"
+            )
             mesh = Mesh(devices=mesh_utils.create_device_mesh((device_count(backend="gpu"),)), axis_names=("x"))
             self.sharding = NamedSharding(mesh, P("x"))
             self.calc_all_chi_vals = self.parallel_calc_all_chi_vals

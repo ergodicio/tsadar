@@ -8,13 +8,11 @@ data:
     start: 90
     type: range
   shot_rot: 90.0
-  shotnum:
-  - 10007
-  - 10002
+  shotnum: 10007
 machine: gpu
 mlflow:
-  experiment: inverse-thomson-scattering
-  run: multiplex_arts_rot90_nosmoothtest_nonete_1
+  experiment: tsadar-test
+  run: arts2d
 other:
   PhysParams:
     widIRF:
@@ -89,16 +87,16 @@ parameters:
       active: false
       dim: 2
       type: sphericalharmonic
-      nvx: 1024
+      nvx: 256
       params:
-        init_m: 2.2
+        init_m: 2.7
         init_f10: 1.0e-2
         init_f11: 1.0e-2
         Nl: 1
-        nvr: 256
+        nvr: 32
         
     ne:
-      active: false
+      active: true
       gradient_scalar: 10.0
       lb: 0.03
       ub: 2.0

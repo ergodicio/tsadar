@@ -38,8 +38,8 @@ dist_fit:
     len: 0.2
     type: bartlett
 mlflow:
-  experiment: inverse-thomson-scattering
-  run: base
+  experiment: tsadar-test
+  run: arts2d
 nn:
   conv_filters: 32|16|16
   linear_widths: 32|16

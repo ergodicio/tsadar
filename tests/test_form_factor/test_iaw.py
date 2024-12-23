@@ -10,7 +10,6 @@ config.update("jax_enable_x64", True)
 from numpy.testing import assert_allclose
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
-from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 from tsadar.core.modules import ThomsonParams
 
 

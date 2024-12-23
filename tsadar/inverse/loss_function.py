@@ -9,8 +9,7 @@ import numpy as np
 import equinox as eqx
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from ..distribution_functions.dist_functional_forms import trapz
-from tsadar.utils.vector_tools import rotate
+from ..utils.vector_tools import rotate
 
 
 class LossFunction:
@@ -426,9 +425,8 @@ class LossFunction:
                 )
             )
         else:
-            fedens = trapz(
-                trapz(jnp.exp(params["electron"]["fe"]), self.cfg["parameters"]["electron"]["fe"]["v_res"]),
-                self.cfg["parameters"]["electron"]["fe"]["v_res"],
+            fedens = (
+                jnp.sum(jnp.exp(params["electron"]["fe"])) * self.cfg["parameters"]["electron"]["fe"]["v_res"] ** 2.0
             )
             jax.debug.print("zero moment = {fedens}", fedens=fedens)
             density_loss = jnp.mean(jnp.square(1.0 - fedens))
@@ -444,16 +442,15 @@ class LossFunction:
             #         )
             #     )
             # )
-            second_moment = trapz(
-                trapz(
+            second_moment = (
+                jnp.sum(
                     jnp.exp(params["electron"]["fe"])
                     * (
                         self.cfg["parameters"]["electron"]["fe"]["velocity"][0] ** 2
                         + self.cfg["parameters"]["electron"]["fe"]["velocity"][1] ** 2
-                    ),
-                    self.cfg["parameters"]["electron"]["fe"]["v_res"],
-                ),
-                self.cfg["parameters"]["electron"]["fe"]["v_res"],
+                    )
+                )
+                * self.cfg["parameters"]["electron"]["fe"]["v_res"] ** 2.0
             )
             jax.debug.print("second moment = {fedens}", fedens=second_moment)
             temperature_loss = jnp.mean(jnp.square(1.0 - second_moment / 2))

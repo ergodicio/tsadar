@@ -186,5 +186,5 @@ dist_fit:
         type: hamming # one of [hamming, hann, bartlett]
         
 mlflow:
-    experiment: inverse-thomson-scattering
-    run: base
+    experiment: tsadar-tests
+    run: time_test

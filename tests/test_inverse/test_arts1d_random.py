@@ -1,5 +1,5 @@
 import pytest
-from jax import config
+from jax import config, block_until_ready
 
 config.update("jax_enable_x64", True)
 
@@ -9,7 +9,7 @@ from scipy.optimize import minimize
 import equinox as eqx
 import numpy as np
 import matplotlib.pyplot as plt
-import yaml, os, mlflow, tempfile, optax, tqdm
+import yaml, os, mlflow, tempfile, optax, tqdm, time
 from flatten_dict import flatten, unflatten
 
 from tsadar.utils import misc
@@ -30,7 +30,6 @@ def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
 
     """
 
-    params["electron"]["fe"]["params"]["m"]["val"] = float(rng.uniform(2.0, 3.5))
     params["electron"]["Te"]["val"] = float(rng.uniform(0.5, 1.5))
     params["electron"]["ne"]["val"] = float(rng.uniform(0.1, 0.7))
 
@@ -40,8 +39,10 @@ def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
 
     if arbitrary_distribution:
         params["electron"]["fe"]["params"]["init_m"] = float(rng.uniform(2.0, 3.5))
+        params["electron"]["fe"]["type"] = "arbitrary"
     else:
         params["electron"]["fe"]["params"]["m"]["val"] = float(rng.uniform(2.0, 3.5))
+        params["electron"]["fe"]["type"] = "dlm"
 
     # for key in params["general"].keys():
     #     params[key]["val"] *= rng.uniform(0.75, 1.25)
@@ -66,11 +67,12 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
     """
     if "CPU_ONLY" in os.environ:
-        if os.environ["CPU_ONLY"]:
+        if os.environ["CPU_ONLY"] == True:
             pytest.skip("Skipping GPU test on CPU-only")
     else:
         pytest.skip("Assuming CPU test - Skipping GPU test")
 
+    _t0 = time.time()
     mlflow.set_experiment("tsadar-tests")
     with mlflow.start_run(run_name="test_arts1d_inverse") as run:
         with open("tests/configs/arts1d_test_defaults.yaml", "r") as fi:
@@ -125,33 +127,26 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
                 return jnp.sum(jnp.mean(jnp.square(ThryE - ground_truth["ThryE"])))
 
+            t0 = time.time()
             jit_vg = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))
-            jit_v = eqx.filter_jit(loss_fn)
-            jit_g = eqx.filter_jit(eqx.filter_grad(loss_fn))
+            diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
+            temp_out = block_until_ready(jit_vg(diff_params, static_params))
+            mlflow.log_metric(f"first run time", time.time() - t0)
 
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-                print("Starting while loop")
-                config["parameters"] = _perturb_params_(
-                    rng, config["parameters"], arbitrary_distribution=arbitrary_distribution
-                )
-                ts_params_fit = ThomsonParams(
-                    config["parameters"],
-                    num_params=1,
-                    batch=False,
-                    activate=True,
-                )
-                diff_params, static_params = eqx.partition(
-                    ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
-                )
+                diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
 
                 use_optax = False
                 if use_optax:
                     opt = optax.adam(0.001)
                     opt_state = opt.init(diff_params)
                     for i in (pbar := tqdm.tqdm(range(25))):
+                        t0 = time.time()
                         loss, grad_loss = jit_vg(diff_params, static_params)
+                        mlflow.log_metric(f"iteration time", time.time() - t0, step=i)
+
                         updates, opt_state = opt.update(grad_loss, opt_state)
                         diff_params = eqx.apply_updates(diff_params, updates)
                         pbar.set_description(f"Loss: {loss:.4f}")
@@ -159,24 +154,12 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 else:
                     flattened_diff_params, unravel = ravel_pytree(diff_params)
 
-                    def scipy_v_fn(diff_params_flat):
-                        diff_params_pytree = unravel(diff_params_flat)
-                        loss = jit_v(diff_params_pytree, static_params)
-                        return float(loss)
-
                     def scipy_vg_fn(diff_params_flat):
                         diff_params_pytree = unravel(diff_params_flat)
                         loss, grads = jit_vg(diff_params_pytree, static_params)
                         flattened_grads, _ = ravel_pytree(grads)
 
                         return float(loss), np.array(flattened_grads)
-
-                    def scipy_g_fn(diff_params_flat):
-                        diff_params_pytree = unravel(diff_params_flat)
-                        grads = jit_g(diff_params_pytree, static_params)
-                        flattened_grads, _ = ravel_pytree(grads)
-
-                        return np.array(flattened_grads)
 
                     res = minimize(
                         scipy_vg_fn, flattened_diff_params, method="L-BFGS-B", jac=True, options={"disp": True}
@@ -206,11 +189,27 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             ax[2].set_title("Model - Ground Truth")
             fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
 
+            mlflow.log_metric("runtime-sec", time.time() - _t0)
             mlflow.log_artifacts(td)
 
     misc.export_run(run.info.run_id)
-    # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.2, rtol=1)
+    # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
 
 
-# if __name__ == "__main__":
-#     test_arts1d_inverse(arbitrary_distribution=False)
+def perturb_and_split_params(arbitrary_distribution, config, rng):
+    config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=arbitrary_distribution)
+    ts_params_fit = ThomsonParams(
+        config["parameters"],
+        num_params=1,
+        batch=False,
+        activate=True,
+    )
+    diff_params, static_params = eqx.partition(
+        ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
+    )
+
+    return diff_params, static_params
+
+
+if __name__ == "__main__":
+    test_arts1d_inverse(arbitrary_distribution=False)
