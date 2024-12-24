@@ -72,7 +72,7 @@ parameters:
         ub: 1.0
     fe:
 
-        active: False
+        active: True
         type: dlm
         params:
             m: 

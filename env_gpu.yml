@@ -1,27 +1,27 @@
+name: tsadar-gpu
 channels:
   - conda-forge
 dependencies:
-  - python=3.12
-  - pyhdf
+  - python=3.11
   - pip
-  - jax[cuda12]
-  - jaxopt
-  - numpy<2
-  - scipy
-  - matplotlib
-  - pyyaml
-  - mlflow
-  - boto3
-  - flatten-dict
-  - typing-extensions
-  - optax
-  - tqdm
-  - xarray
-  - pandas
+  - pyhdf
   - xlrd
   - pip:
-    - mlflow_export_import
-    - interpax
-    - psutil
-    - pynvml
+      - "jax[cuda12]"
+      - jaxopt
+      - numpy
+      - scipy
+      - matplotlib
+      - pyyaml
+      - mlflow
+      - boto3
+      - flatten-dict
+      - typing-extensions
+      - optax
+      - tqdm
+      - xarray
+      - mlflow_export_import
+      - pandas
+      - interpax
+      - tabulate
       

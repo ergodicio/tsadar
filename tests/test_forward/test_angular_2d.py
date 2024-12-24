@@ -1,5 +1,5 @@
 import pytest
-from jax import config, device_count
+from jax import config, devices
 
 config.update("jax_enable_x64", True)
 
@@ -28,7 +28,7 @@ def test_arts2d_forward_pass():
 
     """
 
-    if device_count("gpu") == 0:
+    if not any(["gpu" == device.platform for device in devices()]):
         pytest.skip("Takes too long without a GPU")
 
     mlflow.set_experiment("tsadar-tests")

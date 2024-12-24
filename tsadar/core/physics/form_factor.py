@@ -1,4 +1,4 @@
-from jax import numpy as jnp, vmap, device_put, device_count
+from jax import numpy as jnp, vmap, device_put, device_count, devices
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
@@ -89,16 +89,20 @@ class FormFactor:
         self.ud_angle, self.va_angle = ud_ang, va_ang
 
         # Create a Sharding object to distribute a value across devices:
-        num_gpus = device_count(backend="gpu")
-        if num_gpus > 1:
-            print(
-                f"If this is a 2D Angular calculation, it will be parallelized across {num_gpus} GPUs. Otherwise, only a single GPU is used"
-            )
-            mesh = Mesh(devices=mesh_utils.create_device_mesh((device_count(backend="gpu"),)), axis_names=("x"))
-            self.sharding = NamedSharding(mesh, P("x"))
-            self.calc_all_chi_vals = self.parallel_calc_all_chi_vals
-        else:
-            self.calc_all_chi_vals = self._calc_all_chi_vals_
+        is_gpu_present = any(["gpu" == device.platform for device in devices()])
+        self.calc_all_chi_vals = self._calc_all_chi_vals_
+
+        if is_gpu_present:
+            num_gpus = device_count(backend="gpu")
+            if num_gpus > 1:
+                print(
+                    f"If this is a 2D Angular calculation, it will be parallelized across {num_gpus} GPUs. Otherwise, only a single GPU is used"
+                )
+                mesh = Mesh(devices=mesh_utils.create_device_mesh((device_count(backend="gpu"),)), axis_names=("x"))
+                self.sharding = NamedSharding(mesh, P("x"))
+                self.calc_all_chi_vals = self.parallel_calc_all_chi_vals
+            else:
+                self.calc_all_chi_vals = self._calc_all_chi_vals_
 
     def __call__(self, params):
         """

@@ -28,7 +28,7 @@ jobs:
           environment-file: env.yml
       - shell: bash -el {0}
         run: |
-          CPU_ONLY=True pytest tests/
+          pytest tests/
 
   test-tsadar-gpu:
     runs-on: "gpu_runner"
@@ -44,7 +44,7 @@ jobs:
           environment-file: env_gpu.yml
       - shell: bash -el {0}
         run: |
-          CPU_ONLY=False pytest tests/
+          pytest tests/
       
           
       # - shell: bash -el {0}
