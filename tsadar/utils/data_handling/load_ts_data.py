@@ -1,7 +1,6 @@
 from os.path import join
 from os import listdir
 import os
-from pyhdf.SD import SD, SDC
 import numpy as np
 from scipy.signal import find_peaks
 from tsadar.utils.process.warpcorr import perform_warp_correction
@@ -73,6 +72,8 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             xlab = "Scattering angle (degrees)"
 
     if loadspecs["load_ion_spec"]:
+        from pyhdf.SD import SD, SDC
+
         try:
             iDatfile = SD(hdfnameI, SDC.READ)
             sds_obj = iDatfile.select("Streak_array")  # select sds
@@ -97,6 +98,8 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         iDat = []
 
     if loadspecs["load_ele_spec"]:
+        from pyhdf.SD import SD, SDC
+
         # try:
         eDatfile = SD(hdfnameE, SDC.READ)
         sds_obj = eDatfile.select("Streak_array")  # select sds

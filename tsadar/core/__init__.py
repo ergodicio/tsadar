@@ -1,0 +1,1 @@
+from .thomson_diagnostic import ThomsonScatteringDiagnostic
