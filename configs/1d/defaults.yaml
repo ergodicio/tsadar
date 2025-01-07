@@ -10,25 +10,6 @@ parameters:
             active: False
             lb: 0.001
             ub: 1.0
-        m:
-            val: 3.0
-            active: False
-            lb: 2.0
-            ub: 5.0
-            matte: False
-        fe:
-            val: [ ]
-            active: False
-            type: "DLM"
-            lb: -100.
-            ub: -0.5
-            fe_decrease_strict: False
-            symmetric: False
-            dim: 1
-            v_res: 0.1
-            temp_asym: 1.0
-            m_theta: 0.0
-            m_asym: 1.
 
     ion-1:
         Ti:
@@ -99,9 +80,9 @@ other:
     expandedions: False
     extraoptions:
         spectype: 1d
-        load_ion_spec: true
+        load_ion_spec: false
         load_ele_spec: True
-        fit_IAW: True
+        fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
         absolute_timing: false
@@ -154,7 +135,7 @@ data:
             pixel
         start: 400
         end: 600
-        skip: 10
+        skip: 50
     background:
         type:
             pixel
@@ -182,7 +163,7 @@ optimizer:
     x_norm: False
     grad_method: AD
     batch_size: 2
-    num_epochs: 1000
+    num_epochs: 120
     learning_rate: 1.0e-2
     parameter_norm: True
     refine_factor: 0
@@ -200,4 +181,4 @@ dist_fit:
         
 mlflow:
     experiment: inverse-thomson-scattering
-    run: gradne-5
+    run: new

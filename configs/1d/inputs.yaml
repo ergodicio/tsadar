@@ -10,19 +10,16 @@ parameters:
             active: True
             lb: .001
             ub: 1.
-        m:
-            val: 3.0
-            active: True
-            lb: 2.
-            ub: 5.
         fe:
-            val: [ ]
-            active: False
-            type: "DLM"
-            lb: -100.
-            ub: -0.5
+            active: True
+            type: dlm
             dim: 1
-            v_res: 0.1
+            nv: 64
+            params:
+                m:
+                    val: 2.5
+                    lb: 2.0
+                    ub: 5.0
     ion-1:
         Ti:
             val: .2
@@ -41,24 +38,6 @@ parameters:
         fract:
             val: 1.
             active: False
-    ion-2:
-        Ti:
-            val: .4
-            active: False
-            lb: 0.01
-            ub: 3.
-            same: False
-        Z:
-            val: 16.
-            active: False
-            lb: 1.
-            ub: 25.
-        A:
-            val: 50.
-            active: False
-        fract:
-            val: 0.0
-            active: False
     general:
         amp1:
             val: 1.
@@ -76,7 +55,7 @@ parameters:
             lb: 0.
             ub: 10.
         lam:
-            val: 526.5
+            val: 524.0
             active: True
             lb: 523.
             ub: 528.
@@ -87,7 +66,7 @@ parameters:
             ub: 10.
             num_grad_points: 1
         ne_gradient:
-            val: 5.
+            val: 0.
             active: False
             lb: 0.
             ub: 15.
@@ -109,5 +88,5 @@ parameters:
 other:
     refit: False
     refit_thresh: 5.0
-    calc_sigmas: True
+    calc_sigmas: false
 
