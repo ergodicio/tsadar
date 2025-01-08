@@ -15,7 +15,7 @@ Note: This section is under heavy development and the API is very much subject t
     :maxdepth: 2
     :caption: Middle Level API:
 
-    TSfitter
+    ThomsonScattering
     spectrum
 
 .. toctree::

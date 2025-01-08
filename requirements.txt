@@ -1,9 +1,7 @@
-jaxlib
 jax
-numpy<2
+numpy
 scipy
 matplotlib
-pyhdf
 xlrd
 pyyaml
 mlflow
