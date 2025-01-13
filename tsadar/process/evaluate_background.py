@@ -115,23 +115,31 @@ def get_lineout_bg(
                 def rat21(x, a, b, c, d):
                     return (a * x**2 + b * x + c) / (x + d)
 
-                # [ratbg, _] = spopt.curve_fit(rat21,bgfitx,LineoutTSE_smooth[bgfitx])
+                #[ratbg, _] = spopt.curve_fit(rat21,bgfitx,LineoutTSE_smooth[bgfitx])
 
                 def rat11(x, a, b, c):
                     return (a * x + b) / (x + c)
+                
+                def expdecay(t,a,k,b):
+                    return a*np.exp(-k*t)+b
 
                 LineoutBGE = []
-                for i, _ in enumerate(config["data"]["lineouts"]["val"]):
+                for  i, _ in enumerate(config["data"]["lineouts"]["val"]):
+                    [ratbg,_]=spopt.curve_fit(rat11,bgfitx,LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
+
+                    LineoutBGE.append(rat11(np.arange(1024), *ratbg))
+                """for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                     [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170], maxfev=2000)
                     # if config["data"]["background"]["show"]:
                     #if i %1 == 0:
             
-                        #plt.plot(rat11(np.arange(1024), *rat1bg))
-                        #plt.plot(LineoutTSE_smooth[i])
-                        #plt.show()
-                        #print(i)
+                    plt.plot(rat11(np.arange(1,1024), *rat1bg))
+                    plt.plot(LineoutTSE_smooth[i])
+                    plt.ylim([0,5000])
+                    plt.show()
+                    print(i)
 
-                    LineoutBGE.append(rat11(np.arange(1024), *rat1bg))
+                    LineoutBGE.append(rat11(np.arange(1024), *rat1bg))"""
         # if not fit
         else:
             # quantify a background lineout

@@ -521,8 +521,10 @@ def plot_2D_data_vs_fit(
         fit,
         shading="nearest",
         cmap="gist_ncar",
+        #vmin = 0,
         vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-        vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
+        #vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
+        vmax = 50000,
     )
     ax[0].set_xlabel(xlabel)
     ax[0].set_ylabel(ylabel)
@@ -533,7 +535,8 @@ def plot_2D_data_vs_fit(
         shading="nearest",
         cmap="gist_ncar",
         vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-        vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
+        vmax = 50000,
+        #vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
     )
     ax[1].set_xlabel(xlabel)
     ax[1].set_ylabel(ylabel)

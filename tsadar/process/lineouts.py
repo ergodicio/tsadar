@@ -12,7 +12,7 @@ def get_lineouts(
     # Convert lineout locations to pixel
     if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":
         LineoutPixelE = [np.argmin(abs(axisxE - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
-        IAWtime = IAWtime / axisxI[1]  # corrects the iontime to be in the same units as the lineout
+        IAWtime = IAWtime / (axisxI[1]-axisxI[0])  # corrects the iontime to be in the same units as the lineout
         LineoutPixelI = [np.argmin(abs(axisxI - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
     elif config["data"]["lineouts"]["type"] == "pixel":
         LineoutPixelE = config["data"]["lineouts"]["val"]

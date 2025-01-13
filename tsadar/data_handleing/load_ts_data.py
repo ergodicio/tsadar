@@ -75,7 +75,7 @@ def loadData(sNum, sDay, loadspecs):
             iDat = np.flipud(iDat)
 
             if specType == "imaging":
-                iDat = np.rot90(np.squeeze(iDat), 3)
+                iDat = np.rot90(np.squeeze(iDat), 1)
         except BaseException:
             print("Unable to find IAW")
             iDat = []

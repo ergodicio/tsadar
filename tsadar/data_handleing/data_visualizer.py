@@ -26,7 +26,7 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             for loc in config["data"]["lineouts"]["val"]
         ]
         IAWtime = (
-            config["data"]["ion_t0_shift"] / all_axes["iaw_x"][1]
+            config["data"]["ion_t0_shift"] / (all_axes["iaw_x"][1]-all_axes["iaw_x"][0])
         )  # corrects the iontime to be in the same units as the lineout
         LineoutPixelI = [
             np.argmin(abs(all_axes["iaw_x"] - loc - config["data"]["ele_t0"]))
@@ -54,6 +54,7 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 cmap="turbo_r",
                 #norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03, vmin =0, vmax= np.amax(ionData)),
                 norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
+                shading= "auto",
                 #vmin=np.amin(ionData),
                 #vmin=0,
                 #vmax= np.amax(ionData),
