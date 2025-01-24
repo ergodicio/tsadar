@@ -138,6 +138,7 @@ class DistributionFunction2D(eqx.Module):
 class SphericalHarmonics(DistributionFunction2D):
     vr: Array
     th: Array
+    phi: Array
     sph_harm: Callable
     vr_vxvy: Array
     Nl: int
@@ -156,56 +157,86 @@ class SphericalHarmonics(DistributionFunction2D):
 
         vx, vy = jnp.meshgrid(self.vx, self.vx)
         self.th = jnp.arctan2(vy, vx)
+        self.phi = jnp.arccos(vy / jnp.abs(vy))
         self.vr_vxvy = jnp.sqrt(vx**2 + vy**2)
         self.Nl = dist_cfg["params"]["Nl"]
 
-        self.sph_harm = vmap(sph_harm, in_axes=(None, None, None, 0, None))
+        self.sph_harm = vmap(sph_harm, in_axes=(None, None, 0, 0, None))
         self.flm = defaultdict(dict)
         for i in range(self.Nl + 1):
             self.flm[i] = {j: jnp.zeros(dist_cfg["params"]["nvr"]) for j in range(i + 1)}
 
         init_m = dist_cfg["params"]["init_m"]
-        self.flm[0][0] = self.get_f00(init_m)
-        if dist_cfg["params"]["init_f10"]:
-            self.flm[1][0] = (
-                dist_cfg["params"]["init_f10"] * jnp.gradient(jnp.gradient(self.flm[0][0])) * self.vr**2.0 * dvr
-            )
-        if dist_cfg["params"]["init_f11"]:
-            self.flm[1][1] = (
-                dist_cfg["params"]["init_f11"] * jnp.gradient(jnp.gradient(self.flm[0][0])) * self.vr**2.0 * dvr
-            )
 
         self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
         self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
-        inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+        inv_act_fun = lambda x: jnp.log(1e-6 + x / (1 - x))
         self.act_fun = sigmoid
         self.normed_m = inv_act_fun((init_m - self.m_shift) / self.m_scale)
+
+        self.flm[0][0] = self.get_f00()
+
+        # Uses eq. 3 from
+        # Mora, P. & Yahi, H. Thermal heat-flux reduction in laser-produced plasmas. Phys. Rev. A 26, 2259–2261 (1982).
+
+        LTx = dist_cfg["params"]["LTx"]  # Provide in units of mean free path
+        LTy = dist_cfg["params"]["LTy"]  # Provide in units of mean free path
+        v0 = 1.0  # distributions are normalized to vth anyway
+        lambda_e = (
+            1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
+        )
+        # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
+        ve = gamma(5.0 / init_m) / 3 / gamma(3.0 / init_m) * v0
+
+        uu = self.vr / v0
+        lambda_v = lambda_e * (self.vr / ve) ** 4.0
+        coeff = (
+            init_m / 2 * uu**init_m - 5 * init_m / 12 * gamma(8 / init_m) / gamma(6 / init_m) * uu ** (init_m - 2) - 1.5
+        ) * lambda_v
+
+        self.flm[1][0] = coeff / LTx
+        self.flm[1][1] = coeff / LTy
 
     def get_unnormed_params(self):
         return {"flm": self.flm}
 
-    def get_f00(self, m):
-        vth_x = 1.0
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
-        cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
-        f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+    def get_unnormed_m(self):
+        return self.act_fun(self.normed_m) * self.m_scale + self.m_shift
+
+    def get_f00(self):
+        unnormed_m = self.get_unnormed_m()
+
+        # m = unnormed_m
+        # vth_x = 1.0
+        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
+        # cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
+        # f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+        # f00 /= jnp.sum(f00 * 4 * jnp.pi * self.vr**2.0) * (self.vr[1] - self.vr[0])
+
+        # return f00
+
+        ve = 1.0
+        v0 = ve / jnp.sqrt(gamma(5.0 / unnormed_m) / 3.0 / gamma(3.0 / unnormed_m))
+        cst = unnormed_m / (4 * jnp.pi * gamma(3.0 / unnormed_m))
+        f00 = cst / v0**3.0 * jnp.exp(-((self.vr / v0) ** unnormed_m))
         f00 /= jnp.sum(f00 * 4 * jnp.pi * self.vr**2.0) * (self.vr[1] - self.vr[0])
 
         return f00
 
     def __call__(self):
-        # fvxvy = jnp.zeros(jnp.shape(self.vr_vxvy))
-        unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        f00 = self.get_f00(unnormed_m)
+
+        f00 = self.get_f00()
         fvxvy = jnp.interp(self.vr_vxvy, self.vr, f00, right=1e-16)
 
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
-                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, self.flm[i][j], right=1e-16)
+                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, self.flm[i][j] * self.flm[0][0], right=1e-16)
                 _sph_harm = self.sph_harm(
-                    jnp.array([j]), jnp.array([i]), 0.0, self.th.reshape(-1, order="C"), 2
+                    jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2
                 ).reshape(self.vr_vxvy.shape, order="C")
                 fvxvy += _flmvxvy * jnp.real(_sph_harm)
+
+        fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])
 
         return fvxvy
 
@@ -574,6 +605,30 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_type: str) -> Dict:
                 filter_spec = update_distribution_layers(filter_spec, df=df[i])
         else:
             filter_spec = update_distribution_layers(filter_spec, df=df)
+    elif dist_type.casefold() == "sphericalharmonic":
+        if isinstance(filter_spec.electron.distribution_functions, list):
+            num_dists = len(filter_spec.electron.distribution_functions)
+            for i in range(num_dists):
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+                )
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].flm[1][0], filter_spec, replace=True
+                )
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].flm[1][1], filter_spec, replace=True
+                )
+        else:
+
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+            )
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.flm[1][0], filter_spec, replace=True
+            )
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.flm[1][1], filter_spec, replace=True
+            )
 
     else:
         raise NotImplementedError(f"Untrainable distribution type: {dist_type}")
