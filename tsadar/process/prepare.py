@@ -7,6 +7,7 @@ from tsadar.process.correct_throughput import correctThroughput
 from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
 from tsadar.process.lineouts import get_lineouts
 from tsadar.data_handleing.data_visualizer import launch_data_visualizer
+from tsadar.process.feature_detector import first_guess
 
 
 def prepare_data(config: Dict) -> Dict:
@@ -55,7 +56,23 @@ def prepare_data(config: Dict) -> Dict:
 
     # load and correct background
     [BGele, BGion] = get_shot_bg(config, axisyE, elecData)
-
+ # feature detector call feature detecto, if the boolean for the featiure detector is true , these can be like  if config["other"]["extraoptions"]["load_ele_spec"]: then call the function which returns some of the outputs 
+ #assign each returned variable to the corresponmdent one in the decks
+    if config["data"]["estimate_lineouts_iaw"]:
+        [ lineout_end,lineout_start,iaw_cf,iaw_max,iaw_min] = first_guess(elecData, ionData, all_axes, config)
+        config["data"]["lineouts"]["start"] = lineout_start
+        config["data"]["lineouts"]["end"] = lineout_end
+        config["data"]["fit_rng"]["iaw_min"] = iaw_min
+        config["data"]["fit_rng"]["iaw_max"] = iaw_max
+        config["data"]["fit_rng"]["iaw_cf_min"] = iaw_cf
+    if config["data"]["estimate_lineouts_epw"]:
+        [ lineout_end,lineout_start,blue_max,blue_min,red_max,red_min] =first_guess(elecData, ionData, all_axes, config)
+        config["data"]["lineouts"]["start"] = lineout_start
+        config["data"]["lineouts"]["end"] = lineout_end
+        config["data"]["fit_rng"]["blue_min"] = blue_min
+        config["data"]["fit_rng"]["blue_max"] = blue_max
+        config["data"]["fit_rng"]["red_min"] = red_min
+        config["data"]["fit_rng"]["red_max"] = red_max
     # extract ARTS section
     if (config["data"]["lineouts"]["type"] == "range") & (config["other"]["extraoptions"]["spectype"] == "angular"):
         config["other"]["extraoptions"]["spectype"] = "angular_full"
