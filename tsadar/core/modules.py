@@ -237,6 +237,7 @@ class SphericalHarmonics(DistributionFunction2D):
                 fvxvy += _flmvxvy * jnp.real(_sph_harm)
 
         fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])
+        fvxvy = jnp.maximum(fvxvy, 1e-16)
 
         return fvxvy
 

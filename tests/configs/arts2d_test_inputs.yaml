@@ -87,13 +87,13 @@ parameters:
       active: false
       dim: 2
       type: sphericalharmonic
-      nvx: 256
+      nvx: 512
       params:
-        init_m: 2.7
-        init_f10: 1.0e-2
-        init_f11: 1.0e-2
+        init_m: 2.2
+        LTx: 22500000.
+        LTy: 40000000.
         Nl: 1
-        nvr: 32
+        nvr: 128
         
     ne:
       active: true
