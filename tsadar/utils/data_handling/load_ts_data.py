@@ -78,7 +78,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             iDatfile = SD(hdfnameI, SDC.READ)
             sds_obj = iDatfile.select("Streak_array")  # select sds
             iDat = sds_obj.get()  # get sds data
-            iDat = iDat.astype("float64")
+            iDat = iDat.astype(np.float64)
             iDat = iDat[0, :, :] - iDat[1, :, :]
             iDat = np.flipud(iDat)
 
@@ -104,7 +104,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         eDatfile = SD(hdfnameE, SDC.READ)
         sds_obj = eDatfile.select("Streak_array")  # select sds
         eDat = sds_obj.get()  # get sds data
-        eDat = eDat.astype("float64")
+        eDat = eDat.astype(np.float64)
         eDat = eDat[0, :, :] - eDat[1, :, :]
 
         if specType == "angular":
