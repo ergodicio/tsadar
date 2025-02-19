@@ -10,19 +10,19 @@ data:
   ele_t0: 0
   fit_rng:
     blue_max: 510
-    blue_min: 430
+    blue_min: 450
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 527.25
     forward_iaw_start: 525.75
-    iaw_cf_max: 526.501
-    iaw_cf_min: 526.499
+    iaw_cf_max: 526.6
+    iaw_cf_min: 526.2
     iaw_max: 527.3
     iaw_min: 525.7
-    red_max: 660
-    red_min: 545
+    red_max: 640
+    red_min: 550
   ion_loss_scale: 1.0
-  ion_t0_shift: -150
+  ion_t0_shift: 0
   launch_data_visualizer: true
   lineouts:
     end: 510
@@ -45,7 +45,7 @@ nn:
   linear_widths: 16|8
   use: false
 optimizer:
-  batch_size: 6
+  batch_size: 4
   grad_method: AD
   hessian: false
   learning_rate: 0.0001
@@ -85,7 +85,7 @@ other:
   - 528
   iawoff: 0
   lam_res_unit: 5
-  points_per_pixel: 10
+  points_per_pixel: 1
   refit: false
   refit_thresh: 0.25
 parameters:

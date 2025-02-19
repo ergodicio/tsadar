@@ -1,16 +1,16 @@
 data:
   background:
-    slice: 900
-    type: pixel
+    slice: 605
+    type: Fit
   lineouts:
-    end: 2200
-    skip: 20
-    start: 1150
-    type: ps
-  shotnum: 111411
+    end: 600
+    skip: 25
+    start: -700
+    type: um
+  shotnum: 102727
 mlflow:
-  experiment: shot_day_3_27_24
-  run: shot111411_wograd_1
+  experiment: davids_data
+  run: shot102727_gradtest
 other:
   PhysParams:
     widIRF:
@@ -20,7 +20,7 @@ other:
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
-    fit_IAW: true
+    fit_IAW: false
     load_ele_spec: true
     load_ion_spec: true
     spectype: temporal
@@ -35,11 +35,11 @@ parameters:
       ub: 10.0
       val: 0.0
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.5
       ub: 80.5
-      val: 16.0
+      val: 10.0
     amp1:
       active: true
       lb: 0.01
@@ -51,7 +51,7 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -59,28 +59,28 @@ parameters:
       active: true
       lb: 523.0
       ub: 528.0
-      val: 526.7
+      val: 526.6
     ne_gradient:
-      active: false
+      active: true
       lb: 0.0
-      num_grad_points: 1
-      ub: 15.0
-      val: 0.0
+      num_grad_points: 10
+      ub: 25.0
+      val: 5.0
     type:
       active: false
       general: null
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -30.0
-      ub: 30.0
-      val: 8.0
+      ub: 50.0
+      val: 10.0
   species1:
     Te:
       active: true
       lb: 0.01
-      ub: 2.0
-      val: 0.66
+      ub: 3.0
+      val: 0.25
     fe:
       active: false
       dim: 1
@@ -102,56 +102,35 @@ parameters:
       lb: 2.0
       matte: false
       ub: 5.0
-      val: 2.2
+      val: 2.0
     ne:
       active: true
       lb: 0.03
       ub: 2.0
-      val: 0.43
+      val: 0.2
     type:
       active: false
       electron: null
   species2:
     A:
       active: false
-      val: 40.0
+      val: 1.0
     Ti:
-      active: True
+      active: false
       lb: 0.01
       same: false
       ub: 1.0
-      val: 0.08
+      val: 0.04
     Z:
-      active: True
+      active: False
       lb: 1.0
       ub: 18.0
-      val: 10.0
+      val: 1.0
     fract:
       active: false
       lb: 0.0
       ub: 1.0
-      val: 0.1
-    type:
-      active: false
-      ion: null
-  species3:
-    A:
-      active: false
       val: 1.0
-    Ti:
-      active: false
-      lb: 0.01
-      same: true
-      ub: 1.0
-      val: 0.08
-    Z:
-      active: false
-      lb: 0.5
-      ub: 1.0
-      val: 1.0
-    fract:
-      active: false
-      val: 0.9
     type:
       active: false
       ion: null
