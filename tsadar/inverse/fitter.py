@@ -16,57 +16,57 @@ from ..core.modules import get_filter_spec, ThomsonParams
 from ..utils.process import prepare, postprocess
 
 
-def init_param_norm_and_shift(config: Dict) -> Dict:
-    """
-    Initializes the dictionary that contains the normalization constants for all the parameters
+# def init_param_norm_and_shift(config: Dict) -> Dict:
+#     """
+#     Initializes the dictionary that contains the normalization constants for all the parameters
 
-    The parameters are all normalized from 0 to 1 in order to improve gradient flow
+#     The parameters are all normalized from 0 to 1 in order to improve gradient flow
 
-    Args:
-        config: Dict
+#     Args:
+#         config: Dict
 
-    Returns: Dict
+#     Returns: Dict
 
-    """
-    lb = {}
-    ub = {}
-    parameters = config["parameters"]
-    active_params = {}
-    for species in parameters.keys():
-        active_params[species] = []
-        lb[species] = {}
-        ub[species] = {}
-        for key in parameters[species].keys():
-            if parameters[species][key]["active"]:
-                active_params[species].append(key)
-                if np.size(parameters[species][key]["val"]) > 1:
-                    lb[species][key] = parameters[species][key]["lb"] * np.ones(
-                        np.size(parameters[species][key]["val"])
-                    )
-                    ub[species][key] = parameters[species][key]["ub"] * np.ones(
-                        np.size(parameters[species][key]["val"])
-                    )
-                else:
-                    lb[species][key] = parameters[species][key]["lb"]
-                    ub[species][key] = parameters[species][key]["ub"]
+#     """
+#     lb = {}
+#     ub = {}
+#     parameters = config["parameters"]
+#     active_params = {}
+#     for species in parameters.keys():
+#         active_params[species] = []
+#         lb[species] = {}
+#         ub[species] = {}
+#         for key in parameters[species].keys():
+#             if parameters[species][key]["active"]:
+#                 active_params[species].append(key)
+#                 if np.size(parameters[species][key]["val"]) > 1:
+#                     lb[species][key] = parameters[species][key]["lb"] * np.ones(
+#                         np.size(parameters[species][key]["val"])
+#                     )
+#                     ub[species][key] = parameters[species][key]["ub"] * np.ones(
+#                         np.size(parameters[species][key]["val"])
+#                     )
+#                 else:
+#                     lb[species][key] = parameters[species][key]["lb"]
+#                     ub[species][key] = parameters[species][key]["ub"]
 
-    norms = {}
-    shifts = {}
-    if config["optimizer"]["parameter_norm"]:
-        for species in active_params.keys():
-            norms[species] = {}
-            shifts[species] = {}
-            for k in active_params[species]:
-                norms[species][k] = ub[species][k] - lb[species][k]
-                shifts[species][k] = lb[species][k]
-    else:
-        for species in active_params.keys():
-            norms[species] = {}
-            shifts[species] = {}
-            for k in active_params:
-                norms[species][k] = 1.0
-                shifts[species][k] = 0.0
-    return {"norms": norms, "shifts": shifts, "lb": lb, "ub": ub}
+#     norms = {}
+#     shifts = {}
+#     if config["optimizer"]["parameter_norm"]:
+#         for species in active_params.keys():
+#             norms[species] = {}
+#             shifts[species] = {}
+#             for k in active_params[species]:
+#                 norms[species][k] = ub[species][k] - lb[species][k]
+#                 shifts[species][k] = lb[species][k]
+#     else:
+#         for species in active_params.keys():
+#             norms[species] = {}
+#             shifts[species] = {}
+#             for k in active_params:
+#                 norms[species][k] = 1.0
+#                 shifts[species][k] = 0.0
+#     return {"norms": norms, "shifts": shifts, "lb": lb, "ub": ub}
 
 
 def _validate_inputs_(config: Dict) -> Dict:

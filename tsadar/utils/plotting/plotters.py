@@ -111,7 +111,7 @@ def plot_final_params(config, all_params, sigmas_ds, td):
     return
 
 
-def plot_loss_hist(config, losses_init, losses, all_params, used_points, td):
+def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     """
     Plots histograms of the raw loss and reduced loss. Each histogram contains 2 data sets, blue for before refitting
     and orange for after refitting. The losses and reduced losses are saved to file as well. Note: A fit metric of
@@ -134,8 +134,8 @@ def plot_loss_hist(config, losses_init, losses, all_params, used_points, td):
 
     """
     losses[losses > 1e10] = 1e10
-    red_losses = losses / (1.1 * (used_points - len(all_params)))
-    red_losses_init = losses_init / (1.1 * (used_points - len(all_params)))
+    red_losses = losses / (1.1 * reduced_points)
+    red_losses_init = losses_init / (1.1 * reduced_points)
     mlflow.log_metrics(
         {"number of fits above threshold after refit": int(np.sum(red_losses > config["other"]["refit_thresh"]))}
     )
@@ -424,7 +424,11 @@ def plot_data_angular(config, fits, all_data, all_axes, td):
         "fit": fits["ele"],
         "data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
     }
-    savedata = xr.Dataset({k: xr.DataArray(v) for k, v in dat.items()})
+    coords = (all_axes["x_label"], np.squeeze(all_axes["epw_x"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"]])), (
+        "Wavelength",
+        np.squeeze(all_axes["epw_y"]),
+    )
+    savedata = xr.Dataset({k: xr.DataArray(v, coords=coords) for k, v in dat.items()})
     savedata.to_netcdf(os.path.join(td, "binary", "fit_and_data.nc"))
     savedata["data"] = savedata["data"].T
     savedata["fit"] = savedata["fit"].T
@@ -654,7 +658,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             r"|Error|$^2$"
             + f" = {sorted_losses[i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[i]]]}"
         )
-        filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[i]]}.png"
+        filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[i]]}.png"
 
         lineout_plot(
             np.array(sorted_data)[:, i, :],
@@ -677,7 +681,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             r"|Error|$^2$"
             + f" = {sorted_losses[-1 - i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[-1 - i]]]}"
         )
-        filename = f"loss={sorted_losses[-1 - i]:.2e}-reduced_loss={sorted_red_losses[-1 - i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[-1 - i]]}.png"
+        filename = f"loss={sorted_losses[-1 - i]:.2e}-reduced_loss={sorted_red_losses[-1 - i]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[-1 - i]]}.png"
 
         lineout_plot(
             np.array(sorted_data)[:, -1 - i, :],

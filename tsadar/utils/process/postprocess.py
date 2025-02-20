@@ -5,9 +5,11 @@ import time, tempfile, mlflow, os, copy
 
 import numpy as np
 import scipy.optimize as spopt
+import equinox as eq
 
 from tsadar.utils.plotting import plotters
 from tsadar.inverse.loss_function import LossFunction
+from tsadar.core.modules import get_filter_spec
 
 
 def recalculate_with_chosen_weights(
@@ -35,18 +37,17 @@ def recalculate_with_chosen_weights(
     # turn list of dictionaries into dictionary of lists
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
 
+    
     for _fw in fitted_weights:
-        unnormed_params = _fw.get_unnormed_params()
-        for k in all_params.keys():
-            for k2 in unnormed_params[k].keys():
-                all_params[k][k2].append(unnormed_params[k][k2])
+        batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
+        for k in batch_fitted_params.keys():
+            for k2 in batch_fitted_params[k].keys():
+                all_params[k][k2].append(batch_fitted_params[k][k2])
 
     # concatenate all the lists in the dictionary
-    num_params = 0
     for k in all_params.keys():
         for k2 in all_params[k].keys():
             all_params[k][k2] = np.concatenate(all_params[k][k2])
-            num_params += len(all_params[k][k2])
 
     fits = {}
     sqdevs = {}
@@ -100,7 +101,7 @@ def recalculate_with_chosen_weights(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            loss, sqds, used_points, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
+            loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
             if calc_sigma:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
@@ -120,7 +121,7 @@ def recalculate_with_chosen_weights(
             fits["ele"][inds] = ThryE
             fits["ion"][inds] = ThryI
 
-    return losses, sqdevs, used_points, fits, sigmas, all_params
+    return losses, sqdevs, num_params, fits, sigmas, all_params
 
 
 def get_sigmas(hess: Dict, batch_size: int) -> Dict:
@@ -192,12 +193,38 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
 def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
     t1 = time.time()
 
+    #calculate used poinsts once right before its used
+    used_points = 0
+    if config["other"]["extraoptions"]["fit_EPWb"]:
+        used_points += np.sum(
+                (all_axes['epw_y'] > config["data"]["fit_rng"]["blue_min"])
+                & (all_axes['epw_y'] < config["data"]["fit_rng"]["blue_max"])
+            )
+    if config["other"]["extraoptions"]["fit_EPWr"]:
+        used_points += np.sum(
+                (all_axes['epw_y'] > config["data"]["fit_rng"]["red_min"])
+                & (all_axes['epw_y'] < config["data"]["fit_rng"]["red_max"])
+            )
+    if config["other"]["extraoptions"]["fit_IAW"]:
+                    used_points += np.sum(
+                (
+                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_min"])
+                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_cf_min"])
+                )
+                | (
+                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_cf_max"])
+                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_max"])
+                )
+            )
+    
     for species in config["parameters"].keys():
         if "electron" == species:
             elec_species = species
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        refit_bad_fits(config, sample_indices, all_data, loss_fn, sa, fitted_weights)
+        init_losses = refit_bad_fits(config, sample_indices, all_data, loss_fn, sa, fitted_weights, used_points)
+    else:
+        init_losses = []
 
     mlflow.log_metrics({"refitting time": round(time.time() - t1, 2)})
 
@@ -209,7 +236,8 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
             )
 
         else:
-            t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td)
+            t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, 
+                                            fitted_weights, init_losses, used_points, t1, td)
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -219,13 +247,16 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     return final_params
 
 
-def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights):
-    losses_init, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights, used_points):
+    losses_init, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, batch_indices, all_data, loss_fn, False, fitted_weights
     )
 
     # refit bad fits
-    red_losses_init = losses_init / (1.1 * (used_points - len(all_params)))
+    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+
+
+    red_losses_init = losses_init / (1.1 * reduced_points)
     true_batch_size = config["optimizer"]["batch_size"]
     # config["optimizer"]["batch_size"] = 1
     mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
@@ -269,29 +300,27 @@ def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights)
         )
         cur_result = loss_fn_refit.unravel_pytree(res["x"])
 
-        for species in cur_result.keys():
-            for key in cur_result[species].keys():
-                fitted_weights[i // true_batch_size][species][key] = (
-                    fitted_weights[i // true_batch_size][species][key]
-                    .at[i % true_batch_size]
-                    .set(cur_result[species][key][0])
-                )
-                # fitted_weights[i // true_batch_size][species][key][i % true_batch_size] = cur_result[species][key]
-
-            # for key in fitted_weights[i // true_batch_size].keys():
-            #     cur_value = cur_result[key][0, 0]
-            #     new_vals = fitted_weights[i // true_batch_size][key]
-            #     new_vals = new_vals.at[tuple([i % true_batch_size, 0])].set(cur_value)
-            #     fitted_weights[i // true_batch_size][key] = new_vals
+        if res < losses_init[i]:
+            for species in cur_result.keys():
+                for key in cur_result[species].keys():
+                    fitted_weights[i // true_batch_size][species][key] = (
+                        fitted_weights[i // true_batch_size][species][key]
+                        .at[i % true_batch_size]
+                        .set(cur_result[species][key][0])
+                    )
+        return losses_init
 
     config["optimizer"]["batch_size"] = true_batch_size
 
 
-def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td):
-    losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, losses_init, used_points, t1, td):
+    losses, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
-    if "losses_init" not in locals():
+
+    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+
+    if losses_init == []:
         losses_init = losses
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
     mlflow.set_tag("status", "plotting")
@@ -299,7 +328,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
 
     final_params = plotters.get_final_params(config, all_params, all_axes, td)
 
-    red_losses = plotters.plot_loss_hist(config, losses_init, losses, all_params, used_points, td)
+    red_losses = plotters.plot_loss_hist(config, losses_init, losses, reduced_points, td)
     savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
     plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
     sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)

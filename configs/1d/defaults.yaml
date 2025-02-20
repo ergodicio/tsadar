@@ -85,7 +85,7 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
-        absolute_timing: false
+        absolute_timing: True
     PhysParams:
         background: [0, 0]
         norm: 0
@@ -140,6 +140,9 @@ data:
         type:
             pixel
         slice: 900
+        bg_alg: rat11
+        bg_alg_params: [-16, 200000, 170]
+        bg_alg_domain: [100, 200, 800, 1023]
 
 plotting:
     n_sigmas: 3
@@ -162,7 +165,7 @@ optimizer:
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 2
+    batch_size: 6
     num_epochs: 120
     learning_rate: 1.0e-2
     parameter_norm: True
@@ -175,6 +178,7 @@ nn:
     linear_widths: 16|8
 
 dist_fit:
+    smooth: True
     window:
         len: 0.2 #should be even
         type: hamming # one of [hamming, hann, bartlett]

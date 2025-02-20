@@ -521,6 +521,22 @@ class ThomsonParams(eqx.Module):
         return {"electron": self.electron(), "general": self.general()} | {
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
+    
+    def get_fitted_params(self, param_cfg):
+        param_dict = self.get_unnormed_params()
+        num_params = 0
+        fitted_params = {}
+        for k in param_dict.keys():
+            fitted_params[k]={}
+            for k2 in param_dict[k].keys():
+                if k2 == 'm' and param_cfg[k]['fe']['active']:
+                    fitted_params[k][k2]=param_dict[k][k2]
+                    num_params+=1
+                elif param_cfg[k][k2]['active']:
+                    fitted_params[k][k2]=param_dict[k][k2]
+                    num_params+=1
+
+        return fitted_params, num_params 
 
 
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:

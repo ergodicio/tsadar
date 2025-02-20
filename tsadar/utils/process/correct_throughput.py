@@ -33,7 +33,7 @@ def correctThroughput(data, tstype, axisy, shotNum):
             vq1 = 1.0 / speccal
         else:
             specax = np.arange(0, 1024) * 0.214116 + 449.5272
-            speccalshift = sp.interp1d(specax, speccal, "linear", bounds_error=False, fill_value=speccal[0])
+            speccalshift = sp.interp1d(specax, speccal, "linear", bounds_error=False, fill_value=speccal[0][0])
             vq1 = 1.0 / speccalshift(axisy)
         # print(np.shape(vq1))
 
