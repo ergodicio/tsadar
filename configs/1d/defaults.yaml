@@ -147,8 +147,8 @@ data:
 plotting:
     n_sigmas: 3
     rolling_std_width: 5
-    data_cbar_u: 10
-    data_cbar_l: 0
+    data_cbar_u: data
+    data_cbar_l: data
     ion_window_start: 525
     ion_window_end: 528
     ele_window_start: 425

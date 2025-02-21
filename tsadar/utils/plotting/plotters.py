@@ -3,6 +3,7 @@ import mlflow, os, pandas
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
+from matplotlib.colors import ListedColormap
 
 from tsadar.utils.plotting.lineout_plot import lineout_plot
 
@@ -537,6 +538,18 @@ def plot_2D_data_vs_fit(
     Returns:
 
     """
+    gist_ncar =  mpl.colormaps['gist_ncar']
+    newcolors = gist_ncar(np.linspace(0, 1, 256))
+
+    r=20
+    lower = np.ones((r,4))
+    # - modify the first three columns (RGB):
+    #   range linearly between white (1,1,1) and the first color of the upper colormap
+    for i in range(3):
+        lower[:,i] = np.linspace(1, newcolors[r,i], lower.shape[0])
+
+    newcolors[:r, :] = lower
+    newcmp = ListedColormap(newcolors)
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
         vmin, vmax = 0.0, 1.5
@@ -546,13 +559,10 @@ def plot_2D_data_vs_fit(
 
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
-    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap="gist_ncar")  # , vmin=vmin, vmax=vmax)
+    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap=newcmp, vmin=vmin, vmax=vmax)
     ax[0].set_xlabel(xlabel)
     ax[0].set_ylabel(ylabel)
-    ax[1].pcolormesh(x, y, data, shading="nearest", cmap="gist_ncar")
-    # vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-    # vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
-    # )
+    ax[1].pcolormesh(x, y, data, shading="nearest", cmap=newcmp, vmin=vmin, vmax=vmax)
     ax[1].set_xlabel(xlabel)
     ax[1].set_ylabel(ylabel)
     fig.colorbar(pc)
