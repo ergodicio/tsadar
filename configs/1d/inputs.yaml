@@ -14,7 +14,7 @@ data:
 parameters:
     electron:
         Te:
-            val: .5
+            val: .2
             active: True
             lb: 0.001
             ub: 1.5
@@ -99,7 +99,7 @@ parameters:
 
 
 other:
-    refit: false
+    refit: true
     refit_thresh: 0.00000002
     calc_sigmas: false
 

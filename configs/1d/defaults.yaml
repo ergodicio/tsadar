@@ -97,7 +97,7 @@ other:
     CCDsize: [1024, 1024]
     flatbg: 0
     gain: 1
-    points_per_pixel: 5
+    points_per_pixel: 1
     ang_res_unit: 10
     lam_res_unit: 5
     refit: False
