@@ -237,3 +237,4 @@ fabric.properties
 
 /mlruns
 .vscode/launch.json
+myenv/

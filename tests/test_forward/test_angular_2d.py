@@ -77,7 +77,7 @@ def test_arts2d_forward_pass():
                 "i_amps": np.array([1]),
             }
 
-            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+            ts_diag = ThomsonScatteringDiagnostic(config, angular=True, cumulative=False)
             ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
             # np.save("tests/test_forward/ThryE-arts2d.npy", ThryE)

@@ -100,7 +100,7 @@ def test_1d_inverse():
             "i_amps": np.array([1]),
         }
         rng = np.random.default_rng()
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=None, angular=False)
+        ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
         config = ts_diag.get_cfg()
         config["parameters"] = _perturb_params_(rng, config["parameters"])
         misc.log_mlflow(config)
@@ -110,7 +110,7 @@ def test_1d_inverse():
 
         loss = 1
         while np.nan_to_num(loss, nan=1) > 1e-3:
-            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=None, angular=False)
+            ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
             config["parameters"] = _perturb_params_(rng, config["parameters"])
             ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
             diff_params, static_params = eqx.partition(

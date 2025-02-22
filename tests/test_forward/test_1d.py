@@ -60,7 +60,7 @@ def test_1d_forward_pass():
             "i_amps": np.array([1]),
         }
 
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=None, angular=False)
+        ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
         config = ts_diag.get_cfg()
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
