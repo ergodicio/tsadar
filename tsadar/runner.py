@@ -17,6 +17,8 @@ from tsadar.misc import utils
 from tsadar.plotting import plotters
 from tsadar.data_handleing.calibrations.calibration import get_calibrations, get_scattering_angles
 
+from tsadar.process.feature_detector import first_guess
+
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
 else:
@@ -60,6 +62,7 @@ def load_and_make_folders(cfg_path: str) -> Tuple[str, Dict]:
     defaults = flatten(all_configs["defaults"])
     defaults.update(flatten(all_configs["inputs"]))
     config = unflatten(defaults)
+
 
     return mlflow_run.info.run_id, config
 

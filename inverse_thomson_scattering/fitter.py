@@ -13,6 +13,10 @@ from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 from tsadar.model.TSFitter import TSFitter
 from inverse_thomson_scattering.process import prepare, postprocess
 
+from tsadar.process.feature_detector import first_guess
+from tsadar.data_handleing.load_ts_data import loadData
+
+
 
 def init_param_norm_and_shift(config: Dict) -> Dict:
     """
@@ -77,6 +81,10 @@ def _validate_inputs_(config: Dict) -> Dict:
     Returns: Dict
 
     """
+    [elecData, ionData, xlab, config["other"]["extraoptions"]["spectype"]] = loadData(
+        config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"]
+    )
+   
     # get derived quantities
     for species in config["parameters"].keys():
         if "electron" in config["parameters"][species]["type"].keys():
@@ -104,12 +112,12 @@ def _validate_inputs_(config: Dict) -> Dict:
             ValueError("Only 1 electron species is currently supported")
 
     # get slices
-    config["data"]["lineouts"]["val"] = [
+    """config["data"]["lineouts"]["val"] = [
         i
         for i in range(
             config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"], config["data"]["lineouts"]["skip"]
         )
-    ]
+    ]"""
 
     num_slices = len(config["data"]["lineouts"]["val"])
     batch_size = config["optimizer"]["batch_size"]

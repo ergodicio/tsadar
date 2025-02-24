@@ -34,6 +34,7 @@ def prepare_data(config: Dict) -> Dict:
     )
     all_axes = {"epw_x": axisxE, "epw_y": axisyE, "iaw_x": axisxI, "iaw_y": axisyI, "x_label": xlab}
 
+
     # turn off ion or electron fitting if the corresponding spectrum was not loaded
     if not config["other"]["extraoptions"]["load_ion_spec"]:
         config["other"]["extraoptions"]["fit_IAW"] = 0
@@ -59,20 +60,46 @@ def prepare_data(config: Dict) -> Dict:
  # feature detector call feature detecto, if the boolean for the featiure detector is true , these can be like  if config["other"]["extraoptions"]["load_ele_spec"]: then call the function which returns some of the outputs 
  #assign each returned variable to the corresponmdent one in the decks
     if config["data"]["estimate_lineouts_iaw"]:
-        [ lineout_end,lineout_start,iaw_cf,iaw_max,iaw_min] = first_guess(elecData, ionData, all_axes, config)
-        config["data"]["lineouts"]["start"] = lineout_start
-        config["data"]["lineouts"]["end"] = lineout_end
-        config["data"]["fit_rng"]["iaw_min"] = iaw_min
-        config["data"]["fit_rng"]["iaw_max"] = iaw_max
-        config["data"]["fit_rng"]["iaw_cf_min"] = iaw_cf
+        [ lineout_end,lineout_start,iaw_cf,iaw_max,iaw_min] = first_guess(elecData, ionData,config)
+        config["data"]["lineouts"]["start"] = all_axes["iaw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["iaw_x"][lineout_end]
+        config["data"]["fit_rng"]["iaw_min"] = all_axes["iaw_y"][iaw_min]
+        config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
+        config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf)]
+        config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf)]
+        config["data"]["lineouts"]["val"] = [
+        i
+        for i in range(
+            config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"], config["data"]["lineouts"]["skip"]
+        )
+        ]
+
+
     if config["data"]["estimate_lineouts_epw"]:
-        [ lineout_end,lineout_start,blue_max,blue_min,red_max,red_min] =first_guess(elecData, ionData, all_axes, config)
-        config["data"]["lineouts"]["start"] = lineout_start
-        config["data"]["lineouts"]["end"] = lineout_end
-        config["data"]["fit_rng"]["blue_min"] = blue_min
-        config["data"]["fit_rng"]["blue_max"] = blue_max
-        config["data"]["fit_rng"]["red_min"] = red_min
-        config["data"]["fit_rng"]["red_max"] = red_max
+        [ lineout_end,lineout_start, blue_min, blue_max, red_min, red_max] =first_guess(elecData, ionData, config)
+        config["data"]["lineouts"]["start"] = all_axes["epw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["epw_x"][lineout_end]
+        config["data"]["fit_rng"]["blue_min"] = all_axes["epw_y"][blue_min]
+        config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
+        config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
+        config["data"]["fit_rng"]["red_max"] = all_axes["epw_y"][red_max]
+        config["data"]["lineouts"]["val"] = [
+        i
+        for i in range(
+            config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"], config["data"]["lineouts"]["skip"]
+        )
+        ]
+    
+    num_slices = len(config["data"]["lineouts"]["val"])
+    batch_size = config["optimizer"]["batch_size"]
+
+    if not num_slices % batch_size == 0:
+        print(f"total slices: {num_slices}")
+        # print(f"{batch_size=}")
+        print(f"batch size = {batch_size} is not a round divisor of the number of lineouts")
+        config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
+        print(f"final {num_slices % batch_size} lineouts have been removed")
+
     # extract ARTS section
     if (config["data"]["lineouts"]["type"] == "range") & (config["other"]["extraoptions"]["spectype"] == "angular"):
         config["other"]["extraoptions"]["spectype"] = "angular_full"
