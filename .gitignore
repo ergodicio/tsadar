@@ -238,3 +238,4 @@ fabric.properties
 #User added
 /mlruns
 .vscode/launch.json
+myenv/

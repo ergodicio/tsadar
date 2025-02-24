@@ -1,9 +1,16 @@
+import os
+
 from jax import numpy as jnp, vmap
 
+from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
+from tsadar.utils.data_handling.load_ts_data import loadData
 
 from .modules import ThomsonParams
 from .physics import irf
 from .physics.generate_spectra import FitModel
+
+
+
 
 
 class ThomsonScatteringDiagnostic:
@@ -20,11 +27,13 @@ class ThomsonScatteringDiagnostic:
         weights of each of the scattering angles in the final spectrum
     """
 
-    def __init__(self, cfg, scattering_angles):
+    def __init__(self, cfg, angular=False, cumulative=True):
+
         super().__init__()
-        self.cfg = cfg
-        self.scattering_angles = scattering_angles
-        self.model = FitModel(cfg, scattering_angles)
+
+        self.cfg, self.scattering_angles = self.initialize_scattering_angles(cfg, angular, cumulative)
+
+        self.model = FitModel(cfg, self.scattering_angles)
 
         if (
             "temporal" in cfg["other"]["extraoptions"]["spectype"]
@@ -125,3 +134,59 @@ class ThomsonScatteringDiagnostic:
         ThryI = ThryI + batch["noise_i"]
 
         return ThryE, ThryI, lamAxisE, lamAxisI
+    
+    def initialize_scattering_angles(self, config, angular, cumulative):
+        """
+        Initializes scattering angles and weights.
+
+        Args:
+            config: Configuration dictionary
+
+        Returns:
+            Updated configuration dictionary with scattering angles and weights
+        """
+        if cumulative:
+            custom_path = None
+            if "filenames" in config["data"].keys():
+                if config["data"]["filenames"]["epw"] is not None:
+                    custom_path = os.path.dirname(config["data"]["filenames"]["epw-local"])
+
+                if config["data"]["filenames"]["iaw"] is not None:
+                    custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
+
+            [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"]] = loadData(
+                config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
+            )   
+            scattering_angles = get_scattering_angles(config)
+
+        else:
+            config["other"]["lamrangE"] = [
+                config["data"]["fit_rng"]["forward_epw_start"],
+                config["data"]["fit_rng"]["forward_epw_end"],
+            ]
+            config["other"]["lamrangI"] = [
+                config["data"]["fit_rng"]["forward_iaw_start"],
+                config["data"]["fit_rng"]["forward_iaw_end"],
+            ]
+            config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+            scattering_angles = get_scattering_angles(config)
+
+            if angular:
+                [axisxE, _, _, _, _, _] = get_calibrations(
+                    104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
+                )  # shot number hardcoded to get calibration
+                config["other"]["extraoptions"]["spectype"] = "angular_full"
+
+                scattering_angles["angAxis"] = axisxE
+
+        return config, scattering_angles
+    
+    def get_cfg(self):
+        """
+        Getter method for the cfg attribute
+
+        Returns:
+            The configuration dictionary
+        """
+
+        return self.cfg

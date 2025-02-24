@@ -45,7 +45,7 @@ class LossFunction:
 
         ############
 
-        self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
+        self.ts_diag = ThomsonScatteringDiagnostic(cfg, angular=False)
 
         self._loss_ = filter_jit(self.__loss__)
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))

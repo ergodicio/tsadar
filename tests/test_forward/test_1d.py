@@ -11,7 +11,6 @@ from flatten_dict import flatten, unflatten
 from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules import ThomsonParams
-from tsadar.utils.data_handling.calibration import get_scattering_angles
 
 
 def test_1d_forward_pass():
@@ -39,17 +38,6 @@ def test_1d_forward_pass():
         defaults.update(flatten(inputs))
         config = unflatten(defaults)
 
-        # get scattering angles and weights
-        config["other"]["lamrangE"] = [
-            config["data"]["fit_rng"]["forward_epw_start"],
-            config["data"]["fit_rng"]["forward_epw_end"],
-        ]
-        config["other"]["lamrangI"] = [
-            config["data"]["fit_rng"]["forward_iaw_start"],
-            config["data"]["fit_rng"]["forward_iaw_end"],
-        ]
-        config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
-        sas = get_scattering_angles(config)
 
         dummy_batch = {
             "i_data": np.array([1]),
@@ -60,7 +48,8 @@ def test_1d_forward_pass():
             "i_amps": np.array([1]),
         }
 
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+        ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
+        config = ts_diag.get_cfg()
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
         ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, dummy_batch)
 

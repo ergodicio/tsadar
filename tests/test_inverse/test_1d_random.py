@@ -14,7 +14,6 @@ from flatten_dict import flatten, unflatten
 from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules import ThomsonParams, get_filter_spec
-from tsadar.utils.data_handling.calibration import get_scattering_angles
 
 
 def _perturb_params_(rng, params):
@@ -79,18 +78,6 @@ def test_1d_inverse():
         defaults.update(flatten(inputs))
         config = unflatten(defaults)
 
-        # get scattering angles and weights
-        config["other"]["lamrangE"] = [
-            config["data"]["fit_rng"]["forward_epw_start"],
-            config["data"]["fit_rng"]["forward_epw_end"],
-        ]
-        config["other"]["lamrangI"] = [
-            config["data"]["fit_rng"]["forward_iaw_start"],
-            config["data"]["fit_rng"]["forward_iaw_end"],
-        ]
-        config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
-        sas = get_scattering_angles(config)
-
         dummy_batch = {
             "i_data": np.array([1]),
             "e_data": np.array([1]),
@@ -100,7 +87,8 @@ def test_1d_inverse():
             "i_amps": np.array([1]),
         }
         rng = np.random.default_rng()
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+        ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
+        config = ts_diag.get_cfg()
         config["parameters"] = _perturb_params_(rng, config["parameters"])
         misc.log_mlflow(config)
         ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
@@ -109,7 +97,7 @@ def test_1d_inverse():
 
         loss = 1
         while np.nan_to_num(loss, nan=1) > 1e-3:
-            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+            ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
             config["parameters"] = _perturb_params_(rng, config["parameters"])
             ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
             diff_params, static_params = eqx.partition(
@@ -162,6 +150,10 @@ def test_1d_inverse():
             ax.set_ylabel("Intensity (arb. units)")
             ax.set_title("Electron Spectrum")
             fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
+
+            # Save ThryE and ground_truth as text files
+            np.savetxt(os.path.join(td, "ThryE.txt"), ThryE)
+            np.savetxt(os.path.join(td, "ground_truth_ThryE.txt"), ground_truth["ThryE"])
             mlflow.log_artifacts(td)
 
         # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0, rtol=0.2)
