@@ -8,7 +8,7 @@ data:
         skip: 50
     background:
         type:
-            fit
+            pixel
         slice: 900
 
 parameters:
