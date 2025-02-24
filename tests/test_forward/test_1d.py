@@ -39,17 +39,6 @@ def test_1d_forward_pass():
         defaults.update(flatten(inputs))
         config = unflatten(defaults)
 
-        # get scattering angles and weights
-        # config["other"]["lamrangE"] = [
-        #     config["data"]["fit_rng"]["forward_epw_start"],
-        #     config["data"]["fit_rng"]["forward_epw_end"],
-        # ]
-        # config["other"]["lamrangI"] = [
-        #     config["data"]["fit_rng"]["forward_iaw_start"],
-        #     config["data"]["fit_rng"]["forward_iaw_end"],
-        # ]
-        # config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
-        # sas = get_scattering_angles(config)
 
         dummy_batch = {
             "i_data": np.array([1]),
