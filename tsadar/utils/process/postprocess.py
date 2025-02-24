@@ -1,13 +1,16 @@
 from typing import Dict
 from collections import defaultdict
+from flatten_dict import flatten, unflatten
 
 import time, tempfile, mlflow, os, copy
 
 import numpy as np
-import scipy.optimize as spopt
+import jax
 
 from tsadar.utils.plotting import plotters
 from tsadar.inverse.loss_function import LossFunction
+from tsadar.core.modules import IonParams
+from tsadar.inverse.loops import one_d_loop
 
 
 def recalculate_with_chosen_weights(
@@ -35,18 +38,17 @@ def recalculate_with_chosen_weights(
     # turn list of dictionaries into dictionary of lists
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
 
+    
     for _fw in fitted_weights:
-        unnormed_params = _fw.get_unnormed_params()
-        for k in all_params.keys():
-            for k2 in unnormed_params[k].keys():
-                all_params[k][k2].append(unnormed_params[k][k2])
+        batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
+        for k in batch_fitted_params.keys():
+            for k2 in batch_fitted_params[k].keys():
+                all_params[k][k2].append(batch_fitted_params[k][k2])
 
     # concatenate all the lists in the dictionary
-    num_params = 0
     for k in all_params.keys():
         for k2 in all_params[k].keys():
             all_params[k][k2] = np.concatenate(all_params[k][k2])
-            num_params += len(all_params[k][k2])
 
     fits = {}
     sqdevs = {}
@@ -100,7 +102,7 @@ def recalculate_with_chosen_weights(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            loss, sqds, used_points, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
+            loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
             if calc_sigma:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
@@ -120,7 +122,7 @@ def recalculate_with_chosen_weights(
             fits["ele"][inds] = ThryE
             fits["ion"][inds] = ThryI
 
-    return losses, sqdevs, used_points, fits, sigmas, all_params
+    return losses, sqdevs, num_params, fits, sigmas, all_params
 
 
 def get_sigmas(hess: Dict, batch_size: int) -> Dict:
@@ -192,12 +194,38 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
 def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
     t1 = time.time()
 
+    #calculate used poinsts once right before its used
+    used_points = 0
+    if config["other"]["extraoptions"]["fit_EPWb"]:
+        used_points += np.sum(
+                (all_axes['epw_y'] > config["data"]["fit_rng"]["blue_min"])
+                & (all_axes['epw_y'] < config["data"]["fit_rng"]["blue_max"])
+            )
+    if config["other"]["extraoptions"]["fit_EPWr"]:
+        used_points += np.sum(
+                (all_axes['epw_y'] > config["data"]["fit_rng"]["red_min"])
+                & (all_axes['epw_y'] < config["data"]["fit_rng"]["red_max"])
+            )
+    if config["other"]["extraoptions"]["fit_IAW"]:
+                    used_points += np.sum(
+                (
+                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_min"])
+                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_cf_min"])
+                )
+                | (
+                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_cf_max"])
+                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_max"])
+                )
+            )
+    
     for species in config["parameters"].keys():
         if "electron" == species:
             elec_species = species
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        refit_bad_fits(config, sample_indices, all_data, loss_fn, sa, fitted_weights)
+        init_losses = refit_bad_fits(config, sample_indices, all_data, loss_fn, sa, fitted_weights, used_points)
+    else:
+        init_losses = []
 
     mlflow.log_metrics({"refitting time": round(time.time() - t1, 2)})
 
@@ -209,7 +237,8 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
             )
 
         else:
-            t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td)
+            t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, 
+                                            fitted_weights, init_losses, used_points, t1, td)
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -219,79 +248,85 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     return final_params
 
 
-def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights):
-    losses_init, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights, used_points):
+    losses_init, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, batch_indices, all_data, loss_fn, False, fitted_weights
     )
 
     # refit bad fits
-    red_losses_init = losses_init / (1.1 * (used_points - len(all_params)))
+    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+
+
+    red_losses_init = losses_init / (1.1 * reduced_points)
     true_batch_size = config["optimizer"]["batch_size"]
-    # config["optimizer"]["batch_size"] = 1
+
     mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
     mlflow.log_metrics({"number of refits": int(np.sum(red_losses_init > config["other"]["refit_thresh"]))})
+
+    sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
 
     for i in batch_indices.flatten()[red_losses_init > config["other"]["refit_thresh"]]:
         if i == 0:
             continue
-
-        batch = {
-            "e_data": np.reshape(all_data["e_data"][i], (1, -1)),
-            "e_amps": np.reshape(all_data["e_amps"][i], (1, -1)),
-            "i_data": np.reshape(all_data["i_data"][i], (1, -1)),
-            "i_amps": np.reshape(all_data["i_amps"][i], (1, -1)),
-            "noise_e": np.reshape(all_data["noiseE"][i], (1, -1)),
-            "noise_i": np.reshape(all_data["noiseI"][i], (1, -1)),
-        }
-
-        # previous_weights = {}
-        temp_cfg = copy.copy(config)
+        
+        temp_cfg = copy.deepcopy(config)
         temp_cfg["optimizer"]["batch_size"] = 1
-        for species in fitted_weights[(i - 1) // true_batch_size].keys():
-            for key in fitted_weights[(i - 1) // true_batch_size][species].keys():
-                if config["parameters"][species][key]["active"]:
-                    temp_cfg["parameters"][species][key]["val"] = float(
-                        fitted_weights[(i - 1) // true_batch_size][species][key][(i - 1) % true_batch_size]
-                    )
+        
+        def func(x):
+            #i, true_batch_size
+            if hasattr(x, '__len__'):
+                return {'val': x[(i - 1) % true_batch_size]}
+            else:
+                return {'val': x}
+        
+        def extract(x):
+            #i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
+            if isinstance(x,list) or len(np.shape(x))>0:
+                return x[(i - 1) % true_batch_size]
+            else:
+                return x
+            
+        def insert(x,y):
+            #i, true_batch_size
+            if isinstance(x,list):
+                x[i % true_batch_size] = y[0]
+                return x
+            elif len(np.shape(x))>0:
+                x = x.at[i % true_batch_size].set(y[0])
+                return x
+            else:
+                return y
+            
+        prev_weights = fitted_weights[(i - 1) // true_batch_size]
+        prev_weights = jax.tree.map(extract,prev_weights,
+                                     is_leaf= lambda x: isinstance(x,list) and not isinstance(x[0], IonParams))
+        prev_weights = prev_weights.get_unnormed_params()
+        prev_weights = jax.tree.map(lambda x: {'val': x}, prev_weights)
+        prev_weights['electron']['fe']={'m': prev_weights['electron']['m']}
+        del prev_weights['electron']['m']
+        
+        temp_params = flatten(temp_cfg["parameters"])
+        temp_params.update(flatten(prev_weights))
+        temp_cfg["parameters"] = unflatten(temp_params)
+        #temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights 
+        new_weights, overall_loss, _ = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
 
-        loss_fn_refit = LossFunction(temp_cfg, sa, batch)
-
-        # loss_fn_refit.flattened_weights, loss_fn_refit.unravel_pytree = ravel_pytree(previous_weights)
-
-        res = spopt.minimize(
-            loss_fn_refit.vg_loss if config["optimizer"]["grad_method"] == "AD" else loss_fn_refit.loss,
-            np.copy(loss_fn_refit.flattened_weights),
-            args=batch,
-            method=config["optimizer"]["method"],
-            jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-            bounds=loss_fn_refit.bounds,
-            options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
-        )
-        cur_result = loss_fn_refit.unravel_pytree(res["x"])
-
-        for species in cur_result.keys():
-            for key in cur_result[species].keys():
-                fitted_weights[i // true_batch_size][species][key] = (
-                    fitted_weights[i // true_batch_size][species][key]
-                    .at[i % true_batch_size]
-                    .set(cur_result[species][key][0])
-                )
-                # fitted_weights[i // true_batch_size][species][key][i % true_batch_size] = cur_result[species][key]
-
-            # for key in fitted_weights[i // true_batch_size].keys():
-            #     cur_value = cur_result[key][0, 0]
-            #     new_vals = fitted_weights[i // true_batch_size][key]
-            #     new_vals = new_vals.at[tuple([i % true_batch_size, 0])].set(cur_value)
-            #     fitted_weights[i // true_batch_size][key] = new_vals
-
-    config["optimizer"]["batch_size"] = true_batch_size
+        if overall_loss < losses_init[i]:
+            fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(insert,
+                                    fitted_weights[(i - 1) // true_batch_size], 
+                                    new_weights[0],
+                                    is_leaf= lambda x: isinstance(x,list) and not isinstance(x[0], IonParams))
+    return losses_init
 
 
-def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, td):
-    losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, losses_init, used_points, t1, td):
+    losses, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
-    if "losses_init" not in locals():
+
+    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+
+    if len(losses_init) == 0:
         losses_init = losses
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
     mlflow.set_tag("status", "plotting")
@@ -299,7 +334,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
 
     final_params = plotters.get_final_params(config, all_params, all_axes, td)
 
-    red_losses = plotters.plot_loss_hist(config, losses_init, losses, all_params, used_points, td)
+    red_losses = plotters.plot_loss_hist(config, losses_init, losses, reduced_points, td)
     savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
     plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
     sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)

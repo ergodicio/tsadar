@@ -3,6 +3,7 @@ import mlflow, os, pandas
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
+from matplotlib.colors import ListedColormap
 
 from tsadar.utils.plotting.lineout_plot import lineout_plot
 
@@ -111,7 +112,7 @@ def plot_final_params(config, all_params, sigmas_ds, td):
     return
 
 
-def plot_loss_hist(config, losses_init, losses, all_params, used_points, td):
+def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     """
     Plots histograms of the raw loss and reduced loss. Each histogram contains 2 data sets, blue for before refitting
     and orange for after refitting. The losses and reduced losses are saved to file as well. Note: A fit metric of
@@ -134,8 +135,8 @@ def plot_loss_hist(config, losses_init, losses, all_params, used_points, td):
 
     """
     losses[losses > 1e10] = 1e10
-    red_losses = losses / (1.1 * (used_points - len(all_params)))
-    red_losses_init = losses_init / (1.1 * (used_points - len(all_params)))
+    red_losses = losses / (1.1 * reduced_points)
+    red_losses_init = losses_init / (1.1 * reduced_points)
     mlflow.log_metrics(
         {"number of fits above threshold after refit": int(np.sum(red_losses > config["other"]["refit_thresh"]))}
     )
@@ -424,7 +425,11 @@ def plot_data_angular(config, fits, all_data, all_axes, td):
         "fit": fits["ele"],
         "data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
     }
-    savedata = xr.Dataset({k: xr.DataArray(v) for k, v in dat.items()})
+    coords = (all_axes["x_label"], np.squeeze(all_axes["epw_x"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"]])), (
+        "Wavelength",
+        np.squeeze(all_axes["epw_y"]),
+    )
+    savedata = xr.Dataset({k: xr.DataArray(v, coords=coords) for k, v in dat.items()})
     savedata.to_netcdf(os.path.join(td, "binary", "fit_and_data.nc"))
     savedata["data"] = savedata["data"].T
     savedata["fit"] = savedata["fit"].T
@@ -533,6 +538,18 @@ def plot_2D_data_vs_fit(
     Returns:
 
     """
+    gist_ncar =  mpl.colormaps['gist_ncar']
+    newcolors = gist_ncar(np.linspace(0, 1, 256))
+
+    r=20
+    lower = np.ones((r,4))
+    # - modify the first three columns (RGB):
+    #   range linearly between white (1,1,1) and the first color of the upper colormap
+    for i in range(3):
+        lower[:,i] = np.linspace(1, newcolors[r,i], lower.shape[0])
+
+    newcolors[:r, :] = lower
+    newcmp = ListedColormap(newcolors)
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
         vmin, vmax = 0.0, 1.5
@@ -542,13 +559,10 @@ def plot_2D_data_vs_fit(
 
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
-    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap="gist_ncar")  # , vmin=vmin, vmax=vmax)
+    pc = ax[0].pcolormesh(x, y, fit, shading="nearest", cmap=newcmp, vmin=vmin, vmax=vmax)
     ax[0].set_xlabel(xlabel)
     ax[0].set_ylabel(ylabel)
-    ax[1].pcolormesh(x, y, data, shading="nearest", cmap="gist_ncar")
-    # vmin=np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-    # vmax=np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"],
-    # )
+    ax[1].pcolormesh(x, y, data, shading="nearest", cmap=newcmp, vmin=vmin, vmax=vmax)
     ax[1].set_xlabel(xlabel)
     ax[1].set_ylabel(ylabel)
     fig.colorbar(pc)
@@ -654,7 +668,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             r"|Error|$^2$"
             + f" = {sorted_losses[i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[i]]]}"
         )
-        filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[i]]}.png"
+        filename = f"loss={sorted_losses[i]:.2e}-reduced_loss={sorted_red_losses[i]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[i]]}.png"
 
         lineout_plot(
             np.array(sorted_data)[:, i, :],
@@ -677,7 +691,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             r"|Error|$^2$"
             + f" = {sorted_losses[-1 - i]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[-1 - i]]]}"
         )
-        filename = f"loss={sorted_losses[-1 - i]:.2e}-reduced_loss={sorted_red_losses[-1 - i]:.2e}-lineout={config['data']['lineouts']['val'][loss_inds[-1 - i]]}.png"
+        filename = f"loss={sorted_losses[-1 - i]:.2e}-reduced_loss={sorted_red_losses[-1 - i]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[-1 - i]]}.png"
 
         lineout_plot(
             np.array(sorted_data)[:, -1 - i, :],

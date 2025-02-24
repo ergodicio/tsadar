@@ -85,7 +85,7 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
-        absolute_timing: false
+        absolute_timing: True
     PhysParams:
         background: [0, 0]
         norm: 0
@@ -97,7 +97,7 @@ other:
     CCDsize: [1024, 1024]
     flatbg: 0
     gain: 1
-    points_per_pixel: 5
+    points_per_pixel: 1
     ang_res_unit: 10
     lam_res_unit: 5
     refit: False
@@ -140,12 +140,15 @@ data:
         type:
             pixel
         slice: 900
+        bg_alg: rat11
+        bg_alg_params: [-16, 200000, 170]
+        bg_alg_domain: [100, 200, 800, 1023]
 
 plotting:
     n_sigmas: 3
     rolling_std_width: 5
-    data_cbar_u: 10
-    data_cbar_l: 0
+    data_cbar_u: data
+    data_cbar_l: data
     ion_window_start: 525
     ion_window_end: 528
     ele_window_start: 425
@@ -162,7 +165,7 @@ optimizer:
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 2
+    batch_size: 6
     num_epochs: 120
     learning_rate: 1.0e-2
     parameter_norm: True
@@ -175,6 +178,7 @@ nn:
     linear_widths: 16|8
 
 dist_fit:
+    smooth: True
     window:
         len: 0.2 #should be even
         type: hamming # one of [hamming, hann, bartlett]

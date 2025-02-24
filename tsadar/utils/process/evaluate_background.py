@@ -92,15 +92,20 @@ def get_lineout_bg(
     """
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
-    if config["data"]["background"]["type"] not in ["Fit", "Shot", "pixel"]:
-        raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'pixel'")
+    if config["data"]["background"]["type"].casefold() not in ["fit", "shot", "pixel"]:
+        raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'Pixel'")
 
     if config["other"]["extraoptions"]["load_ele_spec"]:
-        if config["data"]["background"]["type"] == "Fit":
+        if config["data"]["background"]["type"].casefold() == "fit":
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
                 # should be checked in more situations
-                bgfitx = np.hstack([np.arange(100, 200), np.arange(800, 1023)])
+
+                bgfitx = np.hstack([
+                    np.arange(config["data"]["background"]["bg_alg_domain"][0],
+                               config["data"]["background"]["bg_alg_domain"][1]),
+                                 np.arange(config["data"]["background"]["bg_alg_domain"][2],
+                                           config["data"]["background"]["bg_alg_domain"][3])])
 
                 def exp2(x, a, b, c, d):
                     return a * np.exp(b * x) + c * np.exp(d * x)
@@ -120,15 +125,17 @@ def get_lineout_bg(
                 def rat11(x, a, b, c):
                     return (a * x + b) / (x + c)
 
+                methods={"exp2": exp2, "power2": power2, "rat21": rat21, "rat11": rat11}
                 LineoutBGE = []
+                bgalg  = methods[config["data"]["background"]["bg_alg"]]
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
-                    [rat1bg, _] = spopt.curve_fit(rat11, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
+                    [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
                     # if config["data"]["background"]["show"]:
                     #     plt.plot(rat11(np.arange(1024), *rat1bg))
                     #     plt.plot(LineoutTSE_smooth[i])
                     #     plt.show()
 
-                    LineoutBGE.append(rat11(np.arange(1024), *rat1bg))
+                    LineoutBGE.append(bgalg(np.arange(1024), *pvec))
         # if not fit
         else:
             # quantify a background lineout

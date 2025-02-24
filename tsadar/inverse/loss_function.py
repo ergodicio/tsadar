@@ -109,6 +109,7 @@ class LossFunction:
         return self._h_func_(weights, batch)
 
     def _loss_for_hess_fn_(self, weights, batch):
+        #this function is not being used? if so it has syntax issues
         # params = params | self.static_params
         # params = self.ts_diag.get_plasma_parameters(weights)
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
@@ -142,7 +143,7 @@ class LossFunction:
         """
         i_error = 0.0
         e_error = 0.0
-        used_points = 0
+        # used_points = 0
         i_data = batch["i_data"]
         e_data = batch["e_data"]
         sqdev = {"ele": jnp.zeros(e_data.shape), "ion": jnp.zeros(i_data.shape)}
@@ -162,16 +163,16 @@ class LossFunction:
                 0.0,
             )
 
-            used_points += jnp.sum(
-                (
-                    (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_min"])
-                    & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_cf_min"])
-                )
-                | (
-                    (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
-                    & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
-                )
-            )
+            # used_points += jnp.sum(
+            #     (
+            #         (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_min"])
+            #         & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_cf_min"])
+            #     )
+            #     | (
+            #         (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
+            #         & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
+            #     )
+            # )
             # this was temp code to help with 2 species fits
             # _error_ = jnp.where(
             #     (lamAxisI > 526.25) & (lamAxisI < 526.75),
@@ -189,10 +190,10 @@ class LossFunction:
                 _error_,
                 0.0,
             )
-            used_points += jnp.sum(
-                (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
-                & (lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"])
-            )
+            # used_points += jnp.sum(
+            #     (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
+            #     & (lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"])
+            # )
             e_error += reduce_func(_error_)
             sqdev["ele"] += _error_
 
@@ -204,15 +205,15 @@ class LossFunction:
                 _error_,
                 0.0,
             )
-            used_points += jnp.sum(
-                (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
-                & (lamAxisE < self.cfg["data"]["fit_rng"]["red_max"])
-            )
+            # used_points += jnp.sum(
+            #     (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
+            #     & (lamAxisE < self.cfg["data"]["fit_rng"]["red_max"])
+            # )
 
             e_error += reduce_func(_error_)
             sqdev["ele"] += _error_
 
-        return i_error, e_error, sqdev, used_points
+        return i_error, e_error, sqdev
 
     def calc_loss(self, ts_params, batch: Dict):
         """
@@ -227,14 +228,15 @@ class LossFunction:
         """
 
         if self.multiplex_ang:
-            ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch["b1"])
+            #params has been replace with the new ts_params but behavior has not been checked 2-20-25
+            ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch["b1"])
             # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params["electron"]['fe']))
-            params["electron"]["fe"] = rotate(
-                jnp.squeeze(params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
+            ts_params["electron"]["fe"] = rotate(
+                jnp.squeeze(ts_params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
             )
 
-            ThryE_rot, _, _, _ = self.ts_diag(params, batch["b2"])
-            i_error1, e_error1, sqdev, used_points = self.calc_ei_error(
+            ThryE_rot, _, _, _ = self.ts_diag(ts_params, batch["b2"])
+            i_error1, e_error1, sqdev = self.calc_ei_error(
                 batch["b1"],
                 ThryI,
                 lamAxisI,
@@ -243,7 +245,7 @@ class LossFunction:
                 denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)],
                 reduce_func=jnp.mean,
             )
-            i_error2, e_error2, sqdev, used_points = self.calc_ei_error(
+            i_error2, e_error2, sqdev = self.calc_ei_error(
                 batch["b2"],
                 ThryI,
                 lamAxisI,
@@ -259,7 +261,7 @@ class LossFunction:
         else:
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch)
 
-            i_error, e_error, sqdev, used_points = self.calc_ei_error(
+            i_error, e_error, sqdev = self.calc_ei_error(
                 batch,
                 ThryI,
                 lamAxisI,
@@ -278,7 +280,7 @@ class LossFunction:
         total_loss = ion_error + e_error + penalty_error
         # jax.debug.print("e_error {total_loss}", total_loss=e_error)
 
-        return total_loss, sqdev, used_points, ThryE, ThryI, ts_params()
+        return total_loss, sqdev, ThryE, ThryI, ts_params()
         # return total_loss, [ThryE, params]
 
     def loss(self, weights, batch: Dict):
@@ -305,7 +307,7 @@ class LossFunction:
         """
 
         weights = eqx.combine(static_weights, diff_weights)
-        total_loss, sqdev, used_points, ThryE, normed_e_data, params = self.calc_loss(weights, batch)
+        total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(weights, batch)
         return total_loss, [ThryE, params]
 
     def loss_functionals(self, d, t, uncert, method="l2"):
