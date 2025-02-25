@@ -78,12 +78,12 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             iDatfile = SD(hdfnameI, SDC.READ)
             sds_obj = iDatfile.select("Streak_array")  # select sds
             iDat = sds_obj.get()  # get sds data
-            iDat = iDat.astype(np.float64)
+            iDat = iDat.astype(float)
             iDat = iDat[0, :, :] - iDat[1, :, :]
             iDat = np.flipud(iDat)
 
             if specType == "imaging":
-                iDat = np.rot90(np.squeeze(iDat), 3)
+                iDat = np.rot90(np.squeeze(iDat), 1)
             elif loadspecs["absolute_timing"]:
                 # this sets t0 by locating the fiducial and placing t0 164px earlier
                 fidu = np.sum(iDat[850:950, :], 0)
@@ -104,7 +104,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         eDatfile = SD(hdfnameE, SDC.READ)
         sds_obj = eDatfile.select("Streak_array")  # select sds
         eDat = sds_obj.get()  # get sds data
-        eDat = eDat.astype(np.float64)
+        eDat = eDat.astype(float)
         eDat = eDat[0, :, :] - eDat[1, :, :]
 
         if specType == "angular":

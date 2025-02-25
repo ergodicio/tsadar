@@ -18,14 +18,14 @@ from typing import Dict, List, Tuple
 
 
 def _1d_scipy_loop_(
-    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
+    config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict
 ) -> Tuple[float, Dict]:
-    # if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-    #     init_weights = np.copy(loss_fn.ts_diag.flattened_weights)
-    # else:
-    #     init_weights = np.array(previous_weights)
+    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    else:
+        ts_params = previous_weights
 
-    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    #ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     init_weights, loss_fn.unravel_weights = ravel_pytree(diff_params)
 
@@ -51,13 +51,17 @@ def _1d_scipy_loop_(
 
 
 def _1d_adam_loop_(
-    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
+    config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
     # jaxopt_kwargs = dict(
     #     fun=loss_fn.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
     # )
     opt = optax.adam(config["optimizer"]["learning_rate"])
-    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    #ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    else:
+        ts_params = previous_weights
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     opt_state = opt.init(diff_params)
 
@@ -151,10 +155,11 @@ def one_d_loop(
             # ugly
             if "sequential" in config["optimizer"]:
                 if config["optimizer"]["sequential"]:
-                    if config["optimizer"]["method"] == "adam":
-                        previous_weights = best_weights
-                    else:
-                        previous_weights, _ = ravel_pytree(best_weights)
+                    previous_weights = best_weights
+                    # if config["optimizer"]["method"] == "adam":
+                    #     previous_weights = best_weights
+                    # else:
+                    #     previous_weights, _ = ravel_pytree(best_weights)
 
     return all_weights, overall_loss, loss_fn
 

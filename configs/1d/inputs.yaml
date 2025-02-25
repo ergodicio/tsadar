@@ -1,20 +1,20 @@
 data:
-    shotnum: 101675
+    shotnum: 106310
     lineouts:
         type:
-            ps
-        start: 400
+            um
+        start: -1000
         end: 1000
-        skip: 50
+        skip: 25
     background:
         type:
-            pixel
+            fit
         slice: 900
 
 parameters:
     electron:
         Te:
-            val: .5
+            val: .3
             active: True
             lb: 0.001
             ub: 1.5
@@ -30,7 +30,7 @@ parameters:
             nv: 64
             params:
                 m:
-                    val: 2.5
+                    val: 2.2
                     lb: 2.0
                     ub: 5.0
     ion-1:
@@ -100,6 +100,6 @@ parameters:
 
 other:
     refit: true
-    refit_thresh: 0.002
+    refit_thresh: 0.0001
     calc_sigmas: false
 

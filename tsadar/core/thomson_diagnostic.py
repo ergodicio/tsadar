@@ -155,14 +155,15 @@ class ThomsonScatteringDiagnostic:
             for i in range(jnp.shape(modlE)[0]):
                 peaksE, propertiesE = find_peaks(modlE[i], prominence=1)
                 eIRF = eIRF.at[i,peaksE[jnp.argmax(propertiesE['prominences'])]].set(1.0)
-                eIRF = eIRF.at[i,peaksE[jnp.argpartition(propertiesE['prominences'],-2)[-2]]].set(1.0)
+                if len(propertiesE['prominences'])>1:
+                    eIRF = eIRF.at[i,peaksE[jnp.argpartition(propertiesE['prominences'],-2)[-2]]].set(1.0)
         
         iIRF = jnp.zeros_like(modlI)
         if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
             for i in range(jnp.shape(modlI)[0]):
                 peaksI, propertiesI = find_peaks(modlI[i], prominence=1)
                 iIRF = iIRF.at[i,peaksI[jnp.argmax(propertiesI['prominences'])]].set(1.0)
-                iIrf = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
+                iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
             
         # peaksI, propertiesI = find_peaks(modlI,prominence = 2, width = 4)
         # eIRF= jnp.zeros(1024)
