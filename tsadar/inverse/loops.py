@@ -123,8 +123,6 @@ def one_d_loop(
     } | sample
     loss_fn = LossFunction(config, sa, sample)
 
-    print("minimizing")
-    mlflow.set_tag("status", "minimizing")
     batch_indices = np.reshape(batch_indices, (-1, config["optimizer"]["batch_size"]))
     all_weights = []
     overall_loss = 0.0

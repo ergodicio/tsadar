@@ -4,7 +4,7 @@ data:
         type:
             um
         start: -1000
-        end: 1000
+        end: -100
         skip: 25
     background:
         type:
@@ -24,7 +24,7 @@ parameters:
             lb: .001
             ub: 1.
         fe:
-            active: True
+            active: False
             type: dlm
             dim: 1
             nv: 64
@@ -99,8 +99,8 @@ parameters:
 
 
 other:
-    refit: true
-    refit_thresh: 0.0001
+    refit: false
+    refit_thresh: 1.5
     calc_sigmas: false
 
 machine: gpu

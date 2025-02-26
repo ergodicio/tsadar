@@ -96,7 +96,7 @@ other:
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
     flatbg: 0
-    gain: 1
+    gain: 150
     points_per_pixel: 1
     ang_res_unit: 10
     lam_res_unit: 5
@@ -111,7 +111,7 @@ data:
     fit_rng:
         blue_min: 450
         blue_max: 510
-        red_min: 540
+        red_min: 545
         red_max: 625
         iaw_min: 525.5
         iaw_max: 527.5
@@ -147,8 +147,8 @@ data:
 plotting:
     n_sigmas: 3
     rolling_std_width: 5
-    data_cbar_u: data
-    data_cbar_l: data
+    data_cbar_u: 300
+    data_cbar_l: -5
     ion_window_start: 525
     ion_window_end: 528
     ele_window_start: 425

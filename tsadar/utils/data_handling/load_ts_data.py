@@ -100,31 +100,33 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     if loadspecs["load_ele_spec"]:
         from pyhdf.SD import SD, SDC
 
-        # try:
-        eDatfile = SD(hdfnameE, SDC.READ)
-        sds_obj = eDatfile.select("Streak_array")  # select sds
-        eDat = sds_obj.get()  # get sds data
-        eDat = eDat.astype(float)
-        eDat = eDat[0, :, :] - eDat[1, :, :]
+        try:
+            eDatfile = SD(hdfnameE, SDC.READ)
+            sds_obj = eDatfile.select("Streak_array")  # select sds
+            eDat = sds_obj.get()  # get sds data
+            eDat = eDat.astype(float)
+            eDat = eDat[0, :, :] - eDat[1, :, :]
 
-        if specType == "angular":
-            eDat = np.fliplr(eDat)
-            print("found angular data")
-        elif specType == "temporal":
-            eDat = perform_warp_correction(eDat)
-        elif specType == "imaging":
-            eDat = np.rot90(np.squeeze(eDat), 3)
-
-        if specType == "temporal" and loadspecs["absolute_timing"]:
-            # this sets t0 by locating the fiducial and placing t0 164px earlier
-            fidu = np.sum(eDat[0:100, :], 0)
-            res = find_peaks(fidu, prominence=1000, width=10)
-            peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
-            t0[1] = round(peak_center - 95)
-        # except BaseException:
-        #     print("Unable to find EPW")
-        #     eDat = []
-        #     loadspecs["load_ele_spec"] = False
+            if specType == "angular":
+                eDat = np.fliplr(eDat)
+                print("found angular data")
+            elif specType == "temporal":
+                eDat = perform_warp_correction(eDat)
+            elif specType == "imaging":
+                eDat = np.rot90(np.squeeze(eDat), 3)
+            try:
+                if specType == "temporal" and loadspecs["absolute_timing"]:
+                    # this sets t0 by locating the fiducial and placing t0 164px earlier
+                    fidu = np.sum(eDat[0:100, :], 0)
+                    res = find_peaks(fidu, prominence=1000, width=10)
+                    peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
+                    t0[1] = round(peak_center - 95)
+            except BaseException:
+                print("Fiducial timing encountered an error, default timing is being used")
+        except BaseException:
+            print("Unable to find EPW")
+            eDat = []
+            loadspecs["load_ele_spec"] = False
     else:
         eDat = []
 

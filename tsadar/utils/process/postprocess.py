@@ -227,35 +227,35 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     t1 = time.time()
 
     #calculate used poinsts once right before its used
-    used_points = 0
-    if config["other"]["extraoptions"]["fit_EPWb"]:
-        used_points += np.sum(
-                (all_axes['epw_y'] > config["data"]["fit_rng"]["blue_min"])
-                & (all_axes['epw_y'] < config["data"]["fit_rng"]["blue_max"])
-            )
-    if config["other"]["extraoptions"]["fit_EPWr"]:
-        used_points += np.sum(
-                (all_axes['epw_y'] > config["data"]["fit_rng"]["red_min"])
-                & (all_axes['epw_y'] < config["data"]["fit_rng"]["red_max"])
-            )
-    if config["other"]["extraoptions"]["fit_IAW"]:
-                    used_points += np.sum(
-                (
-                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_min"])
-                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_cf_min"])
-                )
-                | (
-                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_cf_max"])
-                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_max"])
-                )
-            )
+    # used_points = 0
+    # if config["other"]["extraoptions"]["fit_EPWb"]:
+    #     used_points += np.sum(
+    #             (all_axes['epw_y'] > config["data"]["fit_rng"]["blue_min"])
+    #             & (all_axes['epw_y'] < config["data"]["fit_rng"]["blue_max"])
+    #         )
+    # if config["other"]["extraoptions"]["fit_EPWr"]:
+    #     used_points += np.sum(
+    #             (all_axes['epw_y'] > config["data"]["fit_rng"]["red_min"])
+    #             & (all_axes['epw_y'] < config["data"]["fit_rng"]["red_max"])
+    #         )
+    # if config["other"]["extraoptions"]["fit_IAW"]:
+    #                 used_points += np.sum(
+    #             (
+    #                 (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_min"])
+    #                 & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_cf_min"])
+    #             )
+    #             | (
+    #                 (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_cf_max"])
+    #                 & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_max"])
+    #             )
+    #         )
     
     for species in config["parameters"].keys():
         if "electron" == species:
             elec_species = species
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights, used_points)
+        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights)
     else:
         init_losses = []
 
@@ -270,7 +270,7 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
 
         else:
             t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, 
-                                            fitted_weights, sa, init_losses, used_points, t1, td)
+                                            fitted_weights, sa, init_losses, t1, td)
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -280,16 +280,16 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     return final_params
 
 
-def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights, used_points):
+def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights):
     losses_init, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, sa, batch_indices, all_data, loss_fn, False, fitted_weights
     )
 
     # refit bad fits
-    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+    #reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
 
 
-    red_losses_init = losses_init / (1.1 * reduced_points)
+    red_losses_init = losses_init #/ (1.1 * reduced_points) by changing losses to mean this is loss per point
     true_batch_size = config["optimizer"]["batch_size"]
 
     mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
@@ -341,9 +341,20 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         temp_params.update(flatten(prev_weights))
         temp_cfg["parameters"] = unflatten(temp_params)
         #temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights 
-        new_weights, overall_loss, _ = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
+        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
 
-        if overall_loss < losses_init[i]:
+        inds = np.array([i])
+        batch = {
+                "e_data": all_data["e_data"][inds],
+                "e_amps": all_data["e_amps"][inds],
+                "i_data": all_data["i_data"][inds],
+                "i_amps": all_data["i_amps"][inds],
+                "noise_e": all_data["noiseE"][inds],
+                "noise_i": all_data["noiseI"][inds],
+            }
+        loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
+        
+        if loss < losses_init[i]:
             fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(insert,
                                     fitted_weights[(i - 1) // true_batch_size], 
                                     new_weights[0],
@@ -351,12 +362,12 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
     return losses_init
 
 
-def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, used_points, t1, td):
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, t1, td):
     losses, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
 
-    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+    reduced_points = 1.0#(used_points - num_params)*config["optimizer"]["batch_size"]
 
     if len(losses_init) == 0:
         losses_init = losses
