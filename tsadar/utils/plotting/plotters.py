@@ -119,8 +119,7 @@ def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     chi-squared is used and the reduced metric is chi-squared per degree of freedom but this will not necessarily be
     near 1 since Thomson scattering often does not conform to chi-squared statistics.
 
-    Known issues:
-        The pre-refitting values are currently not being imported so the final losses are just plotted twice.
+    With the update of losses to loss/point this may be reduced to just "reduced losses"
 
     Args:
         config: configuration dictionary created from the input decks
@@ -151,6 +150,7 @@ def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     ax[0].set_ylabel("Counts")
     ax[0].set_title("Normalized $L^2$ Norm of the Error")
     ax[0].grid()
+    ax[0].legend(["Pre-refit Losses", "Post-refit Losses"])
     ax[1].hist([losses_init, losses], 40)
     # ax[1].hist(losses, 128)
     ax[1].set_yscale("log")
@@ -750,10 +750,10 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex=True)
     
         if config["other"]["extraoptions"]["load_ele_spec"]:
-            #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
-            #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
+            s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
+            e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(all_data["e_data"][loss_inds[i]]), label="Data"
+                all_axes["epw_y"][s_ind:e_ind], np.squeeze(all_data["e_data"][loss_inds[i]][s_ind:e_ind]), label="Data"
             )
             ax[0][0].plot(
                 all_axes["epw_y"], np.squeeze(fits["ele"]["total_spec"][loss_inds[i]]), label="Total Fit"
@@ -779,6 +779,10 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
             ax[0][0].legend(bbox_to_anchor = (0.8, 1.05), fontsize=12)
             ax[0][0].grid()
             ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
+            #ax[0][0].autoscale()
+            # ax[0][0].set_ylim(
+            #     [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+            #     None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
 
             ax[1][0].plot(
                 all_axes["epw_y"], np.squeeze(sqdevs["ele"][loss_inds[i]]), label="Residual"
@@ -841,10 +845,10 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex=True)
     
         if config["other"]["extraoptions"]["load_ele_spec"]:
-            #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
-            #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
+            s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
+            e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(all_data["e_data"][loss_inds[-1-i]]), label="Data"
+                all_axes["epw_y"][s_ind:e_ind], np.squeeze(all_data["e_data"][loss_inds[-1-i]][s_ind:e_ind]), label="Data"
             )
             ax[0][0].plot(
                 all_axes["epw_y"], np.squeeze(fits["ele"]["total_spec"][loss_inds[-1-i]]), label="Total Fit"
@@ -870,7 +874,10 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
             ax[0][0].legend(bbox_to_anchor = (0.8, 1.05), fontsize=12)
             ax[0][0].grid()
             ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
-
+            # ax[0][0].set_ylim(
+            #     [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+            #     None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
+            #ax[0][0].autoscale()
             ax[1][0].plot(
                 all_axes["epw_y"], np.squeeze(sqdevs["ele"][loss_inds[-1-i]]), label="Residual"
             )

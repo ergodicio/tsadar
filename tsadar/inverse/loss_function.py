@@ -51,7 +51,7 @@ class LossFunction:
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
         ## this will be replaced with jacobian params jacobian inverse
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
-        self.array_loss = filter_jit(self.calc_loss)
+        self.array_loss = filter_jit(self.post_loss)
 
     def _get_normed_batch_(self, batch: Dict):
         """
@@ -188,14 +188,11 @@ class LossFunction:
                 (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
                 & (lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"]),
                 _error_,
-                0.0,
+                jnp.nan,
             )
-            # used_points += jnp.sum(
-            #     (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
-            #     & (lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"])
-            # )
+
             e_error += reduce_func(_error_)
-            sqdev["ele"] += _error_
+            sqdev["ele"] += jnp.nan_to_num(_error_)
 
         if self.cfg["other"]["extraoptions"]["fit_EPWr"]:
             _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
@@ -203,19 +200,18 @@ class LossFunction:
                 (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
                 & (lamAxisE < self.cfg["data"]["fit_rng"]["red_max"]),
                 _error_,
-                0.0,
+                jnp.nan,
             )
-            # used_points += jnp.sum(
-            #     (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
-            #     & (lamAxisE < self.cfg["data"]["fit_rng"]["red_max"])
-            # )
-
+            
             e_error += reduce_func(_error_)
-            sqdev["ele"] += _error_
+            if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
+                #the set e_error to the true mean if both sides are fit
+                e_error*=1./2.
+            sqdev["ele"] += jnp.nan_to_num(_error_)
 
         return i_error, e_error, sqdev
 
-    def calc_loss(self, ts_params, batch: Dict):
+    def calc_loss(self, ts_params, batch: Dict, denom, reduce_func):
         """
         This function calculates the value of the loss function
 
@@ -242,8 +238,8 @@ class LossFunction:
                 lamAxisI,
                 ThryE,
                 lamAxisE,
-                denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)],
-                reduce_func=jnp.mean,
+                denom,
+                reduce_func,
             )
             i_error2, e_error2, sqdev = self.calc_ei_error(
                 batch["b2"],
@@ -251,8 +247,8 @@ class LossFunction:
                 lamAxisI,
                 ThryE_rot,
                 lamAxisE,
-                denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)],
-                reduce_func=jnp.mean,
+                denom,
+                reduce_func,
             )
             i_error = i_error1 + i_error2
             e_error = e_error1 + e_error2
@@ -260,15 +256,16 @@ class LossFunction:
             normed_batch = self._get_normed_batch_(batch["b1"])
         else:
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch)
-
+            if denom == []:
+                denom = [ThryI, ThryE]
             i_error, e_error, sqdev = self.calc_ei_error(
                 batch,
                 ThryI,
                 lamAxisI,
                 ThryE,
                 lamAxisE,
-                uncert=[jnp.square(self.i_norm), jnp.square(self.e_norm)],
-                reduce_func=jnp.mean,
+                denom,
+                reduce_func,
             )
 
             normed_batch = self._get_normed_batch_(batch)
@@ -307,8 +304,19 @@ class LossFunction:
         """
 
         weights = eqx.combine(static_weights, diff_weights)
-        total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(weights, batch)
+        total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
+            weights, batch, denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)], reduce_func=jnp.nanmean)
         return total_loss, [ThryE, params]
+    
+    def post_loss(self, weights, batch: Dict):
+        """
+        Output wrapper for postprocessing
+        """
+        #self.array_loss = filter_jit(self.calc_loss)
+        
+        total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
+            weights, batch, denom=[], reduce_func=jnp.nanmean)
+        return total_loss, sqdev, ThryE, normed_e_data, params
 
     def loss_functionals(self, d, t, uncert, method="l2"):
         """

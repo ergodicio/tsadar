@@ -532,7 +532,7 @@ class ThomsonParams(eqx.Module):
                 if k2 == 'm' and param_cfg[k]['fe']['active']:
                     fitted_params[k][k2]=param_dict[k][k2]
                     num_params+=1
-                elif param_cfg[k][k2]['active']:
+                elif k2 != 'm' and param_cfg[k][k2]['active']:
                     fitted_params[k][k2]=param_dict[k][k2]
                     num_params+=1
 
