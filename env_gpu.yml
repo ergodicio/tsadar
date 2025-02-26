@@ -2,7 +2,7 @@ name: tsadar-gpu
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
+  - python=3.10
   - pip
   - pyhdf
   - xlrd
@@ -24,4 +24,6 @@ dependencies:
       - pandas
       - interpax
       - tabulate
+      - psutil
+      - equinox
       

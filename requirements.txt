@@ -16,3 +16,4 @@ pandas
 interpax
 tabulate
 psutil
+equinox
