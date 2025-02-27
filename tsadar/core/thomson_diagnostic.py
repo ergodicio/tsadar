@@ -163,15 +163,9 @@ class ThomsonScatteringDiagnostic:
             for i in range(jnp.shape(modlI)[0]):
                 peaksI, propertiesI = find_peaks(modlI[i], prominence=1)
                 iIRF = iIRF.at[i,peaksI[jnp.argmax(propertiesI['prominences'])]].set(1.0)
-                iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
+                if len(propertiesI['prominences'])>1:
+                    iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
             
-        # peaksI, propertiesI = find_peaks(modlI,prominence = 2, width = 4)
-        # eIRF= jnp.zeros(1024)
-        # eIRF[peaksE[0]] = 1.0
-        # eIRF[peaksE[1]] = 1.0
-        # iIRF= jnp.zeros(1024)
-        # iIRF[peaksI[0]] = 1.0
-        # iIRF[peaksI[1]] = 1.0
         eIRF, iIRF, lamAxisE, lamAxisI = self.postprocess_theory(
             eIRF, iIRF, lamAxisE, lamAxisI, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, physical_params
         )
