@@ -3,15 +3,15 @@ data:
     slice: 900
     type: fit
   lineouts:
-    end: 1000
+    end: -100
     skip: 25
-    start: -1000
+    start: -900
     type: um
   shotnum: 106310
 machine: gpu
 mlflow:
   experiment: inverse-thomson-scattering
-  run: shot_106310_iaw_detailed_newirf_2
+  run: shot_106310_iaw_detailed_newirf_3
 other:
   calc_sigmas: false
   refit: false
@@ -22,9 +22,9 @@ parameters:
       active: true
       lb: 0.001
       ub: 1.5
-      val: 0.2
+      val: 0.1
     fe:
-      active: true
+      active: false
       dim: 1
       nv: 128
       params:
@@ -50,7 +50,7 @@ parameters:
       angle: 0.0
       lb: -40.5
       ub: 40.5
-      val: 0.0
+      val: -3.0
     amp1:
       active: false
       lb: 0.01
@@ -70,7 +70,7 @@ parameters:
       active: false
       lb: 523.0
       ub: 528.0
-      val: 526.5
+      val: 526.6
     ne_gradient:
       active: false
       lb: 0.0

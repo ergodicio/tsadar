@@ -153,7 +153,7 @@ class ThomsonScatteringDiagnostic:
         eIRF = jnp.zeros_like(modlE)
         if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
             for i in range(jnp.shape(modlE)[0]):
-                peaksE, propertiesE = find_peaks(modlE[i], prominence=1)
+                peaksE, propertiesE = find_peaks(modlE[i], prominence=0.1)
                 eIRF = eIRF.at[i,peaksE[jnp.argmax(propertiesE['prominences'])]].set(1.0)
                 if len(propertiesE['prominences'])>1:
                     eIRF = eIRF.at[i,peaksE[jnp.argpartition(propertiesE['prominences'],-2)[-2]]].set(1.0)
@@ -161,10 +161,13 @@ class ThomsonScatteringDiagnostic:
         iIRF = jnp.zeros_like(modlI)
         if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
             for i in range(jnp.shape(modlI)[0]):
-                peaksI, propertiesI = find_peaks(modlI[i], prominence=1)
-                iIRF = iIRF.at[i,peaksI[jnp.argmax(propertiesI['prominences'])]].set(1.0)
-                if len(propertiesI['prominences'])>1:
-                    iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
+                try:
+                    peaksI, propertiesI = find_peaks(modlI[i], prominence=0.1)
+                    iIRF = iIRF.at[i,peaksI[jnp.argmax(propertiesI['prominences'])]].set(1.0)
+                    if len(propertiesI['prominences'])>1:
+                        iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
+                except BaseException:
+                    Print("Unable to locate peak IRF may not be plotted")
             
         eIRF, iIRF, lamAxisE, lamAxisI = self.postprocess_theory(
             eIRF, iIRF, lamAxisE, lamAxisI, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, physical_params
@@ -182,6 +185,6 @@ class ThomsonScatteringDiagnostic:
             eIRF = jnp.reshape(batch["e_amps"],(-1,1)) * eIRF/ jnp.amax(eIRF)
         if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
             ThryI = jnp.reshape(batch["i_amps"],(-1,1,1,1)) * ThryI / jnp.amax(ThryI)
-            iIRF = jnp.reshape(batch["i_amps"],(-1,1)) * iIRF
+            iIRF = jnp.reshape(batch["i_amps"],(-1,1)) * iIRF/ jnp.amax(iIRF)
 
         return modlE, modlI, ThryE, ThryI, eIRF, iIRF, lamAxisE, lamAxisI, lamAxisE_raw, lamAxisI_raw

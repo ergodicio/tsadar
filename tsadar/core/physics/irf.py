@@ -74,6 +74,9 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
         ThryI = jnp.convolve(modlI, inst_funcI, "same")
         ThryI = (jnp.amax(modlI) / jnp.amax(ThryI)) * ThryI
         ThryI = jnp.average(ThryI.reshape(1024, -1), axis=1)
+        #print(f"modlI max {jnp.max(modlI)}")
+        #print(f"ThryI max {jnp.max(ThryI)}")
+        #print(f"amps max {jnp.max(amps)}")
 
         if config["other"]["PhysParams"]["norm"] == 0:
             lamAxisI = jnp.average(lamAxisI.reshape(1024, -1), axis=1)
@@ -82,6 +85,7 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
     else:
         ThryI = modlI
 
+    #print(f"final ThryI max {jnp.max(ThryI)}")
     return lamAxisI, ThryI
 
 

@@ -113,10 +113,10 @@ data:
         blue_max: 510
         red_min: 545
         red_max: 625
-        iaw_min: 525.5
-        iaw_max: 527.5
-        iaw_cf_min: 526.49
-        iaw_cf_max: 526.51
+        iaw_min: 526.1
+        iaw_max: 527.1
+        iaw_cf_min: 526.5
+        iaw_cf_max: 526.8
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
