@@ -238,3 +238,9 @@ fabric.properties
 #User added
 /mlruns
 .vscode/launch.json
+.idea/inverse-thomson-scattering.iml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.vscode/settings.json
