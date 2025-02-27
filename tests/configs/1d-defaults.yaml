@@ -150,6 +150,7 @@ plotting:
     ion_window_end: 528
     ele_window_start: 425
     ele_window_end: 625
+    detailed_breakdown: False
     
 optimizer:
     # use adam for nn / stochastic gradient descent

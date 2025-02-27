@@ -22,7 +22,7 @@ setup(
     url="https://github.com/ergodicio/tsadar",
     author="Avi Milder, Archis Joglekar",
     author_email="amild@lle.rochester.edu, archis@ergodic.io",
-    version="0.0.2",
+    version="0.1.1",
     # cmdclass=versioneer.get_cmdclass(),
     packages=find_packages(),
     python_requires=">=3.11",
