@@ -135,6 +135,50 @@ class DistributionFunction2D(eqx.Module):
         return super().__call__(*args, **kwds)
 
 
+class Arbitrary2D(DistributionFunction2D):
+    fval: Array
+    learn_log: bool
+
+    def __init__(self, dist_cfg):
+        super().__init__(dist_cfg)
+        self.learn_log = dist_cfg["params"]["learn_log"]
+        self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
+
+    def init_dlm(self, m):
+        vxm, vym = jnp.meshgrid(self.vx, self.vx)
+        # vth_x = jnp.sqrt(2.0)
+        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        # cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(vxm / alpha / vth_x) ** m))
+        fdlm = -jnp.exp(-((vxm**2 + vym**2) / 2.0))
+        fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
+
+        if self.learn_log:
+            #     # logit function
+            # fdlm = 1 / 16 * jnp.log(fdlm / (1 - fdlm)) - 1
+            fdlm = -jnp.log10(fdlm)
+        # else:
+        #     fdlm = 0.1 * jnp.log(fdlm / (1 - fdlm))
+
+        return jnp.sqrt(fdlm)
+
+    def get_unnormed_params(self):
+        return {"f": self()}
+
+    def __call__(self):
+        # if self.learn_log:
+        #     # bound values between 1e-15 and 10
+        #     fval = -16 * sigmoid(self.fval) + 1
+        #     fval = jnp.power(10.0, self.fval)
+        # else:
+        # fval = sigmoid(fval) * 10
+        fval = self.fval**2.0
+        if self.learn_log:
+            fval = jnp.power(10.0, -fval)
+
+        return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0]) ** 2.0
+
+
 class SphericalHarmonics(DistributionFunction2D):
     vr: Array
     th: Array
@@ -280,14 +324,15 @@ class ElectronParams(eqx.Module):
             else:
                 raise NotImplementedError(f"Unknown 1D distribution type: {dist_cfg['type']}")
         elif dist_cfg["dim"] == 2:
+            if batch:
+                raise NotImplementedError(
+                    "Batch mode not implemented for 2D distributions as a precautionary measure against memory issues"
+                )
+
             if "sph" in dist_cfg["type"].casefold():
-                if batch:
-                    raise NotImplementedError(
-                        "Batch mode not implemented for 2D distributions as a precautionary measure against memory issues"
-                    )
-                    distribution_functions = [SphericalHarmonics(dist_cfg) for _ in range(batch_size)]
-                else:
-                    distribution_functions = SphericalHarmonics(dist_cfg)
+                distribution_functions = SphericalHarmonics(dist_cfg)
+            elif dist_cfg["type"].casefold() == "arbitrary":
+                distribution_functions = Arbitrary2D(dist_cfg)
             else:
                 raise NotImplementedError(f"Unknown 2D distribution type: {dist_cfg['type']}")
         else:
@@ -521,22 +566,24 @@ class ThomsonParams(eqx.Module):
         return {"electron": self.electron(), "general": self.general()} | {
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
-    
+
     def get_fitted_params(self, param_cfg):
         param_dict = self.get_unnormed_params()
         num_params = 0
         fitted_params = {}
         for k in param_dict.keys():
-            fitted_params[k]={}
+            fitted_params[k] = {}
             for k2 in param_dict[k].keys():
-                if k2 == 'm' and param_cfg[k]['fe']['active']:
-                    fitted_params[k][k2]=param_dict[k][k2]
-                    num_params+=1
-                elif param_cfg[k][k2]['active']:
-                    fitted_params[k][k2]=param_dict[k][k2]
-                    num_params+=1
+                if k2 == "m" and param_cfg[k]["fe"]["active"]:
+                    fitted_params[k][k2] = param_dict[k][k2]
+                    num_params += 1
+                elif k2 == "f":
+                    pass
+                elif param_cfg[k][k2]["active"]:
+                    fitted_params[k][k2] = param_dict[k][k2]
+                    num_params += 1
 
-        return fitted_params, num_params 
+        return fitted_params, num_params
 
 
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:

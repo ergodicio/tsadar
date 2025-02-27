@@ -1,13 +1,15 @@
-import pytest
+import pytest, os, shutil
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
 from jax import config, block_until_ready, devices
 
 config.update("jax_enable_x64", True)
 
-from jax import numpy as jnp
+from jax import numpy as jnp, value_and_grad, jit
 from jax.flatten_util import ravel_pytree
 from scipy.optimize import minimize
-import equinox as eqx
-import numpy as np
+import equinox as eqx, numpy as np, xarray as xr
 import matplotlib.pyplot as plt
 import yaml, os, mlflow, tempfile, optax, tqdm, time
 from flatten_dict import flatten, unflatten
@@ -16,6 +18,37 @@ from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
+
+
+def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
+    os.makedirs(base_dir := os.path.join(td, "ts_params"), exist_ok=True)
+    os.makedirs(params_dir := os.path.join(base_dir, prefix), exist_ok=True)
+    os.makedirs(dist_dir := os.path.join(params_dir, "distribution"), exist_ok=True)
+
+    # dump all parameters besides distribution
+    unnormed_params = ts_params.get_unnormed_params()
+
+    dist_xr = xr.DataArray(
+        ts_params.electron.distribution_functions(),
+        coords=(ts_params.electron.distribution_functions.vx,),
+        dims=("vx",),
+    )
+    dist_xr.to_netcdf(os.path.join(dist_dir, "electron-dist.nc"))
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4), tight_layout=True)
+    dist_xr.plot(ax=ax[0])
+    ax[0].grid()
+    np.log10(dist_xr).plot(ax=ax[1])
+    ax[1].grid()
+    fig.savefig(os.path.join(dist_dir, "electron-dist.png"), bbox_inches="tight")
+    plt.close()
+
+    for param_key, these_params in unnormed_params.items():
+        params_to_dump = {p_key: float(these_params[p_key]) for p_key in set(these_params.keys()) - {"f"}}
+        with open(os.path.join(params_dir, f"{param_key}-params.yaml"), "w") as fi:
+            yaml.dump(params_to_dump, fi)
+
+    mlflow.log_artifacts(td)
+    shutil.rmtree(base_dir)
 
 
 def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
@@ -120,8 +153,17 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=False)
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-
+            # diff_params_gt, static_params_gt = eqx.partition(
+            #     ts_params_gt, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_gt)
+            # )
+            # active_gt_params = {
+            #     k: {k2: float(v2) for k2, v2 in v.items() if v2 is not None}
+            #     for k, v in diff_params_gt.get_unnormed_params().items()
+            # }
+            active_gt_params, _ = ts_params_gt.get_fitted_params(config["parameters"])
+            _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
+
             ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
 
             def loss_fn(_diff_params, _static_params):
@@ -129,29 +171,42 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
                 return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
 
-            t0 = time.time()
-            jit_vg = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))
-            diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
-            temp_out = block_until_ready(jit_vg(diff_params, static_params))
-            mlflow.log_metric(f"first run time", time.time() - t0)
+            # t0 = time.time()
+            # jit_vg = eqx.filter_value_and_grad(loss_fn)
+            jit_vg = eqx.filter_jit(value_and_grad(loss_fn))
+            # diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
+            # temp_out = block_until_ready(jit_vg(diff_params, static_params))
+            # print(temp_out)
+            # raise ValueError
+            # mlflow.log_metric(f"first run time", time.time() - t0)
+
+            # dump ground truth to disk
 
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
                 diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
-
-                use_optax = False
+                use_optax = True
                 if use_optax:
-                    opt = optax.adam(0.001)
+
+                    opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
                     opt_state = opt.init(diff_params)
-                    for i in (pbar := tqdm.tqdm(range(25))):
+                    for i in (pbar := tqdm.tqdm(range(1000))):
                         t0 = time.time()
                         loss, grad_loss = jit_vg(diff_params, static_params)
-                        mlflow.log_metric(f"iteration time", time.time() - t0, step=i)
-
+                        mlflow.log_metrics({f"iteration time": time.time() - t0, "loss": float(loss)}, step=i)
                         updates, opt_state = opt.update(grad_loss, opt_state)
                         diff_params = eqx.apply_updates(diff_params, updates)
-                        pbar.set_description(f"Loss: {loss:.4f}")
+                        pbar.set_description(f"Loss: {loss:.2e}")
+
+                        combined_params = eqx.combine(diff_params, static_params)
+                        active_params, _ = combined_params.get_fitted_params(config["parameters"])
+                        params_to_log = {"gt": active_gt_params, "learned": active_params}
+                        misc.log_mlflow(params_to_log, which="metrics", step=i)
+
+                        # plot f
+                        if i % 5 == 0:
+                            _dump_ts_params(td, combined_params, prefix=f"step-{i:3d}")
 
                 else:
                     flattened_diff_params, unravel = ravel_pytree(diff_params)
@@ -169,13 +224,13 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
                     diff_params = unravel(res["x"])
                     loss = res["fun"]
+                    mlflow.log_metric("loss", loss, step=0)
+                    combined_params = eqx.combine(diff_params, static_params)
+                    active_params, _ = combined_params.get_fitted_params(config["parameters"])
+                    params_to_log = {"gt": active_gt_params, "learned": active_params}
 
-            params_to_log = {
-                "gt": ts_params_gt.get_unnormed_params(),
-                "learned": eqx.combine(diff_params, static_params).get_unnormed_params(),
-            }
+                    misc.log_mlflow(params_to_log, which="metrics")
 
-            misc.log_mlflow({"loss": loss} | params_to_log, which="metrics")
             ThryE, _, _, _ = ts_diag(eqx.combine(diff_params, static_params), dummy_batch)
 
             fig, ax = plt.subplots(1, 3, figsize=(11, 4), tight_layout=True)
@@ -194,7 +249,18 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             mlflow.log_metric("runtime-sec", time.time() - _t0)
             mlflow.log_artifacts(td)
 
-    misc.export_run(run.info.run_id)
+
+def save_electron_distribution_plot(td, i, combined_params):
+    f = combined_params.electron.distribution_functions()
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+    ax.plot(combined_params.electron.distribution_functions.vx, f)
+    ax.grid()
+    ax.set_xlabel("$v_x$")
+    ax.set_ylabel("$f(v_x)$")
+    fig.savefig(os.path.join(td, f"evdf-step-{i}.png"), bbox_inches="tight")
+    plt.close(fig)
+    mlflow.log_artifacts(td)
+
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
 
 
@@ -214,4 +280,4 @@ def perturb_and_split_params(arbitrary_distribution, config, rng):
 
 
 if __name__ == "__main__":
-    test_arts1d_inverse(arbitrary_distribution=False)
+    test_arts1d_inverse(arbitrary_distribution=True)

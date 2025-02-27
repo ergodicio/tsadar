@@ -1,8 +1,9 @@
 import os, mlflow, flatten_dict, boto3, botocore, shutil, time, tempfile
 from urllib.parse import urlparse
+from functools import partial
 
 
-def log_mlflow(cfg, which="params"):
+def log_mlflow(cfg, which="params", step=0):
     """
     Logs the parameters form the input deck in the parameters section of MLFlow.
 
@@ -19,7 +20,7 @@ def log_mlflow(cfg, which="params"):
     if which == "params":
         log_func = mlflow.log_params
     elif which == "metrics":
-        log_func = mlflow.log_metrics
+        log_func = partial(mlflow.log_metrics, step=step)
     else:
         raise ValueError("which must be either 'params' or 'metrics'")
 
