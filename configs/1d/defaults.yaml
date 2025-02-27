@@ -80,11 +80,11 @@ other:
     expandedions: False
     extraoptions:
         spectype: 1d
-        load_ion_spec: false
+        load_ion_spec: True
         load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
+        fit_IAW: True
+        fit_EPWb: False
+        fit_EPWr: False
         absolute_timing: True
     PhysParams:
         background: [0, 0]
@@ -147,8 +147,8 @@ data:
 plotting:
     n_sigmas: 3
     rolling_std_width: 5
-    data_cbar_u: 300
-    data_cbar_l: -5
+    data_cbar_u: data
+    data_cbar_l: -1
     ion_window_start: 525
     ion_window_end: 528
     ele_window_start: 425

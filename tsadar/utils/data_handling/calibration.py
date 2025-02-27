@@ -352,7 +352,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             IAWoff = 524.345
 
             stddev["spect_stddev_ion"] = 0.028  # needs to be checked
-            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.102  # needs to be checked
 
             magI = 2.89 / 0.3746 * 1.118  # um / px times strech factor accounting for tilt in view
             magE = 5.13 / 0.36175 * 1.118  # um / px times strech factor accounting for tilt in view

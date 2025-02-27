@@ -43,7 +43,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         folder = join(BASE_FILES_PATH, "data")
 
     file_list = listdir(folder)
-    print(f"{file_list=}")
+    #print(f"{file_list=}")
     print(f"{sNum=}")
     files = [name for name in file_list if str(sNum) in name]
     print(f"Files found: {files}")

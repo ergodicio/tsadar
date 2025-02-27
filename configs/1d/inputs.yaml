@@ -1,110 +1,103 @@
 data:
-    shotnum: 106310
-    lineouts:
-        type:
-            um
-        start: -1000
-        end: -100
-        skip: 25
-    background:
-        type:
-            fit
-        slice: 900
-
-parameters:
-    electron:
-        Te:
-            val: .3
-            active: True
-            lb: 0.001
-            ub: 1.5
-        ne:
-            val: .1
-            active: True
-            lb: .001
-            ub: 1.
-        fe:
-            active: False
-            type: dlm
-            dim: 1
-            nv: 64
-            params:
-                m:
-                    val: 2.2
-                    lb: 2.0
-                    ub: 5.0
-    ion-1:
-        Ti:
-            val: .2
-            active: False
-            lb: 0.01
-            ub: 3.
-            same: False
-        Z:
-            val: 8.
-            active: False
-            lb: 1.
-            ub: 25.
-        A:
-            val: 40.
-            active: False
-        fract:
-            val: 1.
-            active: False
-    general:
-        amp1:
-            val: 1.
-            active: True
-            lb: 0.01
-            ub: 3.75
-        amp2:
-            val: 1.
-            active: True
-            lb: 0.01
-            ub: 3.75
-        amp3:
-            val: 1.
-            active: False
-            lb: 0.
-            ub: 10.
-        lam:
-            val: 524.0
-            active: True
-            lb: 523.
-            ub: 528.
-        Te_gradient:
-            val: 0.0
-            active: False
-            lb: 0.
-            ub: 10.
-            num_grad_points: 1
-        ne_gradient:
-            val: 0.
-            active: False
-            lb: 0.
-            ub: 15.
-            num_grad_points: 1
-        ud:
-            val: 0.0
-            angle: 0.0
-            active: False
-            lb: -10.0
-            ub: 10.0
-        Va:
-            val: 0.0
-            angle: 0.0
-            active: False
-            lb: -20.5
-            ub: 20.5
-
-
-other:
-    refit: false
-    refit_thresh: 1.5
-    calc_sigmas: false
-
+  background:
+    slice: 900
+    type: fit
+  lineouts:
+    end: 1000
+    skip: 25
+    start: -1000
+    type: um
+  shotnum: 106310
 machine: gpu
-
 mlflow:
-    experiment: inverse-thomson-scattering
-    run: new
+  experiment: inverse-thomson-scattering
+  run: shot_106310_iaw_detailed_newirf_2
+other:
+  calc_sigmas: false
+  refit: false
+  refit_thresh: 1.5
+parameters:
+  electron:
+    Te:
+      active: true
+      lb: 0.001
+      ub: 1.5
+      val: 0.2
+    fe:
+      active: true
+      dim: 1
+      nv: 128
+      params:
+        m:
+          lb: 2.0
+          ub: 5.0
+          val: 2.1
+      type: dlm
+    ne:
+      active: false
+      lb: 0.001
+      ub: 1.0
+      val: 0.1
+  general:
+    Te_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 10.0
+      val: 0.0
+    Va:
+      active: true
+      angle: 0.0
+      lb: -40.5
+      ub: 40.5
+      val: 0.0
+    amp1:
+      active: false
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp2:
+      active: false
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp3:
+      active: true
+      lb: 0.0
+      ub: 10.0
+      val: 1.0
+    lam:
+      active: false
+      lb: 523.0
+      ub: 528.0
+      val: 526.5
+    ne_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 15.0
+      val: 0.0
+    ud:
+      active: true
+      angle: 0.0
+      lb: -40.0
+      ub: 40.0
+      val: 0.0
+  ion-1:
+    A:
+      active: false
+      val: 1.0
+    Ti:
+      active: True
+      lb: 0.01
+      same: false
+      ub: 3.0
+      val: 0.05
+    Z:
+      active: false
+      lb: 1.0
+      ub: 25.0
+      val: 1.0
+    fract:
+      active: false
+      val: 1.0
