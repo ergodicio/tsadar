@@ -776,7 +776,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
 
             ax[0][0].set_title(titlestr, fontsize=14)
             ax[0][0].set_ylabel("Amp (arb. units)")
-            ax[0][0].legend(loc = 'upper right', bbox_to_anchor = (0.8, 1.05), fontsize=12)
+            ax[0][0].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
             ax[0][0].grid()
             ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
             #ax[0][0].autoscale()
@@ -818,9 +818,12 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
 
             ax[0][1].set_title(titlestr, fontsize=14)
             ax[0][1].set_ylabel("Amp (arb. units)")
-            ax[0][1].legend(loc = 'uppder right', bbox_to_anchor = (0.8, 1.05), fontsize=12)
+            ax[0][1].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
             ax[0][1].grid()
             ax[0][1].set_xlim([config["plotting"]["ion_window_start"], config["plotting"]["ion_window_end"]])
+            ax[0][0].set_ylim(
+                [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+                None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
 
             ax[1][1].plot(
                 all_axes["iaw_y"], np.squeeze(sqdevs["ion"][loss_inds[i]]), label="Residual"
@@ -871,7 +874,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
 
             ax[0][0].set_title(titlestr, fontsize=14)
             ax[0][0].set_ylabel("Amp (arb. units)")
-            ax[0][0].legend(loc = 'upper right', bbox_to_anchor = (0.8, 1.05), fontsize=12)
+            ax[0][0].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
             ax[0][0].grid()
             ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
             ax[0][0].set_ylim(
@@ -912,9 +915,12 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
 
             ax[0][1].set_title(titlestr, fontsize=14)
             ax[0][1].set_ylabel("Amp (arb. units)")
-            ax[0][1].legend(bbox_to_anchor = (0.8, 1.05), fontsize=12)
+            ax[0][1].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
             ax[0][1].grid()
             ax[0][1].set_xlim([config["plotting"]["ion_window_start"], config["plotting"]["ion_window_end"]])
+            ax[0][1].set_ylim(
+                [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+                None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
 
             ax[1][1].plot(
                 all_axes["iaw_y"], np.squeeze(sqdevs["ion"][loss_inds[-1-i]]), label="Residual"

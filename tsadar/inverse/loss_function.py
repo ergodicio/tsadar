@@ -160,7 +160,7 @@ class LossFunction:
                     & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
                 ),
                 _error_,
-                0.0,
+                jnp.nan,
             )
 
             # used_points += jnp.sum(
@@ -179,8 +179,9 @@ class LossFunction:
             #     10.0 * _error_,
             #     _error_,
             # )
-            sqdev["ion"] = _error_
+            
             i_error += reduce_func(_error_)
+            sqdev["ion"] = jnp.nan_to_num(_error_)
 
         if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
             _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])

@@ -358,7 +358,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magE = 5.13 / 0.36175 * 1.118  # um / px times strech factor accounting for tilt in view
 
             EPWtcc = 1024 - 503  # 562;
-            IAWtcc = 1024 - 450  # 578  # 469;
+            IAWtcc = 1024 - 568  # 578  # 469;
 
         else:
             # needs to be updated with the calibrations from 7-26-22
