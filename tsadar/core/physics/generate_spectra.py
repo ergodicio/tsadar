@@ -97,10 +97,10 @@ class FitModel:
 
     def ion_spectrum(self, all_params):
         if self.config["other"]["extraoptions"]["load_ion_spec"]:
-            if self.num_dist_func.dim == 1:
-                ThryI, lamAxisI = self.ion_form_factor(all_params)
 
-            else:
+            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
+                ThryI, lamAxisI = self.ion_form_factor(all_params)
+            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
                 ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(all_params)
 
             # remove extra dimensions and rescale to nm
