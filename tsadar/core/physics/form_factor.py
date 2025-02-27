@@ -204,8 +204,8 @@ class FormFactor:
         # calculating normilized phase velcoity(xi's) for electrons
         xie = omgdop / (k * vTe) - ud / vTe
 
-        #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
-        fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
+        fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
+        #fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
 
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
         df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]))), 1)

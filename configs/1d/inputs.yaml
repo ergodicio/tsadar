@@ -1,3 +1,16 @@
+data:
+    shotnum: 101675
+    lineouts:
+        type:
+            ps
+        start: 400
+        end: 1000
+        skip: 50
+    background:
+        type:
+            fit
+        slice: 900
+
 parameters:
   electron:
     Te:

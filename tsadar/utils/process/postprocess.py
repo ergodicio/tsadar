@@ -15,6 +15,7 @@ from tsadar.inverse.loops import one_d_loop
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
+
 def recalculate_with_chosen_weights(
     config: Dict, sa, sample_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
 ):
@@ -227,28 +228,6 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     t1 = time.time()
 
     #calculate used poinsts once right before its used
-    # used_points = 0
-    # if config["other"]["extraoptions"]["fit_EPWb"]:
-    #     used_points += np.sum(
-    #             (all_axes['epw_y'] > config["data"]["fit_rng"]["blue_min"])
-    #             & (all_axes['epw_y'] < config["data"]["fit_rng"]["blue_max"])
-    #         )
-    # if config["other"]["extraoptions"]["fit_EPWr"]:
-    #     used_points += np.sum(
-    #             (all_axes['epw_y'] > config["data"]["fit_rng"]["red_min"])
-    #             & (all_axes['epw_y'] < config["data"]["fit_rng"]["red_max"])
-    #         )
-    # if config["other"]["extraoptions"]["fit_IAW"]:
-    #                 used_points += np.sum(
-    #             (
-    #                 (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_min"])
-    #                 & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_cf_min"])
-    #             )
-    #             | (
-    #                 (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_cf_max"])
-    #                 & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_max"])
-    #             )
-    #         )
     
     for species in config["parameters"].keys():
         if "electron" == species:

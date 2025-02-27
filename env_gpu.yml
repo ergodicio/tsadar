@@ -26,4 +26,5 @@ dependencies:
       - tabulate
       - psutil
       - equinox
+      - pynvml
       

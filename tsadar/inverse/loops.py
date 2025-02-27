@@ -25,7 +25,6 @@ def _1d_scipy_loop_(
     else:
         ts_params = previous_weights
 
-    #ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     init_weights, loss_fn.unravel_weights = ravel_pytree(diff_params)
 
