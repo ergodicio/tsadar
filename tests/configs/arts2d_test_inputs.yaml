@@ -78,22 +78,23 @@ parameters:
       val: 5.0
   electron:
     Te:
-      active: false
+      active: true
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
       val: 1.1
     fe:
-      active: false
+      active: true
       dim: 2
       type: sphericalharmonic
-      nvx: 256
+      nvx: 512
       params:
         init_m: 2.7
         init_f10: 1.0e-2
         init_f11: 1.0e-2
         Nl: 1
-        nvr: 32
+        nvr: 64
+        learn_log: True
         
     ne:
       active: true
