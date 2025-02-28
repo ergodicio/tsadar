@@ -127,7 +127,7 @@ class ThomsonScatteringDiagnostic:
 
         return ThryE, ThryI, lamAxisE, lamAxisI
 
-    def sprectrum_breakdown(self, ts_params: ThomsonParams, batch):
+    def spectrum_breakdown(self, ts_params: ThomsonParams, batch):
         """
         Alternaticve version of the __call__ method which produces a detailied beakdown of all
         componenets that go into the calculated spectrum. Not intended to be used for angular data.
@@ -167,7 +167,7 @@ class ThomsonScatteringDiagnostic:
                     if len(propertiesI['prominences'])>1:
                         iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
                 except BaseException:
-                    Print("Unable to locate peak IRF may not be plotted")
+                    print("Unable to locate peak IRF may not be plotted")
             
         eIRF, iIRF, lamAxisE, lamAxisI = self.postprocess_theory(
             eIRF, iIRF, lamAxisE, lamAxisI, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, physical_params
