@@ -1,11 +1,26 @@
 from typing import List, Dict, Union, Callable
 from collections import defaultdict
+from functools import partial
 
 from jax import Array, numpy as jnp, tree_util as jtu, vmap
 from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
 from jax.scipy.special import gamma, sph_harm
 import equinox as eqx
+
+
+def smooth1d(array, window_size):
+    # Use a Hanning window
+    window = jnp.hanning(window_size)
+    window /= window.sum()  # Normalize
+    return jnp.convolve(array, window, mode="same")
+
+
+def smooth2d(array, window_size):
+    # Use a Hanning window
+    window = jnp.outer(jnp.hanning(window_size), jnp.hanning(window_size))
+    window /= window.sum()  # Normalize
+    return jnp.convolve(array, window, mode="same")
 
 
 class DistributionFunction1D(eqx.Module):
@@ -55,6 +70,7 @@ class Arbitrary1D(DistributionFunction1D):
         super().__init__(dist_cfg)
         self.learn_log = dist_cfg["params"]["learn_log"]
         self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
+        self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["nvx"] // 8)
 
     def init_dlm(self, m):
         vth_x = jnp.sqrt(2.0)
@@ -145,12 +161,16 @@ class Arbitrary2D(DistributionFunction2D):
         self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
 
     def init_dlm(self, m):
-        vxm, vym = jnp.meshgrid(self.vx, self.vx)
-        # vth_x = jnp.sqrt(2.0)
-        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
-        # cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
-        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(vxm / alpha / vth_x) ** m))
-        fdlm = -jnp.exp(-((vxm**2 + vym**2) / 2.0))
+
+        vth_x = jnp.sqrt(2.0)
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        fdlm = (
+            cst
+            / vth_x**3.0
+            * jnp.exp(-((jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0) / alpha / vth_x) ** m))
+        )
+
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
 
         if self.learn_log:
@@ -190,6 +210,7 @@ class SphericalHarmonics(DistributionFunction2D):
     m_shift: float
     act_fun: Callable
     normed_m: Array
+    smooth: Callable
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
@@ -224,6 +245,7 @@ class SphericalHarmonics(DistributionFunction2D):
         inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
         self.act_fun = sigmoid
         self.normed_m = inv_act_fun((init_m - self.m_shift) / self.m_scale)
+        self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["nvr"] // 16)
 
     def get_unnormed_params(self):
         return {"flm": self.flm}
@@ -245,7 +267,8 @@ class SphericalHarmonics(DistributionFunction2D):
 
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
-                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, self.flm[i][j], right=1e-16)
+                smoothed_flm = self.smooth(self.flm[i][j])
+                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, smoothed_flm, right=1e-16)
                 _sph_harm = self.sph_harm(
                     jnp.array([j]), jnp.array([i]), 0.0, self.th.reshape(-1, order="C"), 2
                 ).reshape(self.vr_vxvy.shape, order="C")
@@ -577,7 +600,7 @@ class ThomsonParams(eqx.Module):
                 if k2 == "m" and param_cfg[k]["fe"]["active"]:
                     fitted_params[k][k2] = param_dict[k][k2]
                     num_params += 1
-                elif k2 == "f":
+                elif k2 in ["f", "flm"]:
                     pass
                 elif param_cfg[k][k2]["active"]:
                     fitted_params[k][k2] = param_dict[k][k2]
