@@ -248,7 +248,11 @@ class SphericalHarmonics(DistributionFunction2D):
         self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["nvr"] // 16)
 
     def get_unnormed_params(self):
-        return {"flm": self.flm}
+        flm_dict = {0: {0: self.get_f00(self.act_fun(self.normed_m) * self.m_scale + self.m_shift)}, 1: {}}
+        for i in range(1, self.Nl + 1):
+            for j in range(i + 1):
+                flm_dict[i][j] = self.smooth(self.flm[i][j])
+        return {"flm": flm_dict}
 
     def get_f00(self, m):
         vth_x = 1.0
@@ -274,7 +278,7 @@ class SphericalHarmonics(DistributionFunction2D):
                 ).reshape(self.vr_vxvy.shape, order="C")
                 fvxvy += _flmvxvy * jnp.real(_sph_harm)
 
-        return fvxvy
+        return jnp.clip(fvxvy, min=1e-16)
 
 
 class ElectronParams(eqx.Module):
@@ -660,6 +664,24 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_type: str) -> Dict:
                 filter_spec = update_distribution_layers(filter_spec, df=df[i])
         else:
             filter_spec = update_distribution_layers(filter_spec, df=df)
+    elif dist_type.casefold() == "sphericalharmonic":
+        if isinstance(filter_spec.electron.distribution_functions, list):
+            raise NotImplementedError
+            # num_dists = len(filter_spec.electron.distribution_functions)
+            # for i in range(num_dists):
+            #     filter_spec = eqx.tree_at(
+            #         lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+            #     )
+        else:
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+            )
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.flm[1][0], filter_spec, replace=True
+            )
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.flm[1][1], filter_spec, replace=True
+            )
 
     else:
         raise NotImplementedError(f"Untrainable distribution type: {dist_type}")
