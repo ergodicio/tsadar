@@ -20,7 +20,7 @@ from tsadar.core.modules import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 
-def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
+def _dump_ts_params(td: str, dist_type: str, ts_params: ThomsonParams, prefix: str = ""):
     os.makedirs(base_dir := os.path.join(td, "ts_params"), exist_ok=True)
     os.makedirs(params_dir := os.path.join(base_dir, prefix), exist_ok=True)
     os.makedirs(dist_dir := os.path.join(params_dir, "distribution"), exist_ok=True)
@@ -28,7 +28,7 @@ def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
     # dump all parameters besides distribution
     unnormed_params = ts_params.get_unnormed_params()
 
-    plot_and_save_distribution(ts_params, dist_dir)
+    plot_and_save_distribution(ts_params, dist_dir, dist_type)
 
     for param_key, these_params in unnormed_params.items():
         params_to_dump = {p_key: float(these_params[p_key]) for p_key in set(these_params.keys()) - {"f", "flm"}}
@@ -43,21 +43,16 @@ def plot_and_save_distribution(ts_params: ThomsonParams, dist_dir: str, dist_typ
 
     if dist_type == "sphericalharmonic":
         # plot and dump spherical harmonics too
+        flm_dict = ts_params.electron.distribution_functions.get_unnormed_params()
         da_dict = {
             "f0": xr.DataArray(
-                ts_params.electron.distribution_functions.flm[0][0],
-                coords=(ts_params.electron.distribution_functions.vr,),
-                dims=("vr",),
+                flm_dict["flm"][0][0], coords=(ts_params.electron.distribution_functions.vr,), dims=("vr",)
             ),
             "f10": xr.DataArray(
-                ts_params.electron.distribution_functions.flm[1][0],
-                coords=(ts_params.electron.distribution_functions.vr,),
-                dims=("vr",),
+                flm_dict["flm"][1][0], coords=(ts_params.electron.distribution_functions.vr,), dims=("vr",)
             ),
             "f11": xr.DataArray(
-                ts_params.electron.distribution_functions.flm[1][1],
-                coords=(ts_params.electron.distribution_functions.vr,),
-                dims=("vr",),
+                flm_dict["flm"][1][1], coords=(ts_params.electron.distribution_functions.vr,), dims=("vr",)
             ),
         }
         dist_flm = xr.Dataset(da_dict)
@@ -180,7 +175,7 @@ def test_arts2d_inverse(dist_type: bool):
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
             active_gt_params, _ = ts_params_gt.get_fitted_params(config["parameters"])
-            _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
+            _dump_ts_params(td, dist_type, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
 
             ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
@@ -228,7 +223,7 @@ def test_arts2d_inverse(dist_type: bool):
 
                         # plot f
                         if i % 5 == 0:
-                            _dump_ts_params(td, combined_params, prefix=f"step-{i:03d}")
+                            _dump_ts_params(td, dist_type, combined_params, prefix=f"step-{i:03d}")
 
                 else:
                     flattened_diff_params, unravel = ravel_pytree(diff_params)
