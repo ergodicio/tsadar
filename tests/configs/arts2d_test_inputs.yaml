@@ -88,10 +88,11 @@ parameters:
       dim: 2
       type: sphericalharmonic
       nvx: 512
+      nvx: 512
       params:
-        init_m: 2.7
-        init_f10: 1.0e-2
-        init_f11: 1.0e-2
+        init_m: 2.2
+        LTx: 22500000.
+        LTy: 40000000.
         Nl: 1
         nvr: 64
         learn_log: True
