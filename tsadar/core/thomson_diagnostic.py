@@ -1,4 +1,5 @@
 from jax import numpy as jnp, vmap
+from scipy.signal import find_peaks
 
 
 from .modules import ThomsonParams
@@ -125,3 +126,65 @@ class ThomsonScatteringDiagnostic:
         ThryI = ThryI + batch["noise_i"]
 
         return ThryE, ThryI, lamAxisE, lamAxisI
+
+    def spectrum_breakdown(self, ts_params: ThomsonParams, batch):
+        """
+        Alternaticve version of the __call__ method which produces a detailied beakdown of all
+        componenets that go into the calculated spectrum. Not intended to be used for angular data.
+
+        Args:
+            ts_params: ThomsonParam- an instance of the ThomsonParams object which contains all the input parameters for 
+                a spectrum to be calculated
+            batch: Dict- contains the electron and ion data arrays as well as their amplitude arrays and noise arrays.
+
+        Returns:
+
+        """
+
+        physical_params = ts_params()
+        fmod= FitModel(self.cfg, self.scattering_angles)
+        modlE, modlI, ThryE, ThryI, lamAxisE_raw, lamAxisI_raw=vmap(fmod.detailed_spectrum)(physical_params)
+        #modlE, modlI, ThryE, ThryI, lamAxisE, lamAxisI = self.model.detailed_spectrum(physical_params)
+        modlE, modlI, lamAxisE, lamAxisI = self.postprocess_theory(
+            modlE, modlI, lamAxisE_raw, lamAxisI_raw, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, physical_params
+        )
+        #add the IRF to a delta function of the peak locations to produce a IRF only plot
+        
+        eIRF = jnp.zeros_like(modlE)
+        if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
+            for i in range(jnp.shape(modlE)[0]):
+                peaksE, propertiesE = find_peaks(modlE[i], prominence=0.1)
+                eIRF = eIRF.at[i,peaksE[jnp.argmax(propertiesE['prominences'])]].set(1.0)
+                if len(propertiesE['prominences'])>1:
+                    eIRF = eIRF.at[i,peaksE[jnp.argpartition(propertiesE['prominences'],-2)[-2]]].set(1.0)
+        
+        iIRF = jnp.zeros_like(modlI)
+        if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
+            for i in range(jnp.shape(modlI)[0]):
+                try:
+                    peaksI, propertiesI = find_peaks(modlI[i], prominence=0.1)
+                    iIRF = iIRF.at[i,peaksI[jnp.argmax(propertiesI['prominences'])]].set(1.0)
+                    if len(propertiesI['prominences'])>1:
+                        iIRF = iIRF.at[i,peaksI[jnp.argpartition(propertiesI['prominences'],-2)[-2]]].set(1.0)
+                except BaseException:
+                    print("Unable to locate peak IRF may not be plotted")
+            
+        eIRF, iIRF, lamAxisE, lamAxisI = self.postprocess_theory(
+            eIRF, iIRF, lamAxisE, lamAxisI, {"e_amps": batch["e_amps"], "i_amps": batch["i_amps"]}, physical_params
+        )
+
+
+        if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
+            modlE, lamAxisE = self.reduce_ATS_to_resunit(ThryE, lamAxisE, physical_params, batch)
+
+        modlE = modlE + batch["noise_e"]
+        modlI = modlI + batch["noise_i"]
+        
+        if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
+            ThryE = jnp.reshape(batch["e_amps"],(-1,1,1,1)) * ThryE / jnp.amax(ThryE)
+            eIRF = jnp.reshape(batch["e_amps"],(-1,1)) * eIRF/ jnp.amax(eIRF)
+        if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
+            ThryI = jnp.reshape(batch["i_amps"],(-1,1,1,1)) * ThryI / jnp.amax(ThryI)
+            iIRF = jnp.reshape(batch["i_amps"],(-1,1)) * iIRF/ jnp.amax(iIRF)
+
+        return modlE, modlI, ThryE, ThryI, eIRF, iIRF, lamAxisE, lamAxisI, lamAxisE_raw, lamAxisI_raw

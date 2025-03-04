@@ -80,11 +80,11 @@ other:
     expandedions: False
     extraoptions:
         spectype: 1d
-        load_ion_spec: false
+        load_ion_spec: True
         load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
+        fit_IAW: True
+        fit_EPWb: False
+        fit_EPWr: False
         absolute_timing: True
     PhysParams:
         background: [0, 0]
@@ -96,7 +96,7 @@ other:
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
     flatbg: 0
-    gain: 1
+    gain: 150
     points_per_pixel: 1
     ang_res_unit: 10
     lam_res_unit: 5
@@ -111,12 +111,12 @@ data:
     fit_rng:
         blue_min: 450
         blue_max: 510
-        red_min: 540
+        red_min: 545
         red_max: 625
         iaw_min: 525.5
         iaw_max: 527.5
-        iaw_cf_min: 526.49
-        iaw_cf_max: 526.51
+        iaw_cf_min: 526.5
+        iaw_cf_max: 526.8
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -148,11 +148,12 @@ plotting:
     n_sigmas: 3
     rolling_std_width: 5
     data_cbar_u: data
-    data_cbar_l: data
+    data_cbar_l: -1
     ion_window_start: 525
     ion_window_end: 528
     ele_window_start: 425
     ele_window_end: 625
+    detailed_breakdown: False
     
 optimizer:
     # use adam for nn / stochastic gradient descent
@@ -171,6 +172,7 @@ optimizer:
     parameter_norm: True
     refine_factor: 0
     num_mins: 1
+    sequential: True
 
 nn:
     use: false

@@ -392,7 +392,7 @@ class GeneralParams(eqx.Module):
     normed_ne_gradient: Array
     normed_Te_gradient: Array
     normed_ud: Array
-    normed_vA: Array
+    normed_Va: Array
     lam_scale: float
     lam_shift: float
     amp1_scale: float
@@ -454,7 +454,7 @@ class GeneralParams(eqx.Module):
                 jnp.full(batch_size, (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale)
             )
             self.normed_ud = inv_act_fun(jnp.full(batch_size, (cfg["ud"]["val"] - self.ud_shift) / self.ud_scale))
-            self.normed_vA = inv_act_fun(jnp.full(batch_size, (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale))
+            self.normed_Va = inv_act_fun(jnp.full(batch_size, (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale))
             self.normed_lam = inv_act_fun(jnp.full(batch_size, (cfg["lam"]["val"] - self.lam_shift) / self.lam_scale))
         else:
             self.normed_amp1 = inv_act_fun((cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale)
@@ -467,7 +467,7 @@ class GeneralParams(eqx.Module):
                 (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale
             )
             self.normed_ud = inv_act_fun((cfg["ud"]["val"] - self.ud_shift) / self.ud_scale)
-            self.normed_vA = inv_act_fun((cfg["Va"]["val"] - self.vA_shift) / self.vA_scale)
+            self.normed_Va = inv_act_fun((cfg["Va"]["val"] - self.vA_shift) / self.vA_scale)
             self.normed_lam = inv_act_fun((cfg["lam"]["val"] - self.lam_shift) / self.lam_scale)
 
     def get_unnormed_params(self):
@@ -481,7 +481,7 @@ class GeneralParams(eqx.Module):
         unnormed_ne_gradient = self.act_fun(self.normed_ne_gradient) * self.ne_gradient_scale + self.ne_gradient_shift
         unnormed_Te_gradient = self.act_fun(self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
         unnormed_ud = self.act_fun(self.normed_ud) * self.ud_scale + self.ud_shift
-        unnormed_vA = self.act_fun(self.normed_vA) * self.vA_scale + self.vA_shift
+        unnormed_Va = self.act_fun(self.normed_Va) * self.vA_scale + self.vA_shift
 
         return {
             "lam": unnormed_lam,
@@ -491,7 +491,7 @@ class GeneralParams(eqx.Module):
             "ne_gradient": unnormed_ne_gradient,
             "Te_gradient": unnormed_Te_gradient,
             "ud": unnormed_ud,
-            "Va": unnormed_vA,
+            "Va": unnormed_Va,
         }
 
 
@@ -532,7 +532,7 @@ class ThomsonParams(eqx.Module):
                 if k2 == 'm' and param_cfg[k]['fe']['active']:
                     fitted_params[k][k2]=param_dict[k][k2]
                     num_params+=1
-                elif param_cfg[k][k2]['active']:
+                elif k2 != 'm' and param_cfg[k][k2]['active']:
                     fitted_params[k][k2]=param_dict[k][k2]
                     num_params+=1
 
@@ -542,6 +542,7 @@ class ThomsonParams(eqx.Module):
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
     # Step 2
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
+    ion_num=0
     for species, params in cfg_params.items():
         for key, val in params.items():
             if val["active"]:
@@ -549,11 +550,19 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                     filter_spec = get_distribution_filter_spec(filter_spec, dist_type=val["type"])
                 else:
                     nkey = f"normed_{key}"
-                    filter_spec = eqx.tree_at(
-                        lambda tree: getattr(getattr(tree, species), nkey),
-                        filter_spec,
-                        replace=True,
-                    )
+                    if "ion" in species:
+                        ion_num+=1
+                        filter_spec = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], nkey),
+                            filter_spec,
+                            replace=True,
+                        )
+                    else:
+                        filter_spec = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, species), nkey),
+                            filter_spec,
+                            replace=True,
+                        )
 
     return filter_spec
 

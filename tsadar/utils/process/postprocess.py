@@ -6,15 +6,18 @@ import time, tempfile, mlflow, os, copy
 
 import numpy as np
 import jax
+from equinox import filter_jit
 
 from tsadar.utils.plotting import plotters
 from tsadar.inverse.loss_function import LossFunction
 from tsadar.core.modules import IonParams
 from tsadar.inverse.loops import one_d_loop
+from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
+
 
 
 def recalculate_with_chosen_weights(
-    config: Dict, sample_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
+    config: Dict, sa, sample_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
 ):
     """
     Gets parameters and the result of the full forward pass i.e. fits
@@ -50,12 +53,29 @@ def recalculate_with_chosen_weights(
         for k2 in all_params[k].keys():
             all_params[k][k2] = np.concatenate(all_params[k][k2])
 
-    fits = {}
-    sqdevs = {}
-    fits["ion"] = np.zeros(all_data["i_data"].shape)
-    sqdevs["ion"] = np.zeros(all_data["i_data"].shape)
-    fits["ele"] = np.zeros(all_data["e_data"].shape)
-    sqdevs["ele"] = np.zeros(all_data["e_data"].shape)
+    fits = {"ele" : {"total_spec": np.zeros(all_data["e_data"].shape), 
+        "IRF": np.zeros(all_data["e_data"].shape), "noise": np.zeros(all_data["e_data"].shape)},
+        "ion" : {"total_spec": np.zeros(all_data["i_data"].shape), 
+        "IRF": np.zeros(all_data["i_data"].shape), "noise": np.zeros(all_data["i_data"].shape)}
+        }
+    if config["other"]["extraoptions"]["load_ele_spec"]:
+        fits["ele"]['spec_comps']=np.ones([all_data["e_data"].shape[0], 
+                max(config["parameters"]["general"]["Te_gradient"]["num_grad_points"], 
+                config["parameters"]["general"]["ne_gradient"]["num_grad_points"]),
+                all_data["e_data"].shape[1]*config["other"]["points_per_pixel"],len(sa['sa'])])
+    else:
+        fits["ele"]['spec_comps'] = np.zeros(all_data["e_data"].shape)
+    if config["other"]["extraoptions"]["load_ion_spec"]:
+        fits["ion"]['spec_comps'] = np.ones([all_data["i_data"].shape[0], 
+                max(config["parameters"]["general"]["Te_gradient"]["num_grad_points"], 
+                config["parameters"]["general"]["ne_gradient"]["num_grad_points"]),
+                all_data["i_data"].shape[1]*config["other"]["points_per_pixel"],len(sa['sa'])])
+    else:
+        fits["ion"]['spec_comps'] = np.zeros(all_data["i_data"].shape)
+
+    sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
+    #fits["ion"] = np.zeros(all_data["i_data"].shape)
+    #fits["ele"] = np.zeros(all_data["e_data"].shape)
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
@@ -104,6 +124,19 @@ def recalculate_with_chosen_weights(
 
             loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
+            if config["plotting"]["detailed_breakdown"]:
+                ts_diag = ThomsonScatteringDiagnostic(config, sa)
+                #ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
+                ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(fitted_weights[i_batch], batch)
+                fits["ele"]['spec_comps'][inds] = modlE
+                fits["ion"]['spec_comps'][inds] = modlI
+                fits["ele"]['IRF'][inds] = eIRF
+                fits["ion"]['IRF'][inds] = iIRF
+                fits["ele"]['noise'][inds] = all_data["noiseE"][inds]
+                fits["ion"]['noise'][inds] = all_data["noiseI"][inds]
+                fits["ele"]["detailed_axis"] = lamAxisE_raw[0]
+                fits["ion"]["detailed_axis"] = lamAxisI_raw[0]
+
             if calc_sigma:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
                 try:
@@ -119,8 +152,8 @@ def recalculate_with_chosen_weights(
                 sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
                 # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
 
-            fits["ele"][inds] = ThryE
-            fits["ion"][inds] = ThryI
+            fits["ele"]['total_spec'][inds] = ThryE
+            fits["ion"]['total_spec'][inds] = ThryI
 
     return losses, sqdevs, num_params, fits, sigmas, all_params
 
@@ -195,35 +228,13 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     t1 = time.time()
 
     #calculate used poinsts once right before its used
-    used_points = 0
-    if config["other"]["extraoptions"]["fit_EPWb"]:
-        used_points += np.sum(
-                (all_axes['epw_y'] > config["data"]["fit_rng"]["blue_min"])
-                & (all_axes['epw_y'] < config["data"]["fit_rng"]["blue_max"])
-            )
-    if config["other"]["extraoptions"]["fit_EPWr"]:
-        used_points += np.sum(
-                (all_axes['epw_y'] > config["data"]["fit_rng"]["red_min"])
-                & (all_axes['epw_y'] < config["data"]["fit_rng"]["red_max"])
-            )
-    if config["other"]["extraoptions"]["fit_IAW"]:
-                    used_points += np.sum(
-                (
-                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_min"])
-                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_cf_min"])
-                )
-                | (
-                    (all_axes['iaw_y'] > config["data"]["fit_rng"]["iaw_cf_max"])
-                    & (all_axes['iaw_y'] < config["data"]["fit_rng"]["iaw_max"])
-                )
-            )
     
     for species in config["parameters"].keys():
         if "electron" == species:
             elec_species = species
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        init_losses = refit_bad_fits(config, sample_indices, all_data, loss_fn, sa, fitted_weights, used_points)
+        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights)
     else:
         init_losses = []
 
@@ -238,7 +249,7 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
 
         else:
             t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, 
-                                            fitted_weights, init_losses, used_points, t1, td)
+                                            fitted_weights, sa, init_losses, t1, td)
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -248,16 +259,16 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     return final_params
 
 
-def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights, used_points):
+def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights):
     losses_init, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, batch_indices, all_data, loss_fn, False, fitted_weights
+        config, sa, batch_indices, all_data, loss_fn, False, fitted_weights
     )
 
     # refit bad fits
-    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+    #reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
 
 
-    red_losses_init = losses_init / (1.1 * reduced_points)
+    red_losses_init = losses_init #/ (1.1 * reduced_points) by changing losses to mean this is loss per point
     true_batch_size = config["optimizer"]["batch_size"]
 
     mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
@@ -309,9 +320,20 @@ def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights,
         temp_params.update(flatten(prev_weights))
         temp_cfg["parameters"] = unflatten(temp_params)
         #temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights 
-        new_weights, overall_loss, _ = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
+        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
 
-        if overall_loss < losses_init[i]:
+        inds = np.array([i])
+        batch = {
+                "e_data": all_data["e_data"][inds],
+                "e_amps": all_data["e_amps"][inds],
+                "i_data": all_data["i_data"][inds],
+                "i_amps": all_data["i_amps"][inds],
+                "noise_e": all_data["noiseE"][inds],
+                "noise_i": all_data["noiseI"][inds],
+            }
+        loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
+        
+        if loss < losses_init[i]:
             fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(insert,
                                     fitted_weights[(i - 1) // true_batch_size], 
                                     new_weights[0],
@@ -319,12 +341,12 @@ def refit_bad_fits(config, batch_indices, all_data, loss_fn, sa, fitted_weights,
     return losses_init
 
 
-def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, losses_init, used_points, t1, td):
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, t1, td):
     losses, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
+        config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
 
-    reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+    reduced_points = 1.0#(used_points - num_params)*config["optimizer"]["batch_size"]
 
     if len(losses_init) == 0:
         losses_init = losses
@@ -336,7 +358,10 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
 
     red_losses = plotters.plot_loss_hist(config, losses_init, losses, reduced_points, td)
     savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
-    plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
+    if config["plotting"]["detailed_breakdown"]:
+        plotters.detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
+    else:
+        plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
     sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)
     plotters.plot_final_params(config, all_params, sigma_ds, td)
     return t1, final_params

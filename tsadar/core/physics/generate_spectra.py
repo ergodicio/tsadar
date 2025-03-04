@@ -97,10 +97,10 @@ class FitModel:
 
     def ion_spectrum(self, all_params):
         if self.config["other"]["extraoptions"]["load_ion_spec"]:
-            if self.num_dist_func.dim == 1:
-                ThryI, lamAxisI = self.ion_form_factor(all_params)
 
-            else:
+            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
+                ThryI, lamAxisI = self.ion_form_factor(all_params)
+            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
                 ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(all_params)
 
             # remove extra dimensions and rescale to nm
@@ -150,3 +150,92 @@ class FitModel:
             modlE = 0
             lamAxisE = []
         return lamAxisE, modlE
+
+    def detailed_spectrum(self, all_params: Dict):
+        """
+        This alternative spectrum calculator intended for postprocessing produces both the total spectrum and 
+        all the components.
+
+
+        Args:
+            all_params: Parameter dictionary containing the current values for all active and static parameters. Only a
+                few permanently static properties from the configuration dictionary will be used, everything else must
+                be included in this input.
+
+        Returns:
+            modlE: calculated electron plasma wave spectrum as an array with length of npts. If an angular spectrum is
+                calculated then it will be 2D. If the EPW is not loaded this is returned as the int 0.
+            modlI: calculated ion acoustic wave spectrum as an array with length of npts. If the IAW is not loaded this
+                is returned as the int 0.
+            lamAxisE: electron plasma wave wavelength axis as an array with length of npts. If the EPW is not loaded
+                this is returned as an empty list.
+            lamAxisI: ion acoustic wave wavelength axis as an array with length of npts. If the IAW is not loaded
+                this is returned as an empty list.
+            all_params: The input all_params is returned
+
+        """
+
+        lamAxisI, modlI, ThryI = self.ion_spectrum_detailed(all_params)
+        lamAxisE, modlE, ThryE = self.electron_spectrum_detailed(all_params)
+
+        return modlE, modlI, ThryE, ThryI, lamAxisE, lamAxisI
+    def ion_spectrum_detailed(self, all_params):
+        if self.config["other"]["extraoptions"]["load_ion_spec"]:
+            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
+                ThryI, lamAxisI = self.ion_form_factor(all_params)
+            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
+                ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(all_params)
+
+            # remove extra dimensions and rescale to nm
+            lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
+            modlI = jnp.mean(ThryI, axis=0)
+            modlI = jnp.sum(modlI * self.scattering_angles["weights"][0], axis=1)
+        else:
+            modlI = 0
+            ThryI = 0
+            lamAxisI = jnp.zeros(1)
+        return lamAxisI, modlI, ThryI
+
+    def electron_spectrum_detailed(self, all_params):
+        if self.config["other"]["extraoptions"]["load_ele_spec"]:
+            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
+                ThryE, lamAxisE_orig = self.electron_form_factor(all_params)
+            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
+                ThryE, lamAxisE_orig = self.electron_form_factor.calc_in_2D(all_params)
+
+            # remove extra dimensions and rescale to nm
+            lamAxisE_orig *= 1e7 
+            lamAxisE = jnp.squeeze(lamAxisE_orig)  # TODO hardcoded
+
+            modlE = jnp.mean(ThryE, axis=0)
+            if self.config["other"]["extraoptions"]["spectype"] == "angular_full":
+                modlE = jnp.matmul(self.scattering_angles["weights"], modlE.transpose())
+            else:
+                modlE = jnp.sum(modlE * self.scattering_angles["weights"][0], axis=1)
+
+            lam = all_params["general"]["lam"]
+            if self.config["other"]["iawoff"] and (
+                self.config["other"]["lamrangE"][0] < lam < self.config["other"]["lamrangE"][1]
+            ):
+                # set the ion feature to 0 #should be switched to a range about lam
+                lamlocb = jnp.argmin(jnp.abs(lamAxisE - lam - 3.0))
+                lamlocr = jnp.argmin(jnp.abs(lamAxisE - lam + 3.0))
+                modlE = jnp.concatenate(
+                    [modlE[:lamlocb], jnp.zeros(lamlocr - lamlocb), modlE[lamlocr:]]
+                )  # TODO hardcoded
+
+            if self.config["other"]["iawfilter"][0]:
+                filterb = self.config["other"]["iawfilter"][3] - self.config["other"]["iawfilter"][2] / 2
+                filterr = self.config["other"]["iawfilter"][3] + self.config["other"]["iawfilter"][2] / 2
+
+                if self.config["other"]["lamrangE"][0] < filterr and self.config["other"]["lamrangE"][1] > filterb:
+                    indices = (filterb < lamAxisE) & (filterr > lamAxisE)
+                    modlE = jnp.where(indices, modlE * 10 ** (-self.config["other"]["iawfilter"][1]), modlE)
+
+                    indices = (filterb < lamAxisE_orig) & (filterr > lamAxisE_orig)
+                    ThryE = jnp.where(indices, ThryE * 10 ** (-9), ThryE)
+        else:
+            modlE = 0
+            ThryE = 0
+            lamAxisE = []
+        return lamAxisE, modlE, ThryE
