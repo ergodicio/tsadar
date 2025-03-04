@@ -260,34 +260,11 @@ class SphericalHarmonics(DistributionFunction2D):
             init_m / 2 * uu**init_m - 5 * init_m / 12 * gamma(8 / init_m) / gamma(6 / init_m) * uu ** (init_m - 2) - 1.5
         ) * lambda_v
 
-        self.flm[1][0] = coeff / LTx
-        self.flm[1][1] = coeff / LTy
-
-        self.flm[0][0] = self.get_f00()
-
-        # Uses eq. 3 from
-        # Mora, P. & Yahi, H. Thermal heat-flux reduction in laser-produced plasmas. Phys. Rev. A 26, 2259–2261 (1982).
-
-        LTx = dist_cfg["params"]["LTx"]  # Provide in units of mean free path
-        LTy = dist_cfg["params"]["LTy"]  # Provide in units of mean free path
-        v0 = 1.0  # distributions are normalized to vth anyway
-        lambda_e = (
-            1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
-        )
-        # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
-        ve = gamma(5.0 / init_m) / 3 / gamma(3.0 / init_m) * v0
-
-        uu = self.vr / v0
-        lambda_v = lambda_e * (self.vr / ve) ** 4.0
-        coeff = (
-            init_m / 2 * uu**init_m - 5 * init_m / 12 * gamma(8 / init_m) / gamma(6 / init_m) * uu ** (init_m - 2) - 1.5
-        ) * lambda_v
-
-        self.flm[1][0] = coeff / LTx
-        self.flm[1][1] = coeff / LTy
+        self.flm[1][0] = coeff / LTx * self.flm[0][0]
+        self.flm[1][1] = coeff / LTy * self.flm[0][0]
 
     def get_unnormed_params(self):
-        flm_dict = {0: {0: self.get_f00(self.act_fun(self.normed_m) * self.m_scale + self.m_shift)}, 1: {}}
+        flm_dict = {0: {0: self.get_f00()}, 1: {}}
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
                 flm_dict[i][j] = self.smooth(self.flm[i][j])
@@ -324,14 +301,14 @@ class SphericalHarmonics(DistributionFunction2D):
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
                 smoothed_flm = self.smooth(self.flm[i][j])
-                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, smoothed_flm * self.flm[0][0], right=1e-16)
+                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, smoothed_flm, right=1e-16)
                 _sph_harm = self.sph_harm(
                     jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2
                 ).reshape(self.vr_vxvy.shape, order="C")
                 fvxvy += _flmvxvy * jnp.real(_sph_harm)
 
         fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])
-        fvxvy = jnp.maximum(fvxvy, 1e-16)
+        fvxvy = jnp.maximum(fvxvy, 1e-32)
 
         return fvxvy
 
