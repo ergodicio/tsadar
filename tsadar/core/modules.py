@@ -540,10 +540,14 @@ class ThomsonParams(eqx.Module):
 
 
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
-    # Step 2
+    #filter for splitting ThomsonParams into static and dynamic parameters
+    #produce a tree with the same structure as ts_params with all populated values set to false
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
     ion_num=0
+    #for each parameter if active in the input deck set the filter to true
     for species, params in cfg_params.items():
+        if "ion" in species:
+            ion_num+=1
         for key, val in params.items():
             if val["active"]:
                 if key == "fe":
@@ -551,7 +555,6 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                 else:
                     nkey = f"normed_{key}"
                     if "ion" in species:
-                        ion_num+=1
                         filter_spec = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], nkey),
                             filter_spec,
@@ -605,6 +608,34 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_type: str) -> Dict:
 
     return filter_spec
 
+def exchange_params(cfg_params: Dict, static_params: ThomsonParams, dynamic_params: ThomsonParams) -> Dict:
+    #filter for information exchange between dynamic and static parameters
+    ion_num=0
+    frac_sum = 0
+    all_params = eqx.combine(dynamic_params, static_params)
+    for species, params in cfg_params.items():
+        if "ion" in species:
+            ion_num+=1
+            if ion_num >1 and params['Ti']['same']:
+                #all_params.ions[ion_num-1].normed_Ti = all_params.ions[ion_num-2].normed_Ti
+                all_params = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], 'normed_Ti'),
+                            all_params,
+                            replace=all_params.ions[ion_num-2].normed_Ti,
+                        )
+            if ion_num < len(all_params.ions):
+                frac_sum+= all_params.ions[ion_num-1].fract
+            else:
+                #all_params.ions[ion_num-1].fract = 1.-frac_sum
+                all_params = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], 'fract'),
+                            all_params,
+                            replace=1.-frac_sum,
+                        )
+        else:
+            continue
+    dynamic_params, static_params = eqx.partition(all_params, get_filter_spec(cfg_params, all_params))
+    return static_params, dynamic_params
 
 def update_distribution_layers(filter_spec, df):
     print(df.f_nn.layers)
