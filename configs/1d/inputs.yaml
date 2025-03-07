@@ -4,7 +4,7 @@ data:
     type: pixel
   lineouts:
     end: 2200
-    skip: 20
+    skip: 200
     start: 150
     type: ps
   shotnum: 111411
@@ -19,7 +19,7 @@ other:
     fit_EPWr: true
     fit_IAW: true
     load_ele_spec: true
-    load_ion_spec: true
+    load_ion_spec: false
     spectype: temporal
   refit: false
   refit_thresh: 20.0
@@ -111,27 +111,6 @@ parameters:
     fract:
       active: false
       val: 0.1
-    type:
-      active: false
-      ion: null
-  ion-2:
-    A:
-      active: false
-      val: 1.0
-    Ti:
-      active: false
-      lb: 0.01
-      same: true
-      ub: 1.0
-      val: 0.04
-    Z:
-      active: false
-      lb: 0.5
-      ub: 1.0
-      val: 1.0
-    fract:
-      active: false
-      val: 0.9
     type:
       active: false
       ion: null

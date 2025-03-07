@@ -747,7 +747,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         # else:
         #     num_col = 1
 
-        fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex=True)
+        fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
         if config["other"]["extraoptions"]["load_ele_spec"]:
             s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
@@ -845,7 +845,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         # else:
         #     num_col = 1
 
-        fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex=True)
+        fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
         if config["other"]["extraoptions"]["load_ele_spec"]:
             s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))

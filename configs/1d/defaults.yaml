@@ -153,7 +153,7 @@ plotting:
     ion_window_end: 528
     ele_window_start: 425
     ele_window_end: 625
-    detailed_breakdown: False
+    detailed_breakdown: True
     
 optimizer:
     # use adam for nn / stochastic gradient descent
@@ -166,7 +166,7 @@ optimizer:
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 6
+    batch_size: 2
     num_epochs: 120
     learning_rate: 1.0e-2
     parameter_norm: True

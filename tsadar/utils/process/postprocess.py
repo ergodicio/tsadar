@@ -145,9 +145,9 @@ def recalculate_with_chosen_weights(
                     print("Error calculating Hessian, no hessian based uncertainties have been calculated")
                     calc_sigma = False
 
-            #losses[inds] = loss
+            losses[inds] = loss
             #not sure if this will break normal operations
-            losses[i_batch] = loss
+            #losses[i_batch] = loss
 
             sqdevs["ele"][inds] = sqds["ele"]
             sqdevs["ion"][inds] = sqds["ion"]

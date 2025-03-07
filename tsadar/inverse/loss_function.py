@@ -9,7 +9,7 @@ import numpy as np
 import equinox as eqx
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from tsadar.core.modules import exchange_params
+from tsadar.core.modules import exchange_params, get_filter_spec
 from ..utils.vector_tools import rotate
 
 
@@ -317,8 +317,14 @@ class LossFunction:
         """
         #self.array_loss = filter_jit(self.calc_loss)
         
+        diff_weights, static_weights = eqx.partition(weights, get_filter_spec(self.cfg["parameters"], weights))
+        static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
+        weights = eqx.combine(static_weights, diff_weights)
+        
+        def nanamean(a):
+            return jnp.nanmean(a, axis = 1)
         total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
-            weights, batch, denom=[], reduce_func=jnp.nanmean)
+            weights, batch, denom=[], reduce_func=nanamean)
         return total_loss, sqdev, ThryE, normed_e_data, params
 
     def loss_functionals(self, d, t, uncert, method="l2"):

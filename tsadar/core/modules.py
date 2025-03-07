@@ -625,7 +625,7 @@ def exchange_params(cfg_params: Dict, static_params: ThomsonParams, dynamic_para
                         )
             if ion_num < len(all_params.ions):
                 frac_sum+= all_params.ions[ion_num-1].fract
-            else:
+            elif len(all_params.ions) > 1:
                 #all_params.ions[ion_num-1].fract = 1.-frac_sum
                 all_params = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], 'fract'),
