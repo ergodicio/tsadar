@@ -13,13 +13,15 @@ import equinox as eqx
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
-# def smooth1d(array, window_size):
-#     # Use a Hanning window
-#     window = jnp.hanning(window_size)
-#     window /= window.sum()  # Normalize
-#     signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
-#     y = jnp.convolve(signal, window, mode="same")
-#     return y[(window_size // 2 - 1) : -(window_size // 2)]
+
+def smooth1d(array, window_size):
+    # Use a Hanning window
+    window = jnp.hanning(window_size)
+    window /= window.sum()  # Normalize
+    return jnp.convolve(array, window, mode="same")
+    # signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
+    # y = jnp.convolve(signal, window, mode="same")
+    # return y[(window_size // 2 - 1) : -(window_size // 2)]
 
 
 def second_order_butterworth(
@@ -147,7 +149,7 @@ class DLM1D(DistributionFunction1D):
         self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
 
         if activate:
-            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x
@@ -167,11 +169,11 @@ class DLM1D(DistributionFunction1D):
 
     def __call__(self):
         unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        # vth_x = jnp.sqrt(2.0)
-        # alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
-        # cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
-        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
-        fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
+        vth_x = jnp.sqrt(2.0)
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
+        cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
+        fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
+        # fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
 
         return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
 
@@ -273,7 +275,7 @@ class SphericalHarmonics(DistributionFunction2D):
 
         self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
         self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
-        inv_act_fun = lambda x: jnp.log(1e-6 + x / (1 - x))
+        inv_act_fun = lambda x: jnp.log(1e-6 + x / (1 - x + 1e-2))
         self.act_fun = sigmoid
         self.normed_m = inv_act_fun((init_m - self.m_shift) / self.m_scale)
         self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["nvr"] // 16)
@@ -375,7 +377,7 @@ class ElectronParams(eqx.Module):
 
         if activate:
             self.act_fun = sigmoid
-            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
         else:
             self.act_fun = lambda x: x
             inv_act_fun = lambda x: x
@@ -496,7 +498,7 @@ class IonParams(eqx.Module):
         # self.A_shift = cfg["A"]["lb"]
 
         if activate:
-            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x
@@ -573,7 +575,7 @@ class GeneralParams(eqx.Module):
         self.vA_shift = cfg["Va"]["lb"]
 
         if activate:
-            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x

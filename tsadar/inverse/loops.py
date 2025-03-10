@@ -21,7 +21,8 @@ def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
 
-    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=False)
+    _activate = True
+    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     init_weights, loss_fn.unravel_weights = ravel_pytree(diff_params)
 
@@ -31,7 +32,7 @@ def _1d_scipy_loop_(
         args=(static_params, batch),
         method=config["optimizer"]["method"],
         jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-        bounds=((0, 1) for _ in range(len(init_weights))),
+        bounds=None if _activate else ((0, 1) for _ in range(len(init_weights))),
         options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
     )
 
