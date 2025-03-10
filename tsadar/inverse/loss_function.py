@@ -89,7 +89,6 @@ class LossFunction:
             # pytree_weights = self.ts_diag.unravel_pytree(weights)
 
             diff_weights = self.unravel_weights(diff_weights)
-            static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
             (value, aux), grad = self._vg_func_(diff_weights, static_weights, batch)
 
             # if "fe" in grad:
@@ -317,9 +316,9 @@ class LossFunction:
         """
         #self.array_loss = filter_jit(self.calc_loss)
         
-        diff_weights, static_weights = eqx.partition(weights, get_filter_spec(self.cfg["parameters"], weights))
-        static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
-        weights = eqx.combine(static_weights, diff_weights)
+        #diff_weights, static_weights = eqx.partition(weights, get_filter_spec(self.cfg["parameters"], weights))
+        #static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
+        #weights = eqx.combine(static_weights, diff_weights)
         
         def nanamean(a):
             return jnp.nanmean(a, axis = 1)

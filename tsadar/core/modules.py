@@ -13,13 +13,15 @@ import equinox as eqx
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
-# def smooth1d(array, window_size):
-#     # Use a Hanning window
-#     window = jnp.hanning(window_size)
-#     window /= window.sum()  # Normalize
-#     signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
-#     y = jnp.convolve(signal, window, mode="same")
-#     return y[(window_size // 2 - 1) : -(window_size // 2)]
+
+def smooth1d(array, window_size):
+    # Use a Hanning window
+    window = jnp.hanning(window_size)
+    window /= window.sum()  # Normalize
+    return jnp.convolve(array, window, mode="same")
+    # signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
+    # y = jnp.convolve(signal, window, mode="same")
+    # return y[(window_size // 2 - 1) : -(window_size // 2)]
 
 
 def second_order_butterworth(
@@ -91,7 +93,6 @@ class Arbitrary1DNN(DistributionFunction1D):
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
-        # self.learn_log = dist_cfg["params"]["learn_log"]
         self.f_nn = eqx.nn.MLP(1, 1, 32, 3, final_activation=relu, key=PRNGKey(0))
 
     def get_unnormed_params(self):
@@ -143,11 +144,11 @@ class DLM1D(DistributionFunction1D):
 
     def __init__(self, dist_cfg, activate=False):
         super().__init__(dist_cfg)
-        self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
-        self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
+        self.m_scale = 3.0
+        self.m_shift = 2.0
 
         if activate:
-            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x
@@ -167,11 +168,11 @@ class DLM1D(DistributionFunction1D):
 
     def __call__(self):
         unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        # vth_x = jnp.sqrt(2.0)
-        # alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
-        # cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
-        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
-        fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
+        vth_x = jnp.sqrt(2.0)
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
+        cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
+        fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
+        # fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
 
         return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
 
@@ -212,11 +213,7 @@ class Arbitrary2D(DistributionFunction2D):
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
 
         if self.learn_log:
-            #     # logit function
-            # fdlm = 1 / 16 * jnp.log(fdlm / (1 - fdlm)) - 1
             fdlm = -jnp.log10(fdlm)
-        # else:
-        #     fdlm = 0.1 * jnp.log(fdlm / (1 - fdlm))
 
         return jnp.sqrt(fdlm)
 
@@ -224,12 +221,6 @@ class Arbitrary2D(DistributionFunction2D):
         return {"f": self()}
 
     def __call__(self):
-        # if self.learn_log:
-        #     # bound values between 1e-15 and 10
-        #     fval = -16 * sigmoid(self.fval) + 1
-        #     fval = jnp.power(10.0, self.fval)
-        # else:
-        # fval = sigmoid(fval) * 10
         fval = self.fval**2.0
         if self.learn_log:
             fval = jnp.power(10.0, -fval)
@@ -273,7 +264,7 @@ class SphericalHarmonics(DistributionFunction2D):
 
         self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
         self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
-        inv_act_fun = lambda x: jnp.log(1e-6 + x / (1 - x))
+        inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
         self.act_fun = sigmoid
         self.normed_m = inv_act_fun((init_m - self.m_shift) / self.m_scale)
         self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["nvr"] // 16)
@@ -375,7 +366,7 @@ class ElectronParams(eqx.Module):
 
         if activate:
             self.act_fun = sigmoid
-            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
         else:
             self.act_fun = lambda x: x
             inv_act_fun = lambda x: x
@@ -496,7 +487,7 @@ class IonParams(eqx.Module):
         # self.A_shift = cfg["A"]["lb"]
 
         if activate:
-            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x
@@ -573,7 +564,7 @@ class GeneralParams(eqx.Module):
         self.vA_shift = cfg["Va"]["lb"]
 
         if activate:
-            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x))
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x
@@ -641,17 +632,18 @@ class ThomsonParams(eqx.Module):
     electron: ElectronParams
     ions: List[IonParams]
     general: GeneralParams
+    param_cfg: Dict
 
     def __init__(self, param_cfg, num_params: int, batch=True, activate=False):
         super().__init__()
         self.electron = ElectronParams(param_cfg["electron"], num_params, batch, activate)
         self.ions = []
-        for species in param_cfg.keys():
-            if "ion" in species:
-                self.ions.append(IonParams(param_cfg[species], num_params, batch, activate))
+        for ion_index in range(len([species for species in param_cfg.keys() if "ion" in species])):
+            self.ions.append(IonParams(param_cfg[f"ion-{ion_index+1}"], num_params, batch, activate))
 
         assert len(self.ions) > 0, "No ion species found in input deck"
         self.general = GeneralParams(param_cfg["general"], num_params, batch, activate)
+        self.param_cfg = param_cfg
 
     def get_unnormed_params(self):
         return {
@@ -660,9 +652,19 @@ class ThomsonParams(eqx.Module):
         } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
 
     def __call__(self):
-        return {"electron": self.electron(), "general": self.general()} | {
+        # static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
+        tmp_dict = {"electron": self.electron(), "general": self.general()} | {
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
+        fract_sum = 0
+        for ion_index in range(len(self.ions)):
+            if  ion_index > 0 and self.param_cfg[f"ion-{ion_index+1}"]['Ti']['same']:
+                tmp_dict[f"ion-{ion_index+1}"]['Ti'] = tmp_dict["ion-1"]['Ti']
+            fract_sum+= tmp_dict[f"ion-{ion_index+1}"]["fract"]
+        for ion_index in range(len(self.ions)):
+            tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
+
+        return tmp_dict
 
     def get_fitted_params(self, param_cfg):
         param_dict = self.get_unnormed_params()
