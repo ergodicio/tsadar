@@ -93,7 +93,6 @@ class Arbitrary1DNN(DistributionFunction1D):
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
-        # self.learn_log = dist_cfg["params"]["learn_log"]
         self.f_nn = eqx.nn.MLP(1, 1, 32, 3, final_activation=relu, key=PRNGKey(0))
 
     def get_unnormed_params(self):
@@ -214,11 +213,7 @@ class Arbitrary2D(DistributionFunction2D):
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
 
         if self.learn_log:
-            #     # logit function
-            # fdlm = 1 / 16 * jnp.log(fdlm / (1 - fdlm)) - 1
             fdlm = -jnp.log10(fdlm)
-        # else:
-        #     fdlm = 0.1 * jnp.log(fdlm / (1 - fdlm))
 
         return jnp.sqrt(fdlm)
 
@@ -226,12 +221,6 @@ class Arbitrary2D(DistributionFunction2D):
         return {"f": self()}
 
     def __call__(self):
-        # if self.learn_log:
-        #     # bound values between 1e-15 and 10
-        #     fval = -16 * sigmoid(self.fval) + 1
-        #     fval = jnp.power(10.0, self.fval)
-        # else:
-        # fval = sigmoid(fval) * 10
         fval = self.fval**2.0
         if self.learn_log:
             fval = jnp.power(10.0, -fval)
