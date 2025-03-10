@@ -145,8 +145,8 @@ class DLM1D(DistributionFunction1D):
 
     def __init__(self, dist_cfg, activate=False):
         super().__init__(dist_cfg)
-        self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
-        self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
+        self.m_scale = 3.0
+        self.m_shift = 2.0
 
         if activate:
             inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
