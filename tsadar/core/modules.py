@@ -646,10 +646,20 @@ class ThomsonParams(eqx.Module):
         self.param_cfg = param_cfg
 
     def get_unnormed_params(self):
-        return {
+        tmp_dict = {
             "electron": self.electron.get_unnormed_params(),
             "general": self.general.get_unnormed_params(),
         } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
+        fract_sum = 0
+        for ion_index in range(len(self.ions)):
+            if  ion_index > 0 and self.param_cfg[f"ion-{ion_index+1}"]['Ti']['same']:
+                tmp_dict[f"ion-{ion_index+1}"]['Ti'] = tmp_dict["ion-1"]['Ti']
+            fract_sum+= tmp_dict[f"ion-{ion_index+1}"]["fract"]
+        for ion_index in range(len(self.ions)):
+            tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
+        
+        
+        return tmp_dict
 
     def __call__(self):
         # static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
