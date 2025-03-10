@@ -79,6 +79,7 @@ parameters:
                 val: 2.5
                 lb: 2.0
                 ub: 5.0
+            learn_log: True
         dim: 1
         nv: 256
 
