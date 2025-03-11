@@ -103,7 +103,7 @@ def plot_final_params(config, all_params, sigmas_ds, td):
             )
             ax.set_xlabel("lineout", fontsize=14)
             ax.grid()
-            ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
+            #ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
             ax.set_ylabel(param, fontsize=14)
             fig.savefig(
                 os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
