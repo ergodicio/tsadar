@@ -26,14 +26,14 @@ other:
 parameters:
   electron:
     Te:
-      active: true
+      active: false
       lb: 0.01
       ub: 2.0
       val: 0.5
     fe:
       active: false
       dim: 1
-      nvx: 128
+      nvx: 320
       params:
         m:
           lb: 2.0
@@ -41,7 +41,7 @@ parameters:
           val: 2.2
       type: dlm
     ne:
-      active: true
+      active: false
       lb: 0.03
       ub: 2.0
       val: 0.5
@@ -50,13 +50,13 @@ parameters:
       electron: null
   general:
     Te_gradient:
-      active: true
+      active: false
       lb: 0.0
       num_grad_points: 10
       ub: 15.0
       val: 7.0
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -40.5
       ub: 40.5
@@ -72,17 +72,17 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     lam:
-      active: true
+      active: false
       lb: 523.0
       ub: 527.0
       val: 526.4
     ne_gradient:
-      active: true
+      active: false
       lb: 0.0
       num_grad_points: 10
       ub: 15.0
@@ -98,13 +98,13 @@ parameters:
       active: false
       val: 40.0
     Ti:
-      active: true
+      active: false
       lb: 0.01
       same: false
       ub: 1.0
       val: 0.05
     Z:
-      active: true
+      active: false
       lb: 1.0
       ub: 18.0
       val: 8.0
