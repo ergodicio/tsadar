@@ -88,7 +88,6 @@ parameters:
       dim: 2
       type: sphericalharmonic
       nvx: 512
-      nvx: 512
       params:
         init_m: 2.2
         LTx: 22500000.
@@ -96,7 +95,6 @@ parameters:
         Nl: 1
         nvr: 64
         learn_log: True
-        
     ne:
       active: true
       gradient_scalar: 10.0

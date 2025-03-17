@@ -169,7 +169,7 @@ class DLM1D(DistributionFunction1D):
 
     def __call__(self):
         unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        vth_x = jnp.sqrt(2.0)
+        vth_x = 1.0  # jnp.sqrt(2.0)
         alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
         cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
         fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))

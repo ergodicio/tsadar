@@ -16,9 +16,9 @@ parameters:
         lb: 0.01
         ub: 3.75
     lam:
-        val: 524.5
+        val: 526.5
         active: True
-        lb: 523.0
+        lb: 525.0
         ub: 528.0
     Te_gradient:
         val: 0.0
@@ -79,9 +79,9 @@ parameters:
                 val: 2.5
                 lb: 2.0
                 ub: 5.0
-            learn_log: True
         dim: 1
-        nv: 256
+        nvx: 1024
+        smooth_window_size: 16
 
 data:
     shotnum: 94475

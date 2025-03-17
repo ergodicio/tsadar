@@ -19,7 +19,7 @@ parameters:
                     lb: 2.0
                     ub: 5.0
             dim: 1
-            nv: 64
+            nvx: 256
     ion-1:
         Ti:
             val: .2

@@ -40,10 +40,6 @@ dist_fit:
 mlflow:
   experiment: tsadar-test
   run: arts2d
-nn:
-  conv_filters: 32|16|16
-  linear_widths: 32|16
-  use: false
 optimizer:
   batch_size: 6
   grad_method: AD

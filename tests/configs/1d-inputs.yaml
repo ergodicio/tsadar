@@ -14,7 +14,7 @@ parameters:
             active: True
             type: dlm
             dim: 1
-            nv: 64
+            nvx: 64
             params:
                 m:
                     val: 2.5

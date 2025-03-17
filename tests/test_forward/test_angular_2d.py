@@ -91,8 +91,7 @@ def test_arts2d_forward_pass():
 
         mlflow.log_metric("runtime-sec", time.time() - t0)
 
-        # np.testing.assert_allclose(ThryE, ground_truth, rtol=1e-4)
-    misc.export_run(run.info.run_id)
+        np.testing.assert_allclose(ThryE, ground_truth, rtol=1e-4)
 
 
 def plot_fwd_vs_ground_truth(td, ts_params, ThryE, ground_truth):

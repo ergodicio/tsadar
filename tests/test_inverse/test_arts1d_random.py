@@ -153,13 +153,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=False)
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-            # diff_params_gt, static_params_gt = eqx.partition(
-            #     ts_params_gt, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_gt)
-            # )
-            # active_gt_params = {
-            #     k: {k2: float(v2) for k2, v2 in v.items() if v2 is not None}
-            #     for k, v in diff_params_gt.get_unnormed_params().items()
-            # }
+
             active_gt_params, _ = ts_params_gt.get_fitted_params(config["parameters"])
             _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
@@ -171,22 +165,13 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
                 return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
 
-            # t0 = time.time()
-            # jit_vg = eqx.filter_value_and_grad(loss_fn)
             jit_vg = eqx.filter_jit(value_and_grad(loss_fn))
-            # diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
-            # temp_out = block_until_ready(jit_vg(diff_params, static_params))
-            # print(temp_out)
-            # raise ValueError
-            # mlflow.log_metric(f"first run time", time.time() - t0)
-
             # dump ground truth to disk
-
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
                 diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
-                use_optax = True
+                use_optax = False
                 if use_optax:
 
                     opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
@@ -280,4 +265,4 @@ def perturb_and_split_params(arbitrary_distribution, config, rng):
 
 
 if __name__ == "__main__":
-    test_arts1d_inverse(arbitrary_distribution=True)
+    test_arts1d_inverse(arbitrary_distribution=False)
