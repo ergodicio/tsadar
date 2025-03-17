@@ -198,7 +198,7 @@ def get_lineout_bg(
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         # Due to the low background associated with IAWs the fitted background is only performed for the EPW
-        if config["data"]["background"]["type"] == "Fit":
+        if config["data"]["background"]["type"].casefold() == "fit":
             BackgroundPixel = config["data"]["background"]["slice"]
 
         # quantify a uniform background

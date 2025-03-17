@@ -43,7 +43,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         folder = join(BASE_FILES_PATH, "data")
 
     file_list = listdir(folder)
-    print(f"{file_list=}")
+    #print(f"{file_list=}")
     print(f"{sNum=}")
     files = [name for name in file_list if str(sNum) in name]
     print(f"Files found: {files}")
@@ -78,12 +78,12 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             iDatfile = SD(hdfnameI, SDC.READ)
             sds_obj = iDatfile.select("Streak_array")  # select sds
             iDat = sds_obj.get()  # get sds data
-            iDat = iDat.astype(np.float64)
+            iDat = iDat.astype(float)
             iDat = iDat[0, :, :] - iDat[1, :, :]
             iDat = np.flipud(iDat)
 
             if specType == "imaging":
-                iDat = np.rot90(np.squeeze(iDat), 3)
+                iDat = np.rot90(np.squeeze(iDat), 1)
             elif loadspecs["absolute_timing"]:
                 # this sets t0 by locating the fiducial and placing t0 164px earlier
                 fidu = np.sum(iDat[850:950, :], 0)
@@ -100,31 +100,33 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     if loadspecs["load_ele_spec"]:
         from pyhdf.SD import SD, SDC
 
-        # try:
-        eDatfile = SD(hdfnameE, SDC.READ)
-        sds_obj = eDatfile.select("Streak_array")  # select sds
-        eDat = sds_obj.get()  # get sds data
-        eDat = eDat.astype(np.float64)
-        eDat = eDat[0, :, :] - eDat[1, :, :]
+        try:
+            eDatfile = SD(hdfnameE, SDC.READ)
+            sds_obj = eDatfile.select("Streak_array")  # select sds
+            eDat = sds_obj.get()  # get sds data
+            eDat = eDat.astype(float)
+            eDat = eDat[0, :, :] - eDat[1, :, :]
 
-        if specType == "angular":
-            eDat = np.fliplr(eDat)
-            print("found angular data")
-        elif specType == "temporal":
-            eDat = perform_warp_correction(eDat)
-        elif specType == "imaging":
-            eDat = np.rot90(np.squeeze(eDat), 3)
-
-        if specType == "temporal" and loadspecs["absolute_timing"]:
-            # this sets t0 by locating the fiducial and placing t0 164px earlier
-            fidu = np.sum(eDat[0:100, :], 0)
-            res = find_peaks(fidu, prominence=1000, width=10)
-            peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
-            t0[1] = round(peak_center - 95)
-        # except BaseException:
-        #     print("Unable to find EPW")
-        #     eDat = []
-        #     loadspecs["load_ele_spec"] = False
+            if specType == "angular":
+                eDat = np.fliplr(eDat)
+                print("found angular data")
+            elif specType == "temporal":
+                eDat = perform_warp_correction(eDat)
+            elif specType == "imaging":
+                eDat = np.rot90(np.squeeze(eDat), 3)
+            try:
+                if specType == "temporal" and loadspecs["absolute_timing"]:
+                    # this sets t0 by locating the fiducial and placing t0 164px earlier
+                    fidu = np.sum(eDat[0:100, :], 0)
+                    res = find_peaks(fidu, prominence=1000, width=10)
+                    peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
+                    t0[1] = round(peak_center - 95)
+            except BaseException:
+                print("Fiducial timing encountered an error, default timing is being used")
+        except BaseException:
+            print("Unable to find EPW")
+            eDat = []
+            loadspecs["load_ele_spec"] = False
     else:
         eDat = []
 

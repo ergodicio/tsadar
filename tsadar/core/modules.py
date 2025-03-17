@@ -624,7 +624,7 @@ class GeneralParams(eqx.Module):
             "ne_gradient": unnormed_ne_gradient,
             "Te_gradient": unnormed_Te_gradient,
             "ud": unnormed_ud,
-            "Va": unnormed_vA,
+            "Va": unnormed_Va,
         }
 
 
@@ -677,6 +677,7 @@ class ThomsonParams(eqx.Module):
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
     # Step 2
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
+    ion_num = 0
     for species, params in cfg_params.items():
         for key, val in params.items():
             if val["active"]:
@@ -684,11 +685,19 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                     filter_spec = get_distribution_filter_spec(filter_spec, dist_type=val["type"])
                 else:
                     nkey = f"normed_{key}"
-                    filter_spec = eqx.tree_at(
-                        lambda tree: getattr(getattr(tree, species), nkey),
-                        filter_spec,
-                        replace=True,
-                    )
+                    if "ion" in species:
+                        ion_num += 1
+                        filter_spec = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, "ions")[ion_num - 1], nkey),
+                            filter_spec,
+                            replace=True,
+                        )
+                    else:
+                        filter_spec = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, species), nkey),
+                            filter_spec,
+                            replace=True,
+                        )
 
     return filter_spec
 

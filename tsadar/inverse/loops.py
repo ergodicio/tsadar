@@ -20,9 +20,12 @@ from typing import Dict, List, Tuple
 def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
-
     _activate = True
-    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
+    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
+    else:
+        ts_params = previous_weights
+
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     init_weights, loss_fn.unravel_weights = ravel_pytree(diff_params)
 
@@ -47,7 +50,10 @@ def _1d_adam_loop_(
 ) -> Tuple[float, Dict]:
 
     opt = optax.adam(config["optimizer"]["learning_rate"])
-    ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
+    else:
+        ts_params = previous_weights
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     opt_state = opt.init(diff_params)
 
@@ -94,8 +100,6 @@ def one_d_loop(
     } | sample
     loss_fn = LossFunction(config, sa, sample)
 
-    print("minimizing")
-    mlflow.set_tag("status", "minimizing")
     batch_indices = np.reshape(batch_indices, (-1, config["optimizer"]["batch_size"]))
     all_weights = []
     overall_loss = 0.0
@@ -126,10 +130,11 @@ def one_d_loop(
             # ugly
             if "sequential" in config["optimizer"]:
                 if config["optimizer"]["sequential"]:
-                    if config["optimizer"]["method"] == "adam":
-                        previous_weights = best_weights
-                    else:
-                        previous_weights, _ = ravel_pytree(best_weights)
+                    previous_weights = best_weights
+                    # if config["optimizer"]["method"] == "adam":
+                    #     previous_weights = best_weights
+                    # else:
+                    #     previous_weights, _ = ravel_pytree(best_weights)
 
     return all_weights, overall_loss, loss_fn
 
