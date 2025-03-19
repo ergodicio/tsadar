@@ -80,8 +80,7 @@ parameters:
                 lb: 2.0
                 ub: 5.0
         dim: 1
-        nvx: 1024
-        smooth_window_size: 16
+        nvx: 512
 
 data:
     shotnum: 94475

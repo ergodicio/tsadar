@@ -10,10 +10,9 @@ from equinox import filter_jit
 
 from tsadar.utils.plotting import plotters
 from tsadar.inverse.loss_function import LossFunction
-from tsadar.core.modules import IonParams
+from tsadar.core.modules.ts_params import IonParams
 from tsadar.inverse.loops import one_d_loop
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
-
 
 
 def recalculate_with_chosen_weights(
@@ -41,7 +40,6 @@ def recalculate_with_chosen_weights(
     # turn list of dictionaries into dictionary of lists
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
 
-    
     for _fw in fitted_weights:
         batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
         for k in batch_fitted_params.keys():
@@ -53,29 +51,50 @@ def recalculate_with_chosen_weights(
         for k2 in all_params[k].keys():
             all_params[k][k2] = np.concatenate(all_params[k][k2])
 
-    fits = {"ele" : {"total_spec": np.zeros(all_data["e_data"].shape), 
-        "IRF": np.zeros(all_data["e_data"].shape), "noise": np.zeros(all_data["e_data"].shape)},
-        "ion" : {"total_spec": np.zeros(all_data["i_data"].shape), 
-        "IRF": np.zeros(all_data["i_data"].shape), "noise": np.zeros(all_data["i_data"].shape)}
-        }
+    fits = {
+        "ele": {
+            "total_spec": np.zeros(all_data["e_data"].shape),
+            "IRF": np.zeros(all_data["e_data"].shape),
+            "noise": np.zeros(all_data["e_data"].shape),
+        },
+        "ion": {
+            "total_spec": np.zeros(all_data["i_data"].shape),
+            "IRF": np.zeros(all_data["i_data"].shape),
+            "noise": np.zeros(all_data["i_data"].shape),
+        },
+    }
     if config["other"]["extraoptions"]["load_ele_spec"]:
-        fits["ele"]['spec_comps']=np.ones([all_data["e_data"].shape[0], 
-                max(config["parameters"]["general"]["Te_gradient"]["num_grad_points"], 
-                config["parameters"]["general"]["ne_gradient"]["num_grad_points"]),
-                all_data["e_data"].shape[1]*config["other"]["points_per_pixel"],len(sa['sa'])])
+        fits["ele"]["spec_comps"] = np.ones(
+            [
+                all_data["e_data"].shape[0],
+                max(
+                    config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
+                    config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
+                ),
+                all_data["e_data"].shape[1] * config["other"]["points_per_pixel"],
+                len(sa["sa"]),
+            ]
+        )
     else:
-        fits["ele"]['spec_comps'] = np.zeros(all_data["e_data"].shape)
+        fits["ele"]["spec_comps"] = np.zeros(all_data["e_data"].shape)
     if config["other"]["extraoptions"]["load_ion_spec"]:
-        fits["ion"]['spec_comps'] = np.ones([all_data["i_data"].shape[0], 
-                max(config["parameters"]["general"]["Te_gradient"]["num_grad_points"], 
-                config["parameters"]["general"]["ne_gradient"]["num_grad_points"]),
-                all_data["i_data"].shape[1]*config["other"]["points_per_pixel"],len(sa['sa'])])
+        fits["ion"]["spec_comps"] = np.ones(
+            [
+                all_data["i_data"].shape[0],
+                max(
+                    config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
+                    config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
+                ),
+                all_data["i_data"].shape[1] * config["other"]["points_per_pixel"],
+                len(sa["sa"]),
+            ]
+        )
     else:
-        fits["ion"]['spec_comps'] = np.zeros(all_data["i_data"].shape)
+        fits["ion"]["spec_comps"] = np.zeros(all_data["i_data"].shape)
 
     sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
-    #fits["ion"] = np.zeros(all_data["i_data"].shape)
-    #fits["ele"] = np.zeros(all_data["e_data"].shape)
+    # fits["ion"] = np.zeros(all_data["i_data"].shape)
+    # fits["ele"] = np.zeros(all_data["e_data"].shape)
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
@@ -126,14 +145,16 @@ def recalculate_with_chosen_weights(
 
             if config["plotting"]["detailed_breakdown"]:
                 ts_diag = ThomsonScatteringDiagnostic(config, sa)
-                #ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
-                ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(fitted_weights[i_batch], batch)
-                fits["ele"]['spec_comps'][inds] = modlE
-                fits["ion"]['spec_comps'][inds] = modlI
-                fits["ele"]['IRF'][inds] = eIRF
-                fits["ion"]['IRF'][inds] = iIRF
-                fits["ele"]['noise'][inds] = all_data["noiseE"][inds]
-                fits["ion"]['noise'][inds] = all_data["noiseI"][inds]
+                # ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
+                ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(
+                    fitted_weights[i_batch], batch
+                )
+                fits["ele"]["spec_comps"][inds] = modlE
+                fits["ion"]["spec_comps"][inds] = modlI
+                fits["ele"]["IRF"][inds] = eIRF
+                fits["ion"]["IRF"][inds] = iIRF
+                fits["ele"]["noise"][inds] = all_data["noiseE"][inds]
+                fits["ion"]["noise"][inds] = all_data["noiseI"][inds]
                 fits["ele"]["detailed_axis"] = lamAxisE_raw[0]
                 fits["ion"]["detailed_axis"] = lamAxisI_raw[0]
 
@@ -152,8 +173,8 @@ def recalculate_with_chosen_weights(
                 sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
                 # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
 
-            fits["ele"]['total_spec'][inds] = ThryE
-            fits["ion"]['total_spec'][inds] = ThryI
+            fits["ele"]["total_spec"][inds] = ThryE
+            fits["ion"]["total_spec"][inds] = ThryI
 
     return losses, sqdevs, num_params, fits, sigmas, all_params
 
@@ -227,8 +248,8 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
 def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
     t1 = time.time()
 
-    #calculate used poinsts once right before its used
-    
+    # calculate used poinsts once right before its used
+
     for species in config["parameters"].keys():
         if "electron" == species:
             elec_species = species
@@ -248,8 +269,9 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
             )
 
         else:
-            t1, final_params = process_data(config, sample_indices, all_data, all_axes, loss_fn, 
-                                            fitted_weights, sa, init_losses, t1, td)
+            t1, final_params = process_data(
+                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td
+            )
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})
@@ -265,10 +287,9 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
     )
 
     # refit bad fits
-    #reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
+    # reduced_points = (used_points - num_params)*config["optimizer"]["batch_size"]
 
-
-    red_losses_init = losses_init #/ (1.1 * reduced_points) by changing losses to mean this is loss per point
+    red_losses_init = losses_init  # / (1.1 * reduced_points) by changing losses to mean this is loss per point
     true_batch_size = config["optimizer"]["batch_size"]
 
     mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
@@ -279,65 +300,68 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
     for i in batch_indices.flatten()[red_losses_init > config["other"]["refit_thresh"]]:
         if i == 0:
             continue
-        
+
         temp_cfg = copy.deepcopy(config)
         temp_cfg["optimizer"]["batch_size"] = 1
-        
+
         def func(x):
-            #i, true_batch_size
-            if hasattr(x, '__len__'):
-                return {'val': x[(i - 1) % true_batch_size]}
+            # i, true_batch_size
+            if hasattr(x, "__len__"):
+                return {"val": x[(i - 1) % true_batch_size]}
             else:
-                return {'val': x}
-        
+                return {"val": x}
+
         def extract(x):
-            #i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
-            if isinstance(x,list) or len(np.shape(x))>0:
+            # i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
+            if isinstance(x, list) or len(np.shape(x)) > 0:
                 return x[(i - 1) % true_batch_size]
             else:
                 return x
-            
-        def insert(x,y):
-            #i, true_batch_size
-            if isinstance(x,list):
+
+        def insert(x, y):
+            # i, true_batch_size
+            if isinstance(x, list):
                 x[i % true_batch_size] = y[0]
                 return x
-            elif len(np.shape(x))>0:
+            elif len(np.shape(x)) > 0:
                 x = x.at[i % true_batch_size].set(y[0])
                 return x
             else:
                 return y
-            
+
         prev_weights = fitted_weights[(i - 1) // true_batch_size]
-        prev_weights = jax.tree.map(extract,prev_weights,
-                                     is_leaf= lambda x: isinstance(x,list) and not isinstance(x[0], IonParams))
+        prev_weights = jax.tree.map(
+            extract, prev_weights, is_leaf=lambda x: isinstance(x, list) and not isinstance(x[0], IonParams)
+        )
         prev_weights = prev_weights.get_unnormed_params()
-        prev_weights = jax.tree.map(lambda x: {'val': x}, prev_weights)
-        prev_weights['electron']['fe']={'m': prev_weights['electron']['m']}
-        del prev_weights['electron']['m']
-        
+        prev_weights = jax.tree.map(lambda x: {"val": x}, prev_weights)
+        prev_weights["electron"]["fe"] = {"m": prev_weights["electron"]["m"]}
+        del prev_weights["electron"]["m"]
+
         temp_params = flatten(temp_cfg["parameters"])
         temp_params.update(flatten(prev_weights))
         temp_cfg["parameters"] = unflatten(temp_params)
-        #temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights 
+        # temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights
         new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
 
         inds = np.array([i])
         batch = {
-                "e_data": all_data["e_data"][inds],
-                "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds],
-                "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds],
-                "noise_i": all_data["noiseI"][inds],
-            }
+            "e_data": all_data["e_data"][inds],
+            "e_amps": all_data["e_amps"][inds],
+            "i_data": all_data["i_data"][inds],
+            "i_amps": all_data["i_amps"][inds],
+            "noise_e": all_data["noiseE"][inds],
+            "noise_i": all_data["noiseI"][inds],
+        }
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
-        
+
         if loss < losses_init[i]:
-            fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(insert,
-                                    fitted_weights[(i - 1) // true_batch_size], 
-                                    new_weights[0],
-                                    is_leaf= lambda x: isinstance(x,list) and not isinstance(x[0], IonParams))
+            fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
+                insert,
+                fitted_weights[(i - 1) // true_batch_size],
+                new_weights[0],
+                is_leaf=lambda x: isinstance(x, list) and not isinstance(x[0], IonParams),
+            )
     return losses_init
 
 
@@ -346,7 +370,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
         config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
     )
 
-    reduced_points = 1.0#(used_points - num_params)*config["optimizer"]["batch_size"]
+    reduced_points = 1.0  # (used_points - num_params)*config["optimizer"]["batch_size"]
 
     if len(losses_init) == 0:
         losses_init = losses

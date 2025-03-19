@@ -153,7 +153,7 @@ optimizer:
     # use adam for nn / stochastic gradient descent
     # use L-BFGS-B for full batch / parameter learning
     # although adam will work here too
-    method: lbfgsb
+    method: adam
     hessian: False
     loss_method: l2
     y_norm: True
@@ -168,11 +168,6 @@ optimizer:
     num_mins: 2
     moment_loss: false
     save_state: False
-
-nn:
-    use: false
-    conv_filters: 32|16|16 #|32|32
-    linear_widths: 32|16
 
 dist_fit:
     window:

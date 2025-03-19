@@ -9,7 +9,7 @@ import pandas
 
 from ..utils.plotting import plotters
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from ..core.modules import ThomsonParams
+from ..core.modules.ts_params import ThomsonParams
 from ..utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 

@@ -1,4 +1,4 @@
-from tsadar.core.modules import ThomsonParams, get_filter_spec
+from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from optax import tree_utils as otu
 import equinox as eqx
 import scipy.optimize as spopt
