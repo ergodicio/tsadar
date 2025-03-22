@@ -127,7 +127,7 @@ def recalculate_with_chosen_weights(
             if config["plotting"]["detailed_breakdown"]:
                 ts_diag = ThomsonScatteringDiagnostic(config, sa)
                 #ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
-                ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.sprectrum_breakdown(fitted_weights[i_batch], batch)
+                ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(fitted_weights[i_batch], batch)
                 fits["ele"]['spec_comps'][inds] = modlE
                 fits["ion"]['spec_comps'][inds] = modlI
                 fits["ele"]['IRF'][inds] = eIRF

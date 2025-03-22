@@ -25,7 +25,7 @@ setup(
     version="0.1.1",
     # cmdclass=versioneer.get_cmdclass(),
     packages=find_packages(),
-    python_requires=">=3.11",
+    python_requires=">=3.10",
     package_data={"tsadar": ["external/**/*"]},
     include_package_data=True,
     install_requires=[
