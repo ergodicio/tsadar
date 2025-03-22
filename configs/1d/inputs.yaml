@@ -10,8 +10,8 @@ data:
   shotnum: 111411
 machine: gpu
 mlflow:
-  experiment: shot_day_3_27_24
-  run: shot111411_finalize_1_newcode_detailed
+  experiment: test
+  run: run
 other:
   calc_sigmas: false
   extraoptions:
@@ -29,7 +29,7 @@ parameters:
       active: false
       lb: 0.01
       ub: 2.0
-      val: 0.5
+      val: 0.4
     fe:
       active: false
       dim: 1
@@ -38,13 +38,15 @@ parameters:
         m:
           lb: 2.0
           ub: 5.0
-          val: 2.2
+          val: 2.0
+          matte: True
+          intens: 2.5
       type: dlm
     ne:
       active: false
       lb: 0.03
       ub: 2.0
-      val: 0.5
+      val: 0.3
     type:
       active: false
       electron: null
@@ -52,15 +54,15 @@ parameters:
     Te_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 10
+      num_grad_points: 1
       ub: 15.0
-      val: 7.0
+      val: 0.0
     Va:
       active: false
       angle: 0.0
       lb: -40.5
       ub: 40.5
-      val: -5.0
+      val: 0.0
     amp1:
       active: true
       lb: 0.01
@@ -80,19 +82,19 @@ parameters:
       active: false
       lb: 523.0
       ub: 527.0
-      val: 526.4
+      val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 10
+      num_grad_points: 1
       ub: 15.0
-      val: 7.0
+      val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.0
       ub: 40.0
-      val: 15.0
+      val: 0.0
   ion-1:
     A:
       active: false
@@ -102,7 +104,7 @@ parameters:
       lb: 0.01
       same: false
       ub: 1.0
-      val: 0.05
+      val: 0.1
     Z:
       active: false
       lb: 1.0
@@ -110,7 +112,7 @@ parameters:
       val: 8.0
     fract:
       active: false
-      val: 0.1
+      val: 1.0
     type:
       active: false
       ion: null
