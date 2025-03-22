@@ -80,7 +80,7 @@ class DistributionFunction1D(eqx.Module):
 
     def __init__(self, dist_cfg: Dict):
         super().__init__()
-        vmax = 6.0
+        vmax = 8.0
         dv = 2 * vmax / dist_cfg["nvx"]
         self.vx = jnp.linspace(-vmax + dv / 2, vmax - dv / 2, dist_cfg["nvx"])
 

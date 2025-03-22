@@ -81,7 +81,7 @@ parameters:
                 ub: 5.0
             learn_log: True
         dim: 1
-        nv: 256
+        nvx: 256
 
 data:
     shotnum: 94475

@@ -13,7 +13,7 @@ parameters:
         fe:
             type: "DLM"
             dim: 1
-            nv: 64
+            nvx: 128
             params:
                 m:
                     val: 2.0
