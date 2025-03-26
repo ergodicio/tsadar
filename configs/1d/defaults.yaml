@@ -97,7 +97,7 @@ other:
     CCDsize: [1024, 1024]
     flatbg: 0
     gain: 150
-    points_per_pixel: 10
+    points_per_pixel: 5
     ang_res_unit: 10
     lam_res_unit: 5
     refit: False
@@ -153,7 +153,7 @@ plotting:
     ion_window_end: 528
     ele_window_start: 425
     ele_window_end: 625
-    detailed_breakdown: True
+    detailed_breakdown: False
     
 optimizer:
     # use adam for nn / stochastic gradient descent

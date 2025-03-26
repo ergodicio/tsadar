@@ -701,7 +701,7 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
     #produce a tree with the same structure as ts_params with all populated values set to false
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
     ion_num=0
-    #for each parameter if active in the input deck set the filter to true
+    
     for species, params in cfg_params.items():
         if "ion" in species:
             ion_num+=1

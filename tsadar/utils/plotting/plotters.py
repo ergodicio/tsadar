@@ -746,7 +746,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         #     num_col = 2
         # else:
         #     num_col = 1
-
+        
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
         if config["other"]["extraoptions"]["load_ele_spec"]:
