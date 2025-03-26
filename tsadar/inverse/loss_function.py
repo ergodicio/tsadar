@@ -9,7 +9,7 @@ import numpy as np
 import equinox as eqx
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from tsadar.core.modules import exchange_params, get_filter_spec
+from ..core.modules import exchange_params, get_filter_spec
 from ..utils.vector_tools import rotate
 
 
@@ -163,23 +163,6 @@ class LossFunction:
                 _error_,
                 jnp.nan,
             )
-
-            # used_points += jnp.sum(
-            #     (
-            #         (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_min"])
-            #         & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_cf_min"])
-            #     )
-            #     | (
-            #         (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
-            #         & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
-            #     )
-            # )
-            # this was temp code to help with 2 species fits
-            # _error_ = jnp.where(
-            #     (lamAxisI > 526.25) & (lamAxisI < 526.75),
-            #     10.0 * _error_,
-            #     _error_,
-            # )
             
             i_error += reduce_func(_error_)
             sqdev["ion"] = jnp.nan_to_num(_error_)
@@ -314,11 +297,6 @@ class LossFunction:
         """
         Output wrapper for postprocessing
         """
-        #self.array_loss = filter_jit(self.calc_loss)
-        
-        #diff_weights, static_weights = eqx.partition(weights, get_filter_spec(self.cfg["parameters"], weights))
-        #static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
-        #weights = eqx.combine(static_weights, diff_weights)
         
         def nanamean(a):
             return jnp.nanmean(a, axis = 1)

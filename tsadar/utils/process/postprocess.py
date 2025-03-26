@@ -146,8 +146,6 @@ def recalculate_with_chosen_weights(
                     calc_sigma = False
 
             losses[inds] = loss
-            #not sure if this will break normal operations
-            #losses[i_batch] = loss
 
             sqdevs["ele"][inds] = sqds["ele"]
             sqdevs["ion"][inds] = sqds["ion"]
