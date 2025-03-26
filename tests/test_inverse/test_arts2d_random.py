@@ -20,7 +20,7 @@ from tsadar.core.modules import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 
-def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
+def _dump_ts_params(td: str, dist_type: str, ts_params: ThomsonParams, prefix: str = ""):
     os.makedirs(base_dir := os.path.join(td, "ts_params"), exist_ok=True)
     os.makedirs(params_dir := os.path.join(base_dir, prefix), exist_ok=True)
     os.makedirs(dist_dir := os.path.join(params_dir, "distribution"), exist_ok=True)
@@ -28,22 +28,10 @@ def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
     # dump all parameters besides distribution
     unnormed_params = ts_params.get_unnormed_params()
 
-    dist_xr = xr.DataArray(
-        ts_params.electron.distribution_functions(),
-        coords=(ts_params.electron.distribution_functions.vx,),
-        dims=("vx",),
-    )
-    dist_xr.to_netcdf(os.path.join(dist_dir, "electron-dist.nc"))
-    fig, ax = plt.subplots(1, 2, figsize=(8, 4), tight_layout=True)
-    dist_xr.plot(ax=ax[0])
-    ax[0].grid()
-    np.log10(dist_xr).plot(ax=ax[1])
-    ax[1].grid()
-    fig.savefig(os.path.join(dist_dir, "electron-dist.png"), bbox_inches="tight")
-    plt.close()
+    plot_and_save_distribution(ts_params, dist_dir, dist_type)
 
     for param_key, these_params in unnormed_params.items():
-        params_to_dump = {p_key: float(these_params[p_key]) for p_key in set(these_params.keys()) - {"f"}}
+        params_to_dump = {p_key: float(these_params[p_key]) for p_key in set(these_params.keys()) - {"f", "flm"}}
         with open(os.path.join(params_dir, f"{param_key}-params.yaml"), "w") as fi:
             yaml.dump(params_to_dump, fi)
 
@@ -51,7 +39,46 @@ def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
     shutil.rmtree(base_dir)
 
 
-def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
+def plot_and_save_distribution(ts_params: ThomsonParams, dist_dir: str, dist_type: str):
+
+    if dist_type == "sphericalharmonic":
+        # plot and dump spherical harmonics too
+        flm_dict = ts_params.electron.distribution_functions.get_unnormed_params()
+        da_dict = {
+            "f0": xr.DataArray(
+                flm_dict["flm"][0][0], coords=(ts_params.electron.distribution_functions.vr,), dims=("vr",)
+            ),
+            "f10": xr.DataArray(
+                flm_dict["flm"][1][0], coords=(ts_params.electron.distribution_functions.vr,), dims=("vr",)
+            ),
+            "f11": xr.DataArray(
+                flm_dict["flm"][1][1], coords=(ts_params.electron.distribution_functions.vr,), dims=("vr",)
+            ),
+        }
+        dist_flm = xr.Dataset(da_dict)
+        fig, ax = plt.subplots(1, 3, figsize=(12, 4), tight_layout=True)
+        dist_flm["f0"].plot(ax=ax[0])
+        dist_flm["f10"].plot(ax=ax[1])
+        dist_flm["f11"].plot(ax=ax[2])
+        fig.savefig(os.path.join(dist_dir, "electron-dist-flm.png"), bbox_inches="tight")
+        dist_flm.to_netcdf(os.path.join(dist_dir, "electron-dist-flm.nc"))
+
+    dist_xr = xr.DataArray(
+        ts_params.electron.distribution_functions(),
+        coords=(ts_params.electron.distribution_functions.vx, ts_params.electron.distribution_functions.vx),
+        dims=("vx", "vy"),
+    )
+    dist_xr.to_netcdf(os.path.join(dist_dir, "electron-dist.nc"))
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4), tight_layout=True)
+    dist_xr.T.plot(ax=ax[0])
+    ax[0].grid()
+    np.log10(dist_xr).T.plot(ax=ax[1])
+    ax[1].grid()
+    fig.savefig(os.path.join(dist_dir, "electron-dist.png"), bbox_inches="tight")
+    plt.close()
+
+
+def _perturb_params_(rng, params, dist_type: str):
     """
     Perturbs the parameters for the forward pass.
 
@@ -65,34 +92,28 @@ def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
 
     params["electron"]["Te"]["val"] = float(rng.uniform(0.5, 1.5))
     params["electron"]["ne"]["val"] = float(rng.uniform(0.1, 0.7))
-
     params["general"]["amp1"]["val"] = float(rng.uniform(0.5, 2.5))
     params["general"]["amp2"]["val"] = float(rng.uniform(0.5, 2.5))
     params["general"]["lam"]["val"] = float(rng.uniform(523, 527))
+    params["electron"]["fe"]["params"]["init_m"] = float(rng.uniform(2.0, 3.5))
 
-    if arbitrary_distribution:
-        params["electron"]["fe"]["params"]["init_m"] = float(rng.uniform(2.0, 3.5))
+    if dist_type == "arbitrary":
         params["electron"]["fe"]["type"] = "arbitrary"
+    elif dist_type == "sphericalharmonic":
+        params["electron"]["fe"]["type"] = "sphericalharmonic"
+        params["electron"]["fe"]["params"]["LTx"] = 10 ** float(rng.uniform(5, 7))
+        params["electron"]["fe"]["params"]["LTy"] = 10 ** float(rng.uniform(5, 7))
     else:
-        params["electron"]["fe"]["params"]["m"]["val"] = float(rng.uniform(2.0, 3.5))
-        params["electron"]["fe"]["type"] = "dlm"
-
-    # for key in params["general"].keys():
-    #     params[key]["val"] *= rng.uniform(0.75, 1.25)
-
-    # for key in params["ion-1"].keys():
-    #     params[key]["val"] *= rng.uniform(0.75, 1.25)
+        raise NotImplementedError
 
     return params
 
 
 @pytest.mark.parametrize(
-    "arbitrary_distribution",
-    [
-        False,
-    ],
+    "dist_type",
+    ["arbitrary", "sphericalharmonic"],
 )
-def test_arts1d_inverse(arbitrary_distribution: bool):
+def test_arts2d_inverse(dist_type: bool):
     """
     Runs a forward pass with the Thomson scattering diagnostic and ThomsonParams classes. Saves the results to mlflow.
 
@@ -109,11 +130,11 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
     _t0 = time.time()
     mlflow.set_experiment("tsadar-tests")
-    with mlflow.start_run(run_name="test_arts1d_inverse") as run:
-        with open("tests/configs/arts1d_test_defaults.yaml", "r") as fi:
+    with mlflow.start_run(run_name="test_arts2d_inverse") as run:
+        with open("tests/configs/arts2d_test_defaults.yaml", "r") as fi:
             defaults = yaml.safe_load(fi)
 
-        with open("tests/configs/arts1d_test_inputs.yaml", "r") as fi:
+        with open("tests/configs/arts2d_test_inputs.yaml", "r") as fi:
             inputs = yaml.safe_load(fi)
 
         defaults = flatten(defaults)
@@ -150,18 +171,11 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             }
             rng = np.random.default_rng()
             ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-            config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=False)
+            config["parameters"] = _perturb_params_(rng, config["parameters"], dist_type=dist_type)
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-            # diff_params_gt, static_params_gt = eqx.partition(
-            #     ts_params_gt, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_gt)
-            # )
-            # active_gt_params = {
-            #     k: {k2: float(v2) for k2, v2 in v.items() if v2 is not None}
-            #     for k, v in diff_params_gt.get_unnormed_params().items()
-            # }
             active_gt_params, _ = ts_params_gt.get_fitted_params(config["parameters"])
-            _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
+            _dump_ts_params(td, dist_type, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
 
             ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
@@ -171,25 +185,17 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
                 return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
 
-            # t0 = time.time()
             # jit_vg = eqx.filter_value_and_grad(loss_fn)
             jit_vg = eqx.filter_jit(value_and_grad(loss_fn))
-            # diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
-            # temp_out = block_until_ready(jit_vg(diff_params, static_params))
-            # print(temp_out)
-            # raise ValueError
-            # mlflow.log_metric(f"first run time", time.time() - t0)
-
-            # dump ground truth to disk
 
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-                diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
+                diff_params, static_params = perturb_and_split_params(dist_type, config, rng)
                 use_optax = True
                 if use_optax:
 
-                    opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
+                    opt = optax.adam(1e-2)
                     opt_state = opt.init(diff_params)
                     for i in (pbar := tqdm.tqdm(range(1000))):
                         t0 = time.time()
@@ -201,12 +207,23 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
                         combined_params = eqx.combine(diff_params, static_params)
                         active_params, _ = combined_params.get_fitted_params(config["parameters"])
-                        params_to_log = {"gt": active_gt_params, "learned": active_params}
+                        params_to_log = {
+                            "gt": active_gt_params,
+                            "learned": active_params,
+                            "l2_log10_dist": np.linalg.norm(
+                                np.log10(ts_params_gt.electron.distribution_functions())
+                                - np.log10(combined_params.electron.distribution_functions())
+                            ),
+                            "l2_dist": np.linalg.norm(
+                                ts_params_gt.electron.distribution_functions()
+                                - combined_params.electron.distribution_functions()
+                            ),
+                        }
                         misc.log_mlflow(params_to_log, which="metrics", step=i)
 
                         # plot f
                         if i % 5 == 0:
-                            _dump_ts_params(td, combined_params, prefix=f"step-{i:3d}")
+                            _dump_ts_params(td, dist_type, combined_params, prefix=f"step-{i:03d}")
 
                 else:
                     flattened_diff_params, unravel = ravel_pytree(diff_params)
@@ -253,7 +270,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 def save_electron_distribution_plot(td, i, combined_params):
     f = combined_params.electron.distribution_functions()
     fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
-    ax.plot(combined_params.electron.distribution_functions.vx, f)
+    ax.plot(combined_params.electron.distribution_functions.vx, combined_params.electron.distribution_functions.vy, f.T)
     ax.grid()
     ax.set_xlabel("$v_x$")
     ax.set_ylabel("$f(v_x)$")
@@ -261,11 +278,9 @@ def save_electron_distribution_plot(td, i, combined_params):
     plt.close(fig)
     mlflow.log_artifacts(td)
 
-    # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
 
-
-def perturb_and_split_params(arbitrary_distribution, config, rng):
-    config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=arbitrary_distribution)
+def perturb_and_split_params(dist_type, config, rng):
+    config["parameters"] = _perturb_params_(rng, config["parameters"], dist_type=dist_type)
     ts_params_fit = ThomsonParams(
         config["parameters"],
         num_params=1,
@@ -280,4 +295,4 @@ def perturb_and_split_params(arbitrary_distribution, config, rng):
 
 
 if __name__ == "__main__":
-    test_arts1d_inverse(arbitrary_distribution=True)
+    test_arts2d_inverse(dist_type="sphericalharmonic")

@@ -19,7 +19,7 @@ Table of Contents
 .. toctree::
    :maxdepth: 1
 
-   Geeting Started Tutorial<getting_started>
+   Getting Started Tutorial<getting_started>
    Example Gallery<examples>
    Inputs<inputs>
    Defaults<defaults>

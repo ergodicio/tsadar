@@ -360,6 +360,22 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             EPWtcc = 1024 - 503  # 562;
             IAWtcc = 1024 - 568  # 578  # 469;
 
+        elif 107620 <= shotNum <= 107633:
+            # refractive teloscope used on 3/9/23
+            EPWDisp = 0.27594
+            IAWDisp = 0.005701
+            EPWoff = 388.256  # 390.256 worked for 106317
+            IAWoff = 524.345
+
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.1024  # needs to be checked
+
+            magI = 2.89 / 0.3746 * 1.118  # um / px times strech factor accounting for tilt in view
+            magE = 5.13 / 0.36175 * 1.118  # um / px times strech factor accounting for tilt in view
+
+            EPWtcc = 1024 - 503  # 562;
+            IAWtcc = 1024 - 568  # 578  # 469;
+
         else:
             # needs to be updated with the calibrations from 7-26-22
             EPWDisp = 0.27093

@@ -20,18 +20,14 @@ from typing import Dict, List, Tuple
 def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict
 ) -> Tuple[float, Dict]:
+    _activate = True
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate= _activate)
     else:
         ts_params = previous_weights
 
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     init_weights, loss_fn.unravel_weights = ravel_pytree(diff_params)
-
-    # if "sequential" in config["optimizer"]:
-    #     if config["optimizer"]["sequential"]:
-    #         if previous_weights is not None:
-    #             init_weights = previous_weights
 
     res = spopt.minimize(
         loss_fn.vg_loss if config["optimizer"]["grad_method"] == "AD" else loss_fn.loss,
@@ -39,7 +35,7 @@ def _1d_scipy_loop_(
         args=(static_params, batch),
         method=config["optimizer"]["method"],
         jac=True if config["optimizer"]["grad_method"] == "AD" else False,
-        bounds=((0, 1) for _ in range(len(init_weights))),
+        bounds=None if _activate else ((0, 1) for _ in range(len(init_weights))),
         options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
     )
 
@@ -52,42 +48,25 @@ def _1d_scipy_loop_(
 def _1d_adam_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
-    # jaxopt_kwargs = dict(
-    #     fun=loss_fn.vg_loss, maxiter=config["optimizer"]["num_epochs"], value_and_grad=True, has_aux=True
-    # )
+
     opt = optax.adam(config["optimizer"]["learning_rate"])
     #ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
     else:
         ts_params = previous_weights
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     opt_state = opt.init(diff_params)
 
-    # if previous_weights is None:
-    #     init_weights = loss_fn.pytree_weights["active"]
-    # else:
-    #     init_weights = previous_weights
-
-    # if "sequential" in config["optimizer"]:
-    #     if config["optimizer"]["sequential"]:
-    #         if previous_weights is not None:
-    #             init_weights = previous_weights
-
-    # opt_state = solver.init_state(init_weights, batch=batch)
-
     best_loss = 1e16
     epoch_loss = 1e19
     for i_epoch in range(config["optimizer"]["num_epochs"]):
         tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
-        # if config["nn"]["use"]:
-        #     np.random.shuffle(batch_indices)
+
         (epoch_loss, aux), grad = loss_fn.vg_loss(diff_params, static_params, batch)
         updates, opt_state = opt.update(grad, opt_state)
         diff_params = eqx.apply_updates(diff_params, updates)
 
-        # init_weights, opt_state = solver.update(params=init_weights, state=opt_state, batch=batch)
-        # epoch_loss = opt_state.value
         if epoch_loss < best_loss:
             best_loss = epoch_loss
             best_weights = eqx.combine(diff_params, static_params)

@@ -1,11 +1,78 @@
 from typing import List, Dict, Union, Callable
 from collections import defaultdict
+from functools import partial
+import os
 
 from jax import Array, numpy as jnp, tree_util as jtu, vmap
+from jax.lax import scan
 from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
 from jax.scipy.special import gamma, sph_harm
+from scipy.io import loadmat
 import equinox as eqx
+
+cwd = os.path.dirname(os.path.realpath(__file__))
+
+
+def smooth1d(array, window_size):
+    # Use a Hanning window
+    window = jnp.hanning(window_size)
+    window /= window.sum()  # Normalize
+    return jnp.convolve(array, window, mode="same")
+    # signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
+    # y = jnp.convolve(signal, window, mode="same")
+    # return y[(window_size // 2 - 1) : -(window_size // 2)]
+
+
+def second_order_butterworth(
+    signal: Array, f_sampling: int = 100, f_cutoff: int = 15, method: str = "forward_backward"
+) -> Array:
+    """
+    Applies a second order butterworth filter similar to using scipy.signal.butter and scipy.signal.filtfilt
+
+    from https://github.com/jax-ml/jax/issues/17540
+
+    """
+
+    if method == "forward_backward":
+        signal = second_order_butterworth(signal, f_sampling, f_cutoff, "forward")
+        return second_order_butterworth(signal, f_sampling, f_cutoff, "backward")
+    elif method == "forward":
+        pass
+    elif method == "backward":
+        signal = jnp.flip(signal, axis=0)
+    else:
+        raise NotImplementedError
+
+    ff = f_cutoff / f_sampling
+    ita = 1.0 / jnp.tan(jnp.pi * ff)
+    q = jnp.sqrt(2.0)
+    b0 = 1.0 / (1.0 + q * ita + ita**2)
+    b1 = 2 * b0
+    b2 = b0
+    a1 = 2.0 * (ita**2 - 1.0) * b0
+    a2 = -(1.0 - q * ita + ita**2) * b0
+
+    def f(carry, x_i):
+        x_im1, x_im2, y_im1, y_im2 = carry
+        y_i = b0 * x_i + b1 * x_im1 + b2 * x_im2 + a1 * y_im1 + a2 * y_im2
+        return (x_i, x_im1, y_i, y_im1), y_i
+
+    init = (signal[1], signal[0]) * 2
+    signal = scan(f, init, signal[2:])[1]
+    signal = jnp.concatenate((signal[0:1],) * 2 + (signal,))
+
+    if method == "backward":
+        signal = jnp.flip(signal, axis=0)
+
+    return signal
+
+
+def smooth2d(array, window_size):
+    # Use a Hanning window
+    window = jnp.outer(jnp.hanning(window_size), jnp.hanning(window_size))
+    window /= window.sum()  # Normalize
+    return jnp.convolve(array, window, mode="same")
 
 
 class DistributionFunction1D(eqx.Module):
@@ -13,9 +80,9 @@ class DistributionFunction1D(eqx.Module):
 
     def __init__(self, dist_cfg: Dict):
         super().__init__()
-        vmax = 6.0
-        dv = 2 * vmax / dist_cfg["nv"]
-        self.vx = jnp.linspace(-vmax + dv / 2, vmax - dv / 2, dist_cfg["nv"])
+        vmax = 8.0
+        dv = 2 * vmax / dist_cfg["nvx"]
+        self.vx = jnp.linspace(-vmax + dv / 2, vmax - dv / 2, dist_cfg["nvx"])
 
     def __call__(self):
         raise NotImplementedError
@@ -26,66 +93,43 @@ class Arbitrary1DNN(DistributionFunction1D):
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
-        # self.learn_log = dist_cfg["params"]["learn_log"]
         self.f_nn = eqx.nn.MLP(1, 1, 32, 3, final_activation=relu, key=PRNGKey(0))
 
     def get_unnormed_params(self):
         return {"f": self()}
 
     def __call__(self):
-        # if self.learn_log:
-        #     # bound values between 1e-15 and 10
-        #     f_nn = -16 * sigmoid(self.f_nn) + 1
-        #     f_nn = jnp.power(10.0, self.f_nn)
-        # else:
-        # f_nn = sigmoid(f_nn) * 10
         fval = eqx.filter_vmap(self.f_nn)(self.vx[:, None])
-        fval = jnp.squeeze(fval)
-        # if self.learn_log:
-        # fval = jnp.power(10.0, -fval)
+        fval = jnp.power(10.0, -jnp.squeeze(fval))
 
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
 
 
 class Arbitrary1D(DistributionFunction1D):
     fval: Array
-    learn_log: bool
+    smooth: Callable
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
-        self.learn_log = dist_cfg["params"]["learn_log"]
         self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
+        self.smooth = partial(second_order_butterworth, f_sampling=100, f_cutoff=6, method="forward_backward")
 
     def init_dlm(self, m):
-        vth_x = jnp.sqrt(2.0)
+        vth_x = 1.0  # jnp.sqrt(2.0)
         alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
         cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
         fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+        fdlm = -jnp.log10(fdlm)
 
-        if self.learn_log:
-            #     # logit function
-            # fdlm = 1 / 16 * jnp.log(fdlm / (1 - fdlm)) - 1
-            fdlm = -jnp.log10(fdlm)
-        # else:
-        #     fdlm = 0.1 * jnp.log(fdlm / (1 - fdlm))
-
-        return jnp.sqrt(fdlm)
+        return jnp.sqrt(fdlm) / 7.0
 
     def get_unnormed_params(self):
         return {"f": self()}
 
     def __call__(self):
-        # if self.learn_log:
-        #     # bound values between 1e-15 and 10
-        #     fval = -16 * sigmoid(self.fval) + 1
-        #     fval = jnp.power(10.0, self.fval)
-        # else:
-        # fval = sigmoid(fval) * 10
-        fval = self.fval**2.0
-        if self.learn_log:
-            fval = jnp.power(10.0, -fval)
-
+        fval = (7.0 * self.fval) ** 2.0
+        fval = jnp.power(10.0, self.smooth(-fval))
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
 
 
@@ -94,20 +138,31 @@ class DLM1D(DistributionFunction1D):
     m_scale: float
     m_shift: float
     act_fun: Callable
+    f_vx_m: Array
+    interpolate_f_in_m: Callable
+    m_ax: Array
+    act_fun: Callable
 
     def __init__(self, dist_cfg, activate=False):
         super().__init__(dist_cfg)
-        self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
-        self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
+        self.m_scale = 3.0
+        self.m_shift = 2.0
 
-        if activate:
-            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+        if activate and dist_cfg["active"]:
+            inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
             self.act_fun = sigmoid
         else:
             inv_act_fun = lambda x: x
             self.act_fun = lambda x: x
 
         self.normed_m = inv_act_fun((dist_cfg["params"]["m"]["val"] - self.m_shift) / self.m_scale)
+        projected_distributions = loadmat(
+            os.path.join(cwd, "..", "external", "numDistFuncs", "DLM_x_-3_-10_10_m_-1_2_5.mat")
+        )["IT"]
+        vx_ax = jnp.linspace(-10, 10, 20001)
+        self.m_ax = jnp.linspace(2, 5, 31)
+        self.f_vx_m = vmap(jnp.interp, in_axes=(None, None, 1), out_axes=1)(self.vx, vx_ax, projected_distributions)
+        self.interpolate_f_in_m = vmap(jnp.interp, in_axes=(None, None, 0), out_axes=0)
 
     def get_unnormed_params(self):
         return {"m": self.act_fun(self.normed_m) * self.m_scale + self.m_shift}
@@ -118,6 +173,7 @@ class DLM1D(DistributionFunction1D):
         alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
         cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
         fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
+        fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
 
         return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
 
@@ -135,9 +191,48 @@ class DistributionFunction2D(eqx.Module):
         return super().__call__(*args, **kwds)
 
 
+class Arbitrary2D(DistributionFunction2D):
+    fval: Array
+    learn_log: bool
+
+    def __init__(self, dist_cfg):
+        super().__init__(dist_cfg)
+        self.learn_log = dist_cfg["params"]["learn_log"]
+        self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
+
+    def init_dlm(self, m):
+
+        vth_x = jnp.sqrt(2.0)
+        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        fdlm = (
+            cst
+            / vth_x**3.0
+            * jnp.exp(-((jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0) / alpha / vth_x) ** m))
+        )
+
+        fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
+
+        if self.learn_log:
+            fdlm = -jnp.log10(fdlm)
+
+        return jnp.sqrt(fdlm)
+
+    def get_unnormed_params(self):
+        return {"f": self()}
+
+    def __call__(self):
+        fval = self.fval**2.0
+        if self.learn_log:
+            fval = jnp.power(10.0, -fval)
+
+        return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0]) ** 2.0
+
+
 class SphericalHarmonics(DistributionFunction2D):
     vr: Array
     th: Array
+    phi: Array
     sph_harm: Callable
     vr_vxvy: Array
     Nl: int
@@ -146,6 +241,7 @@ class SphericalHarmonics(DistributionFunction2D):
     m_shift: float
     act_fun: Callable
     normed_m: Array
+    smooth: Callable
 
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
@@ -156,56 +252,93 @@ class SphericalHarmonics(DistributionFunction2D):
 
         vx, vy = jnp.meshgrid(self.vx, self.vx)
         self.th = jnp.arctan2(vy, vx)
+        self.phi = jnp.arccos(vy / jnp.abs(vy))
         self.vr_vxvy = jnp.sqrt(vx**2 + vy**2)
         self.Nl = dist_cfg["params"]["Nl"]
 
-        self.sph_harm = vmap(sph_harm, in_axes=(None, None, None, 0, None))
+        self.sph_harm = vmap(sph_harm, in_axes=(None, None, 0, 0, None))
         self.flm = defaultdict(dict)
         for i in range(self.Nl + 1):
             self.flm[i] = {j: jnp.zeros(dist_cfg["params"]["nvr"]) for j in range(i + 1)}
 
         init_m = dist_cfg["params"]["init_m"]
-        self.flm[0][0] = self.get_f00(init_m)
-        if dist_cfg["params"]["init_f10"]:
-            self.flm[1][0] = (
-                dist_cfg["params"]["init_f10"] * jnp.gradient(jnp.gradient(self.flm[0][0])) * self.vr**2.0 * dvr
-            )
-        if dist_cfg["params"]["init_f11"]:
-            self.flm[1][1] = (
-                dist_cfg["params"]["init_f11"] * jnp.gradient(jnp.gradient(self.flm[0][0])) * self.vr**2.0 * dvr
-            )
 
         self.m_scale = 3.0  # dist_cfg["params"]["m"]["ub"] - dist_cfg["params"]["m"]["lb"]
         self.m_shift = 2.0  # dist_cfg["params"]["m"]["lb"]
-        inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
+        inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
         self.act_fun = sigmoid
         self.normed_m = inv_act_fun((init_m - self.m_shift) / self.m_scale)
+        self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["nvr"] // 16)
+
+        self.flm[0][0] = self.get_f00()
+
+        # Uses eq. 3 from
+        # Mora, P. & Yahi, H. Thermal heat-flux reduction in laser-produced plasmas. Phys. Rev. A 26, 2259–2261 (1982).
+
+        LTx = dist_cfg["params"]["LTx"]  # Provide in units of mean free path
+        LTy = dist_cfg["params"]["LTy"]  # Provide in units of mean free path
+        v0 = 1.0  # distributions are normalized to vth anyway
+        lambda_e = (
+            1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
+        )
+        # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
+        ve = gamma(5.0 / init_m) / 3 / gamma(3.0 / init_m) * v0
+
+        uu = self.vr / v0
+        lambda_v = lambda_e * (self.vr / ve) ** 4.0
+        coeff = (
+            init_m / 2 * uu**init_m - 5 * init_m / 12 * gamma(8 / init_m) / gamma(6 / init_m) * uu ** (init_m - 2) - 1.5
+        ) * lambda_v
+
+        self.flm[1][0] = coeff / LTx * self.flm[0][0]
+        self.flm[1][1] = coeff / LTy * self.flm[0][0]
 
     def get_unnormed_params(self):
-        return {"flm": self.flm}
+        flm_dict = {0: {0: self.get_f00()}, 1: {}}
+        for i in range(1, self.Nl + 1):
+            for j in range(i + 1):
+                flm_dict[i][j] = self.smooth(self.flm[i][j])
+        return {"flm": flm_dict}
 
-    def get_f00(self, m):
-        vth_x = 1.0
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
-        cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
-        f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+    def get_unnormed_m(self):
+        return self.act_fun(self.normed_m) * self.m_scale + self.m_shift
+
+    def get_f00(self):
+        unnormed_m = self.get_unnormed_m()
+
+        # m = unnormed_m
+        # vth_x = 1.0
+        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5 / m))
+        # cst = m / (4 * jnp.pi * alpha**3.0 * gamma(3 / m))
+        # f00 = cst / vth_x**3.0 * jnp.exp(-((self.vr / alpha / vth_x) ** m))
+        # f00 /= jnp.sum(f00 * 4 * jnp.pi * self.vr**2.0) * (self.vr[1] - self.vr[0])
+
+        # return f00
+
+        ve = 1.0
+        v0 = ve / jnp.sqrt(gamma(5.0 / unnormed_m) / 3.0 / gamma(3.0 / unnormed_m))
+        cst = unnormed_m / (4 * jnp.pi * gamma(3.0 / unnormed_m))
+        f00 = cst / v0**3.0 * jnp.exp(-((self.vr / v0) ** unnormed_m))
         f00 /= jnp.sum(f00 * 4 * jnp.pi * self.vr**2.0) * (self.vr[1] - self.vr[0])
 
         return f00
 
     def __call__(self):
-        # fvxvy = jnp.zeros(jnp.shape(self.vr_vxvy))
-        unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        f00 = self.get_f00(unnormed_m)
+
+        f00 = self.get_f00()
         fvxvy = jnp.interp(self.vr_vxvy, self.vr, f00, right=1e-16)
 
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
-                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, self.flm[i][j], right=1e-16)
+                smoothed_flm = self.smooth(self.flm[i][j])
+                _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, smoothed_flm, right=1e-16)
                 _sph_harm = self.sph_harm(
-                    jnp.array([j]), jnp.array([i]), 0.0, self.th.reshape(-1, order="C"), 2
+                    jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2
                 ).reshape(self.vr_vxvy.shape, order="C")
                 fvxvy += _flmvxvy * jnp.real(_sph_harm)
+
+        fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])
+        fvxvy = jnp.maximum(fvxvy, 1e-32)
 
         return fvxvy
 
@@ -221,30 +354,30 @@ class ElectronParams(eqx.Module):
         List[DistributionFunction1D], List[DistributionFunction2D], DistributionFunction1D, DistributionFunction2D
     ]
     batch: bool
-    act_fun: Callable
+    act_funs: Dict[str, Callable]
+    inv_act_funs: Dict[str, Callable]
 
     def __init__(self, cfg, batch_size, batch=True, activate=False):
         super().__init__()
 
-        self.Te_scale = cfg["Te"]["ub"] - cfg["Te"]["lb"]
-        self.Te_shift = cfg["Te"]["lb"]
-        self.ne_scale = cfg["ne"]["ub"] - cfg["ne"]["lb"]
-        self.ne_shift = cfg["ne"]["lb"]
         self.batch = batch
 
-        if activate:
-            self.act_fun = sigmoid
-            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
-        else:
-            self.act_fun = lambda x: x
-            inv_act_fun = lambda x: x
+        self.act_funs, self.inv_act_funs = {}, {}
+        for param in ["Te", "ne"]:
+            setattr(self, param + "_scale", cfg[param]["ub"] - cfg[param]["lb"])
+            setattr(self, param + "_shift", cfg[param]["lb"])
+            self.act_funs[param], self.inv_act_funs[param] = get_act_and_inv_act(cfg[param], activate)
 
         if batch:
-            self.normed_Te = inv_act_fun(jnp.full(batch_size, (cfg["Te"]["val"] - self.Te_shift) / self.Te_scale))
-            self.normed_ne = inv_act_fun(jnp.full(batch_size, (cfg["ne"]["val"] - self.ne_shift) / self.ne_scale))
+            self.normed_Te = self.inv_act_funs["Te"](
+                jnp.full(batch_size, (cfg["Te"]["val"] - self.Te_shift) / self.Te_scale)
+            )
+            self.normed_ne = self.inv_act_funs["ne"](
+                jnp.full(batch_size, (cfg["ne"]["val"] - self.ne_shift) / self.ne_scale)
+            )
         else:
-            self.normed_Te = inv_act_fun((cfg["Te"]["val"] - self.Te_shift) / self.Te_scale)
-            self.normed_ne = inv_act_fun((cfg["ne"]["val"] - self.ne_shift) / self.ne_scale)
+            self.normed_Te = self.inv_act_funs["Te"]((cfg["Te"]["val"] - self.Te_shift) / self.Te_scale)
+            self.normed_ne = self.inv_act_funs["ne"]((cfg["ne"]["val"] - self.ne_shift) / self.ne_scale)
 
         self.distribution_functions = self.init_dists(cfg["fe"], batch_size, batch, activate)
 
@@ -280,14 +413,15 @@ class ElectronParams(eqx.Module):
             else:
                 raise NotImplementedError(f"Unknown 1D distribution type: {dist_cfg['type']}")
         elif dist_cfg["dim"] == 2:
+            if batch:
+                raise NotImplementedError(
+                    "Batch mode not implemented for 2D distributions as a precautionary measure against memory issues"
+                )
+
             if "sph" in dist_cfg["type"].casefold():
-                if batch:
-                    raise NotImplementedError(
-                        "Batch mode not implemented for 2D distributions as a precautionary measure against memory issues"
-                    )
-                    distribution_functions = [SphericalHarmonics(dist_cfg) for _ in range(batch_size)]
-                else:
-                    distribution_functions = SphericalHarmonics(dist_cfg)
+                distribution_functions = SphericalHarmonics(dist_cfg)
+            elif dist_cfg["type"].casefold() == "arbitrary":
+                distribution_functions = Arbitrary2D(dist_cfg)
             else:
                 raise NotImplementedError(f"Unknown 2D distribution type: {dist_cfg['type']}")
         else:
@@ -306,14 +440,14 @@ class ElectronParams(eqx.Module):
             unnormed_fe_params = self.distribution_functions.get_unnormed_params()
 
         return {
-            "Te": self.act_fun(self.normed_Te) * self.Te_scale + self.Te_shift,
-            "ne": self.act_fun(self.normed_ne) * self.ne_scale + self.ne_shift,
+            "Te": self.act_funs["Te"](self.normed_Te) * self.Te_scale + self.Te_shift,
+            "ne": self.act_funs["ne"](self.normed_ne) * self.ne_scale + self.ne_shift,
         } | unnormed_fe_params
 
     def __call__(self):
         physical_params = {
-            "Te": self.act_fun(self.normed_Te) * self.Te_scale + self.Te_shift,
-            "ne": self.act_fun(self.normed_ne) * self.ne_scale + self.ne_shift,
+            "Te": self.act_funs["Te"](self.normed_Te) * self.Te_scale + self.Te_shift,
+            "ne": self.act_funs["ne"](self.normed_ne) * self.ne_scale + self.ne_shift,
         }
         if self.batch:
             dist_params = {
@@ -332,44 +466,39 @@ class ElectronParams(eqx.Module):
 class IonParams(eqx.Module):
     normed_Ti: Array
     normed_Z: Array
-    # normed_A: Array
     fract: Array
     Ti_scale: float
     Ti_shift: float
     Z_scale: float
     Z_shift: float
-    # A_scale: float
-    # A_shift: float
     A: int
-    act_fun: Callable
+    act_funs: Dict[str, Callable]
+    inv_act_funs: Dict[str, Callable]
 
     def __init__(self, cfg, batch_size, batch=True, activate=False):
         super().__init__()
-        self.Ti_scale = cfg["Ti"]["ub"] - cfg["Ti"]["lb"]
-        self.Ti_shift = cfg["Ti"]["lb"]
-        self.Z_scale = cfg["Z"]["ub"] - cfg["Z"]["lb"]
-        self.Z_shift = cfg["Z"]["lb"]
+        self.act_funs, self.inv_act_funs = {}, {}
+        for param in ["Ti", "Z"]:
+            setattr(self, param + "_scale", cfg[param]["ub"] - cfg[param]["lb"])
+            setattr(self, param + "_shift", cfg[param]["lb"])
+            self.act_funs[param], self.inv_act_funs[param] = get_act_and_inv_act(cfg[param], activate)
 
-        # self.A_scale = cfg["A"]["ub"] - cfg["A"]["lb"]
-        # self.A_shift = cfg["A"]["lb"]
-
-        if activate:
-            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
-            self.act_fun = sigmoid
-        else:
-            inv_act_fun = lambda x: x
-            self.act_fun = lambda x: x
+        self.act_funs["fract"], self.inv_act_funs["fract"] = get_act_and_inv_act(cfg["fract"], activate)
 
         if batch:
-            self.normed_Ti = inv_act_fun(jnp.full(batch_size, (cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale))
-            self.normed_Z = inv_act_fun(jnp.full(batch_size, (cfg["Z"]["val"] - self.Z_shift) / self.Z_scale))
+            self.normed_Ti = self.inv_act_funs["Ti"](
+                jnp.full(batch_size, (cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
+            )
+            self.normed_Z = self.inv_act_funs["Z"](
+                jnp.full(batch_size, (cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
+            )
             self.A = jnp.full(batch_size, cfg["A"]["val"])
-            self.fract = inv_act_fun(jnp.full(batch_size, cfg["fract"]["val"]))
+            self.fract = self.inv_act_funs["fract"](jnp.full(batch_size, cfg["fract"]["val"]))
         else:
-            self.normed_Ti = inv_act_fun((cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
-            self.normed_Z = inv_act_fun((cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
+            self.normed_Ti = self.inv_act_funs["Ti"]((cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
+            self.normed_Z = self.inv_act_funs["Z"]((cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
             self.A = cfg["A"]["val"]
-            self.fract = float(inv_act_fun(cfg["fract"]["val"]))
+            self.fract = float(self.inv_act_funs["fract"](cfg["fract"]["val"]))
 
     def get_unnormed_params(self):
         return self()
@@ -378,10 +507,35 @@ class IonParams(eqx.Module):
 
         return {
             "A": self.A,
-            "fract": self.act_fun(self.fract),
-            "Ti": self.act_fun(self.normed_Ti) * self.Ti_scale + self.Ti_shift,
-            "Z": self.act_fun(self.normed_Z) * self.Z_scale + self.Z_shift,
+            "fract": self.act_funs["fract"](self.fract),
+            "Ti": self.act_funs["Ti"](self.normed_Ti) * self.Ti_scale + self.Ti_shift,
+            "Z": self.act_funs["Z"](self.normed_Z) * self.Z_scale + self.Z_shift,
         }
+
+
+def get_act_and_inv_act(param_cfg: Dict, activate: bool):
+    """
+    Returns the activation function and its inverse only if the parameter is active i.e.
+    it is being fit. If the parameter is not active, the identity function is returned.
+
+    Args:
+        param_cfg (Dict): The configuration dictionary for the parameter
+        activate (bool): Whether to activate the parameter
+
+    Returns:
+        Tuple[Callable, Callable]: The activation function and its inverse
+
+
+    """
+
+    if param_cfg["active"] and activate:
+        inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))  # this is problematic near 0 and 1
+        act_fun = sigmoid
+    else:
+        act_fun = lambda x: x
+        inv_act_fun = lambda x: x
+
+    return act_fun, inv_act_fun
 
 
 class GeneralParams(eqx.Module):
@@ -407,81 +561,60 @@ class GeneralParams(eqx.Module):
     Te_gradient_shift: float
     ud_scale: float
     ud_shift: float
-    vA_scale: float
-    vA_shift: float
-    act_fun: Callable
+    Va_scale: float
+    Va_shift: float
+    act_funs: Dict[str, Callable]
 
     def __init__(self, cfg, batch_size: int, batch=True, activate=False):
         super().__init__()
-        self.lam_scale = cfg["lam"]["ub"] - cfg["lam"]["lb"]
-        self.lam_shift = cfg["lam"]["lb"]
-        self.amp1_scale = cfg["amp1"]["ub"] - cfg["amp1"]["lb"]
-        self.amp1_shift = cfg["amp1"]["lb"]
-        self.amp2_scale = cfg["amp2"]["ub"] - cfg["amp2"]["lb"]
-        self.amp2_shift = cfg["amp2"]["lb"]
-        self.amp3_scale = cfg["amp3"]["ub"] - cfg["amp3"]["lb"]
-        self.amp3_shift = cfg["amp3"]["lb"]
-        self.ne_gradient_scale = cfg["ne_gradient"]["ub"] - cfg["ne_gradient"]["lb"]
-        self.ne_gradient_shift = cfg["ne_gradient"]["lb"]
-        self.Te_gradient_scale = cfg["Te_gradient"]["ub"] - cfg["Te_gradient"]["lb"]
-        self.Te_gradient_shift = cfg["Te_gradient"]["lb"]
-        self.ud_scale = cfg["ud"]["ub"] - cfg["ud"]["lb"]
-        self.ud_shift = cfg["ud"]["lb"]
-        self.vA_scale = cfg["Va"]["ub"] - cfg["Va"]["lb"]
-        self.vA_shift = cfg["Va"]["lb"]
 
-        if activate:
-            inv_act_fun = lambda x: x  # jnp.log(1e-6 + x / (1 - x))
-            self.act_fun = sigmoid
-        else:
-            inv_act_fun = lambda x: x
-            self.act_fun = lambda x: x
+        # this is all a bit ugly but we use setattr instead of = to be able to use the for loop
+        self.act_funs, inv_act_funs = {}, {}
+        for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "Va"]:
+            self.act_funs[param], inv_act_funs[param] = get_act_and_inv_act(cfg[param], activate)
+            setattr(self, param + "_scale", cfg[param]["ub"] - cfg[param]["lb"])
+            setattr(self, param + "_shift", cfg[param]["lb"])
 
+        # this is where the linear and nonlinear transformations are applied i.e.
+        # the rescaling and the activation function
         if batch:
-            self.normed_amp1 = inv_act_fun(
-                jnp.full(batch_size, (cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale)
-            )
-            self.normed_amp2 = inv_act_fun(
-                jnp.full(batch_size, (cfg["amp2"]["val"] - self.amp2_shift) / self.amp2_scale)
-            )
-            self.normed_amp3 = inv_act_fun(
-                jnp.full(batch_size, (cfg["amp3"]["val"] - self.amp3_shift) / self.amp3_scale)
-            )
-            self.normed_ne_gradient = inv_act_fun(
-                jnp.full(batch_size, (cfg["ne_gradient"]["val"] - self.ne_gradient_shift) / self.ne_gradient_scale)
-            )
-            self.normed_Te_gradient = inv_act_fun(
-                jnp.full(batch_size, (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale)
-            )
-            self.normed_ud = inv_act_fun(jnp.full(batch_size, (cfg["ud"]["val"] - self.ud_shift) / self.ud_scale))
-            self.normed_Va = inv_act_fun(jnp.full(batch_size, (cfg["Va"]["val"] - self.vA_shift) / self.vA_scale))
-            self.normed_lam = inv_act_fun(jnp.full(batch_size, (cfg["lam"]["val"] - self.lam_shift) / self.lam_scale))
+            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "Va"]:
+                setattr(
+                    self,
+                    "normed_" + param,
+                    inv_act_funs[param](
+                        jnp.full(
+                            batch_size,
+                            (cfg[param]["val"] - getattr(self, param + "_shift")) / getattr(self, param + "_scale"),
+                        )
+                    ),
+                )
         else:
-            self.normed_amp1 = inv_act_fun((cfg["amp1"]["val"] - self.amp1_shift) / self.amp1_scale)
-            self.normed_amp2 = inv_act_fun((cfg["amp2"]["val"] - self.amp2_shift) / self.amp2_scale)
-            self.normed_amp3 = inv_act_fun((cfg["amp3"]["val"] - self.amp3_shift) / self.amp3_scale)
-            self.normed_ne_gradient = inv_act_fun(
-                (cfg["ne_gradient"]["val"] - self.ne_gradient_shift) / self.ne_gradient_scale
-            )
-            self.normed_Te_gradient = inv_act_fun(
-                (cfg["Te_gradient"]["val"] - self.Te_gradient_shift) / self.Te_gradient_scale
-            )
-            self.normed_ud = inv_act_fun((cfg["ud"]["val"] - self.ud_shift) / self.ud_scale)
-            self.normed_Va = inv_act_fun((cfg["Va"]["val"] - self.vA_shift) / self.vA_scale)
-            self.normed_lam = inv_act_fun((cfg["lam"]["val"] - self.lam_shift) / self.lam_scale)
+            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "Va"]:
+                setattr(
+                    self,
+                    "normed_" + param,
+                    inv_act_funs[param](
+                        (cfg[param]["val"] - getattr(self, param + "_shift")) / getattr(self, param + "_scale")
+                    ),
+                )
 
     def get_unnormed_params(self):
         return self()
 
     def __call__(self):
-        unnormed_lam = self.act_fun(self.normed_lam) * self.lam_scale + self.lam_shift
-        unnormed_amp1 = self.act_fun(self.normed_amp1) * self.amp1_scale + self.amp1_shift
-        unnormed_amp2 = self.act_fun(self.normed_amp2) * self.amp2_scale + self.amp2_shift
-        unnormed_amp3 = self.act_fun(self.normed_amp3) * self.amp3_scale + self.amp3_shift
-        unnormed_ne_gradient = self.act_fun(self.normed_ne_gradient) * self.ne_gradient_scale + self.ne_gradient_shift
-        unnormed_Te_gradient = self.act_fun(self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
-        unnormed_ud = self.act_fun(self.normed_ud) * self.ud_scale + self.ud_shift
-        unnormed_Va = self.act_fun(self.normed_Va) * self.vA_scale + self.vA_shift
+        unnormed_lam = self.act_funs["lam"](self.normed_lam) * self.lam_scale + self.lam_shift
+        unnormed_amp1 = self.act_funs["amp1"](self.normed_amp1) * self.amp1_scale + self.amp1_shift
+        unnormed_amp2 = self.act_funs["amp2"](self.normed_amp2) * self.amp2_scale + self.amp2_shift
+        unnormed_amp3 = self.act_funs["amp3"](self.normed_amp3) * self.amp3_scale + self.amp3_shift
+        unnormed_ne_gradient = (
+            self.act_funs["ne_gradient"](self.normed_ne_gradient) * self.ne_gradient_scale + self.ne_gradient_shift
+        )
+        unnormed_Te_gradient = (
+            self.act_funs["Te_gradient"](self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
+        )
+        unnormed_ud = self.act_funs["ud"](self.normed_ud) * self.ud_scale + self.ud_shift
+        unnormed_Va = self.act_funs["Va"](self.normed_Va) * self.Va_scale + self.Va_shift
 
         return {
             "lam": unnormed_lam,
@@ -499,51 +632,79 @@ class ThomsonParams(eqx.Module):
     electron: ElectronParams
     ions: List[IonParams]
     general: GeneralParams
+    param_cfg: Dict
 
     def __init__(self, param_cfg, num_params: int, batch=True, activate=False):
         super().__init__()
+
         self.electron = ElectronParams(param_cfg["electron"], num_params, batch, activate)
         self.ions = []
-        for species in param_cfg.keys():
-            if "ion" in species:
-                self.ions.append(IonParams(param_cfg[species], num_params, batch, activate))
+        for ion_index in range(len([species for species in param_cfg.keys() if "ion" in species])):
+            self.ions.append(IonParams(param_cfg[f"ion-{ion_index+1}"], num_params, batch, activate))
 
         assert len(self.ions) > 0, "No ion species found in input deck"
         self.general = GeneralParams(param_cfg["general"], num_params, batch, activate)
+        self.param_cfg = param_cfg
 
     def get_unnormed_params(self):
-        return {
+        tmp_dict = {
             "electron": self.electron.get_unnormed_params(),
             "general": self.general.get_unnormed_params(),
         } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
+        fract_sum = 0
+        for ion_index in range(len(self.ions)):
+            if  ion_index > 0 and self.param_cfg[f"ion-{ion_index+1}"]['Ti']['same']:
+                tmp_dict[f"ion-{ion_index+1}"]['Ti'] = tmp_dict["ion-1"]['Ti']
+            fract_sum+= tmp_dict[f"ion-{ion_index+1}"]["fract"]
+        for ion_index in range(len(self.ions)):
+            tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
+        
+        
+        return tmp_dict
 
     def __call__(self):
-        return {"electron": self.electron(), "general": self.general()} | {
+        # static_weights, diff_weights = exchange_params(self.cfg["parameters"], static_weights, diff_weights)
+        tmp_dict = {"electron": self.electron(), "general": self.general()} | {
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
-    
+        fract_sum = 0
+        for ion_index in range(len(self.ions)):
+            if  ion_index > 0 and self.param_cfg[f"ion-{ion_index+1}"]['Ti']['same']:
+                tmp_dict[f"ion-{ion_index+1}"]['Ti'] = tmp_dict["ion-1"]['Ti']
+            fract_sum+= tmp_dict[f"ion-{ion_index+1}"]["fract"]
+        for ion_index in range(len(self.ions)):
+            tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
+
+        return tmp_dict
+
     def get_fitted_params(self, param_cfg):
         param_dict = self.get_unnormed_params()
         num_params = 0
         fitted_params = {}
         for k in param_dict.keys():
-            fitted_params[k]={}
+            fitted_params[k] = {}
             for k2 in param_dict[k].keys():
-                if k2 == 'm' and param_cfg[k]['fe']['active']:
-                    fitted_params[k][k2]=param_dict[k][k2]
-                    num_params+=1
-                elif k2 != 'm' and param_cfg[k][k2]['active']:
-                    fitted_params[k][k2]=param_dict[k][k2]
-                    num_params+=1
+                if k2 == "m" and param_cfg[k]["fe"]["active"]:
+                    fitted_params[k][k2] = param_dict[k][k2]
+                    num_params += 1
+                elif k2 in ["f", "flm"]:
+                    pass
+                elif k2 != "m" and param_cfg[k][k2]["active"]:
+                    fitted_params[k][k2] = param_dict[k][k2]
+                    num_params += 1
 
-        return fitted_params, num_params 
+        return fitted_params, num_params
 
 
 def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
-    # Step 2
+    #filter for splitting ThomsonParams into static and dynamic parameters
+    #produce a tree with the same structure as ts_params with all populated values set to false
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
     ion_num=0
+    
     for species, params in cfg_params.items():
+        if "ion" in species:
+            ion_num+=1
         for key, val in params.items():
             if val["active"]:
                 if key == "fe":
@@ -551,7 +712,6 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                 else:
                     nkey = f"normed_{key}"
                     if "ion" in species:
-                        ion_num+=1
                         filter_spec = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], nkey),
                             filter_spec,
@@ -599,12 +759,64 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_type: str) -> Dict:
                 filter_spec = update_distribution_layers(filter_spec, df=df[i])
         else:
             filter_spec = update_distribution_layers(filter_spec, df=df)
+    elif dist_type.casefold() == "sphericalharmonic":
+        if isinstance(filter_spec.electron.distribution_functions, list):
+            num_dists = len(filter_spec.electron.distribution_functions)
+            for i in range(num_dists):
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+                )
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].flm[1][0], filter_spec, replace=True
+                )
+                filter_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions[i].flm[1][1], filter_spec, replace=True
+                )
+        else:
+
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+            )
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.flm[1][0], filter_spec, replace=True
+            )
+            filter_spec = eqx.tree_at(
+                lambda tree: tree.electron.distribution_functions.flm[1][1], filter_spec, replace=True
+            )
 
     else:
         raise NotImplementedError(f"Untrainable distribution type: {dist_type}")
 
     return filter_spec
 
+def exchange_params(cfg_params: Dict, static_params: ThomsonParams, dynamic_params: ThomsonParams) -> Dict:
+    #filter for information exchange between dynamic and static parameters
+    ion_num=0
+    frac_sum = 0
+    all_params = eqx.combine(dynamic_params, static_params)
+    for species, params in cfg_params.items():
+        if "ion" in species:
+            ion_num+=1
+            if ion_num >1 and params['Ti']['same']:
+                #all_params.ions[ion_num-1].normed_Ti = all_params.ions[ion_num-2].normed_Ti
+                all_params = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], 'normed_Ti'),
+                            all_params,
+                            replace=all_params.ions[ion_num-2].normed_Ti,
+                        )
+            if ion_num < len(all_params.ions):
+                frac_sum+= all_params.ions[ion_num-1].fract
+            elif len(all_params.ions) > 1:
+                #all_params.ions[ion_num-1].fract = 1.-frac_sum
+                all_params = eqx.tree_at(
+                            lambda tree: getattr(getattr(tree, 'ions')[ion_num-1], 'fract'),
+                            all_params,
+                            replace=1.-frac_sum,
+                        )
+        else:
+            continue
+    dynamic_params, static_params = eqx.partition(all_params, get_filter_spec(cfg_params, all_params))
+    return static_params, dynamic_params
 
 def update_distribution_layers(filter_spec, df):
     print(df.f_nn.layers)

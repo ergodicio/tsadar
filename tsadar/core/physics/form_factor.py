@@ -191,7 +191,6 @@ class FormFactor:
 
         # ion susceptibilities
         # finding derivative of plasma dispersion function along xii array
-        # proper handeling of multiple ion temperatures is not implemented
         xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k)[..., jnp.newaxis])
 
         # num_ion_pts = jnp.shape(xii)
@@ -204,25 +203,22 @@ class FormFactor:
         # calculating normilized phase velcoity(xi's) for electrons
         xie = omgdop / (k * vTe) - ud / vTe
 
-        fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
-        #fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
+        #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
+        fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
 
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
         df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]))), 1)
 
         chiEI = jnp.pi / (klde**2) * 1j * df
-
-        ratmod = jnp.exp(jnp.interp(self.xi1, vx, jnp.log(fe)))
+        
+        ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
         chiERratprim = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
             ratdf, self.xi1[None, :] - self.xi2[:, None], self.xi1
         )
 
-        # if len(fe) == 2:
         chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
-        # else:
-        #     chiERrat = jnp.interpn(jnp.arange(0, 2 * jnp.pi, 10**-1.2018), xi2, chiERratprim, beta, xie, "spline")
         chiERrat = -1.0 / (klde**2) * chiERrat
 
         chiE = chiERrat + chiEI

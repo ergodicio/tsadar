@@ -49,6 +49,7 @@ optimizer:
   grad_method: AD
   grad_scalar: 1.0
   hessian: false
+  jit: true
   learning_rate: 0.0001
   method: rmsprop
   moment_loss: false
