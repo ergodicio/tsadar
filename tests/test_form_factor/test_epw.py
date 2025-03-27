@@ -14,7 +14,7 @@ config.update("jax_disable_jit", True)
 
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
-from tsadar.core.modules import ThomsonParams
+from tsadar.core.modules.ts_params import ThomsonParams
 
 # from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 

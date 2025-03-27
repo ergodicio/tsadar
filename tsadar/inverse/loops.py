@@ -38,7 +38,6 @@ def _1d_scipy_loop_(
         method=config["optimizer"]["method"],
         jac=True if config["optimizer"]["grad_method"] == "AD" else False,
         bounds=None if _activate else ((0, 1) for _ in range(len(init_weights))),
-        bounds=None if _activate else ((0, 1) for _ in range(len(init_weights))),
         options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
     )
 

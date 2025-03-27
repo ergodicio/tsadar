@@ -22,7 +22,7 @@ from flatten_dict import flatten, unflatten
 
 from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from tsadar.core.modules import ThomsonParams, get_filter_spec
+from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 
@@ -195,7 +195,6 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
 
-
             ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
 
             def loss_fn(_diff_params, _static_params):
@@ -217,7 +216,6 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
                     opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
                     opt_state = opt.init(diff_params)
-                    for i in (pbar := tqdm.tqdm(range(1000))):
                     for i in (pbar := tqdm.tqdm(range(1000))):
                         t0 = time.time()
                         loss, grad_loss = jit_vg(diff_params, static_params)

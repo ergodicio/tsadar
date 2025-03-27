@@ -15,7 +15,6 @@ from tsadar.utils import misc
 
 
 def test_data():
-def test_data():
     # Test #3: Data test, compare fit to a preknown fit result
     # currently just runs one line of shot 101675 for the electron, should be expanded in the future
 
@@ -56,8 +55,8 @@ def test_data():
             "Te_electron": 0.641,
             "ne_electron": 0.228,
             "m_electron": 3.20,
-        } 
-        
+        }
+
         # These were changed 5/6/24 to reflect new good fit values, unclear why changes were required probably a change
         # to the calibration (note 3/22/25: These numbers also probably changed due to some resolution and interpolation changes)
         # real_values = {
@@ -68,7 +67,7 @@ def test_data():
         #     "ne_electron": 0.2256,
         #     "m_electron": 2.987,
         # }
-        #These values are what the origenal Matlab code found
+        # These values are what the origenal Matlab code found
         # real_values = {
         #     "amp1_general": 0.9257,
         #     "amp2_general": 0.6727,
