@@ -135,5 +135,46 @@ def plot_fwd_vs_ground_truth(td, ts_params, ThryE, ground_truth):
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
 
 
+def plot_fwd_vs_ground_truth(td, ts_params, ThryE, ground_truth):
+    # logging.info("Plotting model vs ground truth")
+
+    fig, ax = plt.subplots(1, 3, figsize=(11, 4), tight_layout=True)
+    c = ax[0].contourf(np.squeeze(ThryE).T, levels=np.linspace(0, 2.5, 26))
+    fig.colorbar(c)
+    c = ax[1].contourf(np.squeeze(ground_truth).T, levels=np.linspace(0, 2.5, 26))
+    fig.colorbar(c)
+    c = ax[2].contourf((np.squeeze(ground_truth) - np.squeeze(ThryE)).T, levels=np.linspace(0, 2.5, 26))
+    fig.colorbar(c)
+
+    ax[0].set_title("Model")
+    ax[1].set_title("Ground Truth")
+    ax[2].set_title("Model - Ground Truth")
+    fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
+
+    fig, ax = plt.subplots(1, 2, figsize=(10, 4), tight_layout=True)
+    ax[0].plot(ts_params.electron.distribution_functions.vr, ts_params.electron.distribution_functions.get_f00())
+    ax[0].grid()
+    ax[1].semilogy(ts_params.electron.distribution_functions.get_f00())
+    ax[1].grid()
+    fig.savefig(os.path.join(td, "f00.png"), bbox_inches="tight")
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+    ax.plot(
+        ts_params.electron.distribution_functions.vr,
+        ts_params.electron.distribution_functions.flm[1][0] * ts_params.electron.distribution_functions.get_f00(),
+    )
+    ax.grid()
+    fig.savefig(os.path.join(td, "f10.png"), bbox_inches="tight")
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+    ax.plot(
+        ts_params.electron.distribution_functions.vr,
+        ts_params.electron.distribution_functions.flm[1][1] * ts_params.electron.distribution_functions.get_f00(),
+    )
+    ax.grid()
+    fig.savefig(os.path.join(td, "f11.png"), bbox_inches="tight")
+    # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
+
+
 if __name__ == "__main__":
     test_arts2d_forward_pass()

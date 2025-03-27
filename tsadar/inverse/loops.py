@@ -21,7 +21,9 @@ def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
     _activate = True
+    _activate = True
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
     else:
         ts_params = previous_weights
@@ -35,6 +37,7 @@ def _1d_scipy_loop_(
         args=(static_params, batch),
         method=config["optimizer"]["method"],
         jac=True if config["optimizer"]["grad_method"] == "AD" else False,
+        bounds=None if _activate else ((0, 1) for _ in range(len(init_weights))),
         bounds=None if _activate else ((0, 1) for _ in range(len(init_weights))),
         options={"disp": True, "maxiter": config["optimizer"]["num_epochs"]},
     )
@@ -51,6 +54,7 @@ def _1d_adam_loop_(
 
     opt = optax.adam(config["optimizer"]["learning_rate"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
     else:
         ts_params = previous_weights

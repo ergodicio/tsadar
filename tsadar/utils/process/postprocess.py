@@ -167,6 +167,7 @@ def recalculate_with_chosen_weights(
                     calc_sigma = False
 
             losses[inds] = loss
+
             sqdevs["ele"][inds] = sqds["ele"]
             sqdevs["ion"][inds] = sqds["ion"]
             if calc_sigma:

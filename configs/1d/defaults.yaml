@@ -97,7 +97,7 @@ other:
     CCDsize: [1024, 1024]
     flatbg: 0
     gain: 150
-    points_per_pixel: 1
+    points_per_pixel: 5
     ang_res_unit: 10
     lam_res_unit: 5
     refit: False
@@ -166,7 +166,7 @@ optimizer:
     y_norm: True
     x_norm: False
     grad_method: AD
-    batch_size: 6
+    batch_size: 2
     num_epochs: 120
     learning_rate: 1.0e-2
     parameter_norm: True

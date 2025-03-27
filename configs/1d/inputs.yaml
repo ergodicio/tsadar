@@ -1,71 +1,88 @@
 data:
-    shotnum: 101675
-    lineouts:
-        type:
-            ps
-        start: 400
-        end: 1000
-        skip: 50
-    background:
-        type:
-            fit
-        slice: 900
-
+  background:
+    slice: 900
+    type: pixel
+  lineouts:
+    end: 2200
+    skip: 200
+    start: 150
+    type: ps
+  shotnum: 111411
+machine: gpu
+mlflow:
+  experiment: test
+  run: run
+other:
+  calc_sigmas: false
+  extraoptions:
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: true
+    load_ele_spec: true
+    load_ion_spec: true
+    spectype: temporal
+  refit: false
+  refit_thresh: 20.0
 parameters:
   electron:
     Te:
-      active: true
-      lb: 0.001
-      ub: 1.5
-      val: 0.1
+      active: false
+      lb: 0.01
+      ub: 2.0
+      val: 0.4
     fe:
       active: false
       dim: 1
-      nv: 128
+      nvx: 320
       params:
         m:
           lb: 2.0
           ub: 5.0
-          val: 2.1
+          val: 2.0
+          matte: True
+          intens: 2.5
       type: dlm
     ne:
       active: false
-      lb: 0.001
-      ub: 1.0
-      val: 0.1
+      lb: 0.03
+      ub: 2.0
+      val: 0.3
+    type:
+      active: false
+      electron: null
   general:
     Te_gradient:
       active: false
       lb: 0.0
       num_grad_points: 1
-      ub: 10.0
+      ub: 15.0
       val: 0.0
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -40.5
       ub: 40.5
-      val: -3.0
+      val: 0.0
     amp1:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
-      lb: 0.0
-      ub: 10.0
+      active: false
+      lb: 0.01
+      ub: 3.75
       val: 1.0
     lam:
       active: false
       lb: 523.0
-      ub: 528.0
-      val: 526.6
+      ub: 527.0
+      val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
@@ -73,45 +90,29 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
-      lb: -40.0
+      lb: -20.0
       ub: 40.0
       val: 0.0
   ion-1:
     A:
       active: false
-      val: 1.0
+      val: 40.0
     Ti:
-      active: True
+      active: false
       lb: 0.01
       same: false
-      ub: 3.0
-      val: 0.05
+      ub: 1.0
+      val: 0.1
     Z:
       active: false
       lb: 1.0
-      ub: 25.0
-      val: 1.0
+      ub: 18.0
+      val: 8.0
     fract:
       active: false
       val: 1.0
-
-data:
-  background:
-    slice: 900
-    type: fit
-  lineouts:
-    end: -100
-    skip: 25
-    start: -900
-    type: um
-  shotnum: 101675
-machine: gpu
-mlflow:
-  experiment: inverse-thomson-scattering
-  run: new
-other:
-  calc_sigmas: false
-  refit: false
-  refit_thresh: 1.5
+    type:
+      active: false
+      ion: null

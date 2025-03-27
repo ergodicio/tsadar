@@ -1,11 +1,16 @@
 from jax import config, jit, numpy as jnp
 from copy import deepcopy
 import yaml, mlflow, tempfile, numpy as np
+from jax import config, jit, numpy as jnp
+from copy import deepcopy
+import yaml, mlflow, tempfile, numpy as np
 from numpy.testing import assert_allclose
 from flatten_dict import flatten, unflatten
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 config.update("jax_enable_x64", True)
+config.update("jax_disable_jit", True)
 
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
@@ -52,7 +57,7 @@ def test_epw():
         ThryE, lamAxisE = jit(electron_form_factor)(physical_params)
         ThryE = np.squeeze(ThryE)
         test = deepcopy(np.asarray(ThryE))
-        peaks, peak_props = find_peaks(test, height=(0.01, 0.5), prominence=0.05)
+        peaks, peak_props = find_peaks(test, height=(0.01, 0.5), prominence=0.02)
         highest_peak_index = peaks[np.argmax(peak_props["peak_heights"])]
         second_highest_peak_index = peaks[np.argsort(peak_props["peak_heights"])[0]]
 
