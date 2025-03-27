@@ -24,11 +24,10 @@ class FLM_NN(eqx.Module):
 
     def __call__(self, **kwargs):
         f00 = kwargs["f00"]
-        flm_mag = -vmap(self.flm_mag)(self.vr[:, None])  # from minus inf to 0
+        flm_mag = -vmap(self.flm_mag)(self.vr[:, None])[:, 0]  # from minus inf to 0
         flm_mag = jnp.power(10.0, flm_mag)  # from 0 to 1
         flm_mag *= f00  # from 0 to f00
-
-        flm_sign = vmap(self.flm_sign)(self.vr[:, None])
+        flm_sign = vmap(self.flm_sign)(self.vr[:, None])[:, 0]
         flm = flm_mag * flm_sign
         return flm
 
@@ -176,6 +175,7 @@ class SphericalHarmonics(DistributionFunction2V):
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
                 flm = self.flm[i][j](**kwargs)
+
                 _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, flm, right=1e-32)
                 _sph_harm = self.sph_harm(
                     jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2

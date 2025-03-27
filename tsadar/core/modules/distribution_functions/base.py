@@ -279,22 +279,12 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
                     df = filter_spec.electron.distribution_functions.flm[1][m]
                     for j in range(len(df.flm_mag.layers)):
                         filter_spec = eqx.tree_at(
-                            lambda tree: tree.electron.distribution_functions.flm_mag.layers[j].linear.weight,
+                            lambda tree: tree.electron.distribution_functions.flm[1][m].flm_mag.layers[j].weight,
                             filter_spec,
                             replace=True,
                         )
                         filter_spec = eqx.tree_at(
-                            lambda tree: tree.electron.distribution_functions.flm_mag.layers[j].linear.bias,
-                            filter_spec,
-                            replace=True,
-                        )
-                        filter_spec = eqx.tree_at(
-                            lambda tree: tree.electron.distribution_functions.flm_sign.layers[j].linear.weight,
-                            filter_spec,
-                            replace=True,
-                        )
-                        filter_spec = eqx.tree_at(
-                            lambda tree: tree.electron.distribution_functions.flm_sign.layers[j].linear.bias,
+                            lambda tree: tree.electron.distribution_functions.flm[1][m].flm_sign.layers[j].weight,
                             filter_spec,
                             replace=True,
                         )
