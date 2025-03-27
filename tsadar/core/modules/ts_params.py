@@ -299,6 +299,7 @@ class ThomsonParams(eqx.Module):
     electron: ElectronParams
     ions: List[IonParams]
     general: GeneralParams
+    param_cfg: Dict
 
     def __init__(self, param_cfg, num_params: int, batch=True, activate=False):
         super().__init__()
@@ -310,17 +311,35 @@ class ThomsonParams(eqx.Module):
 
         assert len(self.ions) > 0, "No ion species found in input deck"
         self.general = GeneralParams(param_cfg["general"], num_params, batch, activate)
+        self.param_cfg = param_cfg
+
+    def renormalize_ions(self, tmp_dict):
+        fract_sum = 0
+        for ion_index in range(len(self.ions)):
+            if ion_index > 0 and self.param_cfg[f"ion-{ion_index+1}"]["Ti"]["same"]:
+                tmp_dict[f"ion-{ion_index+1}"]["Ti"] = tmp_dict["ion-1"]["Ti"]
+            fract_sum += tmp_dict[f"ion-{ion_index+1}"]["fract"]
+        for ion_index in range(len(self.ions)):
+            tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
+
+        return tmp_dict
 
     def get_unnormed_params(self):
-        return {
+        tmp_dict = {
             "electron": self.electron.get_unnormed_params(),
             "general": self.general.get_unnormed_params(),
         } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
 
+        tmp_dict = self.renormalize_ions(tmp_dict)
+
+        return tmp_dict
+
     def __call__(self):
-        return {"electron": self.electron(), "general": self.general()} | {
+        tmp_dict = {"electron": self.electron(), "general": self.general()} | {
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
+        tmp_dict = self.renormalize_ions(tmp_dict)
+        return tmp_dict
 
     def get_fitted_params(self, param_cfg):
         param_dict = self.get_unnormed_params()
