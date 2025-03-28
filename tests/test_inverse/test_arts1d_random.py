@@ -2,19 +2,13 @@ import pytest, os, shutil
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-import pytest, os, shutil
-
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-from jax import config, block_until_ready, devices
+from jax import config, devices
 
 config.update("jax_enable_x64", True)
 
 from jax import numpy as jnp, value_and_grad, jit
-from jax import numpy as jnp, value_and_grad, jit
 from jax.flatten_util import ravel_pytree
 from scipy.optimize import minimize
-import equinox as eqx, numpy as np, xarray as xr
 import equinox as eqx, numpy as np, xarray as xr
 import matplotlib.pyplot as plt
 import yaml, os, mlflow, tempfile, optax, tqdm, time
@@ -24,37 +18,6 @@ from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
-
-
-def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
-    os.makedirs(base_dir := os.path.join(td, "ts_params"), exist_ok=True)
-    os.makedirs(params_dir := os.path.join(base_dir, prefix), exist_ok=True)
-    os.makedirs(dist_dir := os.path.join(params_dir, "distribution"), exist_ok=True)
-
-    # dump all parameters besides distribution
-    unnormed_params = ts_params.get_unnormed_params()
-
-    dist_xr = xr.DataArray(
-        ts_params.electron.distribution_functions(),
-        coords=(ts_params.electron.distribution_functions.vx,),
-        dims=("vx",),
-    )
-    dist_xr.to_netcdf(os.path.join(dist_dir, "electron-dist.nc"))
-    fig, ax = plt.subplots(1, 2, figsize=(8, 4), tight_layout=True)
-    dist_xr.plot(ax=ax[0])
-    ax[0].grid()
-    np.log10(dist_xr).plot(ax=ax[1])
-    ax[1].grid()
-    fig.savefig(os.path.join(dist_dir, "electron-dist.png"), bbox_inches="tight")
-    plt.close()
-
-    for param_key, these_params in unnormed_params.items():
-        params_to_dump = {p_key: float(these_params[p_key]) for p_key in set(these_params.keys()) - {"f"}}
-        with open(os.path.join(params_dir, f"{param_key}-params.yaml"), "w") as fi:
-            yaml.dump(params_to_dump, fi)
-
-    mlflow.log_artifacts(td)
-    shutil.rmtree(base_dir)
 
 
 def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
@@ -209,30 +172,15 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
                 diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
                 use_optax = True
-                use_optax = False
                 if use_optax:
-
-                    opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
-
                     opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
                     opt_state = opt.init(diff_params)
                     for i in (pbar := tqdm.tqdm(range(1000))):
                         t0 = time.time()
                         loss, grad_loss = jit_vg(diff_params, static_params)
-                        mlflow.log_metrics({f"iteration time": time.time() - t0, "loss": float(loss)}, step=i)
-                        mlflow.log_metrics({f"iteration time": time.time() - t0, "loss": float(loss)}, step=i)
+                        mlflow.log_metrics({"iteration time": time.time() - t0, "loss": float(loss)}, step=i)
                         updates, opt_state = opt.update(grad_loss, opt_state)
                         diff_params = eqx.apply_updates(diff_params, updates)
-                        pbar.set_description(f"Loss: {loss:.2e}")
-
-                        combined_params = eqx.combine(diff_params, static_params)
-                        active_params, _ = combined_params.get_fitted_params(config["parameters"])
-                        params_to_log = {"gt": active_gt_params, "learned": active_params}
-                        misc.log_mlflow(params_to_log, which="metrics", step=i)
-
-                        # plot f
-                        if i % 5 == 0:
-                            _dump_ts_params(td, combined_params, prefix=f"step-{i:3d}")
                         pbar.set_description(f"Loss: {loss:.2e}")
 
                         combined_params = eqx.combine(diff_params, static_params)
@@ -264,12 +212,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                     combined_params = eqx.combine(diff_params, static_params)
                     active_params, _ = combined_params.get_fitted_params(config["parameters"])
                     params_to_log = {"gt": active_gt_params, "learned": active_params}
-                    mlflow.log_metric("loss", loss, step=0)
-                    combined_params = eqx.combine(diff_params, static_params)
-                    active_params, _ = combined_params.get_fitted_params(config["parameters"])
-                    params_to_log = {"gt": active_gt_params, "learned": active_params}
 
-                    misc.log_mlflow(params_to_log, which="metrics")
                     misc.log_mlflow(params_to_log, which="metrics")
 
             ThryE, _, _, _ = ts_diag(eqx.combine(diff_params, static_params), dummy_batch)
@@ -301,19 +244,6 @@ def save_electron_distribution_plot(td, i, combined_params):
     fig.savefig(os.path.join(td, f"evdf-step-{i}.png"), bbox_inches="tight")
     plt.close(fig)
     mlflow.log_artifacts(td)
-
-
-def save_electron_distribution_plot(td, i, combined_params):
-    f = combined_params.electron.distribution_functions()
-    fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
-    ax.plot(combined_params.electron.distribution_functions.vx, f)
-    ax.grid()
-    ax.set_xlabel("$v_x$")
-    ax.set_ylabel("$f(v_x)$")
-    fig.savefig(os.path.join(td, f"evdf-step-{i}.png"), bbox_inches="tight")
-    plt.close(fig)
-    mlflow.log_artifacts(td)
-
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
 
 

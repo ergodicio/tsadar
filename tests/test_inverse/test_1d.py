@@ -1,4 +1,4 @@
-import time, pytest
+import time
 import multiprocessing as mp
 import yaml
 import mlflow
@@ -32,7 +32,6 @@ def test_data():
     # config["parameters"]["ne"]["val"] = 0.2  # 0.25
     # config["parameters"]["m"]["val"] = 3.0  # 2.2
 
-    mlflow.set_experiment("tsadar-tests")
     mlflow.set_experiment("tsadar-tests")
 
     with mlflow.start_run() as run:

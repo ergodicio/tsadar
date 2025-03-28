@@ -24,7 +24,6 @@ def _1d_scipy_loop_(
     _activate = True
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
-        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
     else:
         ts_params = previous_weights
 
@@ -53,7 +52,6 @@ def _1d_adam_loop_(
 
     opt = optax.adam(config["optimizer"]["learning_rate"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
     else:
         ts_params = previous_weights

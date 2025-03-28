@@ -1,12 +1,8 @@
 from jax import config, jit, numpy as jnp
 from copy import deepcopy
 import yaml, mlflow, tempfile, numpy as np
-from jax import config, jit, numpy as jnp
-from copy import deepcopy
-import yaml, mlflow, tempfile, numpy as np
 from numpy.testing import assert_allclose
 from flatten_dict import flatten, unflatten
-import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
 
 config.update("jax_enable_x64", True)
@@ -15,8 +11,6 @@ config.update("jax_disable_jit", True)
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
 from tsadar.core.modules.ts_params import ThomsonParams
-
-# from tsadar.distribution_functions.gen_num_dist_func import DistFunc
 
 
 def test_epw():

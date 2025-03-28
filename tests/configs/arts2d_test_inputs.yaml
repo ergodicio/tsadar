@@ -79,21 +79,16 @@ parameters:
   electron:
     Te:
       active: true
-      active: true
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
       val: 1.1
     fe:
       active: true
-      active: true
       dim: 2
       type: sphericalharmonic
       nvx: 128
       params:
-        init_m: 2.2
-        LTx: 22500000.
-        LTy: 40000000.
         init_m: 2.2
         LTx: 22500000.
         LTy: 40000000.
