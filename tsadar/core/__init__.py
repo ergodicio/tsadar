@@ -1,2 +1,2 @@
 from .thomson_diagnostic import ThomsonScatteringDiagnostic
-from .modules import ThomsonParams
+from .modules.ts_params import ThomsonParams

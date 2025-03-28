@@ -16,9 +16,9 @@ parameters:
         lb: 0.01
         ub: 3.75
     lam:
-        val: 524.5
+        val: 526.5
         active: True
-        lb: 523.0
+        lb: 525.0
         ub: 528.0
     Te_gradient:
         val: 0.0

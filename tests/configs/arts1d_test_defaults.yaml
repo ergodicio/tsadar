@@ -51,7 +51,7 @@ parameters:
     lam:
         val: 526.5
         active: False
-        lb: 523.
+        lb: 526.
         ub: 528.
     ud:
         val: 0
@@ -162,17 +162,12 @@ optimizer:
     grad_scalar: 0.5
     batch_size: 5
     num_epochs: 1
-    learning_rate: 1.0e-4
+    learning_rate: 3.0e-3
     parameter_norm: True
     refine_factor: 1
     num_mins: 2
     moment_loss: false
     save_state: False
-
-nn:
-    use: false
-    conv_filters: 32|16|16 #|32|32
-    linear_widths: 32|16
 
 dist_fit:
     window:

@@ -2,7 +2,7 @@ import pytest, os, shutil
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-from jax import config, block_until_ready, devices
+from jax import config, devices
 
 config.update("jax_enable_x64", True)
 
@@ -16,7 +16,7 @@ from flatten_dict import flatten, unflatten
 
 from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from tsadar.core.modules import ThomsonParams, get_filter_spec
+from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
 
 
@@ -153,13 +153,7 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             config["parameters"] = _perturb_params_(rng, config["parameters"], arbitrary_distribution=False)
             misc.log_mlflow(config)
             ts_params_gt = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-            # diff_params_gt, static_params_gt = eqx.partition(
-            #     ts_params_gt, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_gt)
-            # )
-            # active_gt_params = {
-            #     k: {k2: float(v2) for k2, v2 in v.items() if v2 is not None}
-            #     for k, v in diff_params_gt.get_unnormed_params().items()
-            # }
+
             active_gt_params, _ = ts_params_gt.get_fitted_params(config["parameters"])
             _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
@@ -171,30 +165,20 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                 ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
                 return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
 
-            # t0 = time.time()
-            # jit_vg = eqx.filter_value_and_grad(loss_fn)
             jit_vg = eqx.filter_jit(value_and_grad(loss_fn))
-            # diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
-            # temp_out = block_until_ready(jit_vg(diff_params, static_params))
-            # print(temp_out)
-            # raise ValueError
-            # mlflow.log_metric(f"first run time", time.time() - t0)
-
             # dump ground truth to disk
-
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
                 diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
                 use_optax = True
                 if use_optax:
-
                     opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
                     opt_state = opt.init(diff_params)
                     for i in (pbar := tqdm.tqdm(range(1000))):
                         t0 = time.time()
                         loss, grad_loss = jit_vg(diff_params, static_params)
-                        mlflow.log_metrics({f"iteration time": time.time() - t0, "loss": float(loss)}, step=i)
+                        mlflow.log_metrics({"iteration time": time.time() - t0, "loss": float(loss)}, step=i)
                         updates, opt_state = opt.update(grad_loss, opt_state)
                         diff_params = eqx.apply_updates(diff_params, updates)
                         pbar.set_description(f"Loss: {loss:.2e}")
@@ -260,7 +244,6 @@ def save_electron_distribution_plot(td, i, combined_params):
     fig.savefig(os.path.join(td, f"evdf-step-{i}.png"), bbox_inches="tight")
     plt.close(fig)
     mlflow.log_artifacts(td)
-
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
 
 

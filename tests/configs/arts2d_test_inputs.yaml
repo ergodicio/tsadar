@@ -75,7 +75,7 @@ parameters:
       angle: 0.0
       lb: -10.0
       ub: 30.0
-      val: 5.0
+      val: 0.0
   electron:
     Te:
       active: true
@@ -87,16 +87,13 @@ parameters:
       active: true
       dim: 2
       type: sphericalharmonic
-      nvx: 512
-      nvx: 512
+      nvx: 128
       params:
         init_m: 2.2
         LTx: 22500000.
         LTy: 40000000.
         Nl: 1
         nvr: 64
-        learn_log: True
-        
     ne:
       active: true
       gradient_scalar: 10.0

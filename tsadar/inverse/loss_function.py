@@ -9,7 +9,8 @@ import numpy as np
 import equinox as eqx
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
-from ..core.modules import exchange_params, get_filter_spec
+
+# from ..core.modules import exchange_params, get_filter_spec
 from ..utils.vector_tools import rotate
 
 
@@ -110,7 +111,7 @@ class LossFunction:
         return self._h_func_(weights, batch)
 
     def _loss_for_hess_fn_(self, weights, batch):
-        #this function is not being used? if so it has syntax issues
+        # this function is not being used? if so it has syntax issues
         # params = params | self.static_params
         # params = self.ts_diag.get_plasma_parameters(weights)
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
@@ -163,7 +164,7 @@ class LossFunction:
                 _error_,
                 jnp.nan,
             )
-            
+
             i_error += reduce_func(_error_)
             sqdev["ion"] = jnp.nan_to_num(_error_)
 
@@ -187,11 +188,11 @@ class LossFunction:
                 _error_,
                 jnp.nan,
             )
-            
+
             e_error += reduce_func(_error_)
             if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
-                #the set e_error to the true mean if both sides are fit
-                e_error*=1./2.
+                # the set e_error to the true mean if both sides are fit
+                e_error *= 1.0 / 2.0
             sqdev["ele"] += jnp.nan_to_num(_error_)
 
         return i_error, e_error, sqdev
@@ -209,7 +210,7 @@ class LossFunction:
         """
 
         if self.multiplex_ang:
-            #params has been replace with the new ts_params but behavior has not been checked 2-20-25
+            # params has been replace with the new ts_params but behavior has not been checked 2-20-25
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch["b1"])
             # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params["electron"]['fe']))
             ts_params["electron"]["fe"] = rotate(
@@ -290,18 +291,19 @@ class LossFunction:
 
         weights = eqx.combine(static_weights, diff_weights)
         total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
-            weights, batch, denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)], reduce_func=jnp.nanmean)
+            weights, batch, denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)], reduce_func=jnp.nanmean
+        )
         return total_loss, [ThryE, params]
-    
+
     def post_loss(self, weights, batch: Dict):
         """
         Output wrapper for postprocessing
         """
-        
+
         def nanamean(a):
-            return jnp.nanmean(a, axis = 1)
-        total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
-            weights, batch, denom=[], reduce_func=nanamean)
+            return jnp.nanmean(a, axis=1)
+
+        total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(weights, batch, denom=[], reduce_func=nanamean)
         return total_loss, sqdev, ThryE, normed_e_data, params
 
     def loss_functionals(self, d, t, uncert, method="l2"):

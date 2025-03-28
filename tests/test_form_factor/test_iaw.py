@@ -9,7 +9,7 @@ config.update("jax_enable_x64", True)
 from numpy.testing import assert_allclose
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
-from tsadar.core.modules import ThomsonParams
+from tsadar.core.modules.ts_params import ThomsonParams
 
 
 def test_iaw():

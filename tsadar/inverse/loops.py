@@ -1,4 +1,4 @@
-from tsadar.core.modules import ThomsonParams, get_filter_spec
+from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from optax import tree_utils as otu
 import equinox as eqx
 import scipy.optimize as spopt
@@ -18,11 +18,12 @@ from typing import Dict, List, Tuple
 
 
 def _1d_scipy_loop_(
-    config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict
+    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
     _activate = True
+    _activate = True
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate= _activate)
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
     else:
         ts_params = previous_weights
 
@@ -46,11 +47,10 @@ def _1d_scipy_loop_(
 
 
 def _1d_adam_loop_(
-    config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict, tbatch
+    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
 
     opt = optax.adam(config["optimizer"]["learning_rate"])
-    #ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
     else:
