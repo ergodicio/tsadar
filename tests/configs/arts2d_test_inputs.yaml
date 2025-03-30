@@ -89,6 +89,7 @@ parameters:
       type: sphericalharmonic
       nvx: 128
       params:
+        flm_type: mora-yahi
         init_m: 2.2
         LTx: 22500000.
         LTy: 40000000.
