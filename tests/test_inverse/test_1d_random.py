@@ -99,7 +99,7 @@ def test_1d_inverse():
             "e_amps": np.array([1]),
             "i_amps": np.array([1]),
         }
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(42)
         ts_diag = ThomsonScatteringDiagnostic(config, angular=False, cumulative=False)
         config = ts_diag.get_cfg()
         config["parameters"] = _perturb_params_(rng, config["parameters"])
