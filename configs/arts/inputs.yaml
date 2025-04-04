@@ -106,7 +106,7 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
-        spectype: angular
+        spectype: angular_full
     PhysParams:
         widIRF:
             spect_stddev_ion: 0.015

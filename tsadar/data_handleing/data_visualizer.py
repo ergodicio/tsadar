@@ -5,6 +5,7 @@ import matplotlib.patheffects as patheffects
 import tempfile, mlflow, os
 
 
+
 def launch_data_visualizer(elecData, ionData, all_axes, config):
     """
     Plots the raw data with solid lines indicating the beginning and ending of the analysis and dashed lines indicating
@@ -46,11 +47,15 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
         if config["other"]["extraoptions"]["load_ion_spec"]:
             X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
 
+            print(X)
+            print(Y)
+
             fig, ax = plt.subplots()
             cb = ax.pcolormesh(
                 X,
                 Y,
                 ionData,
+                norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
                 cmap="turbo_r",
                 #norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03, vmin =0, vmax= np.amax(ionData)),
                 norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
@@ -60,12 +65,14 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             )
             (sline,) = ax.plot(
                 [all_axes["iaw_x"][LineoutPixelI[0]], all_axes["iaw_x"][LineoutPixelI[0]]],
+                #[config["data"]["lineouts"]["start"], config["data"]["lineouts"]["start"]]
                 [all_axes["iaw_y"][0], all_axes["iaw_y"][-1]],
                 lw=2,
                 color="w",
             )
             (eline,) = ax.plot(
                 [all_axes["iaw_x"][LineoutPixelI[-1]], all_axes["iaw_x"][LineoutPixelI[-1]]],
+               # [config["data"]["lineouts"]["end"], config["data"]["lineouts"]["end"]],
                 [all_axes["iaw_y"][0], all_axes["iaw_y"][-1]],
                 lw=2,
                 color="w",
@@ -102,12 +109,15 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             )
             ax.set_xlabel(all_axes["x_label"])
             ax.set_ylabel("Wavelength (nm)")
-            fig.colorbar(cb)
+            fig.colorbar(c
+                         b)
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
 
         if config["other"]["extraoptions"]["load_ele_spec"]:
             X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
-
+            print("printing x and y")
+            print(X)
+            print(Y)
             fig, ax = plt.subplots()
             jc= ax.pcolormesh(
                 X,

@@ -1,27 +1,25 @@
 data:
   background:
-    slice: -850
+    slice: 605
     type: fit
   fit_rng:
-    blue_max: 500
-    blue_min: 455
+    blue_max: 496
+    blue_min: 453
     iaw_cf_max: 526.8
     iaw_cf_min: 526.4
     iaw_max: 527.3
     iaw_min: 526.1
     red_max: 625
-    red_min: 555
+    red_min: 565
   lineouts:
-    end: 600
-    skip: 100
-    start: 100
-    type: ps
-  shotnum: 114420
-machine: gpu
+    end: -275
+    skip: 5
+    start: -375
+    type: um
+  shotnum: 102727
 mlflow:
   experiment: julie-inverse-thomson-scattering
-  run: combined 102727 (-890,490) IAW[-800,775 inputs] batch sz 5 lam on skip 30 sequential
-    ne.11 grad 0 not active
+  run: EPW 102727 skip 15 ne & te gradient = 5 not active
 other:
   PhysParams:
     widIRF:
@@ -31,9 +29,9 @@ other:
       spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: false
-    fit_EPWr: false
-    fit_IAW: false
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
   refit: false
@@ -44,40 +42,40 @@ parameters:
       active: false
       lb: 0.0
       num_grad_points: 10
-      ub: 20.0
+      ub: 10.0
       val: 0.0
     Va:
       active: true
       angle: 0.0
-      lb: -12.0
+      lb: -20.0
       ub: 12.0
-      val: -3.0
+      val: -4.7
     amp1:
       active: true
-      lb: 0.0
-      ub: 1.2
-      val: 0.79
+      lb: 0.01
+      ub: 3.75
+      val: 0.8
     amp2:
       active: true
-      lb: 0.0
+      lb: 0.01
       ub: 1.2
-      val: 0.6
+      val: 0.45
     amp3:
       active: true
       lb: 0.0
       ub: 1.5
-      val: 0.5
+      val: 0.99
     lam:
-      active: true
+      active: false
       lb: 525.5
       ub: 527.0
       val: 526.5
     ne_gradient:
-      active: false
+      active: true
       lb: 0.0
       num_grad_points: 10
-      ub: 30.0
-      val: 0.0
+      ub: 9.0
+      val: 4.0
     type:
       active: false
       general: null
@@ -85,14 +83,14 @@ parameters:
       active: true
       angle: 0.0
       lb: -20.0
-      ub: 30.0
-      val: 27.0
+      ub: 35.0
+      val: 21.1
   species1:
     Te:
       active: true
-      lb: 0.1
-      ub: 0.8
-      val: 0.11
+      lb: 0.01
+      ub: 0.9
+      val: 0.41
     fe:
       active: false
       dim: 1
@@ -113,13 +111,13 @@ parameters:
       intens: 2.0
       lb: 2.0
       matte: false
-      ub: 3.0
+      ub: 5.0
       val: 2.0
     ne:
       active: true
       lb: 0.01
-      ub: 1.0
-      val: 0.11
+      ub: 0.7
+      val: 0.47
     type:
       active: false
       electron: null
@@ -132,7 +130,7 @@ parameters:
       lb: 0.0
       same: false
       ub: 0.4
-      val: 0.035
+      val: 0.053
     Z:
       active: false
       lb: 0.0
