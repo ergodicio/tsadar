@@ -4,7 +4,6 @@
 #SBATCH -q debug
 #SBATCH -t 0:30:00
 #SBATCH -n 1
-#SBATCH -c 32
 #SBATCH --gpus-per-task=1
 
 export SLURM_CPU_BIND="cores"
@@ -15,7 +14,7 @@ export MLFLOW_EXPORT=True
 # copy job stuff over
 module load python
 module load cudnn/8.9.3_cuda12.lua
-module load cudatoolkit/12.0.lua
+module load cudatoolkit/12.2.lua
 
 
 conda activate tsadar-gpu

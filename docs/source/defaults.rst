@@ -1,9 +1,11 @@
 .. _configuring-the-default:
 
+.. _configuring-the-default:
+
 Default options
 ========================================
 
-The code uses two input decks, which  are located in **inverse-thomson-scattering/configs/1d**. 
+The code uses two input decks, which  are located in **configs/1d**. 
 The defaults deck contains default values for all options in the input deck and other options which will be discussed in detail in the following section.
 The inputs deck contains all the commonly altered options.
 More information on the specifics of each deck can be found by clicking on the cards bellow. 
@@ -28,62 +30,91 @@ More information on the specifics of each deck can be found by clicking on the c
 
 Parameters
 ^^^^^^^^^^^
+^^^^^^^^^^^
 
+- :bdg-success-line:`blur` is an additional smoothing for ARTS *currently depreciated*
 - :bdg-success-line:`blur` is an additional smoothing for ARTS *currently depreciated*
 
 - :bdg-success-line:`specCurvature` corrects angle dependence of the central wavleength in ARTS *currently depreciated*
+- :bdg-success-line:`specCurvature` corrects angle dependence of the central wavleength in ARTS *currently depreciated*
 
+- :bdg-success-line:`fitprops` *currently depreciated, removal likely*
 - :bdg-success-line:`fitprops` *currently depreciated, removal likely*
 
 
+..  _Data default:
 ..  _Data default:
 
 Data
 ^^^^^^^
 The :bdg-success:`data:` section contains the specifics on which shot and what region of the shot should be analyzed.
+^^^^^^^
+The :bdg-success:`data:` section contains the specifics on which shot and what region of the shot should be analyzed.
 
+- :bdg-success-line:`shotDay` changes the default search path for analysis on a shot day *removal likely*
 - :bdg-success-line:`shotDay` changes the default search path for analysis on a shot day *removal likely*
 
 - :bdg-success-line:`launch_data_visualizer` is a boolean determining if plots will be produced of the entire data set with the fitting regions highlighted
+- :bdg-success-line:`launch_data_visualizer` is a boolean determining if plots will be produced of the entire data set with the fitting regions highlighted
 
 - :bdg-success:`fit_rng` specifies the regions of the data to include in calculation of the fit metric (i.e. included in the fit)
+- :bdg-success:`fit_rng` specifies the regions of the data to include in calculation of the fit metric (i.e. included in the fit)
 
+    - :bdg-success-line:`blue_min` starting wavelength for the analysis of the blue shifted EPW in nm
     - :bdg-success-line:`blue_min` starting wavelength for the analysis of the blue shifted EPW in nm
 
     - :bdg-success-line:`blue_max` ending wavelength for the analysis of the blue shifted EPW in nm
   
     - :bdg-success-line:`red_min` starting wavelength for the analysis of the red shifted EPW in nm
+    - :bdg-success-line:`blue_max` ending wavelength for the analysis of the blue shifted EPW in nm
+  
+    - :bdg-success-line:`red_min` starting wavelength for the analysis of the red shifted EPW in nm
 
+    - :bdg-success-line:`red_max` ending wavelength for the analysis of the red shifted EPW in nm
     - :bdg-success-line:`red_max` ending wavelength for the analysis of the red shifted EPW in nm
 
     - :bdg-success-line:`iaw_min` starting wavelength for the analysis of the IAW in nm
+    - :bdg-success-line:`iaw_min` starting wavelength for the analysis of the IAW in nm
 
+    - :bdg-success-line:`iaw_max` ending wavelength for the analysis of the IAW in nm
     - :bdg-success-line:`iaw_max` ending wavelength for the analysis of the IAW in nm
 
     - :bdg-success-line:`iaw_cf_min` starting wavelength for a central feature in the IAW that is to be excluded from analysis in nm
+    - :bdg-success-line:`iaw_cf_min` starting wavelength for a central feature in the IAW that is to be excluded from analysis in nm
 
+    - :bdg-success-line:`iaw_cf_max` ending wavelength for a central feature in the IAW that is to be excluded from analysis in nm
     - :bdg-success-line:`iaw_cf_max` ending wavelength for a central feature in the IAW that is to be excluded from analysis in nm
 
 - :bdg-success-line:`bgscaleE` multiplier on the background applied to EPW analysis
+- :bdg-success-line:`bgscaleE` multiplier on the background applied to EPW analysis
 
+- :bdg-success-line:`bgscaleI` multiplier on the background applied to IAW analysis
 - :bdg-success-line:`bgscaleI` multiplier on the background applied to IAW analysis
 
 - :bdg-success-line:`bgshotmult` multiplier on all background from a separate data file
+- :bdg-success-line:`bgshotmult` multiplier on all background from a separate data file
 
+- :bdg-success-line:`ion_loss_scale` multiplier on the IAW component of the fit metric, allows for balancing of data with differing signal levels
 - :bdg-success-line:`ion_loss_scale` multiplier on the IAW component of the fit metric, allows for balancing of data with differing signal levels
 
 - :bdg-success-line:`ele_t0` shifts the time denoted as 0 for time resolved EPW data, given in the same units as the lineouts (ps or pixel)
+- :bdg-success-line:`ele_t0` shifts the time denoted as 0 for time resolved EPW data, given in the same units as the lineouts (ps or pixel)
 
+- :bdg-success-line:`ion_t0_shift` shifts the time denoted as 0 for time resolved IAW data relative to the EPWs zero, given in the same units as the lineouts (ps or pixel)
 - :bdg-success-line:`ion_t0_shift` shifts the time denoted as 0 for time resolved IAW data relative to the EPWs zero, given in the same units as the lineouts (ps or pixel)
 
 - :bdg-success-line:`ele_lam_shift` shifts the central frequency given by `lam` in the EPW spectrum, given in nm
+- :bdg-success-line:`ele_lam_shift` shifts the central frequency given by `lam` in the EPW spectrum, given in nm
 
 - :bdg-success-line:`probe_beam` identifies the beam on OMEGA used as the probe, automatically adjusts the scattering angle and finite aperture calculations. Currently availible options are P9, B15, B23, B26, B35, B42, B46, and B58.
+- :bdg-success-line:`probe_beam` identifies the beam on OMEGA used as the probe, automatically adjusts the scattering angle and finite aperture calculations. Currently availible options are P9, B15, B23, B26, B35, B42, B46, and B58.
 
+- :bdg-success-line:`dpixel` determined the width of a lineout in pixels, the width of a lineout is 2*`dpixel` + 1 centered about the values in `lineouts`
 - :bdg-success-line:`dpixel` determined the width of a lineout in pixels, the width of a lineout is 2*`dpixel` + 1 centered about the values in `lineouts`
 
 
 Other options
+^^^^^^^^^^^^^^^
 ^^^^^^^^^^^^^^^
  
 The :bdg-success:`other:` section includes options specifying the types of data that are being fit and other options

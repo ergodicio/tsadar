@@ -1,7 +1,5 @@
 parameters:
-    species1:
-        type:
-            electron:
+    electron:
         Te:
             val: .6
             active: False
@@ -12,31 +10,14 @@ parameters:
             active: False
             lb: 0.001
             ub: 1.0
-        m:
-            val: 3.0
-            active: False
-            lb: 2.0
-            ub: 5.0
-            matte: False
         fe:
-            val: [ ]
             active: False
-            length: 3999
-            type:
-                DLM:
-            lb: -100.
-            ub: -0.5
-            fe_decrease_strict: False
-            symmetric: False
+            type: "DLM"
             dim: 1
-            v_res: 0.1
-            temp_asym: 1.0
-            m_theta: 0.0
-            m_asym: 1.
+            nv: 64
+            
 
-    species2:
-        type:
-            ion:
+    ion-1:
         Ti:
             val: 0.12
             active: False
@@ -56,8 +37,6 @@ parameters:
             active: False
 
     general:
-        type:
-            general:
         amp1:
             val: 1.
             active: False
@@ -111,9 +90,14 @@ other:
         fit_IAW: False
         fit_EPWb: True
         fit_EPWr: True
+        absolute_timing: false
+        spectype: 1d
     PhysParams:
         background: [0, 0]
         norm: 0
+        widIRF: 
+            spect_stddev_ele: 1.3
+            spect_stddev_ion: 0.015
     iawoff: 0
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
@@ -166,18 +150,21 @@ data:
 plotting:
     n_sigmas: 3
     rolling_std_width: 5
-    data_cbar_u: 10
-    data_cbar_l: 0
+    data_cbar_u: data
+    data_cbar_l: data
     ion_window_start: 525
     ion_window_end: 528
     ele_window_start: 425
     ele_window_end: 625
+    detailed_breakdown: False
     
 optimizer:
     # use adam for nn / stochastic gradient descent
     # use L-BFGS-B for full batch / parameter learning
     # although adam will work here too
     method: l-bfgs-b
+    moment_loss: false
+    loss_method: l2
     hessian: False
     y_norm: True
     x_norm: False
@@ -200,5 +187,5 @@ dist_fit:
         type: hamming # one of [hamming, hann, bartlett]
         
 mlflow:
-    experiment: inverse-thomson-scattering
-    run: base
+    experiment: tsadar-tests
+    run: time_test

@@ -1,9 +1,7 @@
-jaxlib
 jax
 numpy
 scipy
 matplotlib
-pyhdf
 xlrd
 pyyaml
 mlflow
@@ -17,3 +15,5 @@ xarray
 pandas
 interpax
 tabulate
+psutil
+equinox

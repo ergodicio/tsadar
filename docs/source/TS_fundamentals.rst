@@ -10,9 +10,7 @@ Key Concepts
 
 **Thomson scattering** is a diagnostic technique used to obtain information about the plasma conditions such as temperature and density.
 
-**Lagmuir waves** are  high frequency electron plasma waves.
-
-**Electron Plasma Waves (EPW)** also known as Langmuir waves, are high frequency electrostatic waves in a plasma with electrons as the oscillating species.
+**Langmuir waves**, also known as **Electron Plasma Waves (EPW)**, are high frequency electrostatic waves in a plasma with electrons as the oscillating species.
 
 **Ion Acoustic Waves (IAW)** are low frequency electrostatic waves in a plasma, with ions as the primary oscillating species. 
 In this case the electrons fight to sustain charge neutrality.

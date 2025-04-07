@@ -1,6 +1,9 @@
 Example Gallery
+Example Gallery
 ---------------------------------
 
+This page contains examples of the different run "modes" available with TASADAR.
+An example input and default deck for a single electron and single ion species can be found in the **configs/1d/**
 This page contains examples of the different run "modes" available with TASADAR.
 An example input and default deck for a single electron and single ion species can be found in the **configs/1d/**
 folder.
@@ -24,7 +27,7 @@ For a detailed tutorial, see the :ref:`getting started page <getting started>`.
 
       .. image:: _elfolder/fit_and_data_iaw.png
 
-  .. grid-item-card:: Spatialy Resolevd EPW
+  .. grid-item-card:: Spatialy Resolved EPW
       :text-align: center
       :link-type: doc
       :link: imaging_EPW
@@ -41,13 +44,13 @@ For a detailed tutorial, see the :ref:`getting started page <getting started>`.
       :link-type: doc
       :link: combined_sresolved
 
-      .. image:: examples/combined_s_profile.png
+      .. image:: examples/combined_s_profile.PNG
 
   .. grid-item-card:: Combined Time Resolved
       :link-type: doc
       :link: combined_tresolved
 
-      .. image:: examples/combined_t_profile.png
+      .. image:: examples/combined_t_profile.PNG
 
   .. grid-item-card:: Forward Pass
       :link-type: doc

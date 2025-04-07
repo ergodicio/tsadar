@@ -1,7 +1,7 @@
 Contributing
 ---------------------------------
 
-If there are new features you would like to see we encourage you to add to the :ref:`isssues page <https://github.com/ergodicio/inverse-thomson-scattering/issues>` on Github 
+If there are new features you would like to see we encourage you to add to the :ref:`isssues page <https://github.com/ergodicio/tsadar/issues>` on Github 
 or contribute yourself. To contribute, please fork the reposotory or create your own branch. When its time to merge 
 If there are new features you would like to see we encourage you to add to the isssues page on Github 
 or contribute yourself. To contribute, please fork the repository. When its time to merge 

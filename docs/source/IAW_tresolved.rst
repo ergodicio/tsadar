@@ -1,7 +1,7 @@
 Time Resolved IAW
 ==============================
 
-This example illustrates how to fi time-resolved data for IAW.
+This example illustrates how to fit time-resolved data for IAW.
 
 Load the provided electron specta, update the input decks to mimc those used here, and use **fit** mode to run the code. 
 

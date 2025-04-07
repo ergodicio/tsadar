@@ -8,8 +8,8 @@ from bayes_opt import BayesianOptimization
 config.update("jax_enable_x64", True)
 # config.update("jax_disable_jit", True)
 
-from inverse_thomson_scattering import fitter
-from inverse_thomson_scattering.misc import utils
+from tsadar import fitter
+from tsadar.misc import utils
 
 
 def bbf(window_factor, grad_scalar):

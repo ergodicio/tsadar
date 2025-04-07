@@ -2,21 +2,16 @@ name: tsadar-gpu
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
-  - ipython
-  - ipykernel
+  - python=3.11
   - pip
+  - pyhdf
+  - xlrd
   - pip:
-      # works for regular pip packages
-      - --find-links https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-      - jaxlib==0.4.26+cuda12.cudnn89
-      - jax==0.4.26
+      - "jax[cuda12]"
       - jaxopt
       - numpy
       - scipy
       - matplotlib
-      - pyhdf
-      - xlrd
       - pyyaml
       - mlflow
       - boto3
@@ -28,3 +23,8 @@ dependencies:
       - mlflow_export_import
       - pandas
       - interpax
+      - tabulate
+      - psutil
+      - equinox
+      - pynvml
+      

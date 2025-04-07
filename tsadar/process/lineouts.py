@@ -3,7 +3,7 @@ from typing import Dict
 from collections import defaultdict
 
 import numpy as np
-from tsadar.process.evaluate_background import get_lineout_bg
+from tsadar.utils.process.evaluate_background import get_lineout_bg
 
 
 def get_lineouts(
@@ -12,7 +12,7 @@ def get_lineouts(
     # Convert lineout locations to pixel
     if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":
         LineoutPixelE = [np.argmin(abs(axisxE - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
-        IAWtime = IAWtime / axisxI[1]  # corrects the iontime to be in the same units as the lineout
+        IAWtime = IAWtime / (axisxI[1] - axisxI[0])  # corrects the iontime to be in the same units as the lineout
         LineoutPixelI = [np.argmin(abs(axisxI - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
     elif config["data"]["lineouts"]["type"] == "pixel":
         LineoutPixelE = config["data"]["lineouts"]["val"]
@@ -62,7 +62,7 @@ def get_lineouts(
             for a in LineoutPixelI
         ]
         LineoutTSI_smooth = [
-            np.convolve(LineoutTSI[i], np.ones(span) / span, "same") for i, _ in enumerate(LineoutPixelE)
+            np.convolve(LineoutTSI[i], np.ones(span) / span, "same") for i, _ in enumerate(LineoutPixelI)
         ]  # was divided by 10 for some reason (removed 8-9-22)
 
     # Find background signal combining information from a background shot and background lineout
@@ -101,10 +101,9 @@ def get_lineouts(
             axis=1,
         )
 
-    config["other"]["PhysParams"]["noiseI"] = noiseI
-    config["other"]["PhysParams"]["noiseE"] = noiseE
-
     all_data = defaultdict(list)
+    all_data["noiseI"] = noiseI
+    all_data["noiseE"] = noiseE
 
     if config["other"]["extraoptions"]["load_ion_spec"]:
         all_data["i_data"] = LineoutTSI_norm
