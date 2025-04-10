@@ -67,10 +67,12 @@ def run(cfg_path: str, mode: str) -> str:
     Returns:
 
     """
-    run_id, all_configs = load_and_make_folders(cfg_path)
-    defaults = flatten(all_configs["defaults"])
-    defaults.update(flatten(all_configs["inputs"]))
-    config = unflatten(defaults)
+    run_id, config = load_and_make_folders(cfg_path)
+    #defaults = flatten(all_configs["defaults"])
+    #defaults.update(flatten(all_configs["inputs"]))
+    #config = unflatten(defaults)
+    #config = all_configs
+    
     with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
         _run_(config, mode=mode)
 

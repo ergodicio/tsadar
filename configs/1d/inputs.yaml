@@ -8,6 +8,8 @@ data:
     start: 150
     type: ps
   shotnum: 111411
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: false
 machine: gpu
 mlflow:
   experiment: test

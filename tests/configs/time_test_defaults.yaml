@@ -146,6 +146,8 @@ data:
         type:
             pixel
         slice: 900
+    estimate_lineouts_iaw: false
+    estimate_lineouts_epw: false
 
 plotting:
     n_sigmas: 3

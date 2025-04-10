@@ -8,7 +8,7 @@ data:
   dpixel: 5
   ele_lam_shift: 0.0
   ele_t0: 0
-  estimate_lineouts_iaw: true
+  estimate_lineouts_iaw: false
   estimate_lineouts_epw: false
   sefit_rng:
     blue_max: 500

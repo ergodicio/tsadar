@@ -9,6 +9,9 @@ from .correct_throughput import correctThroughput
 from ..data_handling.calibration import get_calibrations, get_scattering_angles
 from .lineouts import get_lineouts
 from ..data_handling.data_visualizer import launch_data_visualizer
+from tsadar.utils.process.feature_detector import first_guess
+
+
 
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:
@@ -55,19 +58,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["other"]["extraoptions"]["fit_EPWb"] = 0
         config["other"]["extraoptions"]["fit_EPWr"] = 0
         print("EPW data not loaded, omitting EPW fit")
-<<<<<<<< HEAD:tsadar/process/prepare.py
-    #if config["other"]["extraoptions"]["first_guess"]:
-        #run code
-        #outs=first_guess(inputs)
-        #config["data"]["lineouts"]["start"]=start
-    # Correct for spectral throughput
-    if config["other"]["extraoptions"]["load_ele_spec"]:
-        elecData = correctThroughput(
-            elecData, config["other"]["extraoptions"]["spectype"], axisyE, config["data"]["shotnum"]
-        )
-        # temp fix for zeros
-        elecData = elecData + 10.0
-========
+
     # if config["other"]["extraoptions"]["first_guess"]:
     # run code
     # outs=first_guess(inputs)
@@ -79,11 +70,52 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         elecData = elecData + 0.1
     if config["other"]["extraoptions"]["load_ion_spec"]:
         ionData = ionData + 0.1
->>>>>>>> origin/main:tsadar/utils/process/prepare.py
 
     # load and correct background
     [BGele, BGion] = get_shot_bg(config, shotNum, axisyE, elecData)
 
+ # feature detector call feature detecto, if the boolean for the featiure detector is true , these can be like  if config["other"]["extraoptions"]["load_ele_spec"]: then call the function which returns some of the outputs 
+ #assign each returned variable to the corresponmdent one in the decks
+    if config["data"]["estimate_lineouts_iaw"]:
+        [ lineout_end,lineout_start,iaw_cf,iaw_max,iaw_min] = first_guess(elecData, ionData,config)
+        config["data"]["lineouts"]["start"] = all_axes["iaw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["iaw_x"][lineout_end]
+        config["data"]["fit_rng"]["iaw_min"] = all_axes["iaw_y"][iaw_min]
+        config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
+        config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf)]
+        config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf)]
+        config["data"]["lineouts"]["val"] = [
+        i
+        for i in range(
+            int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
+        )
+        ]
+
+
+    if config["data"]["estimate_lineouts_epw"]:
+        [ lineout_end,lineout_start, blue_min, blue_max, red_min, red_max] =first_guess(elecData, ionData, config)
+        config["data"]["lineouts"]["start"] = all_axes["epw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["epw_x"][lineout_end]
+        config["data"]["fit_rng"]["blue_min"] = all_axes["epw_y"][blue_min]
+        config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
+        config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
+        config["data"]["fit_rng"]["red_max"] = all_axes["epw_y"][red_max]
+        config["data"]["lineouts"]["val"] = [
+        i
+        for i in range(
+            config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"], config["data"]["lineouts"]["skip"]
+        )
+        ]
+    
+    num_slices = len(config["data"]["lineouts"]["val"])
+    batch_size = config["optimizer"]["batch_size"]
+
+    if not num_slices % batch_size == 0:
+        print(f"total slices: {num_slices}")
+        # print(f"{batch_size=}")
+        print(f"batch size = {batch_size} is not a round divisor of the number of lineouts")
+        config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
+        print(f"final {num_slices % batch_size} lineouts have been removed")
     # extract ARTS section
     if (config["data"]["lineouts"]["type"] == "range") & (config["other"]["extraoptions"]["spectype"] == "angular"):
         config["other"]["extraoptions"]["spectype"] = "angular_full"

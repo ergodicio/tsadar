@@ -55,10 +55,6 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 X,
                 Y,
                 ionData,
-<<<<<<<< HEAD:tsadar/data_handleing/data_visualizer.py
-                norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
-========
->>>>>>>> origin/main:tsadar/utils/data_handling/data_visualizer.py
                 cmap="turbo_r",
                 #norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03, vmin =0, vmax= np.amax(ionData)),
                 norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
@@ -112,12 +108,7 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             )
             ax.set_xlabel(all_axes["x_label"])
             ax.set_ylabel("Wavelength (nm)")
-<<<<<<<< HEAD:tsadar/data_handleing/data_visualizer.py
-            fig.colorbar(c
-                         b)
-========
             fig.colorbar(cb)
->>>>>>>> origin/main:tsadar/utils/data_handling/data_visualizer.py
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
 
         if config["other"]["extraoptions"]["load_ele_spec"]:
