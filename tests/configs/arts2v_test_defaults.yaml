@@ -123,7 +123,7 @@ parameters:
       val: 1.0
     lam:
       active: false
-      lb: 523.0
+      lb: 525.0
       ub: 528.0
       val: 526.5
     ne_gradient:

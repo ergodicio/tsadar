@@ -68,7 +68,7 @@ def _perturb_params_(rng, params, arbitrary_distribution: bool = False):
 
     params["general"]["amp1"]["val"] = float(rng.uniform(0.5, 2.5))
     params["general"]["amp2"]["val"] = float(rng.uniform(0.5, 2.5))
-    params["general"]["lam"]["val"] = float(rng.uniform(523, 527))
+    params["general"]["lam"]["val"] = float(rng.uniform(525.5, 527.5))
 
     if arbitrary_distribution:
         params["electron"]["fe"]["params"]["init_m"] = float(rng.uniform(2.0, 3.5))
@@ -109,11 +109,11 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
 
     _t0 = time.time()
     mlflow.set_experiment("tsadar-tests")
-    with mlflow.start_run(run_name="test_arts1d_inverse") as run:
-        with open("tests/configs/arts1d_test_defaults.yaml", "r") as fi:
+    with mlflow.start_run(run_name="test_arts1v_inverse") as run:
+        with open("tests/configs/arts1v_test_defaults.yaml", "r") as fi:
             defaults = yaml.safe_load(fi)
 
-        with open("tests/configs/arts1d_test_inputs.yaml", "r") as fi:
+        with open("tests/configs/arts1v_test_inputs.yaml", "r") as fi:
             inputs = yaml.safe_load(fi)
 
         defaults = flatten(defaults)
@@ -157,7 +157,10 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             active_gt_params, _ = ts_params_gt.get_fitted_params(config["parameters"])
             _dump_ts_params(td, ts_params_gt, prefix="ground_truth")
             ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params_gt, dummy_batch)
-
+            ThryE_gt_xr = xr.DataArray(
+                ThryE, coords=(np.arange(ThryE.shape[0]), np.arange(ThryE.shape[1])), dims=("angle", "wavelength")
+            )
+            static_params_for_logging = {"gt": active_gt_params}
             ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
 
             def loss_fn(_diff_params, _static_params):
@@ -169,7 +172,6 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             # dump ground truth to disk
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
-                # ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
                 diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
                 use_optax = True
                 if use_optax:
@@ -183,14 +185,37 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
                         diff_params = eqx.apply_updates(diff_params, updates)
                         pbar.set_description(f"Loss: {loss:.2e}")
 
+                        # combined_params = eqx.combine(diff_params, static_params)
+                        # active_params, _ = combined_params.get_fitted_params(config["parameters"])
+                        # params_to_log = {"gt": active_gt_params, "learned": active_params}
+                        # misc.log_mlflow(params_to_log, which="metrics", step=i)
+
+                        # # plot f
+                        # if i % 5 == 0:
+                        #     prefix = f"step-{i:03d}"
+                        #     save_and_plot_ThryE(td, ThryE, ThryE_gt_xr, prefix)
+                        #     _dump_ts_params(td, combined_params, prefix=prefix)
+
                         combined_params = eqx.combine(diff_params, static_params)
                         active_params, _ = combined_params.get_fitted_params(config["parameters"])
-                        params_to_log = {"gt": active_gt_params, "learned": active_params}
+                        params_to_log = static_params_for_logging | {
+                            "learned": active_params,
+                            "l2_log10_dist": np.linalg.norm(
+                                np.log10(ts_params_gt.electron.distribution_functions())
+                                - np.log10(combined_params.electron.distribution_functions())
+                            ),
+                            "l2_dist": np.linalg.norm(
+                                ts_params_gt.electron.distribution_functions()
+                                - combined_params.electron.distribution_functions()
+                            ),
+                        }
                         misc.log_mlflow(params_to_log, which="metrics", step=i)
 
                         # plot f
-                        if i % 5 == 0:
-                            _dump_ts_params(td, combined_params, prefix=f"step-{i:3d}")
+                        if i % 10 == 0:
+                            prefix = f"step-{i:03d}"
+                            save_and_plot_ThryE(td, ThryE, ThryE_gt_xr, prefix)
+                            _dump_ts_params(td, combined_params, prefix=prefix)
 
                 else:
                     flattened_diff_params, unravel = ravel_pytree(diff_params)
@@ -262,5 +287,53 @@ def perturb_and_split_params(arbitrary_distribution, config, rng):
     return diff_params, static_params
 
 
+def save_and_plot_ThryE(td, ThryE: np.ndarray, ThryE_gt_xr: np.ndarray, prefix):
+
+    os.makedirs(base_dir := os.path.join(td, "electron-spectrum"), exist_ok=True)
+    os.makedirs(thryE_dir := os.path.join(base_dir, prefix), exist_ok=True)
+
+    ThryE_xr = xr.DataArray(
+        ThryE, coords=(np.arange(ThryE.shape[0]), np.arange(ThryE.shape[1])), dims=("angle", "wavelength")
+    )
+    fig, ax = plt.subplots(1, 3, figsize=(14, 5), tight_layout=True)
+    ThryE_xr.T.plot(ax=ax[0])
+    ax[0].set_title("Model")
+    ThryE_gt_xr.T.plot(ax=ax[1])
+    ax[1].set_title("Ground Truth")
+    (ThryE_xr - ThryE_gt_xr).T.plot(ax=ax[2])
+    fig.savefig(os.path.join(thryE_dir, f"ThryE.png"), bbox_inches="tight")
+    plt.close(fig)
+    ThryE_xr.to_netcdf(os.path.join(thryE_dir, f"ThryE.nc"))
+
+    mses = np.mean(np.square(ThryE_xr - ThryE_gt_xr).data, axis=1)
+    best_fits_dir = os.path.join(thryE_dir, "best_fits")
+    os.makedirs(best_fits_dir, exist_ok=True)
+    worst_fits_dir = os.path.join(thryE_dir, "worst_fits")
+    os.makedirs(worst_fits_dir, exist_ok=True)
+
+    sorted_fits = np.argsort(mses)
+    for i in range(5):
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+        ax.plot(ThryE[sorted_fits[i]], label="Model")
+        ax.plot(ThryE_gt_xr[sorted_fits[i]], label="Ground Truth")
+        ax.grid()
+        ax.set_title(f"Wavelength = {sorted_fits[i]}")
+        ax.legend()
+        fig.savefig(os.path.join(best_fits_dir, f"{i}.png"), bbox_inches="tight")
+        plt.close(fig)
+
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4), tight_layout=True)
+        ax.plot(ThryE[sorted_fits[-i]], label="Model")
+        ax.plot(ThryE_gt_xr[sorted_fits[-i]], label="Ground Truth")
+        ax.set_title(f"Wavelength = {sorted_fits[-i]}")
+        ax.grid()
+        ax.legend()
+        fig.savefig(os.path.join(worst_fits_dir, f"{i}.png"), bbox_inches="tight")
+        plt.close(fig)
+
+    mlflow.log_artifacts(td)
+    shutil.rmtree(thryE_dir)
+
+
 if __name__ == "__main__":
-    test_arts1d_inverse(arbitrary_distribution=True)
+    test_arts1d_inverse(arbitrary_distribution=False)

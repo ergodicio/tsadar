@@ -32,7 +32,7 @@ def test_arts2d_forward_pass():
         pytest.skip("Takes too long without a GPU")
 
     mlflow.set_experiment("tsadar-tests")
-    with mlflow.start_run(run_name="test_arts2v_fwd") as run:
+    with mlflow.start_run(run_name="test_arts2v_fwd-10LT") as run:
         with tempfile.TemporaryDirectory() as td:
 
             t0 = time.time()
@@ -96,17 +96,18 @@ def test_arts2d_forward_pass():
 
 def plot_fwd_vs_ground_truth(td, ts_params, ThryE, ground_truth):
     # logging.info("Plotting model vs ground truth")
-    zmin = min(ThryE.min(), ground_truth.min())
-    zmax = max(ThryE.max(), ground_truth.max())
-    levels = np.linspace(zmin, zmax, 26)
 
     fig, ax = plt.subplots(1, 3, figsize=(11, 4), tight_layout=True)
+
+    zmin = min(ThryE.min(), ground_truth.min())
+    zmax = max(ThryE.max(), ground_truth.max())
+    levels = np.linspace(zmin, zmax, 11)
 
     c = ax[0].contourf(np.squeeze(ThryE).T, levels=levels)
     fig.colorbar(c)
     c = ax[1].contourf(np.squeeze(ground_truth).T, levels=levels)
     fig.colorbar(c)
-    c = ax[2].contourf((np.squeeze(ground_truth) - np.squeeze(ThryE)).T, levels=levels)
+    c = ax[2].contourf((np.squeeze(ground_truth) - np.squeeze(ThryE)).T, 21)
     fig.colorbar(c)
 
     ax[0].set_title("Model")
@@ -135,3 +136,14 @@ def plot_fwd_vs_ground_truth(td, ts_params, ThryE, ground_truth):
     ax.grid()
     fig.savefig(os.path.join(td, "f11.png"), bbox_inches="tight")
     # np.testing.assert_allclose(ThryE, ground_truth["ThryE"], atol=0.01, rtol=0)
+
+
+if __name__ == "__main__":
+    # argparse config path
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the test")
+    parser.add_argument("--config", type=str, help="Path to the config file")
+    args = parser.parse_args()
+    config_path = args.config if args.config else "tests/configs/arts2v_test_defaults.yaml"
+    test_arts2d_forward_pass(config_path)
