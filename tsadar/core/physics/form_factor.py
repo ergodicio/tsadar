@@ -148,9 +148,11 @@ class FormFactor:
         A = [params[species]["A"] for species in params.keys() if "ion" in species]
         Z = [params[species]["Z"] for species in params.keys() if "ion" in species]
         Ti = [params[species]["Ti"] for species in params.keys() if "ion" in species]
+        Va = [params[species]["Va"] for species in params.keys() if "ion" in species] # SB
         fract = [params[species]["fract"] for species in params.keys() if "ion" in species]
-        Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s
-        ud = params["general"]["ud"] * 1e6  # drift velocity in 1e6 cm/s
+        #Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s # commented out by SB
+        Va = Va * 1.0e6
+        ud = params["general"]["ud"] * 1.0e6  # drift velocity in 1e6 cm/s
         fe = params["electron"]["fe"]
         vx = params["electron"]["v"]
 

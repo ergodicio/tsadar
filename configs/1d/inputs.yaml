@@ -57,12 +57,6 @@ parameters:
       num_grad_points: 1
       ub: 15.0
       val: 0.0
-    Va:
-      active: false
-      angle: 0.0
-      lb: -40.5
-      ub: 40.5
-      val: 0.0
     amp1:
       active: true
       lb: 0.01
@@ -95,21 +89,84 @@ parameters:
       lb: -20.0
       ub: 40.0
       val: 0.0
+
   ion-1:
     A:
       active: false
       val: 40.0
     Ti:
-      active: false
+      active: True
       lb: 0.01
       same: false
       ub: 1.0
       val: 0.1
     Z:
-      active: false
+      active: True
       lb: 1.0
       ub: 18.0
       val: 8.0
+    Va:
+      active: True
+      angle: 0.0
+      lb: 0.0
+      ub: 40.5
+      val: 15.0
+    fract:
+      active: false
+      val: 1.0
+    type:
+      active: false
+      ion: null 
+
+  ion-2:
+    A:
+      active: false
+      val: 40.0
+    Ti:
+      active: True
+      lb: 0.01
+      same: false
+      ub: 1.0
+      val: 0.1
+    Z:
+      active: True
+      lb: 1.0
+      ub: 18.0
+      val: 8.0
+    Va:
+      active: True
+      angle: 0.0
+      lb: 0.0
+      ub: 40.5
+      val: 20.0
+    fract:
+      active: false
+      val: 1.0
+    type:
+      active: false
+      ion: null
+
+  ion-3:
+    A:
+      active: false
+      val: 40.0
+    Ti:
+      active: True
+      lb: 0.01
+      same: false
+      ub: 1.0
+      val: 0.1
+    Z:
+      active: True
+      lb: 1.0
+      ub: 18.0
+      val: 8.0
+    Va:
+      active: True
+      angle: 0.0
+      lb: 0.0
+      ub: 40.5
+      val: 10.0
     fract:
       active: false
       val: 1.0
