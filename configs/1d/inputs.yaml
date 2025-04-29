@@ -3,11 +3,13 @@ data:
     slice: 900
     type: pixel
   lineouts:
-    end: 2200
-    skip: 200
-    start: 150
+    end: 1500
+    skip: 50
+    start: 600
     type: ps
-  shotnum: 111411
+  shotnum: 101414
+  estimate_lineouts_epw: false
+  estimate_lineouts_iaw: false
 machine: gpu
 mlflow:
   experiment: test
@@ -15,8 +17,8 @@ mlflow:
 other:
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: true
-    fit_EPWr: true
+    fit_EPWb: false
+    fit_EPWr: false
     fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
@@ -26,7 +28,7 @@ other:
 parameters:
   electron:
     Te:
-      active: false
+      active: true
       lb: 0.01
       ub: 2.0
       val: 0.4
@@ -64,24 +66,24 @@ parameters:
       ub: 40.5
       val: 0.0
     amp1:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp3:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     lam:
-      active: false
-      lb: 523.0
-      ub: 527.0
+      active: true
+      lb: 525.6
+      ub: 527.5
       val: 526.5
     ne_gradient:
       active: false
@@ -90,7 +92,7 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: false
+      active: true
       angle: 0.0
       lb: -20.0
       ub: 40.0
@@ -98,9 +100,9 @@ parameters:
   ion-1:
     A:
       active: false
-      val: 40.0
+      val: 10.0
     Ti:
-      active: false
+      active: true
       lb: 0.01
       same: false
       ub: 1.0

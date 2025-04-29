@@ -45,12 +45,12 @@ parameters:
       ub: 40.5
       val: 0.0
     amp1:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -60,7 +60,7 @@ parameters:
       ub: 3.75
       val: 1.0
     lam:
-      active: true
+      active: false
       lb: 523.0
       ub: 528.0
       val: 526.5
@@ -78,25 +78,25 @@ parameters:
       val: 0.0
   electron:
     Te:
-      active: true
+      active: false
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
       val: 1.1
     fe:
-      active: true
+      active: True
       dim: 2
       type: sphericalharmonic
       nvx: 128
       params:
         flm_type: mora-yahi
         init_m: 2.2
-        LTx: 22500000.
-        LTy: 40000000.
+        LTx: 225000.
+        LTy: 400000.
         Nl: 1
         nvr: 64
     ne:
-      active: true
+      active: false
       gradient_scalar: 10.0
       lb: 0.03
       ub: 2.0

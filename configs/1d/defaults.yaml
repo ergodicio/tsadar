@@ -109,14 +109,14 @@ data:
     shotDay: False
     launch_data_visualizer: True
     fit_rng:
-        blue_min: 450
-        blue_max: 510
-        red_min: 545
-        red_max: 625
-        iaw_min: 525.5
-        iaw_max: 527.5
-        iaw_cf_min: 526.5
-        iaw_cf_max: 526.8
+        blue_min: 455
+        blue_max: 490
+        red_min: 560
+        red_max: 630
+        iaw_min: 525.6
+        iaw_max: 527.3
+        iaw_cf_min: 526.3
+        iaw_cf_max: 526.3
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -130,6 +130,8 @@ data:
     ele_lam_shift: 0.0
     probe_beam: P9
     dpixel: 2
+    estimate_lineouts_epw: false
+    estimate_lineouts_iaw: false
     lineouts:
         type:
             pixel
@@ -172,7 +174,7 @@ optimizer:
     parameter_norm: True
     refine_factor: 0
     num_mins: 1
-    sequential: True
+    sequential: false
 
 nn:
     use: false

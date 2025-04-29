@@ -136,6 +136,8 @@ data:
     ele_lam_shift: 0.0
     probe_beam: P9
     dpixel: 2
+    estimate_lineouts_epw: false
+    estimate_lineouts_iaw: false
     lineouts:
         type:
             pixel

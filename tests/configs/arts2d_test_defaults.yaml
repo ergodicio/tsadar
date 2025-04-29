@@ -46,7 +46,7 @@ optimizer:
   grad_scalar: 1.0
   hessian: false
   jit: true
-  learning_rate: 0.0001
+  learning_rate: 0.01
   method: rmsprop
   moment_loss: false
   loss_method: l2
