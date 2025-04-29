@@ -32,14 +32,14 @@ def test_arts2d_forward_pass():
         pytest.skip("Takes too long without a GPU")
 
     mlflow.set_experiment("tsadar-tests")
-    with mlflow.start_run(run_name="test_arts2d_fwd") as run:
+    with mlflow.start_run(run_name="test_arts2v_fwd") as run:
         with tempfile.TemporaryDirectory() as td:
 
             t0 = time.time()
-            with open("tests/configs/arts2d_test_defaults.yaml", "r") as fi:
+            with open("tests/configs/arts2v_test_defaults.yaml", "r") as fi:
                 defaults = yaml.safe_load(fi)
 
-            with open("tests/configs/arts2d_test_inputs.yaml", "r") as fi:
+            with open("tests/configs/arts2v_test_inputs.yaml", "r") as fi:
                 inputs = yaml.safe_load(fi)
 
             defaults = flatten(defaults)
@@ -96,13 +96,17 @@ def test_arts2d_forward_pass():
 
 def plot_fwd_vs_ground_truth(td, ts_params, ThryE, ground_truth):
     # logging.info("Plotting model vs ground truth")
+    zmin = min(ThryE.min(), ground_truth.min())
+    zmax = max(ThryE.max(), ground_truth.max())
+    levels = np.linspace(zmin, zmax, 26)
 
     fig, ax = plt.subplots(1, 3, figsize=(11, 4), tight_layout=True)
-    c = ax[0].contourf(np.squeeze(ThryE).T, levels=np.linspace(0, 2.5, 26))
+
+    c = ax[0].contourf(np.squeeze(ThryE).T, levels=levels)
     fig.colorbar(c)
-    c = ax[1].contourf(np.squeeze(ground_truth).T, levels=np.linspace(0, 2.5, 26))
+    c = ax[1].contourf(np.squeeze(ground_truth).T, levels=levels)
     fig.colorbar(c)
-    c = ax[2].contourf((np.squeeze(ground_truth) - np.squeeze(ThryE)).T, levels=np.linspace(0, 2.5, 26))
+    c = ax[2].contourf((np.squeeze(ground_truth) - np.squeeze(ThryE)).T, levels=levels)
     fig.colorbar(c)
 
     ax[0].set_title("Model")
