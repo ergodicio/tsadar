@@ -57,8 +57,9 @@ Input decks
 
 The code uses two input decks, which  are located in **configs/1d**. The primary input deck `inputs.yaml` 
 contains the commonly altered parameters. The secondary input deck `defaults.yaml` contains additional options that tend to remain static. 
-Please note, any parameters in `inputs.yaml` will override the secondary input deck when values conflict. More information on the specifics 
-of each deck can be found by clicking the cards bellow. 
+.. note::
+   Any parameters in `inputs.yaml` will override the parameters supplied by `defaults.yaml`
+More information on the specifics of each deck can be found by clicking the cards bellow. 
 
 .. grid:: 2
 
@@ -115,10 +116,12 @@ Fitting IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Load the ion spectra, and activate the IAW fit by setting the corresponding booleans to :bdg-success-line:`True`.
-IAW and EPW fits can be mixed and matched to fit different aspects of the data.
+IAW and EPW fits be performed independently by only turning on fitting of the desired type, or IAW and EPW can be 
+fit simultaneously by activating both. Simultanous fits can be finicky, so it is recomended that IAW and EPW fits
+are performed seperately first and then only done simultaneously once the quality of the individual fits are acceptible.
 
 .. code-block:: yaml
-    :caption: Inputs.yalm
+    :caption: Inputs.yaml
     :emphasize-lines: 4,6
 
     other:
@@ -133,11 +136,33 @@ IAW and EPW fits can be mixed and matched to fit different aspects of the data.
 
 
 
-Background and lineout selection
+Lineout and background selection
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-There are multiple options for background algorithms and types of fitting. The following tend to be the best options for various data types. All of these options are specified using the input deck.
-Additional information on the background algorithm is *coming soon*. 
+When fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
+The fit will start at **lineout:start** and will end at **lineout:end**. Lineouts will be fit every **lineout:skip** within that window.
+The units for these lineouts are specifiec with the **lineout:type** field, and can be specified in pixel, ps, or um. 
+
+.. code-block:: yaml
+    :caption: Inputs.yaml
+    :emphasize-lines: 3,6,7,8
+
+    data:
+        shotnum: 1234567
+        lineouts:
+            type:
+                pixel
+            start: 100
+            end: 900
+            skip: 10
+        background:
+            type:
+                pixel
+            slice: 900
+
+There are multiple options for background algorithms. The following tend to be the best options for various data types. All of these
+options are specified within the **background** field of the input deck. For more information on the availible algorithms please see 
+the :ref:`background algorithms page <bg_algorithms>`
 
 .. tab-set::
 
@@ -183,28 +208,6 @@ Additional information on the background algorithm is *coming soon*.
                 type:
                     fit
              slice: <background shot number>
-
-Fitting a new data set
-^^^^^^^^^^^^^^^^^^^^^^^^
-For fitting a new data set, it is recomended to start by fitting a small region of the data using a small number of lineouts. 
-The fit will start at **lineout:start** and will end at **lineout:end**. Lineouts will be fit every **lineout:skip** of the unit type defined. 
-
-.. code-block:: yaml
-    :caption: Inputs.yaml
-    :emphasize-lines: 3,6,7,8
-
-    data:
-        shotnum: 1234567
-        lineouts:
-            type:
-                pixel
-            start: 100
-            end: 900
-            skip: 10
-        background:
-            type:
-                pixel
-            slice: 900
 
 
 Adjusting parameters
