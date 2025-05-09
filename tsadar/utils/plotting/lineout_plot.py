@@ -43,7 +43,7 @@ def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, filenam
         ax[0][col].set_ylabel("Amp (arb. units)")
         ax[0][col].legend(fontsize=14)
         ax[0][col].grid()
-        # ax[0][col].set_ylim(ylim)
+        ax[0][col].set_ylim(ylim)
 
         ax[1][col].plot(
             yaxis[col][s_ind[col] : e_ind[col]], np.squeeze(sqdev[col][s_ind[col] : e_ind[col]]), label="Residual"
