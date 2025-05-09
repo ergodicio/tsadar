@@ -20,7 +20,6 @@ other:
     fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
-    spectype: temporal
   refit: false
   refit_thresh: 20.0
 parameters:
@@ -47,9 +46,6 @@ parameters:
       lb: 0.03
       ub: 2.0
       val: 0.3
-    type:
-      active: false
-      electron: null
   general:
     Te_gradient:
       active: false
@@ -113,6 +109,3 @@ parameters:
     fract:
       active: false
       val: 1.0
-    type:
-      active: false
-      ion: null
