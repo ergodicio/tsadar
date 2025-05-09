@@ -274,14 +274,21 @@ There are two run "modes".
 
 Output visualization
 ^^^^^^^^^^^^^^^^^^^^^^
-To visualize the outputs run the following commnand, and follow the resultant link. 
-The resulting plots can be found in the **Artifacts** unedr the folder **plots**. Examples of the plots produced are shown below.
+Outputs of TSADAR are automaticaly saved to an **mlruns** folder in the same directory as TSADAR. Each experiment and run are given unique idenitfiers.
+The outputs can be examined in this folder or with the mlflow gui. To launch the gui and visualize the outputs run the following command, and follow the resultant link. 
+The resulting plots can be found in the **Artifacts** under the folder **plots**. Examples of the plots produced are shown below.
 
 .. code-block:: bash
 
    mlflow ui 
 
 .. image:: _elfolder/mlflow_home.PNG
+
+.. note::
+   Changing the names of files or folders within the mlruns directory may break the gui
+
+In addition to the automatically generated plots a binary folder is created that stores the processed data and the final fits. These files called fit_and_data.nc can also
+be downloaded and opened using the Xarray open_dataset command. This allows any lineouts or group of lineouts to be replotted by the user.
 
 
 Fit and data plots
