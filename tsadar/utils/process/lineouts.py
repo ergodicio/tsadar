@@ -23,7 +23,7 @@ def get_lineouts(
     config["data"]["lineouts"]["pixelE"] = LineoutPixelE
     config["data"]["lineouts"]["pixelI"] = LineoutPixelI
 
-    if config["data"]["background"]["type"] == "ps":
+    if config["data"]["background"]["type"] == "ps" or config["data"]["background"]["type"] == "um":
         BackgroundPixel = np.argmin(abs(axisxE - config["data"]["background"]["slice"]))
     elif config["data"]["background"]["type"] == "pixel":
         BackgroundPixel = config["data"]["background"]["slice"]

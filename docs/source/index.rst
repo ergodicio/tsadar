@@ -9,8 +9,8 @@ TSADAR stands for Thomson Scattering with Automatic Differentiation for Analysis
 data analysis software written in Python. It helps determine plasma parameters given
 Thomson scattering measurements by fitting the collisionless spectral density function to the observed spectra.
 More detail on the theory is provided elsewhere [1] and the specifics of implementation can be found in :doc:`math` [2]. 
-If you are new to Thomson scattering, go to :ref:`Fundamentals of Thomson Scattering <ts_fundamentals>` for a quick introduction.
-The fitting is performed via gradient descent. The gradients are acquired using automatic differentiation and JAX [3].
+If you are new to Thomson scattering, please go to :ref:`Fundamentals of Thomson Scattering <ts_fundamentals>` for a quick introduction.
+The code utilizes fitting via gradient descent, with the gradients are acquired using automatic differentiation and JAX [3].
 More details on the numerics will be added soon.
 
 Table of Contents

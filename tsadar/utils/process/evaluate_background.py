@@ -129,7 +129,7 @@ def get_lineout_bg(
                 LineoutBGE = []
                 bgalg  = methods[config["data"]["background"]["bg_alg"]]
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
-                    [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
+                    [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], config["data"]["background"]["bg_alg_params"])
                     # if config["data"]["background"]["show"]:
                     #     plt.plot(rat11(np.arange(1024), *rat1bg))
                     #     plt.plot(LineoutTSE_smooth[i])
