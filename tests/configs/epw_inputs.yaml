@@ -39,6 +39,13 @@ parameters:
             val: 1.0
             active: False
 
+        Va:
+            val: 0.0
+            angle: 0.0
+            active: True
+            lb: -20.5
+            ub: 20.5
+
     general:
         amp1:
             val: 1.
@@ -78,12 +85,6 @@ parameters:
             active: False
             lb: -10.0
             ub: 10.0
-        Va:
-            val: 0.0
-            angle: 0.0
-            active: True
-            lb: -20.5
-            ub: 20.5
 
 data:
     shotnum: 101675
