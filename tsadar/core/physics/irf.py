@@ -4,21 +4,20 @@ from jax import numpy as jnp
 
 def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
-    Applies a 2D gaussian smoothing to angular Thomson data to account for the instrument response of the diagnostic.
-    todo: improve doc and typehints
-
-    Args:
-        config: Dict- configuration dictionary built from input deck
-        sas: Dict- fields 'sa' and 'weights' with sizes (n,) where n is the number of angles where the spectrum is computed. 'sa' contains the scattering angles in degrees and 'weights' included the normalized relative weights each angle contributes to final spectrum.
-        lamAxisE: Array- wavelengths the spectrum is computed at in nm
-        modlE: Array- synthetic spectra produced by the formfactor routine
-        amps: float- maximum amplitude of the data, used to rescale model to the data
-        TSins: Dict- Dictionary of the parameters and thier values
-        lam: float- probe wavelength in nm
-
+    Applies a 2D Gaussian smoothing to angular Thomson scattering data to account for the instrument response function (IRF) of the diagnostic.
+    This function convolves the synthetic spectra with Gaussian kernels along both the wavelength and angular axes, simulating the broadening effects introduced by the instrument. The resulting spectrum is optionally normalized according to configuration parameters.
+    Args:   
+        config (dict): Configuration dictionary containing instrument and normalization parameters.
+        sas (dict): Dictionary with keys 'sa' (scattering angles in degrees) and 'weights' (normalized relative weights for each angle).
+        lamAxisE (jnp.ndarray): Array of wavelengths (in nm) at which the spectrum is computed.
+        modlE (jnp.ndarray): Synthetic spectra produced by the formfactor routine, shape (n_angles, n_wavelengths).
+        amps (float): Maximum amplitude of the data, used to rescale the model to the data.
+        TSins (dict): Dictionary of Thomson scattering instrument parameters and their values.
     Returns:
+        lamAxisE (jnp.ndarray): Wavelength axis (in nm).
+        ThryE (jnp.ndarray): Smoothed and optionally normalized synthetic spectra, shape (n_angles, n_wavelengths).
+    """    
 
-    """
     stddev_lam = config["other"]["PhysParams"]["widIRF"]["spect_FWHM_ele"] / 2.3548
     stddev_ang = config["other"]["PhysParams"]["widIRF"]["ang_FWHM_ele"] / 2.3548
     # Conceptual_origin so the convolution donsn't shift the signal
@@ -50,20 +49,19 @@ def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
 
 def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
-    Ion IRF (Instrument Response Function?)
-
-    todo: improve doc and typehints
-
-    Args:
-        config:
-        lamAxisI:
-        modlI:
-        amps:
-        TSins:
-
+    Applies an instrumental response function (IRF) to the ion spectral model and optionally normalizes the result.
+    Parameters:
+        config (dict): Configuration dictionary containing physical parameters, including the standard deviation
+            of the Gaussian IRF ('spect_stddev_ion') and normalization flag ('norm').
+        lamAxisI (jnp.ndarray): Wavelength axis for the ion spectrum.
+        modlI (jnp.ndarray): Theoretical ion spectrum model to which the IRF will be applied.
+        amps (float or jnp.ndarray): Amplitude scaling factor(s) for the spectrum.
+        TSins (dict): Dictionary containing additional scaling parameters, specifically 'general' -> 'amp3'.
     Returns:
-
+        lamAxisI (jnp.ndarray): The wavelength axis, possibly averaged over batches if the IRF is applied.
+        ThryI (jnp.ndarray): The processed ion spectrum after convolution with the IRF and optional normalization.
     """
+
     stddevI = config["other"]["PhysParams"]["widIRF"]["spect_stddev_ion"]
     if stddevI:
         originI = (jnp.amax(lamAxisI) + jnp.amin(lamAxisI)) / 2.0
@@ -91,21 +89,22 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
 
 def add_electron_IRF(config, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
-    electron IRF (Instrument Response Function?)
-
-    todo: improve doc and typehints
-
+    Applies an instrumental response function (IRF) to an electron model spectrum and normalizes the result.
+    This function convolves the input electron model spectrum (`modlE`) with a Gaussian IRF defined by the configuration,
+    normalizes the convolved spectrum according to the provided configuration and signal parameters, and optionally
+    averages and rescales the output based on normalization settings.
     Args:
-        config:
-        lamAxisE:
-        modlE:
-        amps:
-        TSins:
-        lam:
-
+        config (dict): Configuration dictionary containing physical parameters, including the IRF width and normalization settings.
+        lamAxisE (jnp.ndarray): Wavelength axis for the electron spectrum.
+        modlE (jnp.ndarray): Model electron spectrum to which the IRF will be applied.
+        amps (float or jnp.ndarray): Amplitude scaling factor(s) for the output spectrum.
+        TSins (dict): Dictionary containing signal parameters, including normalization wavelengths and amplitudes.
     Returns:
-
+        lamAxisE (jnp.ndarray): The wavelength axis, possibly averaged over batches if the IRF is applied.
+        ThryE (jnp.ndarray): The processed electron spectrum after convolution with the IRF and optional normalization.
+        Tuple[jnp.ndarray, jnp.ndarray]: Tuple containing the (possibly averaged) wavelength axis and the processed, normalized electron spectrum.
     """
+
     stddevE = config["other"]["PhysParams"]["widIRF"]["spect_stddev_ele"]
     # Conceptual_origin so the convolution doesn't shift the signal
     originE = (jnp.amax(lamAxisE) + jnp.amin(lamAxisE)) / 2.0
