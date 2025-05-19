@@ -16,18 +16,73 @@ from ..utils.vector_tools import rotate
 
 class LossFunction:
     """
-    This class is responsible for handling the forward pass and using that to create a loss function
-
+    LossFunction is a class responsible for managing the forward pass and loss computation for inverse Thomson scattering analysis.
+    This class encapsulates the logic for:
+    - Normalizing input and output data based on configuration.
+    - Computing theoretical spectra using a ThomsonScatteringDiagnostic instance.
+    - Calculating loss values and gradients for optimization, supporting various loss metrics (L1, L2, log-cosh, Poisson).
+    - Handling multiplexed analysis with EDF rotation if required.
+    - Applying additional penalties and moment regularization to the loss.
+    - Providing interfaces for loss, gradient, and Hessian computation compatible with optimization routines.
+    Attributes:
+        cfg (Dict): Configuration dictionary constructed from user inputs.
+        ts_diag (ThomsonScatteringDiagnostic): Diagnostic object for theoretical spectrum calculation.
+        multiplex_ang (bool): Indicates if multiplexed analysis with EDF rotation is enabled.
+        i_norm, e_norm (float): Normalization factors for output data.
+        i_input_norm, e_input_norm (float): Normalization factors for input data.
+        _loss_, _vg_func_, _h_func_ (callable): JIT-compiled loss, value-and-grad, and Hessian functions.
+        array_loss (callable): JIT-compiled postprocessing loss function.
+    Methods:
+        __init__(cfg, scattering_angles, dummy_batch):
+            Initializes the LossFunction with configuration, angles, and dummy data for normalization.
+        _get_normed_batch_(batch):
+            Returns a normalized copy of the input batch.
+        vg_loss(diff_weights, static_weights, batch):
+            Computes the loss value and gradient with respect to weights for optimization.
+        h_loss_wrt_params(weights, batch):
+            Computes the Hessian of the loss with respect to parameters.
+        _loss_for_hess_fn_(weights, batch):
+            Loss function used for Hessian computation.
+        calc_ei_error(batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func):
+            Calculates the error between experimental and theoretical spectra for IAW and EPW.
+        calc_loss(ts_params, batch, denom, reduce_func):
+            Computes the total loss, including penalties and normalization, for a given parameter set and batch.
+        loss(weights, batch):
+            Returns the scalar loss value for a given set of weights and batch.
+        __loss__(diff_weights, static_weights, batch):
+            Internal loss function wrapper for optimization routines.
+        post_loss(weights, batch):
+            Computes the loss and additional outputs for postprocessing.
+        loss_functionals(d, t, uncert, method="l2"):
+            Computes the element-wise loss between data and theory using the specified metric.
+        penalties(weights):
+            Computes additional penalties (e.g., parameter bounds, moment regularization) to be added to the loss.
+        _moment_loss_(params):
+            Computes regularization losses for the moments (density, temperature, momentum) of the distribution function.
+    Usage:
+        Instantiate with configuration, scattering angles, and dummy data. Use `vg_loss` or `loss` for optimization routines.
     """
 
     def __init__(self, cfg: Dict, scattering_angles, dummy_batch):
         """
-
-        Args:
-            cfg: Configuration dictionary constructed from the inputs
-            scattering_angles: Dictionary containing the scattering angles and thier relative weights
-            dummy_batch: Dictionary of dummy data
+        Initializes the loss function class with configuration, scattering angles, and dummy batch data.
+            cfg (Dict): Configuration dictionary constructed from the inputs.
+            scattering_angles (dict): Dictionary containing the scattering angles and their relative weights.
+            dummy_batch (dict): Dictionary of dummy data used for normalization and input scaling.
+        Attributes:
+            cfg (Dict): Stores the configuration dictionary.
+            i_norm (float): Normalization factor for i_data, set to its maximum if y_norm is enabled, otherwise 1.0.
+            e_norm (float): Normalization factor for e_data, set to its maximum if y_norm is enabled, otherwise 1.0.
+            i_input_norm (float): Input normalization for i_data, set to its maximum if x_norm and nn.use are enabled, otherwise 1.0.
+            e_input_norm (float): Input normalization for e_data, set to its maximum if x_norm and nn.use are enabled, otherwise 1.0.
+            multiplex_ang (bool): Indicates if analysis is performed twice with rotation of the EDF, based on shotnum type.
+            ts_diag (ThomsonScatteringDiagnostic): Instance for Thomson scattering diagnostics.
+            _loss_ (Callable): JIT-compiled loss function.
+            _vg_func_ (Callable): JIT-compiled value and gradient function for the loss.
+            _h_func_ (Callable): JIT-compiled Hessian function for the loss.
+            array_loss (Callable): JIT-compiled post-processing loss function.
         """
+
         self.cfg = cfg
 
         if cfg["optimizer"]["y_norm"]:
@@ -57,13 +112,13 @@ class LossFunction:
 
     def _get_normed_batch_(self, batch: Dict):
         """
-        Normalizes the batch
-
+        Normalizes the input batch by dividing the 'i_data' and 'e_data' fields by their respective normalization factors.
+            
         Args:
-            batch:
-
+            batch (Dict): A dictionary containing at least the keys 'i_data' and 'e_data', representing input data arrays.
         Returns:
-
+            normed_batch (Dict): A deep-copied and normalized version of the input batch, where 'i_data' and 'e_data' are divided by    
+            the normalization factors defined in the class instance (self.i_norm and self.e_norm).
         """
         normed_batch = copy.deepcopy(batch)
         normed_batch["i_data"] = normed_batch["i_data"] / self.i_input_norm
@@ -72,18 +127,23 @@ class LossFunction:
 
     def vg_loss(self, diff_weights, static_weights: Dict, batch: Dict):
         """
-        This is the primary workhorse high level function. This function returns the value of the loss function which
-        is used to assess goodness-of-fit and the gradient of that value with respect to the weights, which is used to
-        update the weights
-
-        This function is used by both optimization methods. It performs the necessary pre-/post- processing that is
-        needed to work with the optimization software.
-
+        Computes the value of the loss function and its gradient with respect to the weights for optimization.
+        This function serves as the main interface for evaluating the loss and its gradient, which are used to assess
+        the goodness-of-fit and to update the model weights during optimization. It handles necessary pre- and post-
+        processing steps required by the optimization software.
+        The behavior of this function depends on the optimizer method specified in the configuration:
+          - For "l-bfgs-b", it unravels the weights, computes the loss and gradient, flattens the gradient, and returns
+            both the loss value and the flattened gradient.
+          - For other methods, it directly returns the result of the internal loss function, which is a PyTree.
         Args:
-            weights:
-            batch:
-
+            diff_weights: The differentiable (trainable) weights to be optimized, possibly in a flattened format.
+            static_weights (Dict): The static (non-trainable) weights used in the computation.
+            batch (Dict): The batch of data used for evaluating the loss and gradient.
         Returns:
+            Tuple[float, np.ndarray] or Any:
+                - If using "l-bfgs-b" optimizer: Returns a tuple containing the loss value and the flattened gradient array.
+                - Otherwise: Returns the result of the internal loss function, which is a tuple containing the loss value and the structured gradient tree.
+        
 
         """
         if self.cfg["optimizer"]["method"] == "l-bfgs-b":
@@ -129,20 +189,29 @@ class LossFunction:
 
     def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean):
         """
-        This function calculates the error in the fit of the IAW and EPW
-
+        Calculates the error metrics for ion and electron spectral fits based on theoretical and experimental data.
+        This function computes the error between measured and theoretical spectra for both ion (IAW) and electron (EPW)
+        features, applying configurable fitting ranges and loss methods. The errors are reduced using the specified
+        reduction function (default is mean), and squared deviations are accumulated for further analysis.
         Args:
-            batch: dictionary containing the data
-            ThryI: ion theoretical spectrum
-            lamAxisI: ion wavelength axis
-            ThryE: electron theoretical spectrum
-            lamAxisE: electron wavelength axis
-            uncert: uncertainty values
-            reduce_func: method to combine all lineouts into a single metric
-
+            batch (dict): Dictionary containing experimental data arrays with keys "i_data" (ion data) and "e_data" (electron data).
+            ThryI (array-like): Theoretical ion spectrum corresponding to i_data.
+            lamAxisI (array-like): Wavelength axis for the ion spectrum.
+            ThryE (array-like): Theoretical electron spectrum corresponding to e_data.
+            lamAxisE (array-like): Wavelength axis for the electron spectrum.
+            uncert (tuple or list): Tuple or list containing uncertainty arrays for ion and electron data, respectively.
+            reduce_func (callable, optional): Function to reduce the error array to a scalar (e.g., jnp.mean, jnp.sum). Defaults to jnp.mean.
         Returns:
-
+            tuple:
+                i_error (float): Reduced error metric for the ion feature (IAW).
+                e_error (float): Reduced error metric for the electron feature (EPW).
+                sqdev (dict): Dictionary with keys "ion" and "ele" containing arrays of squared deviations for ion and electron data, respectively.
+        Notes:
+            - The function uses configuration options from self.cfg to determine which features to fit and the wavelength ranges.
+            - If both blue and red EPW features are fit, the electron error is averaged accordingly.
+            - NaN values are used to mask out-of-range points and are handled with jnp.nan_to_num when accumulating squared deviations.
         """
+
         i_error = 0.0
         e_error = 0.0
         # used_points = 0
@@ -199,14 +268,20 @@ class LossFunction:
 
     def calc_loss(self, ts_params, batch: Dict, denom, reduce_func):
         """
-        This function calculates the value of the loss function
-
+        Calculates the total loss for the inverse Thomson scattering model, including electron and ion errors,
+        and applies any necessary penalties. Handles both multiplexed and non-multiplexed angular configurations.
         Args:
-            params:
-            batch:
-
+            ts_params (dict): Dictionary of Thomson scattering parameters, including electron distribution.
+            batch (Dict): Batch of experimental data. If multiplex_ang is True, expects keys "b1" and "b2".
+            denom (list or []): Denominator(s) for normalization. If empty, will be set to theoretical values.
+            reduce_func (callable): Function to reduce error arrays (e.g., sum, mean).
         Returns:
-
+            tuple:
+                total_loss (float): The computed total loss value (sum of scaled ion error, electron error, and penalties).
+                sqdev (Any): Squared deviation(s) between theoretical and experimental data.
+                ThryE (Any): Theoretical electron spectrum.
+                ThryI (Any): Theoretical ion spectrum.
+                ts_params (dict): (Possibly updated) Thomson scattering parameters.
         """
 
         if self.multiplex_ang:
@@ -268,13 +343,15 @@ class LossFunction:
 
     def loss(self, weights, batch: Dict):
         """
-        High level function that returns the value of the loss function
-
+        High level function that returns the value of the loss function for a given set of weights and a batch of data.
+        Depending on the optimizer method specified in the configuration, this function may first
+        convert the flat weights array into a pytree structure before computing the loss.
+            
         Args:
-            weights:
-            batch: Dict
-
+            weights: The weights to be used in the loss function, either in a flat format or as a pytree.
+            batch (Dict): A dictionary containing the data to be used in the loss function.
         Returns:
+            float: The computed loss value.
 
         """
         if self.cfg["optimizer"]["method"] == "l-bfgs-b":
@@ -308,19 +385,28 @@ class LossFunction:
 
     def loss_functionals(self, d, t, uncert, method="l2"):
         """
-        This function calculates the error loss metric between d and t for different metrics sepcified by method,
-        with the default being the l2 norm
-
-        Args:
-            d: data array
-            t: theory array
-            uncert: uncertainty values
-            method: name of the loss metric method, l1, l2, poisson, log-cosh. Currently only l1 and l2 include the uncertainties
-
-        Returns:
-            loss: value of the loss metric per slice
-
+        Computes the loss between predicted and target values using various loss functionals.
+        
+        Parameters
+        ----------
+        d : array-like
+            Data values.
+        t : array-like
+            Theroetical values.
+        uncert : array-like
+            Uncertainty values used for normalization.
+        method : str, optional
+            The loss functional to use. Options are:
+                - "l1": Mean absolute error, normalized by uncertainty.
+                - "l2": Mean squared error, normalized by uncertainty.
+                - "log-cosh": Log-cosh loss.
+                - "poisson": Poisson loss.
+        Returns
+        -------
+        _error_ : array-like
+            Computed loss values according to the selected method.
         """
+  
         if method == "l1":
             _error_ = jnp.abs(d - t) / uncert
         elif method == "l2":
@@ -333,15 +419,20 @@ class LossFunction:
 
     def penalties(self, weights):
         """
-        This function calculates additional penatlities to be added to the loss function
-
+        Computes the total penalty for the given model parameters (weights), including parameter constraints,
+        optional moment losses, and an optional strict penalty on the electron distribution function.
         Args:
-            params: parameter weights as supplied to the loss function
-            batch:
-
+            weights (dict): Dictionary containing model parameters for each species. Each species entry is itself
+                a dictionary of parameter arrays.
         Returns:
-
+            jnp.ndarray: The total penalty value as a scalar.
+        Penalties included:
+            - Parameter penalty: Applies a log-based penalty to all parameters except 'fe' for each species.
+            - Moment loss: If enabled in the configuration, adds density, temperature, and momentum losses.
+            - Electron distribution penalty: If enabled in the configuration, penalizes increases in the electron
+              distribution function ('fe') along the velocity axis.
         """
+        
         param_penalty = 0.0
         # this will need to be modified for the params instead of weights
         for species in weights.keys():
@@ -373,15 +464,28 @@ class LossFunction:
 
     def _moment_loss_(self, params):
         """
-        This function calculates the loss associated with regularizing the moments of the distribution function i.e.
-        the density should be 1, the temperature should be 1, and momentum should be 0.
-
+        Computes the density, temperature, and momentum loss terms for the electron distribution function
+        based on the current model parameters and configuration.
+        The loss terms are calculated differently depending on whether the velocity space is 1D or 2D:
+        - For 1D velocity space:
+            - Density loss enforces normalization of the electron distribution.
+            - Temperature loss enforces the correct second moment (temperature) of the distribution.
+            - Momentum loss enforces the first moment (mean velocity) to be zero.
+            - If the distribution is symmetric, normalization and temperature are doubled.
+        - For 2D velocity space:
+            - Density loss is based on the sum of the exponentiated distribution times the velocity resolution squared.
+            - Temperature loss is based on the second moment of the distribution.
+            - Momentum loss is currently set to zero (not implemented).
         Args:
-            params:
-
+            params (dict): Dictionary containing model parameters, specifically the electron distribution function
+                           under 'params["electron"]["fe"]'.
         Returns:
-
+            tuple: (density_loss, temperature_loss, momentum_loss)
+                - density_loss (float): Loss term enforcing normalization of the distribution.
+                - temperature_loss (float): Loss term enforcing the correct temperature (second moment).
+                - momentum_loss (float): Loss term enforcing zero mean velocity (first moment).
         """
+        
         if self.cfg["parameters"]["electron"]["fe"]["dim"] == 1:
             dv = (
                 self.cfg["parameters"]["electron"]["fe"]["velocity"][1]
