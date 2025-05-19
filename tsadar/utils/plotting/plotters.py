@@ -31,12 +31,20 @@ def get_final_params(config, best_weights, all_axes, td):
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
             if k == "fe":
-                # fitted_dist = True
-                # dist[k] = v.squeeze()
-                # dist["v"] = config["parameters"][species]["fe"]["velocity"]
-                pass
+                fitted_dist = True
+                dist[k] = v.squeeze()
+                dist["v"] = config["parameters"][species]["fe"]["velocity"]
+                #pass
+            elif k =="flm":
+                fitted_dist = True
+                #need to turn this into a lop for when we go to higher orders
+                dist["flm0"] = v[0][0][0]
+                dist["flm10"] = v[0][1][0]
+                dist["flm11"] = v[0][1][1]
+                dist["fe"] = v[0]['fvxvy']
+                dist["v"] = v[0]['v']
             else:
-                all_params[k + "_" + species] = pandas.Series(v.reshape(-1))
+                all_params[k + "_" + species] = pandas.Series(np.squeeze(v).reshape(-1))
                 # if np.shape(v)[1] > 1:
                 #     for i in range(np.shape(v)[1]):
                 #         all_params[k + str(i)] = pandas.Series(v[:, i].reshape(-1))
@@ -56,7 +64,10 @@ def get_final_params(config, best_weights, all_axes, td):
         if len(np.shape(dist["fe"])) == 1:
             final_dist = pandas.DataFrame({"fe": [l for l in dist["fe"]], "vx": [vx for vx in dist["v"]]})
         elif len(np.shape(dist["fe"])) == 2:
-            final_dist = pandas.DataFrame(data=dist["fe"], columns=dist["v"][0][0], index=dist["v"][0][:, 0])
+            final_dist = pandas.DataFrame(data=dist["fe"], columns=dist["v"], index=dist["v"])
+            if 'flm0' in dist.keys():
+                flm_dist = pandas.DataFrame({key: dist[key] for key in dist.keys()-['fe','v']})
+                flm_dist.to_csv(os.path.join(td, "csv", "learned_flm.csv"))
             # final_dist = pandas.DataFrame({'fe':[l for l in dist['fe']], 'vx':[vx for vx in dist['v'][0]], 'vy':[vy for vy in dist['v'][1]]})
         final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
 

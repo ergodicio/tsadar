@@ -192,25 +192,31 @@ def angular_optax(config, all_data, sa):
     # solver = minimizer(schedule)
     solver = minimizer(config["optimizer"]["learning_rate"])
 
-    weights = loss_fn.pytree_weights["active"]
-    opt_state = solver.init(weights)
+    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    opt_state = solver.init(diff_params)
+    # weights = loss_fn.pytree_weights["active"]
+    # opt_state = solver.init(weights)
 
     # start train loop
     state_weights = {}
     t1 = time.time()
+    best_weights = {}
     epoch_loss = 0.0
     best_loss = 100.0
     num_g_wait = 0
     num_b_wait = 0
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        (val, aux), grad = loss_fn.vg_loss(weights, actual_data)
-        updates, opt_state = solver.update(grad, opt_state, weights)
-
+        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
+        updates, opt_state = solver.update(grad, opt_state)
+        diff_params = eqx.apply_updates(diff_params, updates)
+        
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
             if best_loss - epoch_loss < 0.000001:
                 best_loss = epoch_loss
+                best_weights = eqx.combine(diff_params, static_params)
                 num_g_wait += 1
                 if num_g_wait > 5:
                     print("Minimizer exited due to change in loss < 1e-6")
@@ -222,15 +228,14 @@ def angular_optax(config, all_data, sa):
                     break
             else:
                 best_loss = epoch_loss
+                best_weights = eqx.combine(diff_params, static_params)
                 num_b_wait = 0
                 num_g_wait = 0
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
 
-        weights = optax.apply_updates(weights, updates)
-
         if config["optimizer"]["save_state"]:
             if i_epoch % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[i_epoch] = weights
+                state_weights[i_epoch] = diff_params
 
         mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
 
@@ -238,4 +243,4 @@ def angular_optax(config, all_data, sa):
         file.write(pickle.dumps(state_weights))
 
     mlflow.log_artifact("state_weights.txt")
-    return weights, epoch_loss, loss_fn
+    return best_weights, epoch_loss, loss_fn

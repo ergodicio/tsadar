@@ -1,76 +1,56 @@
 data:
   background:
-    slice: 900
-    type: pixel
+    slice: 10002
+    type: Fit
   lineouts:
-        type:
-            ps
-        start: 500
-        end: 1000
-        skip: 50
-  shotnum: 101675
-
+    end: 950
+    skip: 20
+    start: 90
+    type: range
+  shot_rot: 90.0
+  shotnum: 10000
 machine: gpu
-
 mlflow:
-  experiment: test
-  run: run
-
+  experiment: tsadar-test
+  run: arts2d
 other:
+  PhysParams:
+    widIRF:
+      ang_FWHM_ele: 1.0
+      spect_FWHM_ele: 0.9
+      spect_stddev_ele: 0.1
+      spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
-    fit_IAW: true
+    fit_IAW: false
     load_ele_spec: true
-    load_ion_spec: true
+    load_ion_spec: false
+    spectype: angular
   refit: false
-  refit_thresh: 20.0
-
+  refit_thresh: 5.0
 parameters:
-  electron:
-    Te:
-      active: True
-      lb: 0.01
-      ub: 2.0
-      val: 0.5
-    fe:
-      active: True
-      dim: 1
-      nvx: 320
-      params:
-        m:
-          lb: 2.0
-          ub: 5.0
-          val: 3.0
-          matte: True
-          intens: 2.5
-      type: dlm
-    ne:
-      active: True
-      lb: 0.03
-      ub: 2.0
-      val: 0.2
   general:
     Te_gradient:
       active: false
       lb: 0.0
       num_grad_points: 1
-      ub: 15.0
+      ub: 10.0
       val: 0.0
     Va:
       active: false
       angle: 0.0
-      lb: -20.5
-      ub: 20.5
+      lb: -40.5
+      ub: 40.5
       val: 0.0
     amp1:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -80,9 +60,9 @@ parameters:
       ub: 3.75
       val: 1.0
     lam:
-      active: True
-      lb: 523.0
-      ub: 527.0
+      active: false
+      lb: 525.0
+      ub: 528.0
       val: 526.5
     ne_gradient:
       active: false
@@ -93,24 +73,51 @@ parameters:
     ud:
       active: false
       angle: 0.0
-      lb: -20.0
-      ub: 20.0
+      lb: -10.0
+      ub: 30.0
       val: 0.0
+  electron:
+    Te:
+      active: true
+      gradient_scalar: 10.0
+      lb: 0.01
+      ub: 2.0
+      val: 1.1
+    fe:
+      active: True
+      dim: 2
+      type: sphericalharmonic
+      nvx: 64
+      params:
+        flm_type: arbitrary
+        init_m: 2.2
+        LTx: 22500.
+        LTy: 40000.
+        Nl: 1
+        nvr: 16
+    ne:
+      active: true
+      gradient_scalar: 10.0
+      lb: 0.03
+      ub: 2.0
+      val: 0.44
+    
   ion-1:
     A:
       active: false
-      val: 40.0
+      val: 1.0
     Ti:
       active: false
       lb: 0.01
       same: false
-      ub: 3.0
-      val: 0.2
+      ub: 1.0
+      val: 0.03
     Z:
       active: false
-      lb: 1.0
-      ub: 18.0
-      val: 8.0
+      lb: 0.5
+      ub: 1.0
+      val: 1.0
     fract:
       active: false
       val: 1.0
+    

@@ -47,9 +47,10 @@ def recalculate_with_chosen_weights(
                 all_params[k][k2].append(batch_fitted_params[k][k2])
 
     # concatenate all the lists in the dictionary
-    for k in all_params.keys():
-        for k2 in all_params[k].keys():
-            all_params[k][k2] = np.concatenate(all_params[k][k2])
+    if config["other"]["extraoptions"]["spectype"] != "angular_full":
+        for k in all_params.keys():
+            for k2 in all_params[k].keys():
+                all_params[k][k2] = np.concatenate(all_params[k][k2])
 
     fits = {
         "ele": {
@@ -111,17 +112,21 @@ def recalculate_with_chosen_weights(
             "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
             "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         }
-        losses, sqds, used_points, [ThryE, _, params] = loss_fn.array_loss(fitted_weights, batch)
+        #losses, sqds, used_points, [ThryE, _, params] = loss_fn.array_loss(fitted_weights[0], batch)
+        loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[0], batch)
         fits["ele"] = ThryE
         sqdevs["ele"] = sqds["ele"]
 
-        for species in all_params.keys():
-            for k in all_params[species].keys():
-                if k != "fe":
-                    # all_params[k] = np.concatenate([all_params[k], params[k].reshape(-1)])
-                    all_params[species][k] = params[species][k].reshape(-1)
-                else:
-                    all_params[species][k] = params[species][k]
+        #all_params["electron"]["v"]=[]
+        # for species in all_params.keys():
+        #     for k in all_params[species].keys():
+        #         if k not in ["fe", "f", "flm"]:
+        #             # all_params[k] = np.concatenate([all_params[k], params[k].reshape(-1)])
+        #             all_params[species][k] = params[species][k].reshape(-1)
+        #         else:
+        #             all_params[species]["fe"] = params[species]["fe"]
+        
+        # all_params["electron"]["v"] = params["electron"]["v"]
 
         if calc_sigma:
             # this line may need to be omited since the weights may be transformed by line 77
@@ -265,8 +270,8 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     with tempfile.TemporaryDirectory() as td:
         _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
         if config["other"]["extraoptions"]["spectype"] == "angular_full":
-            t1 = process_angular_data(
-                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, t1, elec_species, td
+            t1, final_params = process_angular_data(
+                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, elec_species, td
             )
 
         else:
@@ -392,7 +397,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
     return t1, final_params
 
 
-def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, t1, elec_species, td):
+def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, elec_species, td):
     best_weights_val = {}
     best_weights_std = {}
     if config["optimizer"]["num_mins"] > 1:
@@ -403,7 +408,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         best_weights_val = fitted_weights
 
     losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], best_weights_val
+        config, sa, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], [best_weights_val]
     )
 
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
@@ -418,4 +423,4 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
     plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
     # plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
-    return t1
+    return t1, final_params
