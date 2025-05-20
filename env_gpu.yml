@@ -10,6 +10,8 @@ dependencies:
       - "jax[cuda12]"
       - jaxopt
       - numpy
+      - opencv-python
+      -  skimage
       - scipy
       - matplotlib
       - pyyaml
