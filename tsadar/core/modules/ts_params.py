@@ -376,16 +376,15 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
     ion_num = 0
     for species, params in cfg_params.items():
-        if "ion" in species:  # SB
-            ion_num += 1      # SB
+        if "ion" in species:
+            ion_num += 1
         for key, _params in params.items():
             if _params["active"]:
                 if key == "fe":
                     filter_spec = get_distribution_filter_spec(filter_spec, dist_params=_params)
                 else:
-                    nkey = f"normed_{key}" if key!="fract" else f"{key}"   # SB treat fractions differently
-                    if "ion" in species:  # SB
-                    #    ion_num += 1      # SB
+                    nkey = f"normed_{key}"# if key!="fract" else f"{key}"   # SB treat fractions differently
+                    if "ion" in species:
                         filter_spec = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, "ions")[ion_num - 1], nkey),
                             filter_spec,

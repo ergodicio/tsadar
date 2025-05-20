@@ -64,6 +64,14 @@ The :bdg-success:`data:` section contains the specifics on which shot and what r
 
     - :bdg-success-line:`iaw_cf_max` ending wavelength for a central feature in the IAW that is to be excluded from analysis in nm
 
+    - :bdg-success-line:`forward_epw_start` starting wavelength in nm for the EPW calculation for forward model only
+    
+    - :bdg-success-line:`forward_epw_end` ending wavelength in nm for the EPW calculation for forward model only
+    
+    - :bdg-success-line:`forward_iaw_start` starting wavelength in nm for the IAW calculation for forward model only
+    
+    - :bdg-success-line:`forward_iaw_end` ending wavelength in nm for the IAW calculation for forward model only
+
 - :bdg-success-line:`bgscaleE` multiplier on the background applied to EPW analysis
 
 - :bdg-success-line:`bgscaleI` multiplier on the background applied to IAW analysis
@@ -78,9 +86,17 @@ The :bdg-success:`data:` section contains the specifics on which shot and what r
 
 - :bdg-success-line:`ele_lam_shift` shifts the central frequency given by `lam` in the EPW spectrum, given in nm
 
-- :bdg-success-line:`probe_beam` identifies the beam on OMEGA used as the probe, automatically adjusts the scattering angle and finite aperture calculations. Currently availible options are P9, B15, B23, B26, B35, B42, B46, and B58.
+- :bdg-success-line:`probe_beam` identifies the beam on OMEGA used as the probe, automatically adjusts the scattering angle and finite aperture calculations. Currently availible options are P9, B15, B23, B26, B35, B42, B46, B58, and B62.
 
-- :bdg-success-line:`dpixel` determined the width of a lineout in pixels, the width of a lineout is 2*`dpixel` + 1 centered about the values in `lineouts`
+- :bdg-success-line:`dpixel` determines the width of a lineout in pixels, the width of a lineout is 2*`dpixel` + 1 centered about the values in `lineouts`
+
+- :bdg-success:`background`
+
+    - :bdg-success-line:`bg_alg` there are multiple models availible for the **Fit** background algorithm. This field is used to select the approprate one. The options are rat11, rat21, exp2 and power2
+    
+    - :bdg-success:`bg_alg_params` are the stating values for the model selected by :bdg-success-line:`bg_alg`. power2 and rat11 take 3 arguments while exp2 and rat21 take 4.
+    
+    - :bdg-success:`bg_alg_domain` set the domain over which the background is fit. This field has 4 values, and the domain is constructed as a linear domain between the first two pixel values and the second two.
 
 
 Other options
@@ -91,7 +107,7 @@ on how to perform the fit.
 
 - :bdg-success-line:`expandedions` is a boolean determining if a non-linear wavelength grid will be used allowing IAW and EPW spectra to be resolved simultaneously *currently depreciated*.
 
-- :bdg-success-line:`PhysParams` is a dictionary that is assigned within the code and stores detector information.
+- :bdg-success-line:`PhysParams` is a dictionary that is assigned within the code and stores detector information. Values modified within this dictionary will only apply to forward mode.
 
 - :bdg-success-line:`iawoff` is a boolean determining if the iaw will be suppressed in plotting of the EPW feature
 
@@ -112,14 +128,15 @@ on how to perform the fit.
 
 Plotting
 ^^^^^^^^^^^
+These options only alter the plotting of that data and fits, they do not influence the fits.
 
 - :bdg-success-line:`n_sigmas` is the number of standard deviations to plot the uncertainty region over
 
 - :bdg-success-line:`rolling_std_width` number of lineouts used to calculate the standard deviation for the moving window error region
 
-- :bdg-success-line:`data_cbar_u` upper limit for the colorbar in plotting the data and fit, can be given as a number of counts or as `data` to automatically use the maximum of the data
+- :bdg-success-line:`data_cbar_u` upper limit for the colorbar in plotting the data and fit, also limits the lineout plots. Can be given as a number of counts or as `data` to automatically use the maximum of the data
 
-- :bdg-success-line:`data_cbar_l` lower limit for the colorbar in plotting the data and fit, can be given as a number of counts or as `data` to automatically use the minimum of the data
+- :bdg-success-line:`data_cbar_l` lower limit for the colorbar in plotting the data and fit, also limits the lineout plots. Can be given as a number of counts or as `data` to automatically use the minimum of the data
 
 - :bdg-success-line:`ion_window_start` determines the spectral range of the IAW fit plots, this gives the lower bound in nm
 
@@ -129,17 +146,40 @@ Plotting
 
 - :bdg-success-line:`ele_window_end` determines the spectral range of the EPW fit plots, this gives the upper bound in nm
 
+- :bdg-success-line:`detailed_breakdown` when active all linout plots will show the constituent curves within the fit model. This includes the angle extremes, gradient extremes, IRF, and background.
+
 
 Optimizer
 ^^^^^^^^^^^
 
 - :bdg-success-line:`method` gradient descent algorithm employed by the minimizer, current options are `adam` and `l-bfgs-b`
 
+- :bdg-success-line:`moment_loss` boolean, addes a pentaly to maintain the moments of the EDF when fitting EDFs numerically *needs more testing*
+
+- :bdg-success-line:`loss_method` metric minimized in order to match data, l2 is recommended but l1, log-cosh, and poisson are also availible
+
 - :bdg-success-line:`hessian` boolean, determines if the hessian will be supplied to the minimizer
 
 - :bdg-success-line:`y_norm` boolean, normalizes data to a maximum value of 1 to improve minimizer behavior, true values are still used for error analysis
 
 - :bdg-success-line:`x_norm` boolean, normalizes data to a maximum value of 1 as an input to the neural network *depreciated*
+
+- :bdg-success-line:`grad_method` AD or FD determining if gradients are computed with automatic difference or finite difference
+
+- :bdg-success-line:`batch_size` numer of lineouts to be fit simultaneously
+
+- :bdg-success-line:`num_epochs` max iterations of the minimizer for each batch
+
+- :bdg-success-line:`learning_rate` scale factor for step sizes taken by the minimizer
+
+- :bdg-success-line:`parameter_norm` boolean, determines if the fitted parameters will be rescaled to 0 to 1
+
+- :bdg-success-line:`refine_factor` factor used to rescale the EDF domain during multiple minimizations of ARTS data
+
+- :bdg-success-line:`num_mins` how many time the minimization will be performed on ARTS data
+
+- :bdg-success-line:`sequential` boolean, if true the final parameters from each batch will be used as initial conditions for the following batch. If false, input deck initial conditions will be used for all lineouts.
+
 
 NN
 ^^^^
