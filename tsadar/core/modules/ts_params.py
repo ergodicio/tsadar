@@ -368,6 +368,8 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
     filter_spec = jtu.tree_map(lambda _: False, ts_params)
     ion_num = 0
     for species, params in cfg_params.items():
+        if "ion" in species:
+            ion_num += 1
         for key, _params in params.items():
             if _params["active"]:
                 if key == "fe":
@@ -375,7 +377,6 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                 else:
                     nkey = f"normed_{key}"
                     if "ion" in species:
-                        ion_num += 1
                         filter_spec = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, "ions")[ion_num - 1], nkey),
                             filter_spec,
