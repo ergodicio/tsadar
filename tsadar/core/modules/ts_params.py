@@ -356,11 +356,11 @@ class ThomsonParams(eqx.Module):
         for k in param_dict.keys():
             fitted_params[k] = {}
             for k2 in param_dict[k].keys():
-                if k2 == "m": #and param_cfg[k]["fe"]["active"]:
+                if k2 == "m":
                     if param_cfg[k]["fe"]["active"]:
                         fitted_params[k][k2] = param_dict[k][k2]
                         num_params += 1
-                    else :
+                    else:
                         pass
                 elif k2 in ["f", "flm"]:
                     pass
