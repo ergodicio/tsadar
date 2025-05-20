@@ -1,6 +1,8 @@
 jax
 numpy
 scipy
+opencv-python
+skimage
 matplotlib
 xlrd
 pyyaml
