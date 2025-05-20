@@ -11,7 +11,7 @@ dependencies:
       - jaxopt
       - numpy
       - opencv-python
-      -  skimage
+      - skimage
       - scipy
       - matplotlib
       - pyyaml
