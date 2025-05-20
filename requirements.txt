@@ -2,7 +2,7 @@ jax
 numpy
 scipy
 opencv-python
-skimage
+scikit-image
 matplotlib
 xlrd
 pyyaml
