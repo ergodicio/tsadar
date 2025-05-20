@@ -264,7 +264,7 @@ def angular_optax(config, all_data, sa):
 
         if config["optimizer"]["save_state"]:
             if i_epoch % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[i_epoch] = diff_params
+                state_weights[i_epoch] = best_weights.get_unnormed_params()
 
         mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
 

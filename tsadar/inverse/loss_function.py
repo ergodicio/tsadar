@@ -174,7 +174,7 @@ class LossFunction:
         # this function is not being used? if so it has syntax issues
         # params = params | self.static_params
         # params = self.ts_diag.get_plasma_parameters(weights)
-        ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(params, batch)
+        ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(weights, batch)
         i_error, e_error, _, _ = self.calc_ei_error(
             batch,
             ThryI,
@@ -448,7 +448,7 @@ class LossFunction:
             temperature_loss = 0.0
             momentum_loss = 0.0
         if self.cfg["parameters"]["electron"]["fe"]["fe_decrease_strict"]:
-            gradfe = jnp.sign(self.cfg["velocity"][1:]) * jnp.diff(params["fe"].squeeze())
+            gradfe = jnp.sign(self.cfg["velocity"][1:]) * jnp.diff(weights["fe"].squeeze())
             vals = jnp.where(gradfe > 0.0, gradfe, 0.0).sum()
             fe_penalty = jnp.tan(jnp.amin(jnp.array([vals, jnp.pi / 2])))
         else:
@@ -556,9 +556,9 @@ class LossFunction:
             )
             jax.debug.print("second moment = {fedens}", fedens=second_moment)
             temperature_loss = jnp.mean(jnp.square(1.0 - second_moment / 2))
-            # needs to be fixed
-            first_moment = second_moment = trapz(
-                trapz(
+            # needs to be fixed, was using a custom trapz function not the jax one
+            first_moment = second_moment = jnp.trapz(
+                jnp.trapz(
                     jnp.exp(params["electron"]["fe"])
                     * (
                         self.cfg["parameters"]["electron"]["fe"]["velocity"][0] ** 2

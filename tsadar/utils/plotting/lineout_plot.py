@@ -5,26 +5,27 @@ import os
 
 def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, filename, td, tag):
     """
-    Plots lineout comparing the fits to the data. If the data has both electron and ion data they will both be plotted.
-    The value of the fit metric chi^2 per point is plotted beneath the data and fit.
-
-
-    Args:
-        data: Processed data (spectrum) to be plotted as a list of arrays. If the list can have one or 2 elements being
-            the electron and ion data.
-        fits: Fits results (spectrum) to be plotted as a list of arrays. Must be the same shape as data.
-        sqdev: chi^2 per point. Must be the same shape as data
-        yaxis: Spectral axis, same shape as data
-        s_ind: Index to start the plotting, based of the wavelength set in the default deck
-        e_ind: Index to end the plotting, based of the wavelength set in the default deck
-        titlestr: string to be used as the title of the plot
-        filename: string to be used as the name of the file where the plots will be saved
-        td: temporary directory that will be uploaded to mlflow
-        tag: string denoting which lineouts are being plotted, the "best" or "worst"
-
+    Plots lineouts of data and their fits, along with residuals, and saves the figure to a file.
+    Parameters:
+        data (list of np.ndarray): List containing data arrays to plot. The list can have one or 2 elements being the electron and ion data.
+        fits (list of np.ndarray): List containing fit arrays corresponding to the data. Must be the same shape as data.
+        sqdev (list of np.ndarray): List containing squared deviation (residual) arrays. Must be the same shape as data.
+        yaxis (list of np.ndarray): List containing y-axis (e.g., wavelength) arrays for each plot.
+        ylim (tuple): Tuple specifying the y-axis limits for the data plots.
+        s_ind (list of int): List of start indices to start the plotting, based of the wavelength set in the default deck.
+        e_ind (list of int): List of end to end the plotting, based of the wavelength set in the default deck
+        titlestr (str): Title string for the plots.
+        filename (str): Name of the file to save the figure as.
+        td (str): Directory path where the figure will be saved.
+        tag (str): String denoting which lineouts are being plotted, the "best" or "worst"
     Returns:
-
+        None: The function saves the plots to a file in the specified directory.
+    Notes:
+        - The function creates a 2-row subplot where the first row contains the data and fit plots, and the second row contains the residuals.
+        - The function uses matplotlib for plotting and saves the figure to a specified directory.
+        - The function handles both electron and ion data if provided.
     """
+
     if len(data) == 2:
         num_col = 2
     else:

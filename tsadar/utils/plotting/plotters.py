@@ -10,21 +10,17 @@ from tsadar.utils.plotting.lineout_plot import lineout_plot
 
 def get_final_params(config, best_weights, all_axes, td):
     """
-    Formats and saves the final fitted parameter and distribution function.
-
-
+    Formats and saves the final fitted parameters and distribution function.
+    This function processes the fitted parameters and distribution functions for all species, formats them into pandas DataFrames, and saves them as CSV files in a specified temporary directory. It handles different parameter structures depending on the species and configuration, and combines the results into a single output dictionary.
     Args:
-        config: configuration dictionary created from the input decks
-        best_weights: dictionary containing all the fitted parameters for all the species
-        all_axes: dictionary with calibrated axes and axes labels
-        td: temporary directory that will be uploaded to mlflow
-
+        config (dict): Configuration dictionary created from the input decks.
+        best_weights (dict): Dictionary containing all the fitted parameters for all the species.
+        all_axes (dict): Dictionary with calibrated axes and axes labels.
+        td (str): Temporary directory path where output files will be saved.
     Returns:
-        all_params | dist: dictionary containing all the fitted parameters. The fields are a combination of the
-            parameter and species name. The data is structured as a pandas Series. The output combines the distribution
-            function dictionary into the same output as the fitted parameter dictionary.
-
+        dict: Dictionary containing all the fitted parameters and distribution function data. The keys are a combination of parameter and species names, and the values are pandas Series or arrays. The output merges the distribution function dictionary with the fitted parameter dictionary.
     """
+
     all_params = {}
     dist = {}
     fitted_dist = False
@@ -86,8 +82,9 @@ def plot_final_params(config, all_params, sigmas_ds, td):
             the function get_final_params
         sigmas_ds: dictionary with uncertainty values for each of the fitted parameters calculated using the hessian
         td: temporary directory that will be uploaded to mlflow
-
     Returns:
+        None: The function saves the plots to a temporary directory and logs them to MLflow.
+    
 
     """
     for species in all_params.keys():
@@ -936,6 +933,14 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
 
 
 def TScmap():
+    """
+    Creates a custom matplotlib colormap based on the 'jet' colormap with a white segment at the lower end.
+    The resulting colormap starts with a smooth transition from white to the first color of the 'jet' colormap,
+    followed by the standard 'jet' colors. This is useful for visualizations where zero or low values should
+    be represented as white.
+    Returns:
+        matplotlib.colors.ListedColormap: The custom colormap with a white-to-jet transition at the lower end.
+    """
     # Define jet colormap with 0=white (this might be moved and just loaded here)
     upper = mpl.cm.jet(np.arange(256))
     lower = np.ones((int(256 / 16), 4))
