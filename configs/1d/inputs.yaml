@@ -3,16 +3,19 @@ data:
     slice: 10002
     type: Fit
   lineouts:
-    end: 950
-    skip: 20
-    start: 90
-    type: range
-  shot_rot: 90.0
-  shotnum: 10000
+        type:
+            ps
+        start: 500
+        end: 1000
+        skip: 50
+  shotnum: 101675
+
 machine: gpu
+
 mlflow:
-  experiment: tsadar-test
-  run: arts2d
+  experiment: test
+  run: run
+
 other:
   PhysParams:
     widIRF:
@@ -26,11 +29,34 @@ other:
     fit_EPWr: true
     fit_IAW: false
     load_ele_spec: true
-    load_ion_spec: false
-    spectype: angular
+    load_ion_spec: true
   refit: false
-  refit_thresh: 5.0
+  refit_thresh: 20.0
+
 parameters:
+  electron:
+    Te:
+      active: True
+      lb: 0.01
+      ub: 2.0
+      val: 0.5
+    fe:
+      active: True
+      dim: 1
+      nvx: 320
+      params:
+        m:
+          lb: 2.0
+          ub: 5.0
+          val: 3.0
+          matte: True
+          intens: 2.5
+      type: dlm
+    ne:
+      active: True
+      lb: 0.03
+      ub: 2.0
+      val: 0.2
   general:
     Te_gradient:
       active: false
@@ -41,8 +67,8 @@ parameters:
     Va:
       active: false
       angle: 0.0
-      lb: -40.5
-      ub: 40.5
+      lb: -20.5
+      ub: 20.5
       val: 0.0
     amp1:
       active: false
@@ -60,9 +86,9 @@ parameters:
       ub: 3.75
       val: 1.0
     lam:
-      active: false
-      lb: 525.0
-      ub: 528.0
+      active: True
+      lb: 523.0
+      ub: 527.0
       val: 526.5
     ne_gradient:
       active: false
@@ -73,8 +99,8 @@ parameters:
     ud:
       active: false
       angle: 0.0
-      lb: -10.0
-      ub: 30.0
+      lb: -20.0
+      ub: 20.0
       val: 0.0
   electron:
     Te:
@@ -110,8 +136,8 @@ parameters:
       active: false
       lb: 0.01
       same: false
-      ub: 1.0
-      val: 0.03
+      ub: 3.0
+      val: 0.2
     Z:
       active: false
       lb: 0.5
@@ -120,4 +146,3 @@ parameters:
     fract:
       active: false
       val: 1.0
-    
