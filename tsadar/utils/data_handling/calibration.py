@@ -335,11 +335,11 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
         elif 114907 < shotNum < 115920:
             # 3w data from CBET study (all params should be checked)
             EPWDisp = 0.4153
-            IAWDisp = 0.00366
-            EPWoff = 135.74 #rough guess
+            IAWDisp = 0.00378
+            EPWoff = 138.24 #rough guess
             IAWoff = 349.10 #need to be checked
             stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
-            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
+            stddev["spect_stddev_ele"] = 1.4  # based of hg lamp data
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess

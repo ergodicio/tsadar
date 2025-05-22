@@ -118,7 +118,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
                 if specType == "temporal" and loadspecs["absolute_timing"]:
                     # this sets t0 by locating the fiducial and placing t0 164px earlier
                     fidu = np.sum(eDat[0:100, :], 0)
-                    res = find_peaks(fidu, prominence=1000, width=10)
+                    res = find_peaks(fidu, prominence=np.max(fidu)/2, width=10)
                     peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
                     t0[1] = round(peak_center - 95)
             except BaseException:

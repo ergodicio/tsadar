@@ -1,19 +1,19 @@
 data:
   background:
-    slice: 10002
-    type: Fit
+    slice: 900
+    type: pixel
   lineouts:
         type:
             ps
-        start: 500
-        end: 1000
-        skip: 50
-  shotnum: 101675
+        start: -850
+        end: -450
+        skip: 5
+  shotnum: 115122
 
 machine: gpu
 
 mlflow:
-  experiment: test
+  experiment: shotday_4_23_25
   run: run
 
 other:
@@ -41,14 +41,14 @@ parameters:
       ub: 2.0
       val: 0.5
     fe:
-      active: True
+      active: false
       dim: 1
       nvx: 320
       params:
         m:
           lb: 2.0
           ub: 5.0
-          val: 3.0
+          val: 2.0
           matte: True
           intens: 2.5
       type: dlm
@@ -56,12 +56,12 @@ parameters:
       active: True
       lb: 0.03
       ub: 2.0
-      val: 0.2
+      val: 0.6
   general:
     Te_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 1
+      num_grad_points: 10
       ub: 10.0
       val: 0.0
     Va:
@@ -71,12 +71,12 @@ parameters:
       ub: 20.5
       val: 0.0
     amp1:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -87,47 +87,22 @@ parameters:
       val: 1.0
     lam:
       active: True
-      lb: 523.0
-      ub: 527.0
-      val: 526.5
+      lb: 349.0
+      ub: 352.0
+      val: 351.0
     ne_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 1
+      num_grad_points: 10
       ub: 15.0
-      val: 0.0
+      val: 5.0
     ud:
       active: false
       angle: 0.0
       lb: -20.0
       ub: 20.0
       val: 0.0
-  electron:
-    Te:
-      active: true
-      gradient_scalar: 10.0
-      lb: 0.01
-      ub: 2.0
-      val: 1.1
-    fe:
-      active: True
-      dim: 2
-      type: sphericalharmonic
-      nvx: 64
-      params:
-        flm_type: arbitrary
-        init_m: 2.2
-        LTx: 22500.
-        LTy: 40000.
-        Nl: 1
-        nvr: 16
-    ne:
-      active: true
-      gradient_scalar: 10.0
-      lb: 0.03
-      ub: 2.0
-      val: 0.44
-    
+  
   ion-1:
     A:
       active: false

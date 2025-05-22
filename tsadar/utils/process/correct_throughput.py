@@ -40,19 +40,25 @@ def correctThroughput(data, tstype, axisy, shotNum):
         # print(np.shape(vq1))
 
     elif tstype == "temporal":
-        wb = xlrd.open_workbook(join(BASE_FILES_PATH, "files", "Copy of MeasuredSensitivity_9.21.15.xls"))
-        sheet = wb.sheet_by_index(0)
-        sens = np.zeros([301, 2])
+        if np.mean(axisy) <425.0:
+            #calibration derived from DU lamp data on 5/22/25, data from 2019 meant for 3w data
+            trans = 7.167e-5*axisy**(2) - 0.04169*axisy + 7.016
+            #trans = 12.7875*axisy**(2) - 7439.0*axisy + 1252000.0
+            vq1 = 1.0 / trans
+        else:
+            wb = xlrd.open_workbook(join(BASE_FILES_PATH, "files", "Copy of MeasuredSensitivity_9.21.15.xls"))
+            sheet = wb.sheet_by_index(0)
+            sens = np.zeros([301, 2])
 
-        for i in range(2, 303):
-            sens[i - 2, 0] = sheet.cell_value(i, 0)
-            sens[i - 2, 1] = sheet.cell_value(i, 1)
+            for i in range(2, 303):
+                sens[i - 2, 0] = sheet.cell_value(i, 0)
+                sens[i - 2, 1] = sheet.cell_value(i, 1)
 
-        sens[:, 1] = 1.0 / sens[:, 1]
-        sens[0:17, 1] = sens[18, 1]  # the sensitivity goes to zero in this location and is not usable
+            sens[:, 1] = 1.0 / sens[:, 1]
+            sens[0:17, 1] = sens[18, 1]  # the sensitivity goes to zero in this location and is not usable
 
-        speccalshift = sp.interp1d(sens[:, 0], sens[:, 1], "linear", bounds_error=False, fill_value=sens[0, 1])
-        vq1 = speccalshift(axisy)
+            speccalshift = sp.interp1d(sens[:, 0], sens[:, 1], "linear", bounds_error=False, fill_value=sens[0, 1])
+            vq1 = speccalshift(axisy)
 
     else:
         imp = sio.loadmat(join(BASE_FILES_PATH, "files", "MeasuredSensitivity_11_30_21.mat"), variable_names="sens")
