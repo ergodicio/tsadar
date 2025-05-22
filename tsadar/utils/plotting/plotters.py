@@ -10,33 +10,37 @@ from tsadar.utils.plotting.lineout_plot import lineout_plot
 
 def get_final_params(config, best_weights, all_axes, td):
     """
-    Formats and saves the final fitted parameter and distribution function.
-
-
+    Formats and saves the final fitted parameters and distribution function.
+    This function processes the fitted parameters and distribution functions for all species, formats them into pandas DataFrames, and saves them as CSV files in a specified temporary directory. It handles different parameter structures depending on the species and configuration, and combines the results into a single output dictionary.
     Args:
-        config: configuration dictionary created from the input decks
-        best_weights: dictionary containing all the fitted parameters for all the species
-        all_axes: dictionary with calibrated axes and axes labels
-        td: temporary directory that will be uploaded to mlflow
-
+        config (dict): Configuration dictionary created from the input decks.
+        best_weights (dict): Dictionary containing all the fitted parameters for all the species.
+        all_axes (dict): Dictionary with calibrated axes and axes labels.
+        td (str): Temporary directory path where output files will be saved.
     Returns:
-        all_params | dist: dictionary containing all the fitted parameters. The fields are a combination of the
-            parameter and species name. The data is structured as a pandas Series. The output combines the distribution
-            function dictionary into the same output as the fitted parameter dictionary.
-
+        dict: Dictionary containing all the fitted parameters and distribution function data. The keys are a combination of parameter and species names, and the values are pandas Series or arrays. The output merges the distribution function dictionary with the fitted parameter dictionary.
     """
+
     all_params = {}
     dist = {}
     fitted_dist = False
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
             if k == "fe":
-                # fitted_dist = True
-                # dist[k] = v.squeeze()
-                # dist["v"] = config["parameters"][species]["fe"]["velocity"]
-                pass
+                fitted_dist = True
+                dist[k] = v.squeeze()
+                dist["v"] = config["parameters"][species]["fe"]["velocity"]
+                #pass
+            elif k =="flm":
+                fitted_dist = True
+                #need to turn this into a lop for when we go to higher orders
+                dist["flm0"] = v[0][0][0]
+                dist["flm10"] = v[0][1][0]
+                dist["flm11"] = v[0][1][1]
+                dist["fe"] = v[0]['fvxvy']
+                dist["v"] = v[0]['v']
             else:
-                all_params[k + "_" + species] = pandas.Series(v.reshape(-1))
+                all_params[k + "_" + species] = pandas.Series(np.squeeze(v).reshape(-1))
                 # if np.shape(v)[1] > 1:
                 #     for i in range(np.shape(v)[1]):
                 #         all_params[k + str(i)] = pandas.Series(v[:, i].reshape(-1))
@@ -56,7 +60,10 @@ def get_final_params(config, best_weights, all_axes, td):
         if len(np.shape(dist["fe"])) == 1:
             final_dist = pandas.DataFrame({"fe": [l for l in dist["fe"]], "vx": [vx for vx in dist["v"]]})
         elif len(np.shape(dist["fe"])) == 2:
-            final_dist = pandas.DataFrame(data=dist["fe"], columns=dist["v"][0][0], index=dist["v"][0][:, 0])
+            final_dist = pandas.DataFrame(data=dist["fe"], columns=dist["v"], index=dist["v"])
+            if 'flm0' in dist.keys():
+                flm_dist = pandas.DataFrame({key: dist[key] for key in dist.keys()-['fe','v']})
+                flm_dist.to_csv(os.path.join(td, "csv", "learned_flm.csv"))
             # final_dist = pandas.DataFrame({'fe':[l for l in dist['fe']], 'vx':[vx for vx in dist['v'][0]], 'vy':[vy for vy in dist['v'][1]]})
         final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
 
@@ -75,8 +82,9 @@ def plot_final_params(config, all_params, sigmas_ds, td):
             the function get_final_params
         sigmas_ds: dictionary with uncertainty values for each of the fitted parameters calculated using the hessian
         td: temporary directory that will be uploaded to mlflow
-
     Returns:
+        None: The function saves the plots to a temporary directory and logs them to MLflow.
+    
 
     """
     for species in all_params.keys():
@@ -218,13 +226,14 @@ def plot_dist(config, ele_species, final_params, sigma_fe, td):
         ax[2].grid()
     else:
         fig, ax = plt.subplots(1, 2, figsize=(12, 4), tight_layout=True)
-        c = ax[0].contourf(final_params["v"][0], final_params["v"][1], final_params["fe"].T)
+        x,y = np.meshgrid(final_params["v"], final_params["v"])
+        c = ax[0].contourf(x,y, final_params["fe"].T)
         ax[0].set_xlabel("$v_x/v_{th}$", fontsize=14)
         ax[0].set_ylabel("$v_y/v_{th}$", fontsize=14)
         ax[0].set_title("$f_e$", fontsize=14)
         fig.colorbar(c)
 
-        c = ax[1].contourf(final_params["v"][0], final_params["v"][1], np.log10(final_params["fe"].T))
+        c = ax[1].contourf(x,y, np.log10(final_params["fe"].T))
         ax[1].set_xlabel("$v_x/v_{th}$", fontsize=14)
         ax[1].set_ylabel("$v_y/v_{th}$", fontsize=14)
         ax[1].set_title("log$_{10}(f_e)$", fontsize=14)
@@ -237,56 +246,52 @@ def plot_dist(config, ele_species, final_params, sigma_fe, td):
 
         fig = plt.figure(figsize=(15, 5))
         ax = fig.add_subplot(1, 3, 1, projection="3d")
-        curfe = np.where(final_params["fe"] < -50.0, -50.0, final_params["fe"])
+        curfe = np.where(np.log(final_params["fe"]) < -50.0, -50.0, np.log(final_params["fe"]))
         ax.plot_surface(
-            final_params["v"][0],
-            final_params["v"][1],
+            x,
+            y,
             curfe,
             edgecolor="royalblue",
             lw=0.5,
-            rstride=16,
-            cstride=16,
             alpha=0.3,
         )
         ax.set_zlim(-50, 0)
-        ax.contour(final_params["v"][0], final_params["v"][1], curfe, zdir="x", offset=-7.5, cmap="coolwarm")
-        ax.contour(final_params["v"][0], final_params["v"][1], curfe, zdir="y", offset=7.5, cmap="coolwarm")
-        ax.contour(final_params["v"][0], final_params["v"][1], curfe, zdir="z", offset=-50, cmap="coolwarm")
+        ax.contour(x,y, curfe, zdir="x", offset=-7.5, cmap="coolwarm")
+        ax.contour(x,y, curfe, zdir="y", offset=7.5, cmap="coolwarm")
+        ax.contour(x,y, curfe, zdir="z", offset=-50, cmap="coolwarm")
         ax.set_xlabel("vx/vth", fontsize=14)
         ax.set_ylabel("vy/vth", fontsize=14)
         ax.set_zlabel("f_e (ln)")
         ax = fig.add_subplot(1, 3, 2, projection="3d")
-        curfe = np.where(np.log10(np.exp(final_params["fe"])) < -22.0, -22.0, np.log10(np.exp(final_params["fe"])))
+        curfe = np.where(np.log10(final_params["fe"]) < -22.0, -22.0, np.log10(final_params["fe"]))
         ax.plot_surface(
-            final_params["v"][0],
-            final_params["v"][1],
+            x,
+            y,
             curfe,
             edgecolor="royalblue",
             lw=0.5,
-            rstride=16,
-            cstride=16,
             alpha=0.3,
         )
         ax.set_zlim(-22, 0)
         ax.contour(
-            final_params["v"][0],
-            final_params["v"][1],
+            x,
+            y,
             curfe,
             zdir="x",
             offset=-7.5,
             cmap="coolwarm",
         )
         ax.contour(
-            final_params["v"][0],
-            final_params["v"][1],
+            x,
+            y,
             curfe,
             zdir="y",
             offset=7.5,
             cmap="coolwarm",
         )
         ax.contour(
-            final_params["v"][0],
-            final_params["v"][1],
+            x,
+            y,
             curfe,
             zdir="z",
             offset=-22,
@@ -298,36 +303,34 @@ def plot_dist(config, ele_species, final_params, sigma_fe, td):
 
         ax = fig.add_subplot(1, 3, 3, projection="3d")
         ax.plot_surface(
-            final_params["v"][0],
-            final_params["v"][1],
-            np.exp(final_params["fe"]),
+            x,
+            y,
+            final_params["fe"],
             edgecolor="royalblue",
             lw=0.5,
-            rstride=16,
-            cstride=16,
             alpha=0.3,
         )
         ax.set_zlim(0.0, 0.15)
         ax.contour(
-            final_params["v"][0],
-            final_params["v"][1],
-            np.exp(final_params["fe"]),
+            x,
+            y,
+            final_params["fe"],
             zdir="x",
             offset=-7.5,
             cmap="coolwarm",
         )
         ax.contour(
-            final_params["v"][0],
-            final_params["v"][1],
-            np.exp(final_params["fe"]),
+            x,
+            y,
+            final_params["fe"],
             zdir="y",
             offset=7.5,
             cmap="coolwarm",
         )
         ax.contour(
-            final_params["v"][0],
-            final_params["v"][1],
-            np.exp(final_params["fe"]),
+            x,
+            y,
+            final_params["fe"],
             zdir="z",
             offset=0.0,
             cmap="coolwarm",
@@ -551,11 +554,8 @@ def plot_2D_data_vs_fit(
     newcolors[:r, :] = lower
     newcmp = ListedColormap(newcolors)
 
-    if "angular" in config["other"]["extraoptions"]["spectype"]:
-        vmin, vmax = 0.0, 1.5
-    else:
-        vmin = np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"]
-        vmax = np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]
+    vmin = np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"]
+    vmax = np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]
 
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
@@ -933,6 +933,14 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
 
 
 def TScmap():
+    """
+    Creates a custom matplotlib colormap based on the 'jet' colormap with a white segment at the lower end.
+    The resulting colormap starts with a smooth transition from white to the first color of the 'jet' colormap,
+    followed by the standard 'jet' colors. This is useful for visualizations where zero or low values should
+    be represented as white.
+    Returns:
+        matplotlib.colors.ListedColormap: The custom colormap with a white-to-jet transition at the lower end.
+    """
     # Define jet colormap with 0=white (this might be moved and just loaded here)
     upper = mpl.cm.jet(np.arange(256))
     lower = np.ones((int(256 / 16), 4))

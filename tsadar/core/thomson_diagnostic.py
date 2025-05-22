@@ -49,9 +49,13 @@ class ThomsonScatteringDiagnostic:
             lamAxisE: EPW wavelength axis produced by FitModel
             lamAxisI: IAW wavelength axis produced by FitModel
             amps: dictionary containing the scaling facotrs for
-            TSins:
+            TSins: dictionary of the Thomson scattering parameters
 
         Returns:
+            ThryE: Synthetic Thomson spectrum with instrumental broadening
+            ThryI: Synthetic Thomson spectrum with instrumental broadening
+            lamAxisE: EPW wavelength axis
+            lamAxisI: IAW wavelength axis
 
         """
         if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
@@ -104,14 +108,24 @@ class ThomsonScatteringDiagnostic:
 
     def __call__(self, ts_params: ThomsonParams, batch):
         """
-        TODO
-
+        Simulates the Thomson scattering diagnostic for a given set of parameters and input data by adding instrumental effects
+        to the calculated spectrum.
         Args:
-            params: Dict- contains name value pairs for all the parameters from the input deck
-            batch: Dict- contains the electron and ion data arrays as well as their amplitude arrays and noise arrays.
-
+            ts_params (ThomsonParams): Object containing all the physical and experimental parameters required for the simulation.
+            batch (dict): Dictionary containing electron and ion data arrays, amplitude arrays, and noise arrays. 
+                Expected keys include:
+                    - "e_amps": Electron amplitude array.
+                    - "i_amps": Ion amplitude array.
+                    - "noise_e": Noise array for electrons.
+                    - "noise_i": Noise array for ions.
         Returns:
-
+            ThryE (np.ndarray): Simulated electron spectrum with noise added.
+            ThryI (np.ndarray): Simulated ion spectrum with noise added.
+            lamAxisE (np.ndarray): Wavelength axis for electron spectrum.
+            lamAxisI (np.ndarray): Wavelength axis for ion spectrum.
+        Notes:
+            - Applies post-processing to theoretical spectra and optionally reduces the spectrum to the resolution unit if specified in the configuration.
+            - Adds experimental noise to the simulated spectra before returning.
         """
 
         physical_params = ts_params()
@@ -129,15 +143,23 @@ class ThomsonScatteringDiagnostic:
 
     def spectrum_breakdown(self, ts_params: ThomsonParams, batch):
         """
-        Alternaticve version of the __call__ method which produces a detailied beakdown of all
+        Alternative version of the __call__ method which produces a detailied beakdown of all
         componenets that go into the calculated spectrum. Not intended to be used for angular data.
 
         Args:
-            ts_params: ThomsonParam- an instance of the ThomsonParams object which contains all the input parameters for
-                a spectrum to be calculated
-            batch: Dict- contains the electron and ion data arrays as well as their amplitude arrays and noise arrays.
-
+            ts_params (ThomsonParams): Object containing all the physical and experimental parameters required for the simulation.
+            batch (dict): Dictionary containing electron and ion data arrays, amplitude arrays, and noise arrays. 
         Returns:
+            modlE (np.ndarray): Electron spectrum with instrumental effects applied.
+            modlI (np.ndarray): Ion spectrum with instrumental effects applied.
+            ThryE (np.ndarray): Raw theoretical electron spectrum.
+            ThryI (np.ndarray): Raw theoretical ion spectrum.
+            eIRF (np.ndarray): Electron IRF spectrum.
+            iIRF (np.ndarray): Ion IRF spectrum.
+            lamAxisE (np.ndarray): Wavelength axis for electron spectrum.
+            lamAxisI (np.ndarray): Wavelength axis for ion spectrum.
+            lamAxisE_raw (np.ndarray): Raw wavelength axis for electron spectrum.
+            lamAxisI_raw (np.ndarray): Raw wavelength axis for ion spectrum.
 
         """
 

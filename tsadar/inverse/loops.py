@@ -20,7 +20,17 @@ from typing import Dict, List, Tuple
 def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
-    _activate = True
+    """
+    Runs a 1D optimization loop using SciPy's minimize function for inverse Thomson scattering.
+    Args:
+        config (Dict): Configuration dictionary containing optimizer and parameter settings.
+        loss_fn (LossFunction): Loss function object with methods for evaluating the loss and its gradient.
+        previous_weights (np.ndarray): Previous weights to initialize the optimizer, or None to use default initialization.
+        batch (Dict): Batch of data to be used in the loss function.
+    Returns:
+        Tuple[float, Dict]: A tuple containing the best loss value and the corresponding optimized weights.
+    """
+    
     _activate = True
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=_activate)
@@ -49,6 +59,17 @@ def _1d_scipy_loop_(
 def _1d_adam_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
+    """
+    Runs a 1D optimization loop using the Adam optimizer for a specified number of epochs.
+    Args:
+        config (Dict): Configuration dictionary containing optimizer and parameter settings.
+        loss_fn (LossFunction): Loss function object with a `vg_loss` method for computing loss and gradients.
+        previous_weights (np.ndarray): Previous weights to initialize the model parameters. If None, initializes new parameters.
+        batch (Dict): Batch of data to be used for optimization.
+        tbatch: Progress bar or tracker object for displaying epoch progress.
+    Returns:
+        Tuple[float, Dict]: A tuple containing the best loss achieved and the corresponding model weights.
+    """
 
     opt = optax.adam(config["optimizer"]["learning_rate"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
@@ -78,20 +99,23 @@ def one_d_loop(
     config: Dict, all_data: Dict, sa: Tuple, batch_indices: np.ndarray, num_batches: int
 ) -> Tuple[List, float, LossFunction]:
     """
-    This is the higher level wrapper that prepares the data and the fitting code for the 1D fits
-
-    This function branches out into the various optimization routines for fitting.
-
-    For now, this is either running the ADAM loop or the SciPy optimizer loop
-
-    Args:
-        config:
-        all_data:
-        sa:
-        batch_indices:
-        num_batches:
-
+    Higher level wrapper form minimization of 1D fits, preparing data and dispatching to the appropriate optimizer.
+    This function prepares batches of data and fits model parameters using either the ADAM optimizer or a SciPy optimizer,
+    depending on the configuration. It supports sequential optimization by passing weights between batches if enabled.
+        
+    Args:    
+        config (Dict): Configuration dictionary containing optimizer settings and batch size.
+        all_data (Dict): Dictionary containing all input data arrays required for fitting.
+        sa (Tuple): Scattering angles and weights used to calculate k-smea r corrections.
+        batch_indices (np.ndarray): Array of indices specifying how to split data into batches.
+        num_batches (int): Number of batches to process.
     Returns:
+        all_weights (List): List of weights from each batch.
+        overall_loss (float): Overall accumulated loss across all batches.
+        loss_fn (LossFunction): The final LossFunction instance used for fitting.
+    Notes: 
+        - The function uses a progress bar to display the fitting progress for each batch.
+        - The function logs metrics to MLflow for tracking the fitting process.
 
     """
     sample = {k: v[: config["optimizer"]["batch_size"]] for k, v in all_data.items()}
@@ -143,16 +167,21 @@ def one_d_loop(
 def angular_optax(config, all_data, sa):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
-
-    Args:
-        config: Configuration dictionary build from the input decks
-        all_data: dictionary of the datasets, amplitudes, and backgrounds as constructed by the prepare.py code
-        sa: dictionary of the scattering angles and thier relative weights
-
+    Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
+    This function sets up and runs a fitting routine using the Optax optimization library, applying the specified minimizer to fit model parameters to experimental data. It handles data batching, optimizer initialization, training loop with early stopping, and logging of metrics and optimizer state.
+        
+    Args:    
+        config (dict): Configuration dictionary built from the input decks, specifying optimizer, data, and parameter settings.
+        all_data (dict): Dictionary containing datasets, amplitudes, and backgrounds as constructed by the prepare.py code.
+        sa (dict): Dictionary of the scattering angles and their relative weights.
     Returns:
-        best_weights: best parameter weights as returned by the minimizer
-        best_loss: best value of the fit metric found by ther minimizer
-        ts_instance: instance of the ThomsonScattering object used for minimization
+        best_weights (dict): Best parameter weights as returned by the minimizer.
+        best_loss (float): Best value of the fit metric found by the minimizer.
+        ts_instance (LossFunction): Instance of the LossFunction object used for minimization.
+    Notes:
+        - Supports early stopping based on loss improvement or degradation.
+        - Logs training metrics and optimizer state using mlflow.
+        - Handles both single and multiple shot number data configurations for rotated repeats of data.
 
     """
 
@@ -192,25 +221,31 @@ def angular_optax(config, all_data, sa):
     # solver = minimizer(schedule)
     solver = minimizer(config["optimizer"]["learning_rate"])
 
-    weights = loss_fn.pytree_weights["active"]
-    opt_state = solver.init(weights)
+    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    opt_state = solver.init(diff_params)
+    # weights = loss_fn.pytree_weights["active"]
+    # opt_state = solver.init(weights)
 
     # start train loop
     state_weights = {}
     t1 = time.time()
+    best_weights = {}
     epoch_loss = 0.0
     best_loss = 100.0
     num_g_wait = 0
     num_b_wait = 0
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        (val, aux), grad = loss_fn.vg_loss(weights, actual_data)
-        updates, opt_state = solver.update(grad, opt_state, weights)
-
+        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
+        updates, opt_state = solver.update(grad, opt_state)
+        diff_params = eqx.apply_updates(diff_params, updates)
+        
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
             if best_loss - epoch_loss < 0.000001:
                 best_loss = epoch_loss
+                best_weights = eqx.combine(diff_params, static_params)
                 num_g_wait += 1
                 if num_g_wait > 5:
                     print("Minimizer exited due to change in loss < 1e-6")
@@ -222,15 +257,14 @@ def angular_optax(config, all_data, sa):
                     break
             else:
                 best_loss = epoch_loss
+                best_weights = eqx.combine(diff_params, static_params)
                 num_b_wait = 0
                 num_g_wait = 0
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
 
-        weights = optax.apply_updates(weights, updates)
-
         if config["optimizer"]["save_state"]:
             if i_epoch % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[i_epoch] = weights
+                state_weights[i_epoch] = best_weights.get_unnormed_params()
 
         mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
 
@@ -238,4 +272,4 @@ def angular_optax(config, all_data, sa):
         file.write(pickle.dumps(state_weights))
 
     mlflow.log_artifact("state_weights.txt")
-    return weights, epoch_loss, loss_fn
+    return best_weights, epoch_loss, loss_fn

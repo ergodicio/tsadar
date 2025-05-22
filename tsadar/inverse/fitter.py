@@ -12,13 +12,14 @@ from ..utils.process import prepare, postprocess
 
 def _validate_inputs_(config: Dict) -> Dict:
     """
-    This function adds derived configuration quantities that are necessary for the fitting process
-
-    Args:
-        config: Dict
-
-    Returns: Dict
-
+    Validates and augments the configuration dictionary for the fitting process by generating the list of lineout indices and ensuring the number of slices is divisible by the batch size.
+    Args:    
+        config (Dict): Configuration dictionary containing data and optimizer settings.
+    Returns:
+        Dict: Updated configuration dictionary with derived quantities for lineouts.
+    Side Effects:
+        - Modifies the 'config' dictionary in place.
+        - Prints warnings if the number of lineouts is not divisible by the batch size and removes excess lineouts to ensure divisibility.
     """
     # get slices
     config["data"]["lineouts"]["val"] = [
@@ -43,28 +44,20 @@ def _validate_inputs_(config: Dict) -> Dict:
 
 def fit(config) -> Tuple[pd.DataFrame, float]:
     """
-    This function fits the Thomson scattering spectral density function to experimental data, or plots specified spectra. All inputs are derived from the input dictionary config.
-
-    Summary of additional needs:
-          A wrapper to allow for multiple lineouts or shots to be analyzed and gradients to be handled
-          Better way to handle data finding since the location may change with computer or on a shot day
-          Better way to handle shots with multiple types of data
-          Way to handle calibrations which change from one to shot day to the next and have to be recalculated frequently (adding a new function to attempt this 8/8/22)
-          A way to handle the expanded ion calculation when colapsing the spectrum to pixel resolution
-          A way to handle different numbers of points
-
-    Depreciated functions that need to be restored:
-       Time axis alignment with fiducials
-       interactive confirmation of new table creation
-       ability to generate different table names without the default values
-
-
+    Fits the Thomson scattering spectral density function to experimental data or plots specified spectra based on the provided configuration.
+    
     Args:
-        config:
-
+        config (dict): Configuration dictionary containing all necessary parameters for data loading, fitting, and postprocessing.
     Returns:
-
+        Tuple[pd.DataFrame, float]: 
+            - A pandas DataFrame containing the final fitted parameters or processed results.
+            - A float representing the overall loss value from the fitting procedure.
+    Notes:
+        - The function logs metrics and status tags to MLflow for experiment tracking.
+        - The fitting procedure can handle both angular and 1D spectra, depending on the configuration.
+        - Data preparation, fitting, and postprocessing are modularized for clarity and extensibility.
     """
+    
     t1 = time.time()
     mlflow.set_tag("status", "preprocessing")
     config = _validate_inputs_(config)

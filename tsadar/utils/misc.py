@@ -61,15 +61,18 @@ def update(base_dict, new_dict):
 
 def upload_dir_to_s3(local_directory: str, bucket: str, destination: str, run_id: str, prefix="ingest", step=0):
     """
-    TODO
+    Uploads the contents of a local directory to an S3 bucket, preserving the directory structure.
+    After uploading all files, creates a marker file indicating completion and uploads it to the bucket.
 
-
-    Args:
-
-
-    Returns:
-
-
+    Args:    
+        local_directory (str): Path to the local directory to upload.
+        bucket (str): Name of the S3 bucket to upload to.
+        destination (str): S3 key prefix (folder path) where files will be uploaded.
+        run_id (str): Identifier for the current run, used in the marker filename.
+        prefix (str, optional): Prefix for the marker filename. Defaults to "ingest".
+        step (int, optional): Step number for the marker filename. Defaults to 0.
+    Returns:    
+        None
     """
     client = boto3.client("s3")
 
@@ -95,16 +98,21 @@ def upload_dir_to_s3(local_directory: str, bucket: str, destination: str, run_id
 
 def export_run(run_id, prefix="ingest", step=0):
     """
-    TODO
-
-
+    Exports an MLflow run and uploads its artifacts to an S3 bucket.
     Args:
-
-
-    Returns:
-
-
+        run_id (str): The unique identifier of the MLflow run to export.
+        prefix (str, optional): Prefix to use when uploading to S3. Defaults to "ingest".
+        step (int, optional): Step number or identifier for the upload process. Defaults to 0.
+    Side Effects:
+        - Exports the specified MLflow run to a temporary directory.
+        - Uploads the exported run directory to the specified S3 bucket and path.
+        - Prints the time taken for export and upload operations.
+    Environment Variables:
+        BASE_TEMPDIR: If set, used as the base directory for the temporary export directory.
+    Raises:
+        Any exceptions raised by MLflow or S3 upload operations will propagate.
     """
+
     t0 = time.time()
     from mlflow_export_import.run.export_run import RunExporter
 
@@ -119,16 +127,16 @@ def export_run(run_id, prefix="ingest", step=0):
 
 def get_cfg(artifact_uri, temp_path):
     """
-    TODO
-
-
-    Args:
-
-
+    Downloads configuration files from the specified artifact URI to a temporary path. Allows configuration files to be locked at queue time.
+    Parameters:
+        artifact_uri (str): The URI of the artifact containing the configuration files.
+        temp_path (str): The temporary directory path where the files will be downloaded.
     Returns:
-
-
+        None
+    Note:
+        This function currently downloads 'defaults.yaml' and 'inputs.yaml' files but does not load or return their contents.
     """
+
     dest_file_path = download_file("defaults.yaml", artifact_uri, temp_path)
     dest_file_path = download_file("inputs.yaml", artifact_uri, temp_path)
     # with open(dest_file_path, "r") as file:
@@ -139,16 +147,18 @@ def get_cfg(artifact_uri, temp_path):
 
 def download_file(fname, artifact_uri, destination_path):
     """
-    TODO
-
-
+    Downloads a file from an MLflow artifact URI to a specified local destination.
+    Supports downloading from both S3 and local file system artifact URIs.
     Args:
-
-
+        fname (str): The name of the file to download.
+        artifact_uri (str): The MLflow artifact URI indicating the storage location.
+        destination_path (str): The local directory path where the file should be saved.
     Returns:
-
-
+        str or None: The full local path to the downloaded file if successful, otherwise None.
+    Raises:
+        None: Any exceptions are handled internally and None is returned on failure.
     """
+    
     file_uri = mlflow.get_artifact_uri(fname)
     dest_file_path = os.path.join(destination_path, fname)
 

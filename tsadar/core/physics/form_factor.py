@@ -19,17 +19,15 @@ BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external"
 
 def zprimeMaxw(xi):
     """
-    This function calculates the derivative of the Z - function given an array of normalized phase velocities(xi) as
-    defined in Chapter 5 of the Thomson scattering book. For values of xi between - 10 and 10 a table is used. Outside
-    of this range the asymptotic approximation(see Eqn. 5.2.10) is used.
-
-
-    Args:
-        xi: normalized phase velocities to calculate the zprime function at, these values must be in ascending order
-
+    Calculates the derivative of the plasma dispersion function (Z-prime) for an array of normalized phase velocities (xi)
+    using a combination of tabulated values and asymptotic approximations.
+    For values of xi between -10 and 10, the function uses interpolated data from precomputed tables. For values outside
+    this range, it applies the asymptotic approximation as described in Eqn. 5.2.10 of the Thomson scattering reference.
+    Args:    
+        xi (np.ndarray): Array of normalized phase velocities (must be in ascending order).
     Returns:
-        Zp: array with the real and imaginary components of Z-prime
-
+        Zp (np.ndarray): 2D array where the first row contains the real components and the second row contains the imaginary
+        components of Z-prime evaluated at each value of xi.
     """
 
     rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
@@ -48,21 +46,79 @@ def zprimeMaxw(xi):
 
 
 class FormFactor:
+    """
+    FormFactor class for calculating the Thomson scattering structure factor or spectral density function.
+    This class encapsulates all static values and methods required for repeated calculations of the Thomson
+    scattering structure factor or spectral density function, supporting both 1D and 2D electron distribution
+    functions (EDFs), multiple plasma conditions, and scattering angles.
+    Args:
+        lambda_range (list): Starting and ending wavelengths over which to calculate the spectrum.
+        npts (int): Number of wavelength points to use in the calculation.
+        lam_shift (float): Wavelength shift to apply.
+        scattering_angles (dict): Dictionary containing scattering angles (in degrees).
+        num_grad_points (int): Number of gradient points for plasma parameter profiles.
+        ud_ang (float): Angle between electron drift and x-axis (degrees).
+        va_ang (float): Angle between ion flow and x-axis (degrees).
+    Attributes:
+        C (float): Speed of light in cm/s.
+        Me (float): Electron mass in keV/C^2.
+        Mp (float): Proton mass in keV/C^2.
+        npts (int): Number of wavelength points.
+        h (float): Step size for velocity grid.
+        xi1, xi2 (jnp.ndarray): Grids for velocity integration.
+        Zpi (jnp.ndarray): Precomputed plasma dispersion function values.
+        lam_shift (float): Wavelength shift.
+        scattering_angles (dict): Scattering angles.
+        num_grad_points (int): Number of gradient points.
+        vmap_calc_chi_vals (callable): Vectorized susceptibility calculation.
+        ud_angle, va_angle (float): Electron drift and ion flow angles.
+        calc_all_chi_vals (callable): Method for calculating susceptibility, possibly parallelized.
+    Methods:
+        __call__(params):
+            Calculates the standard collisionless Thomson spectral density function S(k,omg) for 1D EDFs.
+                params (dict): Plasma and distribution function parameters.
+                formfactor (jnp.ndarray): Calculated spectrum.
+                lams (jnp.ndarray): Wavelength axis.
+        rotate(vx, df, angle, reshape=False):
+            Rotates a 2D array by a given angle in radians.
+                vx (jnp.ndarray): Velocity grid.
+                df (jnp.ndarray): 2D distribution function.
+                angle (float): Rotation angle in radians.
+                reshape (bool): Whether to reshape the output.
+                jnp.ndarray: Rotated/interpolated 2D array.
+        scan_calc_chi_vals(carry, xs):
+            Calculates susceptibility values at a given point in the distribution function using scan.
+                carry (tuple): (velocity grid, 2D distribution function).
+                xs (tuple): (angle, xie_mag_at, klde_mag_at).
+                tuple: Updated carry and (fe_vphi, chiEI, chiERrat).
+        calc_chi_vals(vx, DF, inputs):
+            Calculates susceptibility values at a given point in the distribution function.
+                vx (jnp.ndarray): Velocity grid.
+                DF (jnp.ndarray): 2D distribution function.
+                inputs (tuple): (angle, xie_mag_at, klde_mag_at).
+                tuple: (fe_vphi, chiEI, chiERrat).
+        _calc_all_chi_vals_(vx, DF, beta, xie_mag, klde_mag):
+            Calculates susceptibility values for all desired points xie (batch or vectorized).
+                vx (jnp.ndarray): Velocity grid.
+                DF (jnp.ndarray): 2D distribution function.
+                beta (jnp.ndarray): Angles.
+                xie_mag (jnp.ndarray): Magnitudes of normalized velocity points.
+                klde_mag (jnp.ndarray): Magnitudes of wavevector times Debye length.
+                tuple: (fe_vphi, chiEI, chiERrat).
+        parallel_calc_all_chi_vals(x, DF, beta, xie_mag, klde_mag):
+            Parallelized calculation of susceptibility values across devices.
+                x (jnp.ndarray): Velocity grid.
+                DF (jnp.ndarray): 2D distribution function.
+                beta, xie_mag, klde_mag (jnp.ndarray): Parameters for susceptibility calculation.
+                tuple: (fe_vphi, chiEI, chiERrat).
+        calc_in_2D(params):
+            Calculates the collisionless Thomson spectral density function S(k,omg) for a 2D numerical EDF.
+                params (dict): Plasma and distribution function parameters.
+                formfactor (jnp.ndarray): Calculated spectrum.
+                lams (jnp.ndarray): Wavelength axis.
+    """
     def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang):
-        """
-        Creates a FormFactor object holding all the static values to use for repeated calculations of the Thomson
-        scattering structure factor or spectral density function.
 
-        Args:
-            lambda_range: list of the starting and ending wavelengths over which to calculate the spectrum.
-            npts: number of wavelength points to use in the calculation
-            fe_dim: dimension of the electron velocity distribution function (EDF), should be 1 or 2
-            vax: (optional) velocity axis coordinates that the 2D EDF is defined on
-
-        Returns:
-            Instance of the FormFactor object
-
-        """
         # basic quantities
         self.C = 2.99792458e10
         self.Me = 510.9896 / self.C**2  # electron mass keV/C^2
@@ -115,19 +171,12 @@ class FormFactor:
         radians
 
         Args:
-            params: parameter dictionary, must contain the drift 'ud' and flow 'Va' velocities in the 'general' field
-            cur_ne: electron density in 1/cm^3 [1 by number of gradient points]
-            cur_Te: electron temperature in keV [1 by number of gradient points]
-            A: atomic mass [1 by number of ion species]
-            Z: ionization state [1 by number of ion species]
-            Ti: ion temperature in keV [1 by number of ion species]
-            fract: relative ion composition [1 by number of ion species]
-            sa: scattering angle in degrees [1 by number of angles]
-            f_and_v: a distribution function object, contains the numerical distribution function and its velocity grid
+            params: ThomsonParams object, contains all the parameters from the input deck
 
         Returns:
             formfactor: array of the calculated spectrum, has the shape [number of gradient-points, number of
                 wavelength points, number of angles]
+            lams: wavelength axis
         """
 
         ne = (
@@ -250,14 +299,16 @@ class FormFactor:
 
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
-        Rotate a 2D array by a given angle in radians
-
-        Args:
-            df: 2D array
-            angle: angle in radians
-
-        Return:
-            interpolated 2D array
+        Rotate a 2D array by a specified angle in radians.
+        This method rotates the input 2D array `df` using a rotation matrix constructed from the given angle.
+        The rotation is performed around the origin, and the rotated coordinates are interpolated back onto
+        the original grid using cubic interpolation.
+            vx (jnp.ndarray): 1D array representing the grid points along each axis.
+            df (jnp.ndarray): 2D array to be rotated.
+            angle (float): Rotation angle in radians (counterclockwise).
+            reshape (bool, optional): Whether to reshape the output array. Defaults to False.
+        Returns:
+            jnp.ndarray: The rotated and interpolated 2D array.
         """
 
         rad_angle = jnp.deg2rad(-angle)
@@ -406,22 +457,12 @@ class FormFactor:
         radians
 
         Args:
-            params: parameter dictionary, must contain the drift 'ud' and flow 'Va' velocities in the 'general' field
-            ud_ang: angle between electron drift and x-axis
-            va_ang: angle between ion flow and x-axis
-            cur_ne: electron density in 1/cm^3 [1 by number of gradient points]
-            cur_Te: electron temperature in keV [1 by number of gradient points]
-            A: atomic mass [1 by number of ion species]
-            Z: ionization state [1 by number of ion species]
-            Ti: ion temperature in keV [1 by number of ion species]
-            fract: relative ion composition [1 by number of ion species]
-            sa: scattering angle in degrees [1 by number of angles]
-            f_and_v: a distribution function object, contains the numerical distribution function and its velocity grid
-            lam: probe wavelength
+            params: ThomsonParams object, contains all the parameters from the input deck
 
         Returns:
             formfactor: array of the calculated spectrum, has the shape [number of gradient-points, number of
                 wavelength points, number of angles]
+            lams: wavelength axis
         """
 
         ne = (

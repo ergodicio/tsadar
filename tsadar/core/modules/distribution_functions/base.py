@@ -15,6 +15,20 @@ cwd = os.path.dirname(os.path.realpath(__file__))
 
 
 def smooth1d(array, window_size):
+    """
+    Smooths a 1D array using a Hanning window.
+
+    Parameters:
+        array (jnp.ndarray): Input 1D array to be smoothed.
+        window_size (int): Size of the Hanning window to use for smoothing.
+
+    Returns:
+        jnp.ndarray: Smoothed array of the same shape as the input.
+
+    Notes:
+        - The function uses a Hanning window for smoothing and applies convolution with 'same' mode.
+        - Requires JAX's numpy module (jnp).
+    """
     # Use a Hanning window
     window = jnp.hanning(window_size)
     window /= window.sum()  # Normalize
@@ -28,9 +42,23 @@ def second_order_butterworth(
     signal: Array, f_sampling: int = 100, f_cutoff: int = 15, method: str = "forward_backward"
 ) -> Array:
     """
-    Applies a second order butterworth filter similar to using scipy.signal.butter and scipy.signal.filtfilt
-
-    from https://github.com/jax-ml/jax/issues/17540
+    Applies a second-order Butterworth filter to a signal using JAX.
+    This function implements a digital Butterworth filter, similar to using
+    `scipy.signal.butter` and `scipy.signal.filtfilt`, but is compatible with JAX arrays.
+    It supports forward, backward, and forward-backward (zero-phase) filtering.
+    Args:
+        signal (Array): The input signal to be filtered.
+        f_sampling (int, optional): The sampling frequency of the signal. Default is 100.
+        f_cutoff (int, optional): The cutoff frequency of the filter. Default is 15.
+        method (str, optional): The filtering method to use. Can be "forward", "backward",
+            or "forward_backward" (default). "forward_backward" applies zero-phase filtering
+            by filtering forward and then backward.
+    Returns:
+        Array: The filtered signal.
+    Raises:
+        NotImplementedError: If an unsupported method is specified.
+    References:
+        Adapted from https://github.com/jax-ml/jax/issues/17540
 
     """
 
@@ -69,6 +97,21 @@ def second_order_butterworth(
 
 
 def smooth2d(array, window_size):
+    """
+    Smooths a 2D array using a Hanning window of the specified size.
+
+    Parameters:
+        array (jnp.ndarray): The 2D input array to be smoothed.
+        window_size (int): The size of the Hanning window to use for smoothing.
+
+    Returns:
+        jnp.ndarray: The smoothed 2D array, with the same shape as the input.
+
+    Notes:
+        - This function applies a 2D Hanning window to the input array and performs convolution.
+        - The convolution is performed with 'same' mode, so the output has the same shape as the input.
+        - Requires the input array and window size to be compatible with JAX (jnp).
+    """
     # Use a Hanning window
     window = jnp.outer(jnp.hanning(window_size), jnp.hanning(window_size))
     window /= window.sum()  # Normalize
@@ -76,9 +119,32 @@ def smooth2d(array, window_size):
 
 
 class DistributionFunction1V(eqx.Module):
+    """
+    Base class for 1D velocity distribution functions.
+    This class represents a distribution function defined over a 1D velocity grid.
+    It initializes the velocity grid `vx` based on the configuration provided.
+    Attributes:
+        vx (Array): 1D array of velocity grid points.
+    Args:
+        dist_cfg (Dict): Configuration dictionary containing:
+            - "nvx" (int): Number of velocity grid points.
+    Raises:
+        NotImplementedError: If the instance is called directly, as this is an abstract base class.
+    """
     vx: Array
 
     def __init__(self, dist_cfg: Dict):
+        """
+        Initializes the distribution function object.
+
+        Args:
+            dist_cfg (Dict): Configuration dictionary containing distribution parameters.
+                Expected to have the key "nvx" specifying the number of velocity grid points.
+
+        Attributes:
+            vx (jnp.ndarray): 1D array of velocity grid points, evenly spaced between -vmax and vmax (excluding endpoints),
+                where vmax is set to 6.0 and dv is the grid spacing.
+        """
         super().__init__()
         vmax = 6.0
         dv = 2 * vmax / dist_cfg["nvx"]
@@ -89,6 +155,28 @@ class DistributionFunction1V(eqx.Module):
 
 
 class Arbitrary1V(DistributionFunction1V):
+    """
+    Represents a 1D arbitrary velocity distribution function.
+    This class allows for the initialization, smoothing, and evaluation of a custom 1D distribution
+    function. The distribution is initialized using a Super-gaussian distribtuion parameterized by a parameter `m`.
+    The distribution function is defined in a 1D velocity space and can be smoothed using a second-order
+    Butterworth filter.
+    Attributes:
+        fval (Array): The internal representation of the distribution function values.
+        smooth (Callable): A smoothing function (Butterworth filter) applied to the distribution.
+    Methods:
+        __init__(dist_cfg):
+            Initializes the distribution function with configuration parameters, sets up the initial
+            distribution and smoothing filter.
+        init_dlm(m):
+            Initializes the distribution function using the provided shape parameter `m`.
+            Returns the processed distribution array.
+        get_unnormed_params():
+            Returns a dictionary containing the current (unnormalized) distribution function.
+        __call__():
+            Applies smoothing and normalization to the distribution function and returns the
+            normalized distribution array.
+    """
     fval: Array
     smooth: Callable
 
@@ -117,6 +205,26 @@ class Arbitrary1V(DistributionFunction1V):
 
 
 class DLM1V(DistributionFunction1V):
+    """
+    DLM1V is a 1D distribution function model based on a parameterized "m" shape parameter, with support for activation functions and interpolation over precomputed distributions.
+    Attributes:
+        normed_m (Array): The normalized "m" parameter, possibly transformed by an activation function.
+        m_scale (float): Scaling factor for the "m" parameter normalization.
+        m_shift (float): Shift applied during "m" parameter normalization.
+        act_fun (Callable): Activation function applied to the normalized "m" parameter.
+        f_vx_m (Array): Precomputed distribution values over velocity and "m" axes.
+        interpolate_f_in_m (Callable): Interpolation function for evaluating the distribution at arbitrary "m".
+        m_ax (Array): Array of "m" values corresponding to precomputed distributions.
+    Methods:
+        __init__(dist_cfg, activate=False):
+            Initializes the DLM1V distribution with configuration, normalization, and activation options.
+            Loads precomputed distributions and sets up interpolation.
+        get_unnormed_params():
+            Returns the unnormalized "m" parameter as a dictionary.
+        __call__():
+            Evaluates the distribution function for the current "m" parameter, interpolating as needed,
+            and returns the normalized distribution over the velocity axis.
+    """
     normed_m: Array
     m_scale: float
     m_shift: float
@@ -127,6 +235,22 @@ class DLM1V(DistributionFunction1V):
     act_fun: Callable
 
     def __init__(self, dist_cfg, activate=False):
+        """
+        Initializes the distribution function object with configuration parameters and optional activation.
+        Args:
+            dist_cfg (dict): Configuration dictionary containing distribution parameters and settings.
+            activate (bool, optional): If True and dist_cfg["active"] is True, applies activation function to parameters. Defaults to False.
+        Attributes:
+            m_scale (float): Scaling factor for the 'm' parameter normalization.
+            m_shift (float): Shift value for the 'm' parameter normalization.
+            act_fun (callable): Activation function applied to parameters.
+            normed_m (float): Normalized 'm' parameter, possibly transformed by the inverse activation function.
+            m_ax (jnp.ndarray): 'm' axis values of tabulated dirstribution function, used for interpolation of tabulated values.
+            f_vx_m (jnp.ndarray): Distribution values from tabulated values interpolated over velocity and 'm' axes.
+            interpolate_f_in_m (callable): Vectorized interpolation function for the 'm' axis.
+        Raises:
+            KeyError: If required keys are missing from dist_cfg.
+        """
         super().__init__(dist_cfg)
         self.m_scale = 3.0
         self.m_shift = 2.0
@@ -151,6 +275,15 @@ class DLM1V(DistributionFunction1V):
         return {"m": self.act_fun(self.normed_m) * self.m_scale + self.m_shift}
 
     def __call__(self):
+        """
+        Computes the normalized distribution function for the current parameters.
+        This method applies the activation function to the normalized parameter `normed_m`, 
+        scales and shifts it to obtain `unnormed_m`, and then interpolates the distribution 
+        function using `interpolate_f_in_m`. The resulting distribution is normalized such 
+        that its sum over the velocity axis `vx` is unity.
+        Returns:
+            jnp.ndarray: The normalized distribution function evaluated over the velocity grid.
+        """
         unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
         # vth_x = 1.0  # jnp.sqrt(2.0)
         # alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
@@ -162,9 +295,40 @@ class DLM1V(DistributionFunction1V):
 
 
 class DistributionFunction2V(eqx.Module):
+    """
+    A base class for 2D velocity distribution functions.
+    This class initializes a velocity grid for use in distribution function calculations,
+    centered around zero and spanning from -vmax to vmax, with a specified number of grid points.
+    This velocity grid is symetric in both x and y directions.
+    Parameters
+    ----------
+    dist_cfg : dict
+        Configuration dictionary containing:
+            - "nvx": int
+                Number of velocity grid points along the x-axis.
+    Attributes
+    ----------
+    vx : Array
+        1D array of velocity grid points along the x-axis.
+    Methods
+    -------
+    __call__(*args, **kwds)
+        Calls the parent class's __call__ method.
+    """
     vx: Array
 
     def __init__(self, dist_cfg):
+        """
+        Initializes the distribution function with a velocity grid.
+
+        Args:
+            dist_cfg (dict): Configuration dictionary containing the key "nvx", which specifies
+                the number of velocity grid points.
+
+        Attributes:
+            vx (jnp.ndarray): 1D array of velocity grid points, evenly spaced between
+                -vmax and vmax (excluding endpoints), where vmax is set to 6.0.
+        """
         super().__init__()
         vmax = 6.0
         dvx = 2 * vmax / dist_cfg["nvx"]
@@ -175,6 +339,31 @@ class DistributionFunction2V(eqx.Module):
 
 
 class Arbitrary2V(DistributionFunction2V):
+    """
+    Arbitrary2V is a two-velocity distribution function class that allows for arbitrary initialization and parameterization.
+    Attributes:
+        fval (Array): The current value of the distribution function parameters.
+        learn_log (bool): If True, the logarithm (base 10) of the distribution is learned instead of the distribution itself.
+    Methods:
+        __init__(dist_cfg):
+            Initializes the Arbitrary2V distribution with configuration parameters.
+            Args:
+                dist_cfg (dict): Configuration dictionary containing initialization parameters.
+        init_dlm(m):
+            Initializes the distribution function using a generalized Super-gaussian form.
+            Args:
+                m (float): Super-gaussian order for the distribution.
+            Returns:
+                Array: The initialized distribution function values.
+        get_unnormed_params():
+            Returns the current (unnormalized) distribution parameters.
+            Returns:
+                dict: Dictionary with the current distribution function.
+        __call__():
+            Computes the normalized distribution function based on current parameters.
+            Returns:
+                Array: The normalized distribution function.
+    """
     fval: Array
     learn_log: bool
 
@@ -184,6 +373,23 @@ class Arbitrary2V(DistributionFunction2V):
         self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
 
     def init_dlm(self, m):
+        """
+        Initialize the distribution function using the Dum-Langdon-Matte (DLM) form.
+        Parameters
+        ----------
+        m : float
+            The super-gaussian order parameter for the DLM, controlling the shape of the distribution.
+        Returns
+        -------
+        jax.numpy.ndarray
+            The square root of the (optionally log-transformed) normalized DLM distribution function
+            evaluated on the velocity grid defined by `self.vx`.
+        Notes
+        -----
+        - The function computes the DLM distribution on a 2D velocity grid using the parameter `m`.
+        - The distribution is normalized such that its sum over the grid equals one.
+        - If `self.learn_log` is True, the function returns the negative base-10 logarithm of the distribution before taking the square root.
+        """
 
         vth_x = jnp.sqrt(2.0)
         alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
@@ -205,6 +411,14 @@ class Arbitrary2V(DistributionFunction2V):
         return {"f": self()}
 
     def __call__(self):
+        """
+        Evaluates the normalized distribution function.
+        This method computes the squared values of `self.fval`, optionally applies a logarithmic transformation
+        if `self.learn_log` is True, and then normalizes the result so that the sum over the grid defined by
+        `self.vx` integrates to one.
+        Returns:
+            jnp.ndarray: The normalized distribution function evaluated on the grid.
+        """
         fval = self.fval**2.0
         if self.learn_log:
             fval = jnp.power(10.0, -fval)
@@ -213,6 +427,18 @@ class Arbitrary2V(DistributionFunction2V):
 
 
 def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
+    """
+    Generates a filter for seperating trainable parameters in a distribution function from static parameters, based on the distribution type and parameters.
+    This function modifies the `filter_spec` dictionary to indicate which parameters of the electron distribution functions are trainable, depending on the type of distribution specified in `dist_params`. It supports several distribution types, including 'dlm', 'mx', 'arbitrary', 'arbitrary-nn', and 'sphericalharmonic'.
+    Parameters:
+        filter_spec (Dict): The filter specification dictionary, typically representing the structure of the model or distribution functions.
+        dist_params (Dict): Dictionary containing distribution parameters, including the 'type' key and, for some types, additional nested parameters.
+    Returns:
+        Dict: The updated filter specification dictionary, with trainable parameters marked according to the distribution type.
+    Raises:
+        Warning: If the distribution type is 'mx' (Maxwellian), indicating no trainable parameters.
+        NotImplementedError: If the distribution type or a specific configuration is not supported.
+    """
     if dist_params["type"].casefold() == "dlm":
         if isinstance(filter_spec.electron.distribution_functions, list):
             num_dists = len(filter_spec.electron.distribution_functions)
@@ -298,6 +524,16 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
 
 
 def update_distribution_layers(filter_spec, df):
+    """
+    Updates the filter_spec tree by replacing the weights and biases of each layer in the distribution function neural network.
+    Args:
+        filter_spec: The filter specification tree to be updated, typically used with Equinox (eqx) models.
+        df: An object containing the distribution function neural network (df.f_nn), which is expected to have a 'layers' attribute. Each layer should have 'linear.weight' and 'linear.bias' attributes.
+    Returns:
+        The updated filter_spec tree with the weights and biases of each layer replaced as specified.
+    Note:
+        This function assumes that each layer in df.f_nn.layers has 'linear.weight' and 'linear.bias' attributes, and that eqx.tree_at is used for functional updates.
+    """
     print(df.f_nn.layers)
     for j in range(len(df.f_nn.layers)):
         if df.f_nn.layers[j].weight:

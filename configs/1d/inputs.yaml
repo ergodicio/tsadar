@@ -1,7 +1,7 @@
 data:
   background:
-    slice: 900
-    type: pixel
+    slice: 10002
+    type: Fit
   lineouts:
         type:
             ps
@@ -17,11 +17,17 @@ mlflow:
   run: run
 
 other:
+  PhysParams:
+    widIRF:
+      ang_FWHM_ele: 1.0
+      spect_FWHM_ele: 0.9
+      spect_stddev_ele: 0.1
+      spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
-    fit_IAW: true
+    fit_IAW: false
     load_ele_spec: true
     load_ion_spec: true
   refit: false
@@ -56,7 +62,7 @@ parameters:
       active: false
       lb: 0.0
       num_grad_points: 1
-      ub: 15.0
+      ub: 10.0
       val: 0.0
     Va:
       active: false
@@ -65,12 +71,12 @@ parameters:
       ub: 20.5
       val: 0.0
     amp1:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -96,10 +102,36 @@ parameters:
       lb: -20.0
       ub: 20.0
       val: 0.0
+  electron:
+    Te:
+      active: true
+      gradient_scalar: 10.0
+      lb: 0.01
+      ub: 2.0
+      val: 1.1
+    fe:
+      active: True
+      dim: 2
+      type: sphericalharmonic
+      nvx: 64
+      params:
+        flm_type: arbitrary
+        init_m: 2.2
+        LTx: 22500.
+        LTy: 40000.
+        Nl: 1
+        nvr: 16
+    ne:
+      active: true
+      gradient_scalar: 10.0
+      lb: 0.03
+      ub: 2.0
+      val: 0.44
+    
   ion-1:
     A:
       active: false
-      val: 40.0
+      val: 1.0
     Ti:
       active: false
       lb: 0.01
@@ -108,9 +140,9 @@ parameters:
       val: 0.2
     Z:
       active: false
-      lb: 1.0
-      ub: 18.0
-      val: 8.0
+      lb: 0.5
+      ub: 1.0
+      val: 1.0
     fract:
       active: false
       val: 1.0
