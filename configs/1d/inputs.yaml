@@ -8,7 +8,7 @@ data:
         start: -850
         end: -450
         skip: 5
-  shotnum: 115122
+  shotnum: 115124
 
 machine: gpu
 
@@ -27,7 +27,7 @@ other:
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
-    fit_IAW: false
+    fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
   refit: false
@@ -39,7 +39,7 @@ parameters:
       active: True
       lb: 0.01
       ub: 2.0
-      val: 0.5
+      val: 0.9
     fe:
       active: false
       dim: 1
@@ -48,24 +48,24 @@ parameters:
         m:
           lb: 2.0
           ub: 5.0
-          val: 2.0
+          val: 3.0
           matte: True
           intens: 2.5
       type: dlm
     ne:
       active: True
       lb: 0.03
-      ub: 2.0
-      val: 0.6
+      ub: 4.0
+      val: 2.0
   general:
     Te_gradient:
-      active: false
+      active: true
       lb: 0.0
       num_grad_points: 10
-      ub: 10.0
-      val: 0.0
+      ub: 20.0
+      val: 10.0
     Va:
-      active: false
+      active: true
       angle: 0.0
       lb: -20.5
       ub: 20.5
@@ -81,7 +81,7 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -91,33 +91,52 @@ parameters:
       ub: 352.0
       val: 351.0
     ne_gradient:
-      active: false
+      active: true
       lb: 0.0
       num_grad_points: 10
-      ub: 15.0
-      val: 5.0
-    ud:
-      active: false
-      angle: 0.0
-      lb: -20.0
       ub: 20.0
-      val: 0.0
+      val: 10.0
+    ud:
+      active: true
+      angle: 0.0
+      lb: -40.0
+      ub: 150.0
+      val: 60.0
   
   ion-1:
+    A:
+      active: false
+      val: 14.0
+    Ti:
+      active: true
+      lb: 0.01
+      same: false
+      ub: 3.0
+      val: 0.14
+    Z:
+      active: true
+      lb: 1.0
+      ub: 7.0
+      val: 6.0
+    fract:
+      active: false
+      val: .45
+  
+  ion-2:
     A:
       active: false
       val: 1.0
     Ti:
       active: false
       lb: 0.01
-      same: false
+      same: true
       ub: 3.0
-      val: 0.2
+      val: 0.14
     Z:
       active: false
       lb: 0.5
-      ub: 1.0
+      ub: 1.5
       val: 1.0
     fract:
       active: false
-      val: 1.0
+      val: .55
