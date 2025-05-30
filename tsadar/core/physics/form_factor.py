@@ -258,7 +258,7 @@ class FormFactor:
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
         df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]))), 1)
 
-        chiEI = jnp.pi / (klde**2) * 1j * df
+        chiEI = -jnp.pi / (klde**2) * 1j * df
         
         ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
@@ -275,6 +275,7 @@ class FormFactor:
 
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
+        #ion_comp_fact = jnp.transpose(fract * Zbar / vTi, [1, 0, 2, 3])
         ion_comp = ion_comp_fact * (
             (jnp.abs(chiE[..., jnp.newaxis])) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
         )

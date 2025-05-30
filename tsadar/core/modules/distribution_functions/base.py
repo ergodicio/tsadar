@@ -264,9 +264,9 @@ class DLM1V(DistributionFunction1V):
 
         self.normed_m = inv_act_fun((dist_cfg["params"]["m"]["val"] - self.m_shift) / self.m_scale)
         projected_distributions = loadmat(
-            os.path.join(cwd, "..", "..", "..", "external", "numDistFuncs", "DLM_x_-3_-10_10_m_-1_2_5.mat")
+            os.path.join(cwd, "..", "..", "..", "external", "numDistFuncs", "DLM_x_-4_-10_10_m_-1_2_5.mat")
         )["IT"]
-        vx_ax = jnp.linspace(-10, 10, 20001)
+        vx_ax = jnp.linspace(-10, 10, 200001)
         self.m_ax = jnp.linspace(2, 5, 31)
         self.f_vx_m = vmap(jnp.interp, in_axes=(None, None, 1), out_axes=1)(self.vx, vx_ax, projected_distributions)
         self.interpolate_f_in_m = vmap(jnp.interp, in_axes=(None, None, 0), out_axes=0)

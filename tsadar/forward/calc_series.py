@@ -49,7 +49,8 @@ def forward_pass(config):
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
 
     sas = get_scattering_angles(config)
-
+    sas['sa']=np.array([59.9])
+    sas['weights'] = np.array([1.0])
     dummy_batch = {
         "i_data": np.array([1]),
         "e_data": np.array([1]),
