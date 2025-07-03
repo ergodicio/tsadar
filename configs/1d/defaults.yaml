@@ -2,27 +2,27 @@ data:
   background:
     slice: 900
     type: pixel
-  bgscaleE: 0.0
+  bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 2
-  ele_lam_shift: 0.0
+  ele_lam_shift: -3.35
   ele_t0: 0
   fit_rng:
     blue_max: 335
     blue_min: 250
-    forward_epw_end: 700
-    forward_epw_start: 400
-    forward_iaw_end: 528
-    forward_iaw_start: 524
+    forward_epw_end: 450
+    forward_epw_start: 250
+    forward_iaw_end: 352
+    forward_iaw_start: 350
     iaw_cf_max: 351.01
     iaw_cf_min: 351.0
     iaw_max: 352
     iaw_min: 350
     red_max: 460
     red_min: 370
-  ion_loss_scale: 1.0
-  ion_t0_shift: 0
+  ion_loss_scale: 5.0
+  ion_t0_shift: -100
   launch_data_visualizer: true
   lineouts:
     end: 502
@@ -41,7 +41,7 @@ mlflow:
   experiment: tsadar-test
   run: arts2d
 optimizer:
-  batch_size: 5
+  batch_size: 6
   grad_method: AD
   grad_scalar: 1.0
   hessian: false
@@ -82,12 +82,13 @@ other:
     load_ele_spec: true
     load_ion_spec: false
     absolute_timing: true
+    spectype: temporal
   flatbg: 0
   gain: 1
   iawfilter:
   - 1
   - 4
-  - 24
+  - 26
   - 355
   iawoff: 0
   lam_res_unit: 5

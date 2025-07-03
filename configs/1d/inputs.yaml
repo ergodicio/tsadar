@@ -7,14 +7,14 @@ data:
             ps
         start: -850
         end: -450
-        skip: 5
-  shotnum: 115124
+        skip: 10
+  shotnum: 115127
 
 machine: gpu
 
 mlflow:
   experiment: shotday_4_23_25
-  run: run
+  run: largegrad
 
 other:
   PhysParams:
@@ -39,31 +39,31 @@ parameters:
       active: True
       lb: 0.01
       ub: 2.0
-      val: 0.9
+      val: 0.5
     fe:
-      active: false
+      active: true
       dim: 1
       nvx: 320
       params:
         m:
           lb: 2.0
           ub: 5.0
-          val: 3.0
-          matte: True
+          val: 2.4
+          matte: False
           intens: 2.5
       type: dlm
     ne:
       active: True
       lb: 0.03
       ub: 4.0
-      val: 2.0
+      val: 0.6
   general:
     Te_gradient:
       active: true
       lb: 0.0
       num_grad_points: 10
-      ub: 20.0
-      val: 10.0
+      ub: 40.0
+      val: 25.0
     Va:
       active: true
       angle: 0.0
@@ -94,14 +94,14 @@ parameters:
       active: true
       lb: 0.0
       num_grad_points: 10
-      ub: 20.0
-      val: 10.0
+      ub: 40.0
+      val: 25.0
     ud:
       active: true
       angle: 0.0
-      lb: -40.0
+      lb: -150.0
       ub: 150.0
-      val: 60.0
+      val: -60.0
   
   ion-1:
     A:
@@ -117,7 +117,7 @@ parameters:
       active: true
       lb: 1.0
       ub: 7.0
-      val: 6.0
+      val: 5.0
     fract:
       active: false
       val: .45
