@@ -1,50 +1,59 @@
 data:
   background:
-    slice: 70
-    type: pixel
+    slice: 10002
+    type: Fit
   lineouts:
-    end: 5000
-    skip: 200
-    start: 1500
-    type: ps
-  shotnum: 114440
+    end: 1024
+    skip: 20
+    start: 0
+    type: range
+  shot_rot: 90.0
+  shotnum:
+  - 10002
+  - 10007
 machine: gpu
 mlflow:
-  experiment: princeton_ts
-  run: shot114440_3
+  experiment: inverse-thomson-scattering
+  run: Maxwellian_testdata
 other:
+  PhysParams:
+    widIRF:
+      ang_FWHM_ele: 1.0
+      spect_FWHM_ele: 0.9
+      spect_stddev_ele: 0.1
+      spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: false
-    fit_EPWr: false
-    fit_IAW: true
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: false
     load_ele_spec: true
-    load_ion_spec: true
-    spectype: temporal
+    load_ion_spec: false
+    spectype: angular
   refit: false
-  refit_thresh: 20.0
+  refit_thresh: 5.0
 parameters:
   electron:
     Te:
       active: true
       lb: 0.01
       ub: 1.0
-      val: 0.15
+      val: 1.1
     fe:
-      active: false
+      active: true
       dim: 1
       nvx: 320
       params:
         m:
           lb: 2.0
           ub: 5.0
-          val: 3.0
+          val: 2.0
       type: dlm
     ne:
-      active: false
+      active: true
       lb: 0.001
       ub: 0.1
-      val: 0.03
+      val: 0.44
   general:
     Te_gradient:
       active: false
@@ -53,23 +62,23 @@ parameters:
       ub: 15.0
       val: 0.0
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -40.5
       ub: 40.5
       val: 0.0
     amp1:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -77,7 +86,7 @@ parameters:
       active: true
       lb: 524.0
       ub: 529.0
-      val: 527.5
+      val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
@@ -85,26 +94,26 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -200.0
       ub: 200.0
-      val: 100.0
+      val: 0.0
   ion-1:
     A:
       active: false
-      val: 64.0
+      val: 1.0
     Ti:
-      active: true
+      active: false
       lb: 0.01
       same: false
-      ub: 5.0
-      val: 2.0
+      ub: 1.0
+      val: 0.03
     Z:
-      active: true
-      lb: 6.0
-      ub: 29.0
-      val: 18.0
+      active: false
+      lb: 0.5
+      ub: 1.0
+      val: 1.0
     fract:
       active: false
       val: 1.0
