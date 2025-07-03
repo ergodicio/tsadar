@@ -362,6 +362,7 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
 
         if loss < losses_init[i]:
+            del fitted_weights[(i - 1) // true_batch_size]["electron"]["m"]
             fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
                 insert,
                 fitted_weights[(i - 1) // true_batch_size],

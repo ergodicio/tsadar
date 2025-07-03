@@ -323,22 +323,36 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             # needs to be updated with the calibrations from 7-26-22
             EPWDisp = 0.4104 #should be 0.4143
             IAWDisp = 0.00678 #should be 0.00683?
-            EPWoff = 317.4
+            EPWoff = 317.4 #314.967
             IAWoff = 522.92
             stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated #should be 0.0503?
-            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data #prob should be 1.33
+            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data #prob should be 1.33 #1.48
             print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
 
+        elif 114420 < shotNum < 114450:
+            # Princeton reconnection experiemnts
+            EPWDisp = 0.4153
+            IAWDisp = 0.00683
+            EPWoff = 314.97
+            IAWoff = 349.17
+            stddev["spect_stddev_ion"] = 0.0321 #possibly half this
+            stddev["spect_stddev_ele"] = 1.33  # based of hg lamp data
+            # Sweep speed calculated from 5 Ghz comb
+            magI = 5.23  # (ps / px)
+            magE = 5.35  # (ps / px)
+        
+        
         elif 114907 < shotNum < 115920:
             # 3w data from CBET study (all params should be checked)
             EPWDisp = 0.4153
             IAWDisp = 0.00378
-            EPWoff = 138.24 #rough guess
-            IAWoff = 349.10 #need to be checked
-            stddev["spect_stddev_ion"] = 0.0421  # 0.0095  # needs to be updated
+            EPWoff = 137.99 #rough guess 137.99
+            IAWoff = 349.17#349.02 #need to be checked
+            stddev["spect_stddev_ion"] = 0.042#0.0321#0.0421  # 0.0095  # needs to be updated
+            print(stddev["spect_stddev_ion"])
             stddev["spect_stddev_ele"] = 2.4  # based of hg lamp data
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
