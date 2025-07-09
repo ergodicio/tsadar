@@ -31,6 +31,8 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
+        "opencv-python",
+        "scikit-image",
         "matplotlib",
         # "pyhdf", # install using conda, has hdf5 dependencies that need configuring otherwise
         "xlrd",
