@@ -14,19 +14,24 @@ from ..utils.data_handling.calibration import get_scattering_angles, get_calibra
 
 
 def forward_pass(config):
+    
     """
-    Calculates a spectrum or series of spectra from the input deck, i.e. performs a forward pass or series of forward
-     passes.
+    Calculates a spectrum or series of spectra from the input configuration, performing a forward pass or a series of forward passes.
 
-
-    Args:
-        config: Dictionary - Configuration dictionary created from the input deck. For series of spectra contains the special
-         field 'series'. This field can have up to 8 subfields [param1, vals1, param2, vals2, param3, vals3, param4, vals4].
-         the param subfields are a string identifying which fields of "parameters" are to be looped over. The vals subfields
-         give the values of that subfield for each spectrum in the series.
-
+    Args:    
+        config (dict): Configuration dictionary created from the input deck. For a series of spectra, contains the special
+            field 'series', which can have up to 8 subfields: [param1, vals1, param2, vals2, param3, vals3, param4, vals4].
+            The param subfields are strings identifying which fields of "parameters" are to be looped over. The vals subfields
+            provide the values for each spectrum in the series.
     Returns:
-        Ion data, electron data, and plots are saved to mlflow
+        None: The function does not return any values. Instead, it saves the ion and electron data as NetCDF files, saves plots of
+            simulated data, and logs artifacts and metrics to mlflow.    
+    Side Effects:
+        - Saves ion and electron data as NetCDF files.
+        - Saves plots of simulated data.
+        - Logs artifacts and metrics to mlflow.
+    Notes:
+        - The ability to loop over multiple parameters or generate a series of spectra is not working with v0.1+ refactoring.
 
     """
     is_angular = True if "angular" in config["other"]["extraoptions"]["spectype"] else False

@@ -18,6 +18,13 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
         config: Dictionary constructed from input deck
 
     Returns:
+        None: The function saves the plots to a temporary directory and logs them to MLflow.
+
+    Notes:
+        - The function uses a temporary directory to save the plots, which are then logged to MLflow.
+        - The function handles different types of lineouts based on the configuration provided.
+        - The function uses matplotlib for plotting and color mapping.
+        - The function assumes that the data is in a format compatible with numpy and matplotlib.
 
     """
     if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":

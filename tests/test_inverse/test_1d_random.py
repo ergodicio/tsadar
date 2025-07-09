@@ -1,6 +1,7 @@
 from jax import config
 
 config.update("jax_enable_x64", True)
+config.update("jax_platform_name", "cpu")
 
 from jax import numpy as jnp
 from jax.flatten_util import ravel_pytree
@@ -108,44 +109,44 @@ def test_1d_inverse():
         ground_truth = {"ThryE": ThryE, "lamAxisE": lamAxisE, "ThryI": ThryI, "lamAxisI": lamAxisI}
 
         loss = 1
-        while np.nan_to_num(loss, nan=1) > 1e-3:
-            ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
-            config["parameters"] = _perturb_params_(rng, config["parameters"])
-            ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
-            diff_params, static_params = eqx.partition(
-                ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
-            )
+        # while np.nan_to_num(loss, nan=1) > 1e-3:
+        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+        config["parameters"] = _perturb_params_(rng, config["parameters"])
+        ts_params_fit = ThomsonParams(config["parameters"], num_params=1, batch=True, activate=True)
+        diff_params, static_params = eqx.partition(
+            ts_params_fit, filter_spec=get_filter_spec(cfg_params=config["parameters"], ts_params=ts_params_fit)
+        )
 
-            def loss_fn(_diff_params):
-                _all_params = eqx.combine(_diff_params, static_params)
-                ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
-                return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
+        def loss_fn(_diff_params):
+            _all_params = eqx.combine(_diff_params, static_params)
+            ThryE, ThryI, _, _ = ts_diag(_all_params, dummy_batch)
+            return jnp.mean(jnp.square(ThryE - ground_truth["ThryE"]))
 
-            use_optax = False
-            if use_optax:
-                opt = optax.adam(0.004)
+        use_optax = False
+        if use_optax:
+            opt = optax.adam(0.004)
 
-                opt_state = opt.init(diff_params)
-                for i in (pbar := tqdm.tqdm(range(1000))):
-                    loss, grad_loss = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))(diff_params)
-                    updates, opt_state = opt.update(grad_loss, opt_state)
-                    diff_params = eqx.apply_updates(diff_params, updates)
-                    pbar.set_description(f"Loss: {loss:.4f}")
+            opt_state = opt.init(diff_params)
+            for i in (pbar := tqdm.tqdm(range(100))):
+                loss, grad_loss = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))(diff_params)
+                updates, opt_state = opt.update(grad_loss, opt_state)
+                diff_params = eqx.apply_updates(diff_params, updates)
+                pbar.set_description(f"Loss: {loss:.4f}")
 
-            else:
-                flattened_diff_params, unravel = ravel_pytree(diff_params)
+        else:
+            flattened_diff_params, unravel = ravel_pytree(diff_params)
 
-                def scipy_vg_fn(diff_params_flat):
-                    diff_params_pytree = unravel(diff_params_flat)
-                    loss, grads = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))(diff_params_pytree)
-                    flattened_grads, _ = ravel_pytree(grads)
+            def scipy_vg_fn(diff_params_flat):
+                diff_params_pytree = unravel(diff_params_flat)
+                loss, grads = eqx.filter_jit(eqx.filter_value_and_grad(loss_fn))(diff_params_pytree)
+                flattened_grads, _ = ravel_pytree(grads)
 
-                    return float(loss), np.array(flattened_grads)
+                return float(loss), np.array(flattened_grads)
 
-                res = minimize(scipy_vg_fn, flattened_diff_params, method="L-BFGS-B", jac=True, options={"disp": True})
+            res = minimize(scipy_vg_fn, flattened_diff_params, method="L-BFGS-B", jac=True, options={"disp": True})
 
-                diff_params = unravel(res["x"])
-                loss = res["fun"]
+            diff_params = unravel(res["x"])
+            loss = res["fun"]
 
         gt_params = _floatify(ts_params_gt.get_unnormed_params(), prefix="gt")
         learned_params = _floatify(eqx.combine(diff_params, static_params).get_unnormed_params(), prefix="learned")

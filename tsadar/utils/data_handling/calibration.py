@@ -188,8 +188,27 @@ def sa_lookup(beam):
                 ]
             ),
         )
+    elif beam == "B62":
+        # Scattering angle in degrees for OMEGA TIM6 TS
+        sa = dict(
+            sa=np.linspace(147.818, 160.129, 10),
+            weights=np.array(
+                [
+                    0.0049997747,
+                    0.0280167560,
+                    0.0686455565,
+                    0.1195892076,
+                    0.1689113103,
+                    0.1943155713,
+                    0.1876041619,
+                    0.1412098554,
+                    0.0715283095,
+                    0.0151794964,
+                ]
+            ),
+        )
     else:
-        raise NotImplmentedError("Other probe geometrries are not yet supported")
+        raise NotImplementedError("Other probe geometrries are not yet supported")
 
     return sa
 
@@ -313,19 +332,17 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
 
-        elif 101413 < shotNum < 101417:
-            EPWDisp = 0.415075615
-            IAWDisp = 0.006998175
-            EPWoff = 317.4
-            IAWoff = 354.49
+        elif 114907 < shotNum < 115920:
+            # 3w data from CBET study (all params should be checked)
+            EPWDisp = 0.4153
+            IAWDisp = 0.00366
+            EPWoff = 135.74 #rough guess
+            IAWoff = 349.10 #need to be checked
             stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
             stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
-            print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
-            magI = 4.83  # (ps / px) this is just a rough guess
-            magE = 2.3  # (ps / px) this is just a rough guess
-            
-    
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
 
         else:
             # needs to be updated with the calibrations from 7-26-22

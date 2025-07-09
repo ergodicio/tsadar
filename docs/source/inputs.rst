@@ -28,20 +28,17 @@ The defaults deck contains additional options and default values for all options
 Parameters
 ^^^^^^^^^^^^
 
-All fitting parameters are found in the :bdg-success-line:`parameters:` section of the input decks. These parameters are separated into
-species fields. These species can be called anything but best practice is to name them :bdg-success-line:`species1` through
-:bdg-success-line:`speciesn`.
+All fitting parameters are found in the :bdg-success-line:`parameters:` section of the input decks. The fitting parameters are broken up based off their scope.
+There must be at least 3 subfields referencing the different species in :bdg-success-line:`parameters` called :bdg-success-line:`electron`, 
+:bdg-success-line:`ion-1`, and :bdg-success-line:`general`. If the problem has mutliple ion species additional ion species fields can be added 
+with increasing index numbers, i.e. ion-2, ion-3.
 
-Each species must have a :bdg-success-line:`type` field which specifies weather the species is an electron, ion, or the unique general
-type. These three key word should be entered as fields of the :bdg-success-line:`type` field. Any number of ion species can be included,
-and while the code currently only supports one electron species this will be expanded in the future. The :bdg-success-line:`general`
-species is used to specify properties that apply to the system as a whole and are not unique to a species, therefore only one can be included.
+Each species has associated fitting parameters which generaly have 4 atributes :bdg-success-line:`val`, :bdg-success-line:`active`, 
+:bdg-success-line:`lb`, and :bdg-success-line:`ub`. :bdg-success-line:`val` is the inital value for a fitted parameter or the constant value for a
+static parameter. :bdg-success-line:`active` is a boolean determingin if the parameter is being fit, so parameters with :bdg-success-line:`active: False`
+will be held at the value in :bdg-success-line:`val`. :bdg-success-line:`ub` and :bdg-success-line:`lb` are upper and lower bounds respectively 
+for the parameter and are generaly hard constraints on the values.
 
-Within each species live the parameters that are relevent to fitting that species, each parameter has at least 4
-attributes. :bdg-success-line:`val` is the initial value used as a starting condition for the minimizer. :bdg-success-line:`active` is a boolean
-determining if a parameter is to be fit, i.e :bdg-success-line:`active: True` means a parameter with be fit and :bdg-success-line:`active: False` means
-a parameter with be held constant at :bdg-success-line:`val`. :bdg-success-line:`ub` and :bdg-success-line:`lb` are upper and lower bounds respectively 
-for the parameters.
 
 Electron parameters
 ^^^^^^^^^^^^^^^^^^^
@@ -49,22 +46,22 @@ Electron parameters
 
 - :bdg-success-line:`ne` is the electron density in 10^20 cm^-3
 
-- :bdg-success-line:`m` is the electron distribution function super-Gaussian parameter
-
-- :bdg-success-line:`fe` contains additional options for controlling the distribution function *more info to come*
+- :bdg-success-line:`fe` is the distribtuion function for most purposes this should be left with :bdg-success-line:`type: dlm`
+        and then :bdg-success-line:`m` is the super-Gaussian order behaving as other parameters just inheriting its activation from 
+        :bdg-success-line:`fe` *more info to come*
 
 
 Ion parameters
 ^^^^^^^^^^^^^^^^^^^
 - :bdg-success:`Ti` is the ion temperature in keV
     
-    - :bdg-success-line:`same` is a special field for ion temperature, if multiple ions are used subsequent ions can have this booleanset to True in order to use a single ion temperature for all ion species
+    - :bdg-success-line:`same` is a special field for ion temperature, if multiple ions are used subsequent ions can have this boolean set to True in order to use a single ion temperature for all ion species
 
-- :bdg-success-line:`Z` is the average ionization state
+- :bdg-success-line:`Z` is the average ionization state of the parent species
 
-- :bdg-success-line:`A` is the atomic mass
+- :bdg-success-line:`A` is the atomic mass number and should not be fit
 
-- :bdg-success-line:`fract` is the element ratio for multispecies plasmas, the sum of fract for all species should be 1
+- :bdg-success-line:`fract` is the element ratio for multispecies plasmas, the sum of fract for all species is held constant at 1
 
 General parameters
 ^^^^^^^^^^^^^^^^^^^
@@ -81,16 +78,15 @@ General parameters
 
 - :bdg-success-line:`ne_gradient` is the electron density spatial gradient in % of :bdg-success-line:`ne`. :bdg-success-line:`ne` will take the form :bdg-success-line:`linspace(ne-ne*ne_gradient.val/200, ne+ne*ne_gradient.val/200, ne_gradient.num_grad_points)` :bdg-success-line:`val!=0` will calculate the spectrum with a gradient.
 
-- :bdg-success-line:`ud` is the electron drift velocity (relative to the ions) in 10^6 cm/s
+- :bdg-success-line:`ud` is the electron drift velocity (relative to the ions) in 10^6 cm/s (*Will be modified in future release*)
 
-- :bdg-success-line:`Va` is the plasma fluid velocity or flow velocity in 10^6 cm/s
+- :bdg-success-line:`Va` is the plasma fluid velocity or flow velocity in 10^6 cm/s (*Will be modified in future release*)
 
 MLFlow
 ^^^^^^^^
 
 When running all code output is managed by MLFlow. This included the fitted parameters as well as the automated plots.
-A copy of the inputs decks will also be saved by MLFlow for easier reference. The MLFlow options can be found at the
-end of **inputs.yaml** in the :bdg-success:`mlflow:` section.
+A copy of the inputs decks will also be saved by MLFlow for easier reference. The MLFlow options can be found in the :bdg-success:`mlflow:` section.
 
 - :bdg-success-line:`experiment` is the name of the experiment folder that the run will be associated with.
 
@@ -106,7 +102,7 @@ The :bdg-success-line:`data:` section contains the specifics on which shot and w
 
 - :bdg-success:`lineouts` specifies the region of the data to take lineouts from.
 
-    - :bdg-success:`type` specifies the units that the linout locations are in. 
+    - :bdg-success:`type` specifies the units that the lineout locations are in. 
   
         - :bdg-success-line:`um` for microns in imaging data.
 
@@ -122,7 +118,7 @@ The :bdg-success-line:`data:` section contains the specifics on which shot and w
 
 - :bdg-success:`background` specifies the location where the background will be analyzed.
 
-    - :bdg-success-line:`type` there are multiple background algorithms availible. This field is used to select the approprate one. The options are :bdg-success-line:`Fit` in order to fit a model to the background, :bdg-success-line:`Shot` in order to subtract a background shot, and :bdg-success-line`pixel` to specify a location with background data to be subtracted.
+    - :bdg-success-line:`type` there are multiple background algorithms availible. This field is used to select the approprate one. The options are :bdg-success-line:`Fit` in order to fit a model to the background, :bdg-success-line:`Shot` in order to subtract a background shot, and :bdg-success-line:`pixel` to specify a location with background data to be subtracted.
 
     - :bdg-success:`slice` is the location for the background algorithm. 
   
@@ -147,8 +143,8 @@ on how to perform the fit.
 
 - :bdg-success-line:`fit_EPWr` is a boolean determining if the red shifted EPW data will be fit by including it in the loss metric.
 
-- :bdg-success-line:`refit` is a boolean determinging if poor fits will attempt to be refit.
+- :bdg-success-line:`refit` is a boolean determinging if poor fits will attempt to be refit, it is recommended this is only turned on once most fits look good.
 
-- :bdg-success-line:`refit_thresh` is the value of the loss metric below above which refits will be performed.
+- :bdg-success-line:`refit_thresh` is the value of the loss metric below above which refits will be performed, this threshold must be determined empericaly from the other fits.
 
 - :bdg-success-line:`calc_sigmas` is a boolean determining if a Hessian will be computed to determine the uncertainty in fitted parameters.

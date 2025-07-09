@@ -9,7 +9,55 @@ from tsadar.utils.process.evaluate_background import get_lineout_bg
 def get_lineouts(
     elecData, ionData, BGele, BGion, axisxE, axisxI, axisyE, axisyI, shift_zero, IAWtime, xlab, sa, config
 ) -> Dict:
+     
+    """
+    Extracts and processes lineouts from electron and ion spectrometer data, applies background subtraction,
+    normalization, and computes amplitude metrics for further analysis.
+    Parameters
+    ----------
+    elecData : np.ndarray
+        2D array of electron spectrometer data.
+    ionData : np.ndarray
+        2D array of ion spectrometer data.
+    BGele : np.ndarray
+        Background electron data for subtraction.
+    BGion : np.ndarray
+        Background ion data for subtraction.
+    axisxE : np.ndarray
+        1D array representing the spatial axis for electron data.
+    axisxI : np.ndarray
+        1D array representing the spatial axis for ion data.
+    axisyE : np.ndarray
+        1D array representing the spectral axis for electron data.
+    axisyI : np.ndarray
+        1D array representing the spectral axis for ion data.
+    shift_zero : float
+        Value to shift the zero position for lineout extraction.
+    IAWtime : float
+        Ion acoustic wave time, used for aligning ion lineouts.
+    xlab : str
+        Label for the x-axis (not used in processing).
+    sa : dict
+        Dictionary containing spectral analysis parameters and weights.
+    config : dict
+        Configuration dictionary specifying extraction parameters, background, and processing options.
+    Returns
+    -------
+    all_data : collections.defaultdict
+        Dictionary containing processed lineout data and amplitudes:
+            - "noiseE": Background for electron data.
+            - "noiseI": Background for ion data.
+            - "e_data": Normalized electron lineout data (or zeros if not loaded).
+            - "i_data": Normalized ion lineout data (or zeros if not loaded).
+            - "e_amps": Amplitudes of electron lineouts (or zeros if not loaded).
+            - "i_amps": Amplitudes of ion lineouts (or zeros if not loaded).
+    Raises
+    ------
+    NotImplementedError
+        If the lineout or background type specified in config is not supported.
+    """
     # Convert lineout locations to pixel
+    
     if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":
         LineoutPixelE = [np.argmin(abs(axisxE - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
         IAWtime = IAWtime / (axisxI[1] - axisxI[0])  # corrects the iontime to be in the same units as the lineout
@@ -23,7 +71,7 @@ def get_lineouts(
     config["data"]["lineouts"]["pixelE"] = LineoutPixelE
     config["data"]["lineouts"]["pixelI"] = LineoutPixelI
 
-    if config["data"]["background"]["type"] == "ps":
+    if config["data"]["background"]["type"] == "ps" or config["data"]["background"]["type"] == "um":
         BackgroundPixel = np.argmin(abs(axisxE - config["data"]["background"]["slice"]))
     elif config["data"]["background"]["type"] == "pixel":
         BackgroundPixel = config["data"]["background"]["slice"]

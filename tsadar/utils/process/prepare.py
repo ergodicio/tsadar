@@ -14,18 +14,20 @@ from tsadar.utils.process.feature_detector import first_guess
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:
     """
-    Loads and preprocesses the data for fitting
-
+    Prepares and processes experimental data for Thomson scattering analysis.
+    This function loads electron and ion spectral data, applies calibrations, background corrections,
+    and optionally downsamples the data for angular-resolved measurements. It also updates the configuration
+    dictionary with relevant calibration and processing parameters.
     Args:
-        config: Configuration dictionary created from input decks
-        shotNum: The OMEGA shot number
-
+        config (Dict): Configuration dictionary containing data specifications, processing options, and experiment settings.
+        shotNum (int): Shot number identifying the experimental dataset to load.
     Returns:
-        all_data: dictionary containing the throughput and warp corrected data at the appropriate resolution unit or lineouts
-        sa: scattering angle dictionary containing the scattering angles and thier relative weights
-        all_axes: dictionary containing the calibrated axes for all spectra and axis labels
-
+        Tuple[Dict, Dict, Dict]:
+            - all_data (Dict): Dictionary containing processed electron and ion data, amplitudes, and noise estimates.
+            - sa (Dict): Dictionary of scattering angles and relative weights.
+            - all_axes (Dict): Dictionary of calibrated axes for electron and ion spectra.
     """
+    
     # load data
     custom_path = None
     if "filenames" in config["data"].keys():

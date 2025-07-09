@@ -20,9 +20,11 @@ def load_and_make_folders(cfg_path: str) -> Tuple[str, Dict]:
     This is used to queue runs on NERSC
 
     Args:
-        cfg_path:
+        cfg_path: path to the config folder
 
     Returns:
+        run_id: mlflow run id
+        all_configs: dictionary of all configs
 
     """
     all_configs = {}
@@ -57,10 +59,11 @@ def run(cfg_path: str, mode: str) -> str:
     Wrapper for lower level runner
 
     Args:
-        cfg_path:
-        mode:
+        cfg_path: path to the config folder
+        mode: either "fit" or "forward"
 
     Returns:
+        run_id: mlflow run id
 
     """
     run_id, all_configs = load_and_make_folders(cfg_path)
@@ -74,6 +77,19 @@ def run(cfg_path: str, mode: str) -> str:
 
 
 def run_for_app(run_id: str) -> str:
+    """
+    Dedicated run wrapper for the web app. Downloads the config and data files from the MLflow run's artifact URI,
+    updates the configuration with local file paths, and executes the main run method in "fit" mode.
+    
+    Args:
+        run_id (str): The MLflow run ID to resume or use for logging.
+    Returns:
+        str: The MLflow run ID used for this execution.
+    Side Effects:
+        - Downloads files to a temporary directory.
+        - May modify the configuration dictionary in memory.
+        - Executes the main application logic via `_run_`.
+    """
     with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
         # download config
         with tempfile.TemporaryDirectory(dir=BASE_TEMPDIR) as temp_path:
@@ -104,10 +120,17 @@ def _run_(config: Dict, mode: str = "fit"):
     Relies on mlflow to log parameters, metrics, and artifacts
 
     Args:
-        config:
-        mode:
+        config: configuration dictionary
+        mode: either "fit" or "forward"
+        - "fit": runs the fitting routine
+        - "forward": runs the forward pass
 
     Returns:
+        None
+    
+    Notes:
+        - The function logs the total time taken for the operation and the number of CPU cores used.
+        - It also sets a status tag in MLflow to indicate completion.
 
     """
     misc.log_mlflow(config)
@@ -130,10 +153,19 @@ def run_job(run_id: str, mode: str, nested: bool):
 
 
     Args:
-        run_id:
-        nested:
-
+        run_id: mlflow run id
+        mode: either "fit" or "forward"
+        nested: whether to start a nested run or not
+        - If True, starts a nested run within the current MLflow run context.
+        - If False, starts a new run.
     Returns:
+        None
+
+    Note:
+        - The function downloads the configuration files from the MLflow run's artifact URI to a temporary directory.
+        - It flattens and unflattens the configuration dictionary for easier manipulation.
+        - The `_run_` function is called to execute the main application logic with the provided mode.
+
 
     """
     with mlflow.start_run(run_id=run_id, nested=nested) as run:

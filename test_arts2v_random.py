@@ -115,8 +115,8 @@ def _perturb_params_(rng, params, dist_type: str):
     return params
 
 
-@pytest.mark.parametrize("dist_type", ["arbitrary", "mora-yahi", "nn"])
-def test_arts2d_inverse(dist_type: bool):
+# @pytest.mark.parametrize("dist_type", ["arbitrary", "mora-yahi", "nn"])
+def test_arts2d_inverse(config_path: str = "tests/configs/arts2d_test_defaults.yaml"):
     """
     Runs a forward pass with the Thomson scattering diagnostic and ThomsonParams classes. Saves the results to mlflow.
 
@@ -133,19 +133,22 @@ def test_arts2d_inverse(dist_type: bool):
 
     _t0 = time.time()
     mlflow.set_experiment("tsadar-tests")
+    with open(f"{config_path}_defaults.yaml", "r") as fi:
+        defaults = yaml.safe_load(fi)
+
+    with open(f"{config_path}_inputs.yaml", "r") as fi:
+        inputs = yaml.safe_load(fi)
+
+    defaults = flatten(defaults)
+    defaults.update(flatten(inputs))
+    config = unflatten(defaults)
+
+    dist_type = config["parameters"]["electron"]["fe"]["params"]["flm_type"]
+
     run_name = "angular-2v"
-    run_name += "-nn-flm-only"
+    run_name += f"-{dist_type}"
 
     with mlflow.start_run(run_name=run_name) as run:
-        with open("tests/configs/arts2d_test_defaults.yaml", "r") as fi:
-            defaults = yaml.safe_load(fi)
-
-        with open("tests/configs/arts2d_test_inputs.yaml", "r") as fi:
-            inputs = yaml.safe_load(fi)
-
-        defaults = flatten(defaults)
-        defaults.update(flatten(inputs))
-        config = unflatten(defaults)
 
         with tempfile.TemporaryDirectory() as td:
             with open(os.path.join(td, "config.yaml"), "w") as fi:
@@ -341,4 +344,11 @@ def perturb_and_split_params(dist_type, config, rng):
 
 
 if __name__ == "__main__":
-    test_arts2d_inverse(dist_type="nn")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the test")
+    parser.add_argument("--config", type=str, help="Path to the config file")
+    args = parser.parse_args()
+    config_path = args.config if args.config else "tests/configs/arts2v_test"
+
+    test_arts2d_inverse(config_path=config_path)

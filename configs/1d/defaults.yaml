@@ -113,17 +113,6 @@ other:
   refit: false
   refit_thresh: 0.25
 parameters:
-  electron:
-    Te:
-      active: false
-      lb: 0.01
-      ub: 1.5
-      val: 0.2
-    ne:
-      active: false
-      lb: 0.001
-      ub: 1.0
-      val: 0.1
   general:
     Te_gradient:
       active: false
@@ -138,7 +127,7 @@ parameters:
       ub: 20.5
       val: 0.0
     amp1:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -154,7 +143,7 @@ parameters:
       val: 1.0
     lam:
       active: false
-      lb: 523.0
+      lb: 525.0
       ub: 528.0
       val: 526.5
     ne_gradient:
@@ -169,6 +158,27 @@ parameters:
       lb: -100.0
       ub: 100.0
       val: 0.0
+  electron:
+    Te:
+      active: false
+      lb: 0.01
+      ub: 1.5
+      val: 0.6
+    fe:
+      active: false
+      dim: 2
+      type: sphericalharmonic
+      nvx: 128
+      params:
+        init_m: 2.7
+        Nl: 1
+        nvr: 64
+    ne:
+      active: false
+      lb: 0.001
+      ub: 1.0
+      val: 0.2
+
   ion-1:
     A:
       active: false
@@ -176,7 +186,6 @@ parameters:
     Ti:
       active: false
       lb: 0.001
-      same: false
       ub: 1.0
       val: 0.12
     Z:
@@ -187,10 +196,10 @@ parameters:
     fract:
       active: false
       val: 0.1
+
 plotting:
-  data_cbar_l: -1
+  data_cbar_l: 0
   data_cbar_u: data
-  detailed_breakdown: false
   ele_window_end: 625
   ele_window_start: 425
   ion_window_end: 528

@@ -12,16 +12,22 @@ from .correct_throughput import correctThroughput
 
 def get_shot_bg(config, shotNum, axisyE, elecData):
     """
-    Quantify the background for full images
-
+    Computes the background electron and ion spectra for a given shot based on data from another shot.
+    For non-angular data, the function loads background data from a specified shot,
+    applies throughput corrections and smoothing. For angular data polynomial model is fit to the data to correct the background.
+    If background type is not recognized, returns zeros for both backgrounds.
     Args:
-        config:
-        axisyE:
-        elecData:
-
+        config (dict): Configuration dictionary containing parameters and processing options.
+        shotNum (int): Shot number of data to evaluated for background.
+        axisyE (np.ndarray): Array representing the wavelength axis for electron data.
+        elecData (np.ndarray): Electron data array used for background fitting in certain modes.
     Returns:
-
+        tuple:
+            BGele (np.ndarray or int): Background electron spectrum (array or 0 if not loaded).
+            BGion (np.ndarray or int): Background ion spectrum (array or 0 if not loaded).
     """
+
+    # If the background type is Shot, load the data from the specified shot and smooth it.
     if config["data"]["background"]["type"] == "Shot":
         [BGele, BGion, _, _, _] = loadData(
             config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
@@ -40,6 +46,9 @@ def get_shot_bg(config, shotNum, axisyE, elecData):
                 BGele = conv2(BGele, np.ones([5, 3]) / 15, mode="same")
         else:
             BGele = 0
+    
+    # If the background type is Fit, load the data from the specified shot and apply a polynomial model for correction.
+    # This is specifically for angular data.
     elif config["other"]["extraoptions"]["spectype"] == "angular" and config["data"]["background"]["type"] == "Fit":
         [BGele, _, _, _, _] = loadData(
             config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
@@ -65,6 +74,8 @@ def get_shot_bg(config, shotNum, axisyE, elecData):
         print("Angular background corrected with polynomial model")
         print(corrfactor.x)
         BGion = 0
+    
+    # If the background type is not recognized, return zeros for both backgrounds.
     else:
         BGele = 0
         BGion = 0
@@ -89,13 +100,27 @@ def get_lineout_bg(
     by a time ("ps") or set to 100 pixels past the lineout ("auto"). This method uses another lint of the data that is
      smoothed to act as the background. If included a background shot is removed to prevent double counting. This option
       is best for time resolved data.
+
+    Args:
+        config (dict): Configuration dictionary containing parameters and processing options.
+        elecData (np.ndarray): Electron data array used for background fitting in certain modes.
+        ionData (np.ndarray): Ion data array used for background fitting in certain modes.
+        BGele (np.ndarray): Background electron spectrum from background shot (array or 0 if not loaded).
+        BGion (np.ndarray): Background ion spectrum from background shot (array or 0 if not loaded).
+        LineoutTSE_smooth (np.ndarray): Smoothed lineout data for electron spectra.
+        BackgroundPixel (int): Pixel index for the background region.
+        LineoutPixelE (list): List of pixel indices for electron lineouts.
+        LineoutPixelI (list): List of pixel indices for ion lineouts.
     """
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
+    # Check if the background type is valid
     if config["data"]["background"]["type"].casefold() not in ["fit", "shot", "pixel"]:
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'Pixel'")
 
+    # for electrons, if the background type is "fit" and the data type is not "angular"
     if config["other"]["extraoptions"]["load_ele_spec"]:
+        # fit a background model to the edges of the lineout
         if config["data"]["background"]["type"].casefold() == "fit":
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
@@ -129,14 +154,14 @@ def get_lineout_bg(
                 LineoutBGE = []
                 bgalg  = methods[config["data"]["background"]["bg_alg"]]
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
-                    [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], [-16, 200000, 170])
+                    [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], config["data"]["background"]["bg_alg_params"])
                     # if config["data"]["background"]["show"]:
                     #     plt.plot(rat11(np.arange(1024), *rat1bg))
                     #     plt.plot(LineoutTSE_smooth[i])
                     #     plt.show()
 
                     LineoutBGE.append(bgalg(np.arange(1024), *pvec))
-        # if not fit
+        # if not fit use a pixel lineout with smoothing
         else:
             # quantify a background lineout
             LineoutBGE = np.mean(
