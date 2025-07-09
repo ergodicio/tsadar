@@ -83,8 +83,14 @@ parameters:
             active: False
             lb: -20.5
             ub: 20.5
-
-
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: true
+  margin_of_error:
+    x_end: 40
+    x_start: 40
+    y_end: 40
+    y_start: 40
 other:
     refit: False
     refit_thresh: 5.0

@@ -148,6 +148,14 @@ data:
         type:
             pixel
         slice: 900
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: true
+  margin_of_error:
+    x_end: 40
+    x_start: 40
+    y_end: 40
+    y_start: 40
 
 plotting:
     n_sigmas: 3

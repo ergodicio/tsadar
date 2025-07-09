@@ -1,15 +1,21 @@
 data:
   background:
     slice: 900
-    type: pixel
+    type: fit
   lineouts:
-    end: 1500
-    skip: 50
-    start: 600
-    type: ps
-  shotnum: 101414
-  estimate_lineouts_epw: false
+    end: -610
+    skip: 14
+    start: -950
+    type: um
+  shotnum: 114426  
+feature_detector:
   estimate_lineouts_iaw: false
+  estimate_lineouts_epw: true
+  margin_of_error:
+    x_end: 40
+    x_start: 40
+    y_end: 40
+    y_start: 40
 machine: gpu
 mlflow:
   experiment: test
@@ -17,12 +23,12 @@ mlflow:
 other:
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: false
-    fit_EPWr: false
-    fit_IAW: true
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: false
     load_ele_spec: true
-    load_ion_spec: true
-    spectype: temporal
+    load_ion_spec: false
+    spectype: imaging
   refit: false
   refit_thresh: 20.0
 parameters:
@@ -31,7 +37,7 @@ parameters:
       active: true
       lb: 0.01
       ub: 2.0
-      val: 0.4
+      val: 0.35
     fe:
       active: false
       dim: 1
@@ -45,10 +51,10 @@ parameters:
           intens: 2.5
       type: dlm
     ne:
-      active: false
+      active: true
       lb: 0.03
       ub: 2.0
-      val: 0.3
+      val: 0.1
     type:
       active: false
       electron: null
@@ -66,22 +72,22 @@ parameters:
       ub: 40.5
       val: 0.0
     amp1:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     lam:
-      active: true
+      active: false
       lb: 525.6
       ub: 527.5
       val: 526.5
@@ -92,7 +98,7 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.0
       ub: 40.0
@@ -100,18 +106,18 @@ parameters:
   ion-1:
     A:
       active: false
-      val: 10.0
+      val: 14.0
     Ti:
-      active: true
+      active: false
       lb: 0.01
       same: false
       ub: 1.0
-      val: 0.1
+      val: 0.7
     Z:
       active: false
       lb: 1.0
       ub: 18.0
-      val: 8.0
+      val: 5.0
     fract:
       active: false
       val: 1.0

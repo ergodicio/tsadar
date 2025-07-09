@@ -69,14 +69,14 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
     [BGele, BGion] = get_shot_bg(config, shotNum, axisyE, elecData)
      #call feature detector, if the boolean for the featiure detector is true , these can be like  if config["other"]["extraoptions"]["load_ele_spec"]: then call the function which returns some of the outputs 
     #assign each returned variable to the corresponmdent one in the decks
-    if config["data"]["estimate_lineouts_iaw"]:
-        [ lineout_end,lineout_start,iaw_cf,iaw_max,iaw_min] = first_guess(elecData, ionData,config)
+    if config["feature_detector"]["estimate_lineouts_iaw"] and not config["feature_detector"]["estimate_lineouts_epw"]:
+        [ lineout_end,lineout_start,iaw_cf_min,iaw_cf_max,iaw_max,iaw_min] = first_guess(elecData, ionData,config)
         config["data"]["lineouts"]["start"] = all_axes["iaw_x"][lineout_start]
         config["data"]["lineouts"]["end"] = all_axes["iaw_x"][lineout_end]
         config["data"]["fit_rng"]["iaw_min"] = all_axes["iaw_y"][iaw_min]
         config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
-        config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf)]
-        config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf)]
+        config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf_min)]
+        config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf_max)]
         config["data"]["lineouts"]["val"] = [
         i
         for i in range(
@@ -85,10 +85,30 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         ]
  
  
-    if config["data"]["estimate_lineouts_epw"]:
+    if config["feature_detector"]["estimate_lineouts_epw"] and not config["feature_detector"]["estimate_lineouts_iaw"]:
         [ lineout_end,lineout_start, blue_min, blue_max, red_min, red_max] =first_guess(elecData, ionData, config)
         config["data"]["lineouts"]["start"] = all_axes["epw_x"][lineout_start]
         config["data"]["lineouts"]["end"] = all_axes["epw_x"][lineout_end]
+        config["data"]["fit_rng"]["blue_min"] = all_axes["epw_y"][blue_min]
+        config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
+        config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
+        config["data"]["fit_rng"]["red_max"] = axisyE[red_max]
+        config["data"]["lineouts"]["val"] = [
+        i
+        for i in range(
+            int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
+        )
+        ]
+
+    if config["feature_detector"]["estimate_lineouts_epw"] and config["feature_detector"]["estimate_lineouts_iaw"]:
+        [ lineout_end, lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min, ion_t0_shift, blue_min, blue_max, red_min, red_max] = first_guess(elecData, ionData, config)
+        config["data"]["lineouts"]["start"] = all_axes["iaw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["iaw_x"][lineout_end]
+        config["data"]["fit_rng"]["iaw_min"] = all_axes["iaw_y"][iaw_min]
+        config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
+        config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf_min)]
+        config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf_max)]
+        config["data"]["ion_t0_shift"] = all_axes["iaw_x"][ion_t0_shift]
         config["data"]["fit_rng"]["blue_min"] = all_axes["epw_y"][blue_min]
         config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
         config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
@@ -96,10 +116,11 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["lineouts"]["val"] = [
         i
         for i in range(
-            config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"], config["data"]["lineouts"]["skip"]
+            int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
         )
         ]
-    
+
+
     num_slices = len(config["data"]["lineouts"]["val"])
     batch_size = config["optimizer"]["batch_size"]
  

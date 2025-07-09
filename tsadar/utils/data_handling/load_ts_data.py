@@ -6,6 +6,11 @@ from scipy.signal import find_peaks
 from tsadar.utils.process.warpcorr import perform_warp_correction
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
+# if "TS_BASE_FILES_PATH" not in os.environ:
+#     BASE_FILES_PATH = os.getcwd()
+# else:
+#     BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
+
 
 
 def loadData(sNum, sDay, loadspecs, custom_path=False):
@@ -83,7 +88,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             iDat = np.flipud(iDat)
 
             if specType == "imaging":
-                iDat = np.rot90(np.squeeze(iDat), 1)
+                iDat = np.rot90(np.squeeze(iDat))
             elif loadspecs["absolute_timing"]:
                 # this sets t0 by locating the fiducial and placing t0 164px earlier
                 fidu = np.sum(iDat[850:950, :], 0)
@@ -99,7 +104,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
 
     if loadspecs["load_ele_spec"]:
         from pyhdf.SD import SD, SDC
-
+ 
         try:
             eDatfile = SD(hdfnameE, SDC.READ)
             sds_obj = eDatfile.select("Streak_array")  # select sds
