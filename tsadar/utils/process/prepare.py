@@ -79,13 +79,22 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
         config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf_min)]
         config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf_max)]
-        config["data"]["lineouts"]["val"] = [
-        i
-        for i in range(
-            int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
-        )
-        ]
- 
+        if config["data"]["lineouts"]["type"] == "pixel":
+
+            config["data"]["lineouts"]["val"] = [
+            i
+            for i in range(
+                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"] 
+
+            )
+            ]
+        else:
+            config["data"]["lineouts"]["val"] = [
+            i
+            for i in range(
+                int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
+            )
+            ]
  
     if config["feature_detector"]["estimate_lineouts_epw"] and not config["feature_detector"]["estimate_lineouts_iaw"]:
         [ lineout_end,lineout_start, blue_min, blue_max, red_min, red_max] =first_guess(elecData, ionData, config)
@@ -94,13 +103,23 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["fit_rng"]["blue_min"] = all_axes["epw_y"][blue_min]
         config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
         config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
-        config["data"]["fit_rng"]["red_max"] = axisyE[red_max]
-        config["data"]["lineouts"]["val"] = [
-        i
-        for i in range(
-            int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
-        )
-        ]
+        config["data"]["fit_rng"]["red_max"] = all_axes["epw_y"][red_max]
+        if config["data"]["lineouts"]["type"] == "pixel":
+
+            config["data"]["lineouts"]["val"] = [
+            i
+            for i in range(
+                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"] 
+
+            )
+            ]
+        else:
+            config["data"]["lineouts"]["val"] = [
+            i
+            for i in range(
+                int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
+            )
+            ]
 
     if config["feature_detector"]["estimate_lineouts_epw"] and config["feature_detector"]["estimate_lineouts_iaw"]:
         [ lineout_end, lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min, ion_t0_shift, blue_min, blue_max, red_min, red_max] = first_guess(elecData, ionData, config)
@@ -115,12 +134,22 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
         config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
         config["data"]["fit_rng"]["red_max"] = all_axes["epw_y"][red_max]
-        config["data"]["lineouts"]["val"] = [
-        i
-        for i in range(
-            int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
-        )
-        ]
+        if config["data"]["lineouts"]["type"] == "pixel":
+
+            config["data"]["lineouts"]["val"] = [
+            i
+            for i in range(
+                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"] 
+
+            )
+            ]
+        else:
+            config["data"]["lineouts"]["val"] = [
+            i
+            for i in range(
+                int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
+            )
+            ]
 
 
     num_slices = len(config["data"]["lineouts"]["val"])

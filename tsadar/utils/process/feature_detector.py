@@ -52,9 +52,8 @@ def first_guess(elecData, ionData, config):
             notch_fliter_start = notch_fliter_start - 150
             notch_filter_end = notch_filter_end - 150
         
-        epw_red_box = blur_epw[:notch_fliter_start,:]
-        epw_blue_box = blur_epw[notch_filter_end:,:]
-
+        epw_blue_box = blur_epw[:notch_fliter_start,:]
+        epw_red_box = blur_epw[notch_filter_end:,:]
 
         return epw_red_box, epw_blue_box
     

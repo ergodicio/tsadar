@@ -85,7 +85,7 @@ parameters:
 
 feature_detector:
   estimate_lineouts_iaw: false
-  estimate_lineouts_epw: true
+  estimate_lineouts_epw: false
   margin_of_error:
     x_end: 40
     x_start: 40
