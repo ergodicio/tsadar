@@ -21,6 +21,25 @@ def _validate_inputs_(config: Dict) -> Dict:
         - Modifies the 'config' dictionary in place.
         - Prints warnings if the number of lineouts is not divisible by the batch size and removes excess lineouts to ensure divisibility.
     """
+    # check boundries for linouts and fit ranges to ensure they are ordered preperly
+    if config["data"]["lineouts"]["start"] >= config["data"]["lineouts"]["end"]:
+        raise ValueError("Lineout start must be less than lineout end")
+    if config["data"]["lineouts"]["end"]- config["data"]["lineouts"]["start"] <= config["data"]["lineouts"]["skip"]:
+        raise ValueError("Lineout end must be greater than lineout start + skip")
+    
+    if config["data"]["fit_rng"]["blue_max"] <= config["data"]["fit_rng"]["blue_min"]:
+        raise ValueError("Blue max must be greater than blue min")
+    if config["data"]["fit_rng"]["red_max"] <= config["data"]["fit_rng"]["red_min"]:
+        raise ValueError("Red max must be greater than red min")
+    if not config["data"]["fit_rng"]["iaw_min"]<config["data"]["fit_rng"]["iaw_cf_min"]<config["data"]["fit_rng"]["iaw_cf_max"]<config["data"]["fit_rng"]["iaw_max"]:
+        raise ValueError("IAW fit range is not ordered properly, must satisfy: iaw_min < iaw_cf_min < iaw_cf_max < iaw_max")
+    
+    if config["plotting"]["ele_window_start"] > config["data"]["fit_rng"]["blue_min"] or config["plotting"]["ele_window_end"] < config["data"]["fit_rng"]["red_max"]:
+        raise ValueError("Electron fitting range is not contained within the plotting range, please check your inputs")
+    if config["plotting"]["ion_window_start"] > config["data"]["fit_rng"]["iaw_min"] or config["plotting"]["ion_window_end"] < config["data"]["fit_rng"]["iaw_max"]:
+        raise ValueError("Ion fitting range is not contained within the plotting range, please check your inputs")
+    
+
     # get slices
     config["data"]["lineouts"]["val"] = [
         i
