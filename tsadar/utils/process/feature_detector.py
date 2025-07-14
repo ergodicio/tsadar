@@ -218,12 +218,12 @@ def first_guess(elecData, ionData, config):
         epw_lineout_end, epw_lineout_start, blue_min, blue_max, red_min, red_max = epw_feature_detector()
         
         #Sanity checks
-        if epw_lineout_end <epw_lineout_start or blue_min > blue_max or red_min > red_max:
+        if epw_lineout_end < epw_lineout_start or blue_min > blue_max or red_min > red_max:
             raise ValueError("Lineout end is less than lineout start or  blue/red min is greater than max. Detector failed")
         else:
             pass
 
-        if iaw_lineout_start < iaw_lineout_end or iaw_min > iaw_max:
+        if iaw_lineout_start > iaw_lineout_end or iaw_min > iaw_max:
             raise ValueError("Lineout end is less than lineout start or IAW min is greater than max. Detector failed")
         else:
             pass
