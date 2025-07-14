@@ -128,10 +128,9 @@ class FormFactor:
         self.h = 0.01
         minmax = 8.2
         h1 = 1024  # 1024
-        c = 2.99792458e10
         lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
-        self.omgL_num = 2 * jnp.pi * 1e7 * c
-        omgs = 2e7 * jnp.pi * c / lamAxis  # Scattered frequency axis(1 / sec)
+        self.omgL_num = 2 * jnp.pi * 1e7 * self.C
+        omgs = 2e7 * jnp.pi * self.C / lamAxis  # Scattered frequency axis(1 / sec)
         self.omgs = omgs[None, ..., None]
 
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)

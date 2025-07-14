@@ -6,7 +6,7 @@ data:
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 2
-  ele_lam_shift: -2.0
+  ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
     blue_max: 510

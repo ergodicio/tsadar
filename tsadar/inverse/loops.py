@@ -96,7 +96,7 @@ def _1d_adam_loop_(
 
 
 def one_d_loop(
-    config: Dict, all_data: Dict, sa: Tuple, batch_indices: np.ndarray, num_batches: int
+    config: Dict, all_data: Dict, sa: Tuple, batch_indices: np.ndarray, num_batches: int, previous_weights=None,
 ) -> Tuple[List, float, LossFunction]:
     """
     Higher level wrapper form minimization of 1D fits, preparing data and dispatching to the appropriate optimizer.
@@ -109,6 +109,7 @@ def one_d_loop(
         sa (Tuple): Scattering angles and weights used to calculate k-smea r corrections.
         batch_indices (np.ndarray): Array of indices specifying how to split data into batches.
         num_batches (int): Number of batches to process.
+        previous_weights (np.ndarray, optional): Weights to initialize the optimizer. If None, initializes new parameters.
     Returns:
         all_weights (List): List of weights from each batch.
         overall_loss (float): Overall accumulated loss across all batches.
@@ -128,9 +129,10 @@ def one_d_loop(
     batch_indices = np.reshape(batch_indices, (-1, config["optimizer"]["batch_size"]))
     all_weights = []
     overall_loss = 0.0
-    previous_weights = None
+    previous_batch = None
     with trange(num_batches, unit="batch") as tbatch:
         for i_batch in tbatch:
+            previous_batch = previous_weights[i_batch] if previous_weights is not None else previous_batch
             inds = batch_indices[i_batch]
             batch = {
                 "e_data": all_data["e_data"][inds],
@@ -142,11 +144,11 @@ def one_d_loop(
             }
 
             if config["optimizer"]["method"] == "adam":  # Stochastic Gradient Descent
-                best_loss, best_weights = _1d_adam_loop_(config, loss_fn, previous_weights, batch, tbatch)
+                best_loss, best_weights = _1d_adam_loop_(config, loss_fn, previous_batch, batch, tbatch)
             else:
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
                 loss_fn = LossFunction(config, sa, batch)
-                best_loss, best_weights = _1d_scipy_loop_(config, loss_fn, previous_weights, batch)
+                best_loss, best_weights = _1d_scipy_loop_(config, loss_fn, previous_batch, batch)
 
             all_weights.append(best_weights)
             mlflow.log_metrics({"batch loss": float(best_loss)}, step=i_batch)
@@ -155,7 +157,7 @@ def one_d_loop(
             # ugly
             if "sequential" in config["optimizer"]:
                 if config["optimizer"]["sequential"]:
-                    previous_weights = best_weights
+                    previous_batch = best_weights
                     # if config["optimizer"]["method"] == "adam":
                     #     previous_weights = best_weights
                     # else:
