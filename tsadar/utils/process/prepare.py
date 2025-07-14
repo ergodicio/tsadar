@@ -123,8 +123,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
 
     if config["feature_detector"]["estimate_lineouts_epw"] and config["feature_detector"]["estimate_lineouts_iaw"]:
         [ lineout_end, lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min, ion_t0_shift, blue_min, blue_max, red_min, red_max] = first_guess(elecData, ionData, config)
-        config["data"]["lineouts"]["start"] = all_axes["iaw_x"][lineout_start]
-        config["data"]["lineouts"]["end"] = all_axes["iaw_x"][lineout_end]
+        config["data"]["lineouts"]["start"] = all_axes["epw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["epw_x"][lineout_end]
         config["data"]["fit_rng"]["iaw_min"] = all_axes["iaw_y"][iaw_min]
         config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
         config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf_min)]
