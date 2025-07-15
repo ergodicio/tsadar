@@ -110,11 +110,11 @@ def first_guess(elecData, ionData, config):
         min_y = filtered_corners[:, 1].min()
         max_y = filtered_corners[:, 1].max()
 
-        # add margins of error
-        x_start = config["feature_detector"]["margin_of_error"]["x_start"]
-        x_end = config["feature_detector"]["margin_of_error"]["x_end"]
-        y_start = config["feature_detector"]["margin_of_error"]["y_start"]
-        y_end = config["feature_detector"]["margin_of_error"]["y_end"]
+        # add buffer to the min and max values
+        x_start = config["feature_detector"]["buffer"]["lineout_start"]
+        x_end = config["feature_detector"]["buffer"]["lineout_end"]
+        y_start = config["feature_detector"]["buffer"]["spectral_start"]
+        y_end = config["feature_detector"]["buffer"]["spectral_end"]
         min_x -= x_start
         max_x += x_end
         min_y -= y_start
