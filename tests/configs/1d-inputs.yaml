@@ -85,12 +85,12 @@ parameters:
             ub: 20.5
 feature_detector:
   estimate_lineouts_iaw: false
-  estimate_lineouts_epw: true
+  estimate_lineouts_epw: false
   buffer:
-    lineout_start: 40
-    lineout_end: 40
-    spectral_start: 40
-    spectral_end: 40
+    lineout_start: 20
+    lineout_end: 20
+    spectral_start: 20
+    spectral_end: 20
 other:
     refit: False
     refit_thresh: 5.0
