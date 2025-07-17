@@ -77,7 +77,7 @@ def first_guess(elecData, ionData, config):
     def data_analysis(img):
 
         #find corners in eroded image
-        corners = cv.goodFeaturesToTrack(img, 75, 0.2, 5)
+        corners = cv.goodFeaturesToTrack(img, 100, 0.1, 5)
         corners = np.intp(corners).reshape(-1, 2)
 
         #filter found corners, only keep corners that have at least one neighboor within the max distance 
@@ -142,10 +142,10 @@ def first_guess(elecData, ionData, config):
         else:
             iaw_max = ion_max_y
             iaw_min = ion_min_y
-        midpoint = (iaw_max - iaw_min) * 0.8
-        iaw_cf = (iaw_max + iaw_min)/2
-        iaw_cf_min = iaw_cf - midpoint
-        iaw_cf_max = iaw_cf + midpoint
+        iaw_cf = (iaw_max - iaw_min) * 0.2
+        midpoint = (iaw_max + iaw_min)/2
+        iaw_cf_min = midpoint - iaw_cf
+        iaw_cf_max = midpoint + iaw_cf
 
         print("this are the min and maxs for IAW")
         print(f"IAW min x: {lineout_start}, IAW max x: {lineout_end}")
