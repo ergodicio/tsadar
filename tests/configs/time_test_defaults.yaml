@@ -91,7 +91,7 @@ other:
         fit_EPWb: True
         fit_EPWr: True
         absolute_timing: false
-        spectype: 1d
+        spectype: temporal
     PhysParams:
         background: [0, 0]
         norm: 0
@@ -136,8 +136,6 @@ data:
     ele_lam_shift: 0.0
     probe_beam: P9
     dpixel: 2
-    estimate_lineouts_epw: false
-    estimate_lineouts_iaw: false
     lineouts:
         type:
             pixel
@@ -150,12 +148,12 @@ data:
         slice: 900
 feature_detector:
   estimate_lineouts_iaw: false
-  estimate_lineouts_epw: true
-  margin_of_error:
-    x_end: 40
-    x_start: 40
-    y_end: 40
-    y_start: 40
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 
 plotting:
     n_sigmas: 3

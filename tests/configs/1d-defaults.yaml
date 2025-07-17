@@ -143,11 +143,11 @@ data:
 feature_detector:
   estimate_lineouts_iaw: false
   estimate_lineouts_epw: false
-  margin_of_error:
-    x_end: 40
-    x_start: 40
-    y_end: 40
-    y_start: 40
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 plotting:
     n_sigmas: 3
     rolling_std_width: 5

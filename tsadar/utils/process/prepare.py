@@ -79,22 +79,6 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
         config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf_min)]
         config["data"]["fit_rng"]["iaw_cf_max"] = all_axes["iaw_y"][int(iaw_cf_max)]
-        if config["data"]["lineouts"]["type"] == "pixel":
-
-            config["data"]["lineouts"]["val"] = [
-            i
-            for i in range(
-                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"] 
-
-            )
-            ]
-        else:
-            config["data"]["lineouts"]["val"] = [
-            i
-            for i in range(
-                int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
-            )
-            ]
  
     if config["feature_detector"]["estimate_lineouts_epw"] and not config["feature_detector"]["estimate_lineouts_iaw"]:
         [ lineout_end,lineout_start, blue_min, blue_max, red_min, red_max] =first_guess(elecData, ionData, config)
@@ -104,27 +88,11 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
         config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
         config["data"]["fit_rng"]["red_max"] = all_axes["epw_y"][red_max]
-        if config["data"]["lineouts"]["type"] == "pixel":
-
-            config["data"]["lineouts"]["val"] = [
-            i
-            for i in range(
-                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"] 
-
-            )
-            ]
-        else:
-            config["data"]["lineouts"]["val"] = [
-            i
-            for i in range(
-                int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
-            )
-            ]
 
     if config["feature_detector"]["estimate_lineouts_epw"] and config["feature_detector"]["estimate_lineouts_iaw"]:
         [ lineout_end, lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min, ion_t0_shift, blue_min, blue_max, red_min, red_max] = first_guess(elecData, ionData, config)
-        config["data"]["lineouts"]["start"] = all_axes["iaw_x"][lineout_start]
-        config["data"]["lineouts"]["end"] = all_axes["iaw_x"][lineout_end]
+        config["data"]["lineouts"]["start"] = all_axes["epw_x"][lineout_start]
+        config["data"]["lineouts"]["end"] = all_axes["epw_x"][lineout_end]
         config["data"]["fit_rng"]["iaw_min"] = all_axes["iaw_y"][iaw_min]
         config["data"]["fit_rng"]["iaw_max"] = all_axes["iaw_y"][iaw_max]
         config["data"]["fit_rng"]["iaw_cf_min"] = all_axes["iaw_y"][int(iaw_cf_min)]
@@ -134,6 +102,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["fit_rng"]["blue_max"] = all_axes["epw_y"][blue_max]
         config["data"]["fit_rng"]["red_min"] = all_axes["epw_y"][red_min]
         config["data"]["fit_rng"]["red_max"] = all_axes["epw_y"][red_max]
+    
+    if True in (config["feature_detector"]["estimate_lineouts_epw"], config["feature_detector"]["estimate_lineouts_iaw"]):
         if config["data"]["lineouts"]["type"] == "pixel":
 
             config["data"]["lineouts"]["val"] = [
@@ -157,7 +127,6 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
  
     if not num_slices % batch_size == 0:
         print(f"total slices: {num_slices}")
-        # print(f"{batch_size=}")
         print(f"batch size = {batch_size} is not a round divisor of the number of lineouts")
         config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
         print(f"final {num_slices % batch_size} lineouts have been removed")
