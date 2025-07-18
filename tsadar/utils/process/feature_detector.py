@@ -77,7 +77,7 @@ def first_guess(elecData, ionData, config):
     def data_analysis(img):
 
         #find corners in eroded image
-        corners = cv.goodFeaturesToTrack(img, 100, 0.1, 5)
+        corners = cv.goodFeaturesToTrack(img, 100, 0.2, 10)
         corners = np.intp(corners).reshape(-1, 2)
 
         #filter found corners, only keep corners that have at least one neighboor within the max distance 
