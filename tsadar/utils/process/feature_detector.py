@@ -77,7 +77,7 @@ def first_guess(elecData, ionData, config):
     def data_analysis(img):
 
         #find corners in eroded image
-        corners = cv.goodFeaturesToTrack(img, 75, 0.2, 5)
+        corners = cv.goodFeaturesToTrack(img, 100, 0.1, 5)
         corners = np.intp(corners).reshape(-1, 2)
 
         #filter found corners, only keep corners that have at least one neighboor within the max distance 
@@ -110,11 +110,11 @@ def first_guess(elecData, ionData, config):
         min_y = filtered_corners[:, 1].min()
         max_y = filtered_corners[:, 1].max()
 
-        # add margins of error
-        x_start = config["feature_detector"]["margin_of_error"]["x_start"]
-        x_end = config["feature_detector"]["margin_of_error"]["x_end"]
-        y_start = config["feature_detector"]["margin_of_error"]["y_start"]
-        y_end = config["feature_detector"]["margin_of_error"]["y_end"]
+        # add buffer to the min and max values
+        x_start = config["feature_detector"]["buffer"]["lineout_start"]
+        x_end = config["feature_detector"]["buffer"]["lineout_end"]
+        y_start = config["feature_detector"]["buffer"]["spectral_start"]
+        y_end = config["feature_detector"]["buffer"]["spectral_end"]
         min_x -= x_start
         max_x += x_end
         min_y -= y_start
@@ -142,10 +142,10 @@ def first_guess(elecData, ionData, config):
         else:
             iaw_max = ion_max_y
             iaw_min = ion_min_y
-        midpoint = (iaw_max - iaw_min) * 0.8
-        iaw_cf = (iaw_max + iaw_min)/2
-        iaw_cf_min = iaw_cf - midpoint
-        iaw_cf_max = iaw_cf + midpoint
+        iaw_cf = (iaw_max - iaw_min) * 0.2
+        midpoint = (iaw_max + iaw_min)/2
+        iaw_cf_min = midpoint - iaw_cf
+        iaw_cf_max = midpoint + iaw_cf
 
         print("this are the min and maxs for IAW")
         print(f"IAW min x: {lineout_start}, IAW max x: {lineout_end}")
@@ -218,12 +218,12 @@ def first_guess(elecData, ionData, config):
         epw_lineout_end, epw_lineout_start, blue_min, blue_max, red_min, red_max = epw_feature_detector()
         
         #Sanity checks
-        if epw_lineout_end <epw_lineout_start or blue_min > blue_max or red_min > red_max:
+        if epw_lineout_end < epw_lineout_start or blue_min > blue_max or red_min > red_max:
             raise ValueError("Lineout end is less than lineout start or  blue/red min is greater than max. Detector failed")
         else:
             pass
 
-        if iaw_lineout_start < iaw_lineout_end or iaw_min > iaw_max:
+        if iaw_lineout_start > iaw_lineout_end or iaw_min > iaw_max:
             raise ValueError("Lineout end is less than lineout start or IAW min is greater than max. Detector failed")
         else:
             pass

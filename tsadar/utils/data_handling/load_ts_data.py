@@ -6,11 +6,6 @@ from scipy.signal import find_peaks
 from tsadar.utils.process.warpcorr import perform_warp_correction
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
-# if "TS_BASE_FILES_PATH" not in os.environ:
-#     BASE_FILES_PATH = os.getcwd()
-# else:
-#     BASE_FILES_PATH = os.environ["TS_BASE_FILES_PATH"]
-
 
 
 def loadData(sNum, sDay, loadspecs, custom_path=False):

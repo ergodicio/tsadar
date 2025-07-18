@@ -3,19 +3,19 @@ data:
     slice: 900
     type: fit
   lineouts:
-    end: -610
-    skip: 14
-    start: -950
-    type: um
-  shotnum: 114426  
+    start: 500
+    end: 1000
+    skip: 50
+    type: ps
+  shotnum: 101675  
 feature_detector:
   estimate_lineouts_iaw: false
-  estimate_lineouts_epw: true
-  margin_of_error:
-    x_end: 40
-    x_start: 40
-    y_end: 40
-    y_start: 40
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 40
+    lineout_end: 40
+    spectral_start: 40
+    spectral_end: 40
 machine: gpu
 
 mlflow:
@@ -34,10 +34,8 @@ other:
     fit_EPWb: true
     fit_EPWr: true
     fit_IAW: false
-    fit_IAW: false
     load_ele_spec: true
     load_ion_spec: false
-    spectype: imaging
   refit: false
   refit_thresh: 20.0
 

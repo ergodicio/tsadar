@@ -109,8 +109,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
             config["data"]["lineouts"]["val"] = [
             i
             for i in range(
-                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"] 
-
+                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"]
             )
             ]
         else:
@@ -120,7 +119,6 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
                 int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
             )
             ]
-
 
     num_slices = len(config["data"]["lineouts"]["val"])
     batch_size = config["optimizer"]["batch_size"]
