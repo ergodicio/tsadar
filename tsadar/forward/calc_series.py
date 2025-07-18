@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import mlflow
 import xarray as xr
 import pandas
+from jax.tree_util import tree_leaves
+import copy
+from types import MappingProxyType
 
 from ..utils.plotting import plotters
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
@@ -70,10 +73,33 @@ def forward_pass(config):
         dummy_batch["i_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
         dummy_batch["e_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
 
-    if "series" in config.keys():
-        serieslen = len(config["series"]["vals1"])
-    else:
-        serieslen = 1
+    series={}
+    for species in config["parameters"].keys():
+        for param in config["parameters"][species].keys():
+            if "val" in config["parameters"][species][param].keys():
+                if isinstance(config["parameters"][species][param]["val"], list):
+                    if species not in series.keys():
+                        series[species] = {}
+                    series[species][param] = config["parameters"][species][param]["val"]
+
+    serieslen = 1
+    #check that all series parameters are the same length
+    for species in series.keys():
+        for param in series[species].keys():
+            if len(series[species][param]) > serieslen and serieslen ==1:
+                serieslen = len(series[species][param])
+            elif len(series[species][param]) != serieslen:
+                raise ValueError(f"Series parameter {param} for species {species} has length {len(series[species][param])}, expected {serieslen}")
+
+
+    decks = []
+    for i in range(serieslen):
+        for species in series.keys():
+            for param in series[species].keys():
+                config["parameters"][species][param]["val"] = series[species][param][i]
+        decks.append(MappingProxyType(copy.deepcopy(config)))
+    
+    # run forward pass for each deck
     ThryE = [None] * serieslen
     ThryI = [None] * serieslen
     lamAxisE = [None] * serieslen
@@ -81,17 +107,8 @@ def forward_pass(config):
 
     t_start = time()
     for i in range(serieslen):
-        # if "series" in config.keys():
-        #     config["parameters"]["species"][config["series"]["param1"]]["val"] = config["series"]["vals1"][i]
-        #     if "param2" in config["series"].keys():
-        #         config["parameters"]["species"][config["series"]["param2"]]["val"] = config["series"]["vals2"][i]
-        #     if "param3" in config["series"].keys():
-        #         config["parameters"]["species"][config["series"]["param3"]]["val"] = config["series"]["vals3"][i]
-        #     if "param4" in config["series"].keys():
-        #         config["parameters"]["species"][config["series"]["param4"]]["val"] = config["series"]["vals4"][i]
-
-        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=not is_angular)
-        ts_diag = ThomsonScatteringDiagnostic(config, scattering_angles=sas)
+        ts_params = ThomsonParams(decks[i]["parameters"], num_params=1, batch=not is_angular)
+        ts_diag = ThomsonScatteringDiagnostic(decks[i], scattering_angles=sas)
 
         # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)
@@ -146,16 +163,15 @@ def forward_pass(config):
                 ax[0].set_xlabel("Wavelength (nm)")
                 ax[0].grid()
 
-                if "series" in config.keys():
-                    ax[0].legend([str(ele) for ele in config["series"]["vals1"]])
-                    if config["series"]["param1"] == "fract" or config["series"]["param1"] == "Z":
-                        coords_ele = (
-                            ("series", np.array(config["series"]["vals1"])[:, 0]),
-                            ("Wavelength", lamAxisE[0, :]),
-                        )
-                    else:
-                        coords_ele = (("series", config["series"]["vals1"]), ("Wavelength", lamAxisE[0, :]))
-                    ele_dat = {"Sim": ThryE}
+                if serieslen > 1:
+                    first_species = list(series.keys())[0]
+                    first_param = list(series[first_species].keys())[0]
+                    legend_entries = [first_species+'_'+first_param+'_'+str(ele) for ele in series[first_species][first_param]]
+                    
+                    ax[0].legend(legend_entries)
+                    
+                    coords_ele = (("series", tree_leaves(series)[0:serieslen]), ("Wavelength", lamAxisE[0, :].squeeze()))
+                    ele_dat = {"Sim": ThryE.squeeze()}
                     ele_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ele) for k, v in ele_dat.items()})
                 else:
                     coords_ele = (("series", [0]), ("Wavelength", lamAxisE[0, :].squeeze()))
@@ -170,21 +186,19 @@ def forward_pass(config):
                 ax[1].set_xlabel("Wavelength (nm)")
                 ax[1].grid()
 
-                if "series" in config.keys():
-                    ax[1].legend([str(ele) for ele in config["series"]["vals1"]])
-                    if config["series"]["param1"] == "fract" or config["series"]["param1"] == "Z":
-                        coords_ion = (
-                            ("series", np.array(config["series"]["vals1"])[:, 0]),
-                            ("Wavelength", lamAxisI[0, :]),
-                        )
-                    else:
-                        coords_ion = (("series", config["series"]["vals1"]), ("Wavelength", lamAxisI[0, :]))
-                    ion_dat = {"Sim": ThryI}
+                if serieslen > 1:
+                    first_species = list(series.keys())[0]
+                    first_param = list(series[first_species].keys())[0]
+                    legend_entries = [first_species+'_'+first_param+'_'+str(ele) for ele in series[first_species][first_param]]
+                    
+                    ax[0].legend(legend_entries)
+                    coords_ion = (("series", tree_leaves(series)[0:serieslen]), ("Wavelength", lamAxisI[0, :].squeeze()))
+                    ion_dat = {"Sim": ThryI.squeeze()}
                     ion_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ion) for k, v in ion_dat.items()})
                 else:
                     coords_ion = (("series", [0]), ("Wavelength", lamAxisI[0, :].squeeze()))
                     ion_dat = {"Sim": ThryI.squeeze(0)}
-                    ion_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ion) for k, v in ion_dat.items()})
+                    ion_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ion) for k, v in ion_dat.items()})         
                 ion_data.to_netcdf(os.path.join(td, "binary", "ion_data.nc"))
             fig.savefig(os.path.join(td, "plots", "simulated_data"), bbox_inches="tight")
         mlflow.log_artifacts(td)
