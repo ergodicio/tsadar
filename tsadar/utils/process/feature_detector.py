@@ -1,4 +1,3 @@
-# this will be the feature detector for the first run of the code 
 # importing necesary modelues
 import cv2 as cv
 import numpy as np
@@ -77,7 +76,7 @@ def first_guess(elecData, ionData, config):
     def data_analysis(img):
 
         #find corners in eroded image
-        corners = cv.goodFeaturesToTrack(img, 100, 0.2, 10)
+        corners = cv.goodFeaturesToTrack(img, 100, 0.1, 10)
         corners = np.intp(corners).reshape(-1, 2)
 
         #filter found corners, only keep corners that have at least one neighboor within the max distance 
@@ -234,3 +233,4 @@ def first_guess(elecData, ionData, config):
             ion_t0_shift =  epw_lineout_start - iaw_lineout_start
 
         return epw_lineout_end, epw_lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min, ion_t0_shift, blue_min, blue_max, red_min, red_max
+    
