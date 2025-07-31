@@ -13,13 +13,13 @@ data:
     blue_min: 450
     forward_epw_end: 700
     forward_epw_start: 400
-    forward_iaw_end: 528
-    forward_iaw_start: 524
+    forward_iaw_end: 527.5
+    forward_iaw_start: 525.5
     iaw_cf_max: 526.51
     iaw_cf_min: 526.49
     iaw_max: 527.5
     iaw_min: 525.5
-    red_max: 650
+    red_max: 625
     red_min: 545
   ion_loss_scale: 1.0
   ion_t0_shift: 0
@@ -35,8 +35,8 @@ data:
 dist_fit:
   smooth: false
   window:
-    len: 0.2
-    type: bartlett
+    len: 4
+    type: hanning
 mlflow:
   experiment: tsadar-test
   run: arts2d
@@ -50,10 +50,10 @@ optimizer:
   method: l-bfgs-b
   moment_loss: false
   loss_method: l2
-  num_epochs: 100
-  num_mins: 1
+  num_epochs: 1
+  num_mins: 2
   parameter_norm: true
-  refine_factor: 1
+  refine_factor: 2
   save_state: true
   save_state_freq: 20
   sequential: true
@@ -188,8 +188,8 @@ plotting:
   data_cbar_u: data
   ele_window_end: 625
   ele_window_start: 425
-  ion_window_end: 528
-  ion_window_start: 525
+  ion_window_end: 527.5
+  ion_window_start: 525.5
   n_sigmas: 3
   rolling_std_width: 5
   detailed_breakdown: false

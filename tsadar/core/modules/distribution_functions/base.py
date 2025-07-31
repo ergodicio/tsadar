@@ -183,7 +183,17 @@ class Arbitrary1V(DistributionFunction1V):
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
         self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
-        self.smooth = partial(second_order_butterworth, f_sampling=100, f_cutoff=6, method="forward_backward")
+        if dist_cfg["params"]["smooth"]:
+            if dist_cfg["params"]["window"]["type"] == "butterworth":
+                self.smooth = partial(
+                    second_order_butterworth, f_sampling=100, f_cutoff=dist_cfg["params"]["window"]["len"], method="forward_backward"
+                )
+            elif dist_cfg["params"]["window"]["type"] == "hanning":
+                self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["window"]["len"])
+            else:
+                raise NotImplementedError(f"Unknown smoothing type: {dist_cfg['params']['window']['type']}")
+        #self.smooth = partial(second_order_butterworth, f_sampling=100, f_cutoff=6, method="forward_backward")
+        #self.smooth = partial(smooth1d, window_size=dist_cfg["nvx"] // 4)
 
     def init_dlm(self, m):
         vth_x = 1.0  # jnp.sqrt(2.0)

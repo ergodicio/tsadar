@@ -400,12 +400,12 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
 def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, elec_species, td):
     best_weights_val = {}
     best_weights_std = {}
-    if config["optimizer"]["num_mins"] > 1:
-        for k, v in fitted_weights.items():
-            best_weights_val[k] = np.average(v, axis=0)  # [0, :]
-            best_weights_std[k] = np.std(v, axis=0)  # [0, :]
-    else:
-        best_weights_val = fitted_weights
+    # if config["optimizer"]["num_mins"] > 1:
+    #     for k, v in fitted_weights.items():
+    #         best_weights_val[k] = np.average(v, axis=0)  # [0, :]
+    #         best_weights_std[k] = np.std(v, axis=0)  # [0, :]
+    # else:
+    best_weights_val = fitted_weights
 
     losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
         config, sa, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], [best_weights_val]

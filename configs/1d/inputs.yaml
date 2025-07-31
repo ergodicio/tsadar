@@ -9,20 +9,24 @@ data:
     type: pixel
   shotnum: 101676
 
-machine: gpu
+machine: cpu
 
 mlflow:
-  experiment: inverse-thomson-scattering
-  run: EPW example 101676
+  experiment: specThomson-planning
+  run: krTiscan-Z18_Te1
 
 other:
   calc_sigmas: false
+  PhysParams:
+    widIRF:
+      spect_stddev_ion: 0.0153
+      spect_stddev_ele: 0.668 
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
-    fit_IAW: false
+    fit_IAW: true
     load_ele_spec: true
-    load_ion_spec: false
+    load_ion_spec: true
   refit: false
   refit_thresh: 5.0
 
@@ -32,11 +36,11 @@ parameters:
       active: True
       lb: 0.01
       ub: 2.0
-      val: 0.6
+      val: 1.0
     fe:
       active: true
       dim: 1
-      nvx: 320
+      nvx: 16
       params:
         m:
           lb: 2.0
@@ -44,12 +48,12 @@ parameters:
           val: 2.7
           matte: True
           intens: 2.5
-      type: dlm
+      type: arbitrary
     ne:
       active: true
       lb: 0.03
       ub: 2.0
-      val: 0.25
+      val: 0.6
   general:
     Te_gradient:
       active: false
@@ -99,18 +103,56 @@ parameters:
   ion-1:
     A:
       active: false
+      val: 84.0
+    Ti:
+      active: false
+      lb: 0.01
+      same: false
+      ub: 2.0
+      val: [0.05, 0.1, 0.15, 0.2]
+    Z:
+      active: false
+      lb: 0.5
+      ub: 36.0
+      val: 18.0
+    fract:
+      active: false
+      val: 0.1
+
+  ion-2:
+    A:
+      active: false
+      val: 1.0
+    Ti:
+      active: false
+      lb: 0.01
+      same: false
+      ub: 2.0
+      val: [0.05, 0.1, 0.15, 0.2]
+    Z:
+      active: false
+      lb: 0.5
+      ub: 18.0
+      val: 1.0
+    fract:
+      active: false
+      val: 0.85
+
+  ion-3:
+    A:
+      active: false
       val: 40.0
     Ti:
       active: false
       lb: 0.01
       same: false
       ub: 2.0
-      val: 0.07
+      val: [0.05, 0.1, 0.15, 0.2]
     Z:
       active: false
       lb: 0.5
-      ub: 18.0
+      ub: 36.0
       val: 16.0
     fract:
       active: false
-      val: 1.0
+      val: 0.05

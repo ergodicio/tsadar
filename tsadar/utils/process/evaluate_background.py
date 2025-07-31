@@ -205,7 +205,7 @@ def get_lineout_bg(
                 #     plt.plot(bgfitx, lin[bgfitx])
                 #     plt.show()
 
-        # add background from background shot is applicable
+        # add background from background shot if applicable
         if np.shape(BGele) == tuple(config["other"]["CCDsize"]):
             LineoutBGE2 = [
                 np.mean(BGele[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)

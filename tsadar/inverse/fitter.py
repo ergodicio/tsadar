@@ -5,23 +5,34 @@ import pandas as pd
 
 import mlflow
 
-from tsadar.inverse.loops import angular_optax, one_d_loop
+from tsadar.inverse.loops import multirun_angular_optax, one_d_loop
 
 from ..utils.process import prepare, postprocess
 
 
 def _validate_inputs_(config: Dict) -> Dict:
     """
-    Validates and augments the configuration dictionary for the fitting process by generating the list of lineout indices and ensuring the number of slices is divisible by the batch size.
-    Args:    
+    Validates and augments the configuration dictionary for the fitting process.
+    This function checks the boundaries and ordering of lineout and fit ranges, ensures that the electron and ion fitting ranges are contained within the plotting ranges, and generates the list of lineout indices. It also ensures that the number of lineouts is divisible by the batch size, removing excess lineouts if necessary.
+        config (Dict): Configuration dictionary containing data, optimizer, and plotting settings.
+        Dict: Updated configuration dictionary with validated and derived quantities for lineouts.
+        Args:    
         config (Dict): Configuration dictionary containing data and optimizer settings.
     Returns:
         Dict: Updated configuration dictionary with derived quantities for lineouts.
-    Side Effects:
-        - Modifies the 'config' dictionary in place.
-        - Prints warnings if the number of lineouts is not divisible by the batch size and removes excess lineouts to ensure divisibility.
+    Raises:
+        ValueError: If any of the following conditions are not met:
+            - Lineout start is less than lineout end.
+            - Lineout end is greater than lineout start plus skip.
+            - Blue max is greater than blue min.
+            - Red max is greater than red min.
+            - IAW fit range is ordered as iaw_min < iaw_cf_min < iaw_cf_max < iaw_max.
+            - Electron fitting range is contained within the plotting range.
+            - Ion fitting range is contained within the plotting range.
+
     """
-    # check boundries for linouts and fit ranges to ensure they are ordered preperly
+
+    # check boundries for linouts and fit ranges to ensure they are ordered properly
     if config["data"]["lineouts"]["start"] >= config["data"]["lineouts"]["end"]:
         raise ValueError("Lineout start must be less than lineout end")
     if config["data"]["lineouts"]["end"]- config["data"]["lineouts"]["start"] <= config["data"]["lineouts"]["skip"]:
@@ -93,7 +104,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     print("minimizing")
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
-        fitted_weights, overall_loss, loss_fn = angular_optax(config, all_data, sa)
+        fitted_weights, overall_loss, loss_fn = multirun_angular_optax(config, all_data, sa)
     else:
         fitted_weights, overall_loss, loss_fn = one_d_loop(config, all_data, sa, sample_indices, num_batches)
 

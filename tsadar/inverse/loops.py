@@ -56,7 +56,7 @@ def _1d_scipy_loop_(
     return best_loss, best_weights
 
 
-def _1d_adam_loop_(
+def _1d_optax_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
 ) -> Tuple[float, Dict]:
     """
@@ -71,7 +71,17 @@ def _1d_adam_loop_(
         Tuple[float, Dict]: A tuple containing the best loss achieved and the corresponding model weights.
     """
 
-    opt = optax.adam(config["optimizer"]["learning_rate"])
+    minimizer = getattr(optax, config["optimizer"]["method"])
+    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
+    # solver = minimizer(schedule)
+    opt = minimizer(None if config["optimizer"]["method"]=='lbfgs' else config["optimizer"]["learning_rate"])
+
+    #ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    #diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    #opt_state = solver.init(diff_params)
+
+    
+    #opt = optax.adam(config["optimizer"]["learning_rate"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
     else:
@@ -85,7 +95,8 @@ def _1d_adam_loop_(
         tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
 
         (epoch_loss, aux), grad = loss_fn.vg_loss(diff_params, static_params, batch)
-        updates, opt_state = opt.update(grad, opt_state)
+        #updates, opt_state = opt.update(grad, opt_state)
+        updates, opt_state = opt.update(grad, opt_state, diff_params, value = epoch_loss, grad = grad, value_fn = loss_fn._loss_)
         diff_params = eqx.apply_updates(diff_params, updates)
 
         if epoch_loss < best_loss:
@@ -143,12 +154,13 @@ def one_d_loop(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            if config["optimizer"]["method"] == "adam":  # Stochastic Gradient Descent
-                best_loss, best_weights = _1d_adam_loop_(config, loss_fn, previous_batch, batch, tbatch)
-            else:
+            if config["optimizer"]["method"] == "l-bfgs-b":  # Stochastic Gradient Descent
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
                 loss_fn = LossFunction(config, sa, batch)
                 best_loss, best_weights = _1d_scipy_loop_(config, loss_fn, previous_batch, batch)
+            else:
+                best_loss, best_weights = _1d_optax_loop_(config, loss_fn, previous_batch, batch, tbatch)
+                
 
             all_weights.append(best_weights)
             mlflow.log_metrics({"batch loss": float(best_loss)}, step=i_batch)
@@ -166,7 +178,7 @@ def one_d_loop(
     return all_weights, overall_loss, loss_fn
 
 
-def angular_optax(config, all_data, sa):
+def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
     Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
@@ -187,6 +199,90 @@ def angular_optax(config, all_data, sa):
 
     """
 
+    minimizer = getattr(optax, config["optimizer"]["method"])
+    schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate_init"], np.round(0.75*config["optimizer"]["num_epochs"]), alpha = config["optimizer"]["learning_rate_final"]/config["optimizer"]["learning_rate_init"])
+    solver = minimizer(schedule)
+    #solver = minimizer(config["optimizer"]["learning_rate"])
+
+    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    else:
+        ts_params = previous_weights
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    opt_state = solver.init(diff_params)
+    # weights = loss_fn.pytree_weights["active"]
+    # opt_state = solver.init(weights)
+
+ # start train loop
+    state_weights = {}
+    t1 = time.time()
+    best_weights = {}
+    epoch_loss = 0.0
+    best_loss = 100.0
+    num_g_wait = 0
+    num_b_wait = 0
+    for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
+        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
+        updates, opt_state = solver.update(grad, opt_state)
+        diff_params = eqx.apply_updates(diff_params, updates)
+        
+        epoch_loss = val
+        if epoch_loss < best_loss:
+            print(f"delta loss {best_loss - epoch_loss}")
+            if best_loss - epoch_loss < 0.00000001:
+                num_g_wait += 1
+                if num_g_wait > 50:
+                    print("Minimizer exited due to change in loss < 1e-8")
+                    break
+            else:
+                num_b_wait = 0
+                num_g_wait = 0
+            best_loss = epoch_loss
+            best_weights = eqx.combine(diff_params, static_params)
+                
+        elif epoch_loss > best_loss:
+            num_b_wait += 1
+            if num_b_wait > 50:
+                print("Minimizer exited due to increase in loss")
+                break
+        
+        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
+        
+        if config["optimizer"]["save_state"]:
+            if i_epoch % config["optimizer"]["save_state_freq"] == 0:
+                state_weights[i_epoch] = best_weights.get_unnormed_params()
+
+        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
+
+    with open("state_weights.txt", "wb") as file:
+        file.write(pickle.dumps(state_weights))
+
+    mlflow.log_artifact("state_weights.txt")
+    return best_weights, epoch_loss, loss_fn
+
+def multirun_angular_optax(
+    config: Dict, all_data: Dict, sa: Tuple,
+) -> Tuple[List, float, LossFunction]:
+    """
+    Higher level wrapper for angular Thomson scattering data optimization using Optax.
+
+        
+    Args:    
+        config (Dict): Configuration dictionary containing optimizer settings and batch size.
+        all_data (Dict): Dictionary containing all input data arrays required for fitting.
+        sa (Tuple): Scattering angles and weights used to calculate k-smea r corrections.
+        batch_indices (np.ndarray): Array of indices specifying how to split data into batches.
+        num_batches (int): Number of batches to process.
+        previous_weights (np.ndarray, optional): Weights to initialize the optimizer. If None, initializes new parameters.
+    Returns:
+        all_weights (List): List of weights from each batch.
+        overall_loss (float): Overall accumulated loss across all batches.
+        loss_fn (LossFunction): The final LossFunction instance used for fitting.
+    Notes: 
+        - The function uses a progress bar to display the fitting progress for each batch.
+        - The function logs metrics to MLflow for tracking the fitting process.
+
+    """
     config["optimizer"]["batch_size"] = 1
     config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
     config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
@@ -218,60 +314,36 @@ def angular_optax(config, all_data, sa):
         actual_data = batch1
 
     loss_fn = LossFunction(config, sa, batch1)
-    minimizer = getattr(optax, config["optimizer"]["method"])
-    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
-    # solver = minimizer(schedule)
-    solver = minimizer(config["optimizer"]["learning_rate"])
+    previous_weights = None
 
-    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
-    opt_state = solver.init(diff_params)
-    # weights = loss_fn.pytree_weights["active"]
-    # opt_state = solver.init(weights)
+    # Run the angular optimization loop num_mins times
+    for i_min in range(config["optimizer"]["num_mins"]):
+        loss_fn = LossFunction(config, sa, batch1)
+        previous_weights, overall_loss, loss_fn = angular_optax(config, sa, loss_fn, actual_data, previous_weights)
 
-    # start train loop
-    state_weights = {}
-    t1 = time.time()
-    best_weights = {}
-    epoch_loss = 0.0
-    best_loss = 100.0
-    num_g_wait = 0
-    num_b_wait = 0
-    for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
-        updates, opt_state = solver.update(grad, opt_state)
-        diff_params = eqx.apply_updates(diff_params, updates)
-        
-        epoch_loss = val
-        if epoch_loss < best_loss:
-            print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.000001:
-                best_loss = epoch_loss
-                best_weights = eqx.combine(diff_params, static_params)
-                num_g_wait += 1
-                if num_g_wait > 5:
-                    print("Minimizer exited due to change in loss < 1e-6")
-                    break
-            elif epoch_loss > best_loss:
-                num_b_wait += 1
-                if num_b_wait > 5:
-                    print("Minimizer exited due to increase in loss")
-                    break
-            else:
-                best_loss = epoch_loss
-                best_weights = eqx.combine(diff_params, static_params)
-                num_b_wait = 0
-                num_g_wait = 0
-        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
+        config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
+        #currently may only work for 1D arbitrary
 
-        if config["optimizer"]["save_state"]:
-            if i_epoch % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[i_epoch] = best_weights.get_unnormed_params()
+        refined_fe = np.interp(
+            np.linspace(
+                previous_weights.electron.distribution_functions.vx[0],
+                previous_weights.electron.distribution_functions.vx[-1],
+                config["parameters"]["electron"]["fe"]["nvx"],
+            ),
+            previous_weights.electron.distribution_functions.vx,
+            previous_weights.electron.distribution_functions.fval,
+        )
 
-        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
+        getleaf = lambda t: t.electron.distribution_functions.fval
+        previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
+        getleaf = lambda t: t.electron.distribution_functions.vx
+        previous_weights = eqx.tree_at(getleaf, previous_weights, np.linspace(
+                previous_weights.electron.distribution_functions.vx[0],
+                previous_weights.electron.distribution_functions.vx[-1],
+                config["parameters"]["electron"]["fe"]["nvx"],
+            ))
+        #extract fe from previous weights
+        #refine fe grid
+        #place new fe in previous weights and refdefine loss if needed
 
-    with open("state_weights.txt", "wb") as file:
-        file.write(pickle.dumps(state_weights))
-
-    mlflow.log_artifact("state_weights.txt")
-    return best_weights, epoch_loss, loss_fn
+    return previous_weights, overall_loss, loss_fn
