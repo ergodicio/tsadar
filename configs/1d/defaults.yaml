@@ -19,17 +19,17 @@ data:
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
-    blue_max: 517
-    blue_min: 487
+    blue_max: 510
+    blue_min: 455
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 527.25
     forward_iaw_start: 525.75
-    iaw_cf_max: 526.49
-    iaw_cf_min: 526.34
-    iaw_max: 526.8
-    iaw_min: 526.15
-    red_max: 589
+    iaw_cf_max: 526.62
+    iaw_cf_min: 526.62
+    iaw_max: 527.1
+    iaw_min: 526.2
+    red_max: 595
     red_min: 554
   ion_loss_scale: 1.0
   ion_t0_shift: 0
@@ -99,7 +99,7 @@ other:
     fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
-    spectype: 1d
+    spectype: temporal
   flatbg: 0
   gain: 150
   iawfilter:
@@ -206,3 +206,4 @@ plotting:
   ion_window_start: 525
   n_sigmas: 3
   rolling_std_width: 5
+  detailed_breakdown : false
