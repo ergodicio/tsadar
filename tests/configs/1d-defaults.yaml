@@ -140,7 +140,14 @@ data:
         type:
             pixel
         slice: 900
-
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 20
+    lineout_end: 20
+    spectral_start: 20
+    spectral_end: 20
 plotting:
     n_sigmas: 3
     rolling_std_width: 5

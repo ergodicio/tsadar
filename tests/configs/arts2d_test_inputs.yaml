@@ -61,7 +61,7 @@ parameters:
       val: 1.0
     lam:
       active: false
-      lb: 525.0
+      lb: 523.0
       ub: 528.0
       val: 526.5
     ne_gradient:
@@ -87,12 +87,12 @@ parameters:
       active: True
       dim: 2
       type: sphericalharmonic
-      nvx: 256
+      nvx: 128
       params:
         flm_type: mora-yahi
         init_m: 2.2
-        LTx: 22500.
-        LTy: 40000.
+        LTx: 225000.
+        LTy: 400000.
         Nl: 1
         nvr: 64
     ne:

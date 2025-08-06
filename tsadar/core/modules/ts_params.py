@@ -638,7 +638,7 @@ class ThomsonParams(eqx.Module):
                         fitted_params[k][k2]['fvxvy']=temp_out['electron']['fe']
                         fitted_params[k][k2]['v']=temp_out['electron']['v']
                     pass
-                elif param_cfg[k][k2]["active"]:
+                elif k2 != "m" and param_cfg[k][k2]["active"]:
                     fitted_params[k][k2] = param_dict[k][k2]
                     num_params += 1
 

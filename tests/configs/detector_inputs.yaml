@@ -11,7 +11,7 @@ data:
     - 200000
     - 170
     slice: 900
-    type: pixel
+    type: fit
   bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
@@ -19,42 +19,42 @@ data:
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
-    blue_max: 510
-    blue_min: 455
+    blue_max: 505
+    blue_min: 474
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 527.25
     forward_iaw_start: 525.75
-    iaw_cf_max: 526.62
-    iaw_cf_min: 526.62
-    iaw_max: 527.1
-    iaw_min: 526.2
-    red_max: 595
-    red_min: 554
+    iaw_cf_max: 526.455
+    iaw_cf_min: 526.3
+    iaw_max: 526.65
+    iaw_min: 526.1
+    red_max: 580
+    red_min: 550
   ion_loss_scale: 1.0
-  ion_t0_shift: 0
-  launch_data_visualizer: true
+  ion_t0_shift: 0.0
+  launch_data_visualizer: false
   lineouts:
     end: 600
     skip: 50
     start: 400
-    type: pixel
+    type: um
   probe_beam: P9
   shotDay: false
-  shotnum: 101675
-feature_detector:
-  estimate_lineouts_iaw: false
-  estimate_lineouts_epw: true
-  buffer:
-    lineout_start: 40
-    lineout_end: 40
-    spectral_start: 40
-    spectral_end: 40
+  shotnum: 112059
 dist_fit:
   smooth: true
   window:
     len: 0.2
     type: hamming
+feature_detector:
+  estimate_lineouts_epw: true
+  estimate_lineouts_iaw: true
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 mlflow:
   experiment: inverse-thomson-scattering
   run: new
@@ -63,14 +63,14 @@ nn:
   linear_widths: 16|8
   use: false
 optimizer:
-  batch_size: 2
+  batch_size: 1
   grad_method: AD
   hessian: false
   learning_rate: 0.01
   loss_method: l2
   method: l-bfgs-b
   moment_loss: false
-  num_epochs: 120
+  num_epochs: 300
   num_mins: 1
   parameter_norm: true
   refine_factor: 0
@@ -96,10 +96,10 @@ other:
     absolute_timing: true
     fit_EPWb: false
     fit_EPWr: false
-    fit_IAW: true
+    fit_IAW: false
     load_ele_spec: true
     load_ion_spec: true
-    spectype: temporal
+    spectype: 1d
   flatbg: 0
   gain: 150
   iawfilter:
@@ -113,6 +113,26 @@ other:
   refit: false
   refit_thresh: 0.25
 parameters:
+  electron:
+    Te:
+      active: false
+      lb: 0.01
+      ub: 1.5
+      val: 0.6
+    fe:
+      active: false
+      dim: 1
+      nvx: 128
+      params:
+        Nl: 1
+        init_m: 2.7
+        nvr: 64
+      type: sphericalharmonic
+    ne:
+      active: false
+      lb: 0.001
+      ub: 1.0
+      val: 0.12
   general:
     Te_gradient:
       active: false
@@ -158,27 +178,6 @@ parameters:
       lb: -100.0
       ub: 100.0
       val: 0.0
-  electron:
-    Te:
-      active: false
-      lb: 0.01
-      ub: 1.5
-      val: 0.6
-    fe:
-      active: false
-      dim: 2
-      type: sphericalharmonic
-      nvx: 128
-      params:
-        init_m: 2.7
-        Nl: 1
-        nvr: 64
-    ne:
-      active: false
-      lb: 0.001
-      ub: 1.0
-      val: 0.2
-
   ion-1:
     A:
       active: false
@@ -196,14 +195,13 @@ parameters:
     fract:
       active: false
       val: 0.1
-
 plotting:
-  data_cbar_l: 0
+  data_cbar_l: -1
   data_cbar_u: data
+  detailed_breakdown: false
   ele_window_end: 625
   ele_window_start: 425
   ion_window_end: 528
   ion_window_start: 525
   n_sigmas: 3
   rolling_std_width: 5
-  detailed_breakdown : false
