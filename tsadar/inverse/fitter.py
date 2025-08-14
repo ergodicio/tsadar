@@ -50,6 +50,21 @@ def _validate_inputs_(config: Dict) -> Dict:
     if config["plotting"]["ion_window_start"] > config["data"]["fit_rng"]["iaw_min"] or config["plotting"]["ion_window_end"] < config["data"]["fit_rng"]["iaw_max"]:
         raise ValueError("Ion fitting range is not contained within the plotting range, please check your inputs")
     
+    # check the distirbution function options are compatible
+    if config["parameters"]["electron"]["fe"]["dim"] == 1:
+        if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary"]:
+            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary")
+    elif config["parameters"]["electron"]["fe"]["dim"] == 2:
+        if config["parameters"]["electron"]["fe"]["type"] not in ["sphericalharmonic", "arbitrary"]:
+            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 2D EDFs, please choose one of the allowed types: sphericalharmonic or arbitrary")
+        elif config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic" and config["parameters"]["electron"]["fe"]["params"]["type"] not in ["Mora-Yahi", "NN", "arbitrary"]:
+            raise ValueError(f"Electron distribution function params type {config['parameters']['electron']['fe']['params']['type']} is not supported for spherical harmonic EDFs, please choose one of the allowed flm types: Mora-Yahi, NN, arbitrary")
+    if "matte" in config["parameters"]["electron"]["fe"]["params"]["m"] and config["parameters"]["electron"]["fe"]["params"]["m"]["matte"]:
+        if config["parameters"]["electron"]["fe"]["type"] != "dlm" or config["parameters"]["electron"]["fe"]["dim"] != 1:
+            raise ValueError("Matte based m-values are only supported for 1D DLM electron distribution functions")
+        elif config["parameters"]["electron"]["fe"]["active"]:
+            raise ValueError("Matte based m-values cannot be fit, please set active to false for fe when using the Matte model")
+    
 
     # get slices
     config["data"]["lineouts"]["val"] = [

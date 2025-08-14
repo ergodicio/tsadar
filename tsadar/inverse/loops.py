@@ -321,29 +321,27 @@ def multirun_angular_optax(
         loss_fn = LossFunction(config, sa, batch1)
         previous_weights, overall_loss, loss_fn = angular_optax(config, sa, loss_fn, actual_data, previous_weights)
 
-        config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
-        #currently may only work for 1D arbitrary
+        if i_min < config["optimizer"]["num_mins"]-1:
+            config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
+            #currently may only work for 1D arbitrary
 
-        refined_fe = np.interp(
-            np.linspace(
-                previous_weights.electron.distribution_functions.vx[0],
-                previous_weights.electron.distribution_functions.vx[-1],
-                config["parameters"]["electron"]["fe"]["nvx"],
-            ),
-            previous_weights.electron.distribution_functions.vx,
-            previous_weights.electron.distribution_functions.fval,
-        )
+            refined_fe = np.interp(
+                np.linspace(
+                    previous_weights.electron.distribution_functions.vx[0],
+                    previous_weights.electron.distribution_functions.vx[-1],
+                    config["parameters"]["electron"]["fe"]["nvx"],
+                ),
+                previous_weights.electron.distribution_functions.vx,
+                previous_weights.electron.distribution_functions.fval,
+            )
 
-        getleaf = lambda t: t.electron.distribution_functions.fval
-        previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
-        getleaf = lambda t: t.electron.distribution_functions.vx
-        previous_weights = eqx.tree_at(getleaf, previous_weights, np.linspace(
-                previous_weights.electron.distribution_functions.vx[0],
-                previous_weights.electron.distribution_functions.vx[-1],
-                config["parameters"]["electron"]["fe"]["nvx"],
-            ))
-        #extract fe from previous weights
-        #refine fe grid
-        #place new fe in previous weights and refdefine loss if needed
+            getleaf = lambda t: t.electron.distribution_functions.fval
+            previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
+            getleaf = lambda t: t.electron.distribution_functions.vx
+            previous_weights = eqx.tree_at(getleaf, previous_weights, np.linspace(
+                    previous_weights.electron.distribution_functions.vx[0],
+                    previous_weights.electron.distribution_functions.vx[-1],
+                    config["parameters"]["electron"]["fe"]["nvx"],
+                ))
 
     return previous_weights, overall_loss, loss_fn

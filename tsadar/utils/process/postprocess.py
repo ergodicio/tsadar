@@ -47,10 +47,9 @@ def recalculate_with_chosen_weights(
                 all_params[k][k2].append(batch_fitted_params[k][k2])
 
     # concatenate all the lists in the dictionary
-    if config["other"]["extraoptions"]["spectype"] != "angular_full":
-        for k in all_params.keys():
-            for k2 in all_params[k].keys():
-                all_params[k][k2] = np.concatenate(all_params[k][k2])
+    for k in all_params.keys():
+        for k2 in all_params[k].keys():
+            all_params[k][k2] = np.concatenate(all_params[k][k2])
 
     fits = {
         "ele": {
@@ -64,7 +63,10 @@ def recalculate_with_chosen_weights(
             "noise": np.zeros(all_data["i_data"].shape),
         },
     }
+    sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
+
     if config["other"]["extraoptions"]["load_ele_spec"]:
+        sigmas = np.zeros((all_data["e_data"].shape[0], num_params))
         fits["ele"]["spec_comps"] = np.ones(
             [
                 all_data["e_data"].shape[0],
@@ -79,6 +81,7 @@ def recalculate_with_chosen_weights(
     else:
         fits["ele"]["spec_comps"] = np.zeros(all_data["e_data"].shape)
     if config["other"]["extraoptions"]["load_ion_spec"]:
+        sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
         fits["ion"]["spec_comps"] = np.ones(
             [
                 all_data["i_data"].shape[0],
@@ -93,94 +96,51 @@ def recalculate_with_chosen_weights(
     else:
         fits["ion"]["spec_comps"] = np.zeros(all_data["i_data"].shape)
 
-    sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
-    # fits["ion"] = np.zeros(all_data["i_data"].shape)
-    # fits["ele"] = np.zeros(all_data["e_data"].shape)
-
-    if config["other"]["extraoptions"]["load_ion_spec"]:
-        sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
-
-    if config["other"]["extraoptions"]["load_ele_spec"]:
-        sigmas = np.zeros((all_data["e_data"].shape[0], num_params))
-
-    if config["other"]["extraoptions"]["spectype"] == "angular_full":
+    for i_batch, inds in enumerate(batch_indices):
         batch = {
-            "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-            "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+            "e_data": all_data["e_data"][inds],
+            "e_amps": all_data["e_amps"][inds],
+            "i_data": all_data["i_data"][inds],
+            "i_amps": all_data["i_amps"][inds],
+            "noise_e": all_data["noiseE"][inds],
+            "noise_i": all_data["noiseI"][inds],
         }
-        #losses, sqds, used_points, [ThryE, _, params] = loss_fn.array_loss(fitted_weights[0], batch)
-        loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[0], batch)
-        fits["ele"] = ThryE
-        sqdevs["ele"] = sqds["ele"]
 
-        #all_params["electron"]["v"]=[]
-        # for species in all_params.keys():
-        #     for k in all_params[species].keys():
-        #         if k not in ["fe", "f", "flm"]:
-        #             # all_params[k] = np.concatenate([all_params[k], params[k].reshape(-1)])
-        #             all_params[species][k] = params[species][k].reshape(-1)
-        #         else:
-        #             all_params[species]["fe"] = params[species]["fe"]
-        
-        # all_params["electron"]["v"] = params["electron"]["v"]
+        loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
+
+        if config["plotting"]["detailed_breakdown"]:
+            ts_diag = ThomsonScatteringDiagnostic(config, sa)
+            # ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
+            ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(
+                fitted_weights[i_batch], batch
+            )
+            fits["ele"]["spec_comps"][inds] = modlE
+            fits["ion"]["spec_comps"][inds] = modlI
+            fits["ele"]["IRF"][inds] = eIRF
+            fits["ion"]["IRF"][inds] = iIRF
+            fits["ele"]["noise"][inds] = all_data["noiseE"][inds]
+            fits["ion"]["noise"][inds] = all_data["noiseI"][inds]
+            fits["ele"]["detailed_axis"] = lamAxisE_raw[0]
+            fits["ion"]["detailed_axis"] = lamAxisI_raw[0]
 
         if calc_sigma:
-            # this line may need to be omited since the weights may be transformed by line 77
-            active_params = loss_fn.spec_calc.get_plasma_parameters(fitted_weights, return_static_params=False)
-            hess = loss_fn.h_loss_wrt_params(active_params, batch)
-            sigmas = get_sigmas(hess, config["optimizer"]["batch_size"])
-            print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}")
-
-    else:
-        for i_batch, inds in enumerate(batch_indices):
-            batch = {
-                "e_data": all_data["e_data"][inds],
-                "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds],
-                "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds],
-                "noise_i": all_data["noiseI"][inds],
-            }
-
-            loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
-
-            if config["plotting"]["detailed_breakdown"]:
-                ts_diag = ThomsonScatteringDiagnostic(config, sa)
-                # ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
-                ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(
-                    fitted_weights[i_batch], batch
-                )
-                fits["ele"]["spec_comps"][inds] = modlE
-                fits["ion"]["spec_comps"][inds] = modlI
-                fits["ele"]["IRF"][inds] = eIRF
-                fits["ion"]["IRF"][inds] = iIRF
-                fits["ele"]["noise"][inds] = all_data["noiseE"][inds]
-                fits["ion"]["noise"][inds] = all_data["noiseI"][inds]
-                fits["ele"]["detailed_axis"] = lamAxisE_raw[0]
-                fits["ion"]["detailed_axis"] = lamAxisI_raw[0]
-
-            if calc_sigma:
+            hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
+            try:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
-                try:
-                    hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
-                except:
-                    print("Error calculating Hessian, no hessian based uncertainties have been calculated")
-                    calc_sigma = False
+            except:
+                print("Error calculating Hessian, no hessian based uncertainties have been calculated")
+                calc_sigma = False
 
-            losses[inds] = loss
+        losses[inds] = loss
 
-            sqdevs["ele"][inds] = sqds["ele"]
-            sqdevs["ion"][inds] = sqds["ion"]
-            if calc_sigma:
-                sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
-                # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
+        sqdevs["ele"][inds] = sqds["ele"]
+        sqdevs["ion"][inds] = sqds["ion"]
+        if calc_sigma:
+            sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
+            # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
 
-            fits["ele"]["total_spec"][inds] = ThryE
-            fits["ion"]["total_spec"][inds] = ThryI
+        fits["ele"]["total_spec"][inds] = ThryE
+        fits["ion"]["total_spec"][inds] = ThryI
 
     return losses, sqdevs, num_params, fits, sigmas, all_params
 
@@ -254,12 +214,6 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
 def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
     t1 = time.time()
 
-    # calculate used poinsts once right before its used
-
-    for species in config["parameters"].keys():
-        if "electron" == species:
-            elec_species = species
-
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
         init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights)
     else:
@@ -271,7 +225,7 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
         _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
         if config["other"]["extraoptions"]["spectype"] == "angular_full":
             t1, final_params = process_angular_data(
-                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, elec_species, td
+                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, td
             )
 
         else:
@@ -397,30 +351,52 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
     return t1, final_params
 
 
-def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, elec_species, td):
-    best_weights_val = {}
-    best_weights_std = {}
-    # if config["optimizer"]["num_mins"] > 1:
-    #     for k, v in fitted_weights.items():
-    #         best_weights_val[k] = np.average(v, axis=0)  # [0, :]
-    #         best_weights_std[k] = np.std(v, axis=0)  # [0, :]
-    # else:
-    best_weights_val = fitted_weights
+def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, td):
+    # Prepare parameter containers
+    all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
+    batch_fitted_params, num_params = fitted_weights.get_fitted_params(config["parameters"])
+    for k in batch_fitted_params:
+        for k2 in batch_fitted_params[k]:
+            all_params[k][k2].append(batch_fitted_params[k][k2])
 
-    losses, sqdevs, used_points, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, sa, batch_indices, all_data, loss_fn, config["other"]["calc_sigmas"], [best_weights_val]
-    )
+    # Prepare batch data
+    start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
+    batch = {
+        "e_data": all_data["e_data"][start:end, :],
+        "e_amps": all_data["e_amps"][start:end, :],
+        "i_data": all_data["i_data"],
+        "i_amps": all_data["i_amps"],
+        "noise_e": all_data["noiseE"][start:end, :],
+        "noise_i": all_data["noiseI"][start:end, :],
+    }
 
+    # Calculate losses and fits
+    losses, sqdevs, fits_ele, _, params = loss_fn.array_loss(fitted_weights, batch)
+    fits = {"ele": fits_ele}
+    all_params["electron"]["v"] = params["electron"]["v"]
+
+    # Calculate sigmas if needed
+    sigmas = None
+    if config["other"]["calc_sigmas"]:
+        active_params = loss_fn.spec_calc.get_plasma_parameters(fitted_weights, return_static_params=False)
+        hess = loss_fn.h_loss_wrt_params(active_params, batch)
+        sigmas = get_sigmas(hess, config["optimizer"]["batch_size"])
+        print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
+
+    # Logging and plotting
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
     mlflow.set_tag("status", "plotting")
     t1 = time.time()
 
     final_params = plotters.get_final_params(config, all_params, all_axes, td)
-    if config["other"]["calc_sigmas"]:
-        sigma_fe = plotters.save_sigmas_fe(final_params, best_weights_std, sigmas, td)
-    else:
-        sigma_fe = np.zeros_like(final_params["fe"])
+    sigma_fe = None
+    if "fe" in final_params:
+        if config["other"]["calc_sigmas"]:
+            sigma_fe = plotters.save_sigmas_fe(final_params, {}, sigmas, td)
+        else:
+            sigma_fe = np.zeros_like(final_params['fe'])
+
     savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
-    plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
-    plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
+    plotters.plot_ang_lineouts(1, sqdevs, losses, all_params, all_axes, savedata, td)
+    plotters.plot_dist(config, final_params, sigma_fe, td)
     return t1, final_params

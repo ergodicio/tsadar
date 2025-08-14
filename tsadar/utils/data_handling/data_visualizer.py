@@ -58,12 +58,8 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
                 X,
                 Y,
                 ionData,
-                cmap="turbo_r",
-                #norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03, vmin =0, vmax= np.amax(ionData)),
-                norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(ionData), vmax= np.amax(ionData)),
-                #vmin=np.amin(ionData),
-                #vmin=0,
-                #vmax= np.amax(ionData),
+                cmap="turbo",
+                norm=colors.LogNorm(vmin =10, vmax= np.amax(ionData)/2),
             )
             (sline,) = ax.plot(
                 [all_axes["iaw_x"][LineoutPixelI[0]], all_axes["iaw_x"][LineoutPixelI[0]]],
@@ -116,16 +112,12 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
             fig, ax = plt.subplots()
-            jc= ax.pcolormesh(
+            jc = ax.pcolormesh(
                 X,
                 Y,
                 elecData,
-                norm=colors.SymLogNorm( linthresh = 0.03, linscale = 0.03,vmin=np.amin(elecData), vmax= np.amax(elecData)),
-                cmap="turbo_r",
-                shading= "auto",
-                #vmin=np.amin(elecData),
-                #vmin=0,
-                #vmax= np.amax(elecData)
+                cmap="turbo",
+                norm=colors.LogNorm(vmin =10, vmax= np.amax(elecData)/2),
             )
             (sline,) = ax.plot(
                 [all_axes["epw_x"][LineoutPixelE[0]], all_axes["epw_x"][LineoutPixelE[0]]],

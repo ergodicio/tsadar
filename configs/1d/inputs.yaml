@@ -38,7 +38,7 @@ parameters:
       ub: 2.0
       val: 1.0
     fe:
-      active: true
+      active: false
       dim: 1
       nvx: 16
       params:
@@ -48,7 +48,7 @@ parameters:
           val: 2.7
           matte: True
           intens: 2.5
-      type: arbitrary
+      type: dlm
     ne:
       active: true
       lb: 0.03
@@ -109,7 +109,7 @@ parameters:
       lb: 0.01
       same: false
       ub: 2.0
-      val: [0.05, 0.1, 0.15, 0.2]
+      val: 0.1
     Z:
       active: false
       lb: 0.5
@@ -128,7 +128,7 @@ parameters:
       lb: 0.01
       same: false
       ub: 2.0
-      val: [0.05, 0.1, 0.15, 0.2]
+      val: 0.1
     Z:
       active: false
       lb: 0.5
@@ -147,7 +147,7 @@ parameters:
       lb: 0.01
       same: false
       ub: 2.0
-      val: [0.05, 0.1, 0.15, 0.2]
+      val: 0.1
     Z:
       active: false
       lb: 0.5

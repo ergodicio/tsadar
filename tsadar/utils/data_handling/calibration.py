@@ -344,6 +344,18 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
 
+        elif 116090 < shotNum < 116120:
+            # 4w data from Ed's data (all params should be checked)
+            EPWDisp = 0.05069
+            IAWDisp = 0.00446
+            EPWoff = 135.74 #rough guess
+            IAWoff = 261.1 #need to be checked
+            stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
+            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
+            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
+
         else:
             # needs to be updated with the calibrations from 7-26-22
             EPWDisp = 0.4104

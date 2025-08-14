@@ -295,10 +295,20 @@ class DLM1V(DistributionFunction1V):
             jnp.ndarray: The normalized distribution function evaluated over the velocity grid.
         """
         unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        # vth_x = 1.0  # jnp.sqrt(2.0)
-        # alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
-        # cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
-        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
+        fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
+
+        return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+    
+    def call_matte(self, unnormed_m):
+        """
+        Computes the normalized distribution function for the current parameters.
+        This method applies the activation function to the normalized parameter `normed_m`, 
+        scales and shifts it to obtain `unnormed_m`, and then interpolates the distribution 
+        function using `interpolate_f_in_m`. The resulting distribution is normalized such 
+        that its sum over the velocity axis `vx` is unity.
+        Returns:
+            jnp.ndarray: The normalized distribution function evaluated over the velocity grid.
+        """
         fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
 
         return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])

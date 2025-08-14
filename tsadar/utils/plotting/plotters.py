@@ -26,10 +26,10 @@ def get_final_params(config, best_weights, all_axes, td):
     fitted_dist = False
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
-            if k == "fe":
+            if k in ["fe","f"]:
                 fitted_dist = True
-                dist[k] = v.squeeze()
-                dist["v"] = config["parameters"][species]["fe"]["velocity"]
+                dist["fe"] = np.array(v).squeeze()
+                dist["v"] = dist["v"] = best_weights["electron"]["v"]
                 #pass
             elif k =="flm":
                 fitted_dist = True
@@ -181,7 +181,7 @@ def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     return red_losses
 
 
-def plot_dist(config, ele_species, final_params, sigma_fe, td):
+def plot_dist(config, final_params, sigma_fe, td):
     """
     Plots the fitted or used distribution function. For 1D distributions plots are does as line plots verse the 1D
     velocity. For 2D distributions a surface plot is shown as a function of the 2 velocities and contours are projected
@@ -197,7 +197,7 @@ def plot_dist(config, ele_species, final_params, sigma_fe, td):
     Returns:
     """
 
-    if config["parameters"][ele_species]["fe"]["dim"] == 1:
+    if config["parameters"]['electron']["fe"]["dim"] == 1:
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
         ax[0].plot(final_params["v"], final_params["fe"])
         ax[1].plot(np.log10(np.exp(final_params["fe"])))
