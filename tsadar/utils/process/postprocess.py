@@ -416,11 +416,13 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     t1 = time.time()
 
     final_params = plotters.get_final_params(config, all_params, all_axes, td)
-    if config["other"]["calc_sigmas"]:
-        sigma_fe = plotters.save_sigmas_fe(final_params, best_weights_std, sigmas, td)
-    else:
-        sigma_fe = np.zeros_like(final_params["fe"])
+    if 'fe' in final_params.keys():
+        if config["other"]["calc_sigmas"]:
+            sigma_fe = plotters.save_sigmas_fe(final_params, best_weights_std, sigmas, td)
+        else:
+            sigma_fe = np.zeros_like(final_params["fe"])
+        plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
     savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
     plotters.plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td)
-    plotters.plot_dist(config, elec_species, final_params, sigma_fe, td)
+    
     return t1, final_params

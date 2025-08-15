@@ -2,28 +2,28 @@ data:
   background:
     slice: 900
     type: pixel
-  bgscaleE: 0.1
+  bgscaleE: 0.0
   bgscaleI: 0.1
   bgshotmult: 1
-  dpixel: 3
+  dpixel: 2
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
-    blue_max: 520
-    blue_min: 475
-    forward_epw_end: 700
-    forward_epw_start: 400
+    blue_max: 515
+    blue_min: 450
+    forward_epw_end: 668.78
+    forward_epw_start: 449.74
     forward_iaw_end: 528
     forward_iaw_start: 524
     iaw_cf_max: 526.6
     iaw_cf_min: 526.4
     iaw_max: 352
     iaw_min: 350
-    red_max: 575
-    red_min: 535
+    red_max: 650
+    red_min: 540
   ion_loss_scale: 1.0
   ion_t0_shift: 0
-  launch_data_visualizer: true
+  launch_data_visualizer: false
   lineouts:
     end: 502
     skip: 1
@@ -41,24 +41,25 @@ mlflow:
   experiment: tsadar-test
   run: arts2d
 optimizer:
-  batch_size: 4
+  batch_size: 6
   grad_method: AD
   grad_scalar: 1.0
   hessian: false
   jit: true
-  learning_rate: 0.001
-  method: adam
-  moment_loss: false
+  learning_rate_final: 0.0001
+  learning_rate_init: 0.001
   loss_method: l2
+  method: rmsprop
+  moment_loss: false
   num_epochs: 1000
   num_mins: 1
   parameter_norm: true
   refine_factor: 1
   save_state: true
   save_state_freq: 20
+  sequential: true
   x_norm: false
   y_norm: true
-  sequential: true
 other:
   BinWidth: 10
   CCDsize:
@@ -76,12 +77,12 @@ other:
   crop_window: 1
   expandedions: false
   extraoptions:
+    absolute_timing: false
     fit_EPWb: true
     fit_EPWr: true
     fit_IAW: false
     load_ele_spec: true
     load_ion_spec: false
-    absolute_timing: false
   flatbg: 0
   gain: 1
   iawfilter:
@@ -91,10 +92,30 @@ other:
   - 528
   iawoff: 0
   lam_res_unit: 5
-  points_per_pixel: 10
-  refit: true
+  points_per_pixel: 1
+  refit: false
   refit_thresh: 0.25
 parameters:
+  electron:
+    Te:
+      active: false
+      lb: 0.01
+      ub: 1.5
+      val: 0.6
+    fe:
+      active: false
+      dim: 2
+      nvx: 128
+      params:
+        Nl: 1
+        init_m: 2.7
+        nvr: 64
+      type: sphericalharmonic
+    ne:
+      active: false
+      lb: 0.001
+      ub: 1.0
+      val: 0.2
   general:
     Te_gradient:
       active: false
@@ -140,27 +161,6 @@ parameters:
       lb: -100.0
       ub: 100.0
       val: 0.0
-  electron:
-    Te:
-      active: false
-      lb: 0.01
-      ub: 1.5
-      val: 0.6
-    fe:
-      active: false
-      dim: 2
-      type: sphericalharmonic
-      nvx: 128
-      params:
-        init_m: 2.7
-        Nl: 1
-        nvr: 64
-    ne:
-      active: false
-      lb: 0.001
-      ub: 1.0
-      val: 0.2
-
   ion-1:
     A:
       active: false
@@ -178,14 +178,13 @@ parameters:
     fract:
       active: false
       val: 0.1
-
 plotting:
   data_cbar_l: 0
-  data_cbar_u: 2500
+  data_cbar_u: data
+  detailed_breakdown: false
   ele_window_end: 600
   ele_window_start: 450
   ion_window_end: 528
   ion_window_start: 525
   n_sigmas: 3
   rolling_std_width: 5
-  detailed_breakdown: true

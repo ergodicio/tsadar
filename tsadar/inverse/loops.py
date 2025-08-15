@@ -217,9 +217,9 @@ def angular_optax(config, all_data, sa):
 
     loss_fn = LossFunction(config, sa, batch1)
     minimizer = getattr(optax, config["optimizer"]["method"])
-    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
-    # solver = minimizer(schedule)
-    solver = minimizer(config["optimizer"]["learning_rate"])
+    schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate_init"], np.round(0.75*config["optimizer"]["num_epochs"]), alpha = config["optimizer"]["learning_rate_final"]/config["optimizer"]["learning_rate_init"])
+    solver = minimizer(schedule)
+    #solver = minimizer(config["optimizer"]["learning_rate"])
 
     ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
@@ -243,23 +243,23 @@ def angular_optax(config, all_data, sa):
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.000001:
-                best_loss = epoch_loss
-                best_weights = eqx.combine(diff_params, static_params)
+            if best_loss - epoch_loss < 0.00000001:
                 num_g_wait += 1
-                if num_g_wait > 5:
-                    print("Minimizer exited due to change in loss < 1e-6")
-                    break
-            elif epoch_loss > best_loss:
-                num_b_wait += 1
-                if num_b_wait > 5:
-                    print("Minimizer exited due to increase in loss")
+                if num_g_wait > 50:
+                    print("Minimizer exited due to change in loss < 1e-8")
                     break
             else:
-                best_loss = epoch_loss
-                best_weights = eqx.combine(diff_params, static_params)
                 num_b_wait = 0
                 num_g_wait = 0
+            best_loss = epoch_loss
+            best_weights = eqx.combine(diff_params, static_params)
+                
+        elif epoch_loss > best_loss:
+            num_b_wait += 1
+            if num_b_wait > 50:
+                print("Minimizer exited due to increase in loss")
+                break
+        
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
 
         if config["optimizer"]["save_state"]:

@@ -3,18 +3,16 @@ data:
     slice: 10002
     type: Fit
   lineouts:
-    end: 1024
+    end: 950
     skip: 20
-    start: 0
+    start: 90
     type: range
   shot_rot: 90.0
-  shotnum:
-  - 10002
-  - 10007
+  shotnum: 10011
 machine: gpu
 mlflow:
-  experiment: inverse-thomson-scattering
-  run: Maxwellian_testdata
+  experiment: tsadar-tests-2
+  run: maxwellian_test_model_arb_cos_schedule_-3-4_higherres_hann20
 other:
   PhysParams:
     widIRF:
@@ -36,30 +34,44 @@ parameters:
   electron:
     Te:
       active: true
+      gradient_scalar: 10.0
       lb: 0.01
-      ub: 1.0
+      ub: 2.0
       val: 1.1
     fe:
       active: true
       dim: 1
-      nvx: 320
+      nvx: 128
       params:
+        LTx: 22500.0
+        LTy: 40000.0
+        Nl: 1
+        flm_type: arbitrary
+        init_m: 3.0
+        learn_log: true
+        smooth: true
+        window:
+          len: 20
+          sampling: 30
+          type: hanning
         m:
           lb: 2.0
           ub: 5.0
-          val: 2.0
-      type: dlm
+          val: 3.0
+        nvr: 64
+      type: arbitrary
     ne:
       active: true
-      lb: 0.001
-      ub: 0.1
+      gradient_scalar: 10.0
+      lb: 0.03
+      ub: 2.0
       val: 0.44
   general:
     Te_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 10
-      ub: 15.0
+      num_grad_points: 1
+      ub: 10.0
       val: 0.0
     Va:
       active: false
@@ -83,21 +95,21 @@ parameters:
       ub: 3.75
       val: 1.0
     lam:
-      active: true
-      lb: 524.0
-      ub: 529.0
+      active: false
+      lb: 525.0
+      ub: 528.0
       val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
-      num_grad_points: 10
+      num_grad_points: 1
       ub: 15.0
       val: 0.0
     ud:
       active: false
       angle: 0.0
-      lb: -200.0
-      ub: 200.0
+      lb: -10.0
+      ub: 30.0
       val: 0.0
   ion-1:
     A:
