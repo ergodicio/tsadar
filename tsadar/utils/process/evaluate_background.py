@@ -178,9 +178,14 @@ def get_lineout_bg(
                 def exp2(x, a, b, c, d):
                     return a * np.exp(-b * x) + c * np.exp(-d * x)
 
-                bgfitx = np.hstack(
-                    [np.arange(250, 480), np.arange(540, 900)]
-                )  # this is specificaly targeted at streaked data, removes the fiducials at top and bottom and notch filter
+                # this defines the region of the background lineout to fit, for temporal data [250 480 540 900] usualy works but at 4w there canbe issues
+                bgfitx = np.hstack([
+                    np.arange(config["data"]["background"]["bg_alg_domain"][0],
+                               config["data"]["background"]["bg_alg_domain"][1]),
+                                 np.arange(config["data"]["background"]["bg_alg_domain"][2],
+                                           config["data"]["background"]["bg_alg_domain"][3])])
+                
+                # this defines the region of the data lineout to rescale the background to
                 bgfitx2 = np.hstack([np.arange(250, 300), np.arange(700, 900)])
                 plt.plot(bgfitx, LineoutBGE[bgfitx])
 
