@@ -136,7 +136,7 @@ def forward_pass(config):
                 config,
                 {"ele": np.squeeze(ThryE)},
                 {"e_data": np.zeros((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))},
-                {"epw_x": sas["angAxis"], "epw_y": lamAxisE},
+                {"epw_x": sas["angAxis"], "epw_y": lamAxisE, 'x_label': 'Angle'},
                 td,
             )
             # plotters.plot_dist(config, "electron", {"fe": np.squeeze(fe_val), "v": velocity}, np.zeros_like(fe_val), td)
