@@ -313,7 +313,6 @@ def multirun_angular_optax(
     else:
         actual_data = batch1
 
-    loss_fn = LossFunction(config, sa, batch1)
     previous_weights = None
 
     # Run the angular optimization loop num_mins times

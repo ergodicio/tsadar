@@ -184,8 +184,9 @@ def get_lineout_bg(
                 bgfitx2 = np.hstack([np.arange(250, 300), np.arange(700, 900)])
                 plt.plot(bgfitx, LineoutBGE[bgfitx])
 
-                [expbg, _] = spopt.curve_fit(exp2, bgfitx, LineoutBGE[bgfitx], p0=[200, 0.001, 200, 0.001])
+                [expbg, _] = spopt.curve_fit(exp2, bgfitx, LineoutBGE[bgfitx], p0=[100, 0.003, 20, 0.001])
                 LineoutBGE = config["data"]["bgscaleE"] * exp2(np.arange(1024), *expbg)
+                print(expbg)
 
                 # rescale background exponential using the edge of each data lineout
                 LineoutBGE_rescaled = []

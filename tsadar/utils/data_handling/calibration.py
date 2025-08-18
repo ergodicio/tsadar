@@ -321,13 +321,26 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
 
         elif 111410 < shotNum < 111435:
             # needs to be updated with the calibrations from 7-26-22
-            EPWDisp = 0.4104
-            IAWDisp = 0.00678
-            EPWoff = 317.4
+            EPWDisp = 0.4143
+            IAWDisp = 0.00683
+            EPWoff = 316.4
             IAWoff = 522.92
-            stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
-            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
-            print("used 0.668 nm irf")
+            stddev["spect_stddev_ion"] = 0.0503 #0.025 # 0.0095  # needs to be updated
+            stddev["spect_stddev_ele"] = 1.33#0.668  # based of hg lamp data
+            #print("used 0.668 nm irf")
+            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
+
+        elif 114400 < shotNum < 114500:
+            # needs to be updated with the calibrations from 7-26-22
+            EPWDisp = 0.4143
+            IAWDisp = 0.00683
+            EPWoff = 316.4
+            IAWoff = 522.92
+            stddev["spect_stddev_ion"] = 0.0503 #0.025 # 0.0095  # needs to be updated
+            stddev["spect_stddev_ele"] = 1.33#0.668  # based of hg lamp data
+            #print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess

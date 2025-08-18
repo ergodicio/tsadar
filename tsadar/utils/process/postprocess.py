@@ -399,4 +399,5 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
     plotters.plot_ang_lineouts(1, sqdevs, losses, all_params, all_axes, savedata, td)
     plotters.plot_dist(config, final_params, sigma_fe, td)
+    
     return t1, final_params
