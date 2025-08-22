@@ -32,10 +32,12 @@ def smooth1d(array, window_size):
     # Use a Hanning window
     window = jnp.hanning(window_size)
     window /= window.sum()  # Normalize
-    return jnp.convolve(array, window, mode="same")
-    # signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
-    # y = jnp.convolve(signal, window, mode="same")
-    # return y[(window_size // 2 - 1) : -(window_size // 2)]
+    #v1= jnp.convolve(array, window, mode="same")
+    #v2= jnp.convolve(array, window, mode="valid")
+    signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
+    y = jnp.convolve(signal, window, mode="same")
+    v3 = y[(window_size - 1) : -(window_size - 1)]
+    return v3
 
 
 def second_order_butterworth(
@@ -196,20 +198,24 @@ class Arbitrary1V(DistributionFunction1V):
         #self.smooth = partial(smooth1d, window_size=dist_cfg["nvx"] // 4)
 
     def init_dlm(self, m):
-        vth_x = 1.0  # jnp.sqrt(2.0)
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
-        cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
-        fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
+        # vth_x = 1.0  # jnp.sqrt(2.0)
+        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        # cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
+        # fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+        # fdlm = -jnp.log10(fdlm)
+        x0 = jnp.sqrt(3.0 * gamma(3.0 / m) / gamma(5.0 / m))
+        fdlm  = jnp.exp(-(jnp.abs(self.vx/x0) ** m))
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
         fdlm = -jnp.log10(fdlm)
-
-        return jnp.sqrt(fdlm) / 7.0
+        #removed the divide by 7 to put edf on the 0-1 scale
+        return jnp.sqrt(fdlm)
 
     def get_unnormed_params(self):
         return {"f": self()}
 
     def __call__(self):
-        fval = (7.0 * self.smooth(self.fval)) ** 2.0
+        fval = (self.smooth(self.fval)) ** 2.0
         fval = jnp.power(10.0, -fval)
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
 

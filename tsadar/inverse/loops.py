@@ -178,7 +178,7 @@ def one_d_loop(
     return all_weights, overall_loss, loss_fn
 
 
-def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None):
+def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None, previous_epoch=None):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
     Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
@@ -231,8 +231,9 @@ def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None):
             print(f"delta loss {best_loss - epoch_loss}")
             if best_loss - epoch_loss < 0.00000001:
                 num_g_wait += 1
-                if num_g_wait > 50:
+                if num_g_wait > 500:
                     print("Minimizer exited due to change in loss < 1e-8")
+                    exit_cond = "Change in loss < 1e-8"
                     break
             else:
                 num_b_wait = 0
@@ -242,23 +243,28 @@ def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None):
                 
         elif epoch_loss > best_loss:
             num_b_wait += 1
-            if num_b_wait > 50:
+            if num_b_wait > 500:
                 print("Minimizer exited due to increase in loss")
+                exit_cond = "Increase in loss"
                 break
         
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
         
         if config["optimizer"]["save_state"]:
-            if i_epoch % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[i_epoch] = best_weights.get_unnormed_params()
+            if (previous_epoch+i_epoch) % config["optimizer"]["save_state_freq"] == 0:
+                state_weights[previous_epoch + i_epoch] = best_weights.get_unnormed_params()
 
-        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
+        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, previous_epoch + i_epoch)
 
+    if i_epoch == config["optimizer"]["num_epochs"] - 1:
+        print("Minimizer exited due to reaching max epochs")
+        exit_cond = "Reached epoch limit"
+        
     with open("state_weights.txt", "wb") as file:
         file.write(pickle.dumps(state_weights))
 
     mlflow.log_artifact("state_weights.txt")
-    return best_weights, epoch_loss, loss_fn
+    return best_weights, best_loss, previous_epoch + i_epoch, loss_fn, exit_cond
 
 def multirun_angular_optax(
     config: Dict, all_data: Dict, sa: Tuple,
@@ -314,33 +320,36 @@ def multirun_angular_optax(
         actual_data = batch1
 
     previous_weights = None
+    total_epochs = 0
+    best_loss = 100
 
     # Run the angular optimization loop num_mins times
     for i_min in range(config["optimizer"]["num_mins"]):
         loss_fn = LossFunction(config, sa, batch1)
-        previous_weights, overall_loss, loss_fn = angular_optax(config, sa, loss_fn, actual_data, previous_weights)
-
+        previous_weights, overall_loss, total_epochs, loss_fn, exit_cond = angular_optax(config, sa, loss_fn, actual_data, previous_weights, total_epochs)
+        mlflow.set_tag(f"exit cond {i_min}", exit_cond)
+        mlflow.log_metrics({"min loss": float(overall_loss)}, step=i_min)
+        best_loss = min(best_loss, overall_loss)
         if i_min < config["optimizer"]["num_mins"]-1:
             config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
+            config["parameters"]["electron"]["fe"]["params"]["window"]["len"]= config["parameters"]["electron"]["fe"]["params"]["window"]["len"]*config["optimizer"]["refine_factor"]+1
             #currently may only work for 1D arbitrary
 
-            refined_fe = np.interp(
-                np.linspace(
+            new_vx = np.linspace(
                     previous_weights.electron.distribution_functions.vx[0],
                     previous_weights.electron.distribution_functions.vx[-1],
                     config["parameters"]["electron"]["fe"]["nvx"],
-                ),
+                )
+            fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
+            refined_fe = np.interp(new_vx,
                 previous_weights.electron.distribution_functions.vx,
                 previous_weights.electron.distribution_functions.fval,
             )
+            refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
 
             getleaf = lambda t: t.electron.distribution_functions.fval
             previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
             getleaf = lambda t: t.electron.distribution_functions.vx
-            previous_weights = eqx.tree_at(getleaf, previous_weights, np.linspace(
-                    previous_weights.electron.distribution_functions.vx[0],
-                    previous_weights.electron.distribution_functions.vx[-1],
-                    config["parameters"]["electron"]["fe"]["nvx"],
-                ))
+            previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
 
     return previous_weights, overall_loss, loss_fn

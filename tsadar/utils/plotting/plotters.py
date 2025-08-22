@@ -199,9 +199,9 @@ def plot_dist(config, final_params, sigma_fe, td):
 
     if config["parameters"]['electron']["fe"]["dim"] == 1:
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-        ax[0].plot(final_params["v"], final_params["fe"])
-        ax[1].plot(np.log10(np.exp(final_params["fe"])))
-        ax[2].plot(np.exp(final_params["fe"]))
+        ax[0].plot(final_params["v"], np.log(final_params["fe"]))
+        ax[1].plot(final_params["v"], np.log10(final_params["fe"]))
+        ax[2].plot(final_params["v"], final_params["fe"])
 
         if config["other"]["calc_sigmas"]:
             ax[0].fill_between(

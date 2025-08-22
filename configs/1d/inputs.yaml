@@ -1,24 +1,24 @@
 data:
   background:
-    slice: 900
-    type: pixel
+    slice: 10002
+    type: Fit
   lineouts:
     end: 950
     skip: 20
-    start: 90
+    start: 120
     type: range
   shot_rot: 90.0
   shotnum: 10011
 machine: gpu
 mlflow:
   experiment: tsadar-tests-2
-  run: maxwellian_test_model_arb_cos_schedule_-2-4_multimin_test
+  run: maxwellian_test_model_dlm_longsinglemin_adam_butter2560
 other:
-  calc_sigmas: false
   PhysParams:
     widIRF:
+      spect_stddev_ele: 0.668
       spect_stddev_ion: 0.0153
-      spect_stddev_ele: 0.668 
+  calc_sigmas: false
   extraoptions:
     fit_EPWb: true
     fit_EPWr: true
@@ -39,7 +39,7 @@ parameters:
     fe:
       active: true
       dim: 1
-      nvx: 128
+      nvx: 64
       params:
         LTx: 22500.0
         LTy: 40000.0
@@ -47,17 +47,17 @@ parameters:
         flm_type: arbitrary
         init_m: 3.0
         learn_log: true
-        smooth: true
-        window:
-          len: 20
-          sampling: 30
-          type: hanning
         m:
           lb: 2.0
           ub: 5.0
           val: 3.0
-        nvr: 64
-      type: arbitrary
+        nvr: 128
+        smooth: true
+        window:
+          len: 25
+          sampling: 60
+          type: butterworth
+      type: dlm
     ne:
       active: true
       gradient_scalar: 10.0
@@ -127,7 +127,6 @@ parameters:
     fract:
       active: false
       val: 0.1
-
   ion-2:
     A:
       active: false
@@ -146,7 +145,6 @@ parameters:
     fract:
       active: false
       val: 0.85
-
   ion-3:
     A:
       active: false
