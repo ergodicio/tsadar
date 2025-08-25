@@ -383,7 +383,7 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                 if key == "fe":
                     filter_spec = get_distribution_filter_spec(filter_spec, dist_params=_params)
                 else:
-                    nkey = f"normed_{key}"# if key!="fract" else f"{key}"   # SB treat fractions differently
+                    nkey = f"normed_{key}" if key!="fract" else f"{key}"   # SB treat fractions differently
                     if "ion" in species:
                         filter_spec = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, "ions")[ion_num - 1], nkey),

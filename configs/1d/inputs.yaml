@@ -1,20 +1,20 @@
 data:
   background:
-    slice: 900
-    type: pixel
+    slice: 500
+    type: fit
   lineouts:
         type:
-            ps
-        start: 500
-        end: 1000
+            um
+        start: -900
+        end: 800
         skip: 50
-  shotnum: 101675
+  shotnum: 92535
 
 machine: gpu
 
 mlflow:
-  experiment: test
-  run: run
+  experiment: Kinshock19A
+  run: 92535-19
 
 other:
   calc_sigmas: false
@@ -32,25 +32,25 @@ parameters:
     Te:
       active: True
       lb: 0.01
-      ub: 2.0
-      val: 0.5
+      ub: 0.7
+      val: 0.2
     fe:
-      active: True
+      active: false
       dim: 1
       nvx: 320
       params:
         m:
           lb: 2.0
           ub: 5.0
-          val: 3.0
-          matte: True
+          val: 2.0
+          matte: false
           intens: 2.5
       type: dlm
     ne:
-      active: True
-      lb: 0.03
-      ub: 2.0
-      val: 0.2
+      active: true
+      lb: 0.05
+      ub: 0.5
+      val: 0.25
   general:
     Te_gradient:
       active: false
@@ -69,14 +69,14 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     lam:
-      active: True
-      lb: 523.0
-      ub: 527.0
+      active: false
+      lb: 524.0
+      ub: 528.0
       val: 526.5
     ne_gradient:
       active: false
@@ -85,36 +85,38 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: false
+      active: true 
       angle: 0.0
-      lb: -20.0
-      ub: 20.0
+      lb: -10.0
+      ub: 10.0
       val: 0.0
 
   ion-1:
     A:
       active: false
-      val: 40.0
+      val: 1.0
     Ti:
       active: True
       lb: 0.01
       same: false
-      ub: 1.0
-      val: 0.1
+      ub: 1.2
+      val: 0.5
     Z:
-      active: True
+      active: false
       lb: 1.0
       ub: 18.0
-      val: 8.0
+      val: 1.0
     Va:
       active: True
       angle: 0.0
       lb: 0.0
-      ub: 40.5
-      val: 15.0
+      ub: 45.0
+      val: 20.0
     fract:
-      active: false
-      val: 1.0
+      active: True
+      lb: 0.1
+      ub: 1.0
+      val: 0.6
     type:
       active: false
       ion: null 
@@ -122,35 +124,7 @@ parameters:
   ion-2:
     A:
       active: false
-      val: 40.0
-    Ti:
-      active: True
-      lb: 0.01
-      same: false
-      ub: 3.0
-      val: 0.2
-    Z:
-      active: True
-      lb: 1.0
-      ub: 18.0
-      val: 8.0
-    Va:
-      active: True
-      angle: 0.0
-      lb: 0.0
-      ub: 40.5
-      val: 20.0
-    fract:
-      active: false
-      val: 1.0
-    type:
-      active: false
-      ion: null
-
-  ion-3:
-    A:
-      active: false
-      val: 40.0
+      val: 4.0
     Ti:
       active: True
       lb: 0.01
@@ -158,16 +132,21 @@ parameters:
       ub: 1.0
       val: 0.1
     Z:
-      active: True
+      active: false
       lb: 1.0
-      ub: 18.0
-      val: 8.0
+      ub: 2.0
+      val: 1.990
     Va:
       active: True
       angle: 0.0
       lb: 0.0
-      ub: 40.5
+      ub: 30.0
       val: 10.0
     fract:
+      active: True
+      lb: 0.01
+      ub: 1.0
+      val: 0.4
+    type:
       active: false
-      val: 1.0
+      ion: null

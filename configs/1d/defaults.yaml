@@ -90,7 +90,7 @@ other:
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
     flatbg: 0
-    gain: 150
+    gain: 100
     points_per_pixel: 5
     ang_res_unit: 10
     lam_res_unit: 5
@@ -103,14 +103,14 @@ data:
     shotDay: False
     launch_data_visualizer: True
     fit_rng:
-        blue_min: 450
-        blue_max: 510
-        red_min: 545
-        red_max: 625
+        blue_min: 460
+        blue_max: 500
+        red_min: 550
+        red_max: 600
         iaw_min: 525.5
-        iaw_max: 527.5
-        iaw_cf_min: 526.5
-        iaw_cf_max: 526.8
+        iaw_max: 527.0
+        iaw_cf_min: 526.51
+        iaw_cf_max: 526.49
         forward_epw_start: 400
         forward_epw_end: 700
         forward_iaw_start: 525.75
@@ -139,7 +139,7 @@ data:
         bg_alg_domain: [100, 200, 800, 1023]
 
 plotting:
-    n_sigmas: 3
+    n_sigmas: 1
     rolling_std_width: 5
     data_cbar_u: data
     data_cbar_l: -1
@@ -161,12 +161,12 @@ optimizer:
     x_norm: False
     grad_method: AD
     batch_size: 2
-    num_epochs: 120
+    num_epochs: 100
     learning_rate: 1.0e-2
     parameter_norm: True
     refine_factor: 0
-    num_mins: 1
-    sequential: True
+    num_mins: 8
+    sequential: False
 
 nn:
     use: false

@@ -369,12 +369,27 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             stddev["spect_stddev_ion"] = 0.028  # needs to be checked
             stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
 
-            magI = 2.87  # um / px
+            magI = 3.8  #2.87  # um / px
             magE = 5.13  # um / px
 
             EPWtcc = 1024 - 456.1  # 562;
-            IAWtcc = 519#1024 - 519  # 469;
+            IAWtcc = 625 #519#1024 - 519  # 469;
+            
+        if shotNum == 92535:
+            EPWDisp = 0.27093
+            IAWDisp = 0.0057
+            EPWoff = 381.75  # only this shot seems to have shifted
+            IAWoff = 523.74
 
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 3.8  # um / px
+            magE = 5.13  # um / px
+
+            EPWtcc = 1024 - 456.1  # 562;
+            IAWtcc = 625#1024 - 519  # 469;
+            
         elif 92522 < shotNum <= 92538:
             EPWDisp = 0.27093
             IAWDisp = 0.0057
