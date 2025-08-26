@@ -8,16 +8,18 @@ data:
     start: 120
     type: range
   shot_rot: 90.0
-  shotnum: 10011
+  shotnum: 10012
 machine: gpu
 mlflow:
   experiment: tsadar-tests-2
-  run: maxwellian_test_model_dlm_longsinglemin_adam_butter2560
+  run: SG4_test_model_dlm_rerun_lowerlearning
 other:
   PhysParams:
     widIRF:
-      spect_stddev_ele: 0.668
-      spect_stddev_ion: 0.0153
+      ang_FWHM_ele: 1.0
+      spect_FWHM_ele: 0.9
+      spect_stddev_ele: 0.1
+      spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
@@ -54,9 +56,9 @@ parameters:
         nvr: 128
         smooth: true
         window:
-          len: 25
-          sampling: 60
-          type: butterworth
+          len: 45
+          sampling: 30
+          type: hanning
       type: dlm
     ne:
       active: true

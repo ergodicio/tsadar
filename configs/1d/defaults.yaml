@@ -46,13 +46,13 @@ optimizer:
   grad_scalar: 1.0
   hessian: false
   jit: true
-  learning_rate_final: 0.0001
-  learning_rate_init: 0.001
+  learning_rate_final: 0.00001
+  learning_rate_init: 0.01
   loss_method: l2
-  method: adam
+  method: rmsprop
   moment_loss: false
-  num_epochs: 4000
-  num_mins: 2
+  num_epochs: 1000
+  num_mins: 1
   parameter_norm: true
   refine_factor: 2
   save_state: true
@@ -77,14 +77,13 @@ other:
   crop_window: 1
   expandedions: false
   extraoptions:
-    absolute_timing: false
+    absolute_timing: true
     fit_EPWb: true
     fit_EPWr: true
     fit_IAW: false
     load_ele_spec: true
     load_ion_spec: false
     spectype: temporal
-    absolute_timing: true
   flatbg: 0
   gain: 1
   iawfilter:

@@ -57,7 +57,7 @@ def _validate_inputs_(config: Dict) -> Dict:
     elif config["parameters"]["electron"]["fe"]["dim"] == 2:
         if config["parameters"]["electron"]["fe"]["type"] not in ["sphericalharmonic", "arbitrary"]:
             raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 2D EDFs, please choose one of the allowed types: sphericalharmonic or arbitrary")
-        elif config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic" and config["parameters"]["electron"]["fe"]["params"]["type"] not in ["Mora-Yahi", "NN", "arbitrary"]:
+        elif config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic" and config["parameters"]["electron"]["fe"]["params"]["flm_type"].casefold() not in ["mora-yahi", "nn", "arbitrary"]:
             raise ValueError(f"Electron distribution function params type {config['parameters']['electron']['fe']['params']['type']} is not supported for spherical harmonic EDFs, please choose one of the allowed flm types: Mora-Yahi, NN, arbitrary")
     if "matte" in config["parameters"]["electron"]["fe"]["params"]["m"] and config["parameters"]["electron"]["fe"]["params"]["m"]["matte"]:
         if config["parameters"]["electron"]["fe"]["type"] != "dlm" or config["parameters"]["electron"]["fe"]["dim"] != 1:

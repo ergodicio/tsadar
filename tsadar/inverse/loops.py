@@ -3,7 +3,7 @@ from optax import tree_utils as otu
 import equinox as eqx
 import scipy.optimize as spopt
 from tsadar.inverse.loss_function import LossFunction
-
+from tsadar.core.modules.distribution_functions.base import DLM1V
 
 import mlflow
 import numpy as np
@@ -331,25 +331,39 @@ def multirun_angular_optax(
         mlflow.log_metrics({"min loss": float(overall_loss)}, step=i_min)
         best_loss = min(best_loss, overall_loss)
         if i_min < config["optimizer"]["num_mins"]-1:
-            config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
-            config["parameters"]["electron"]["fe"]["params"]["window"]["len"]= config["parameters"]["electron"]["fe"]["params"]["window"]["len"]*config["optimizer"]["refine_factor"]+1
-            #currently may only work for 1D arbitrary
+            if config["parameters"]["electron"]["fe"]["dim"] == 1:
+                config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
+                config["parameters"]["electron"]["fe"]["params"]["window"]["len"]= config["parameters"]["electron"]["fe"]["params"]["window"]["len"]*config["optimizer"]["refine_factor"]+1
+                #currently may only work for 1D arbitrary
+    
+                new_vx = np.linspace(
+                        previous_weights.electron.distribution_functions.vx[0],
+                        previous_weights.electron.distribution_functions.vx[-1],
+                        config["parameters"]["electron"]["fe"]["nvx"],
+                    )
+                if config["parameters"]["electron"]["fe"]["type"] == 'arbitrary':
+                    fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
+                    refined_fe = np.interp(new_vx,
+                        previous_weights.electron.distribution_functions.vx,
+                        previous_weights.electron.distribution_functions.fval,
+                    )
+                    refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
+    
+                    getleaf = lambda t: t.electron.distribution_functions.fval
+                    previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
 
-            new_vx = np.linspace(
-                    previous_weights.electron.distribution_functions.vx[0],
-                    previous_weights.electron.distribution_functions.vx[-1],
-                    config["parameters"]["electron"]["fe"]["nvx"],
-                )
-            fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
-            refined_fe = np.interp(new_vx,
-                previous_weights.electron.distribution_functions.vx,
-                previous_weights.electron.distribution_functions.fval,
-            )
-            refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
-
-            getleaf = lambda t: t.electron.distribution_functions.fval
-            previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
-            getleaf = lambda t: t.electron.distribution_functions.vx
-            previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
+                elif config["parameters"]["electron"]["fe"]["type"] == 'dlm':
+                    distconfigs = config["parameters"]["electron"]["fe"]
+                    cur_m = previous_weights.electron.distribution_functions.get_unnormed_params()
+                    distconfigs["params"]["m"]["val"] = cur_m['m']
+                    #previous_weights.electron.distribution_functions.__init__(distconfigs,True)
+                    new_edf = DLM1V(distconfigs, True)
+                    getleaf = lambda t: t.electron.distribution_functions
+                    previous_weights = eqx.tree_at(getleaf, previous_weights, new_edf)
+                    
+                getleaf = lambda t: t.electron.distribution_functions.vx
+                previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
+            else:
+                raise ValueError("Multiple minimizations are only enabled for 1D edfs")
 
     return previous_weights, overall_loss, loss_fn
