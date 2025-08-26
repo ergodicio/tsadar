@@ -1,3 +1,4 @@
+from functools import partial
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from optax import tree_utils as otu
 import equinox as eqx
@@ -353,3 +354,124 @@ def multirun_angular_optax(
             previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
 
     return previous_weights, overall_loss, loss_fn
+
+
+
+def angular_multiple_optax(config, all_data, sa):
+    """
+    This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
+    Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
+    This function sets up and runs a fitting routine using the Optax optimization library, applying the specified minimizer to fit model parameters to experimental data. It handles data batching, optimizer initialization, training loop with early stopping, and logging of metrics and optimizer state.
+        
+    Args:    
+        config (dict): Configuration dictionary built from the input decks, specifying optimizer, data, and parameter settings.
+        all_data (dict): Dictionary containing datasets, amplitudes, and backgrounds as constructed by the prepare.py code.
+        sa (dict): Dictionary of the scattering angles and their relative weights.
+    Returns:
+        best_weights (dict): Best parameter weights as returned by the minimizer.
+        best_loss (float): Best value of the fit metric found by the minimizer.
+        ts_instance (LossFunction): Instance of the LossFunction object used for minimization.
+    Notes:
+        - Supports early stopping based on loss improvement or degradation.
+        - Logs training metrics and optimizer state using mlflow.
+        - Handles both single and multiple shot number data configurations for rotated repeats of data.
+
+    """
+
+    config["optimizer"]["batch_size"] = 1
+    config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
+    config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
+    batch1 = {
+        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "i_data": all_data["i_data"],
+        "i_amps": all_data["i_amps"],
+        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+    }
+    if isinstance(config["data"]["shotnum"], list):
+        batch2 = {
+            "e_data": all_data["e_data_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "e_amps": all_data["e_amps_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "noise_e": all_data["noiseE_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        }
+        actual_data = {"b1": batch1, "b2": batch2}
+    else:
+        actual_data = batch1
+
+    loss_fn = LossFunction(config, sa, batch1)
+    # minimizer = getattr(optax, config["optimizer"]["method"])
+    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
+    # solver = minimizer(schedule)
+    # solver = minimizer(config["optimizer"]["learning_rate"])
+
+    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    solver = optax.partition({"macro": optax.adam(learning_rate=0.1), "dist": optax.adam(learning_rate=0.0001)}, partial(label, cfg_params=config["parameters"]))
+    opt_state = solver.init(diff_params)
+
+    # start train loop
+    state_weights = {}
+    t1 = time.time()
+    best_weights = {}
+    epoch_loss = 0.0
+    best_loss = 100.0
+    num_g_wait = 0
+    num_b_wait = 0
+    for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
+        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
+        updates, opt_state = solver.update(grad, opt_state)
+        diff_params = eqx.apply_updates(diff_params, updates)
+        
+        epoch_loss = val
+        if epoch_loss < best_loss:
+            print(f"delta loss {best_loss - epoch_loss}")
+            if best_loss - epoch_loss < 0.000001:
+                best_loss = epoch_loss
+                best_weights = eqx.combine(diff_params, static_params)
+                num_g_wait += 1
+                if num_g_wait > 5:
+                    print("Minimizer exited due to change in loss < 1e-6")
+                    break
+            elif epoch_loss > best_loss:
+                num_b_wait += 1
+                if num_b_wait > 5:
+                    print("Minimizer exited due to increase in loss")
+                    break
+            else:
+                best_loss = epoch_loss
+                best_weights = eqx.combine(diff_params, static_params)
+                num_b_wait = 0
+                num_g_wait = 0
+        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
+
+        if config["optimizer"]["save_state"]:
+            if i_epoch % config["optimizer"]["save_state_freq"] == 0:
+                state_weights[i_epoch] = best_weights.get_unnormed_params()
+
+        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
+
+    with open("state_weights.txt", "wb") as file:
+        file.write(pickle.dumps(state_weights))
+
+    mlflow.log_artifact("state_weights.txt")
+    return best_weights, epoch_loss, loss_fn
+
+def label(diff_params, cfg_params):
+    from jax import tree_util as jtu
+    from tsadar.core.modules.distribution_functions.base import get_distribution_filter_spec
+    label_spec = jtu.tree_map(lambda _: "macro", diff_params)
+
+    if cfg_params["electron"]["fe"]["active"]:
+        label_spec = get_distribution_filter_spec(label_spec, dist_params=cfg_params["electron"]["fe"], replace="dist")
+
+    return label_spec

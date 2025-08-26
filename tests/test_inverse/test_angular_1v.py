@@ -1,4 +1,7 @@
+from functools import partial
 import pytest, os, shutil
+
+
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -18,7 +21,7 @@ from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
-
+from tsadar.inverse.loops import label
 
 def _dump_ts_params(td: str, ts_params: ThomsonParams, prefix: str = ""):
     os.makedirs(base_dir := os.path.join(td, "ts_params"), exist_ok=True)
@@ -173,9 +176,11 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             loss = 1
             while np.nan_to_num(loss, nan=1) > 5e-2:
                 diff_params, static_params = perturb_and_split_params(arbitrary_distribution, config, rng)
+                # labeled_diff_params = label(diff_params, config["params"])
                 use_optax = True
                 if use_optax:
-                    opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
+                    # opt = optax.adam(1e-2)  # if arbitrary_distribution else 1e-2)
+                    opt = optax.partition({"macro": optax.adam(learning_rate=0.1), "dist": optax.adam(learning_rate=0.0001)}, partial(label, cfg_params=config["parameters"]))
                     opt_state = opt.init(diff_params)
                     for i in (pbar := tqdm.tqdm(range(1000))):
                         t0 = time.time()
