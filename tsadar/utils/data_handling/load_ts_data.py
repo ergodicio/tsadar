@@ -79,9 +79,8 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             sds_obj = iDatfile.select("Streak_array")  # select sds
             iDat = sds_obj.get()  # get sds data
             iDat = iDat.astype(float)
-            iDat = iDat[0, :, :] - iDat[1, :, :] + 5 # added 5 to avoid huge spikes in chi2
+            iDat = iDat[0, :, :] - iDat[1, :, :] # added 5 to avoid huge spikes in chi2
             iDat = np.flipud(iDat)
-            print("Sean DePaul")
 
             if specType == "imaging":
                 iDat = np.rot90(np.squeeze(iDat), 1)
