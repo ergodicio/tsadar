@@ -1,0 +1,34 @@
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# vs code files 
+.vscode/
+
+# slurm files
+slurm/
+
+# not interesting system files, data, input
+env_gpu_fresh.yml
+env_gpu.yml
+env.yml
+
+=23
+configs/
+mlruns/
+tests/__pycache__/
+tsadar/__pycache__/
+tsadar/core/__pycache__/
+tsadar/core/modules/.ipynb_checkpoints/
+tsadar/core/modules/__pycache__/
+tsadar/core/modules/distribution_functions/__pycache__/
+tsadar/core/physics/.ipynb_checkpoints/
+tsadar/core/physics/__pycache__/
+tsadar/forward/__pycache__/
+tsadar/inverse/__pycache__/
+tsadar/utils/__pycache__/
+tsadar/utils/data_handling/.ipynb_checkpoints/
+tsadar/utils/data_handling/__pycache__/
+tsadar/utils/plotting/__pycache__/
+tsadar/utils/process/__pycache__/
+"\342\200\230/"
+tsadar/external/
