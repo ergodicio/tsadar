@@ -7,14 +7,12 @@ def ratintn(f: jnp.ndarray, g: jnp.ndarray, z: jnp.ndarray) -> jnp.ndarray:
     interval f, g and z are 1D complex arrays.
 
     Based on newlip routine by Ed Williams.
-
     Args:
-        f:
-        g:
-        z:
-
+        f (jnp.ndarray): 1D complex array representing the numerator of the rational function to be integrated.
+        g (jnp.ndarray): 1D complex array representing the denominator of the rational function.
+        z (jnp.ndarray): 1D complex array representing the variable of integration.
     Returns:
-
+        jnp.ndarray: The integrated values of f / g over z.
     """
 
     if len(jnp.shape(f)) == 1:
@@ -33,10 +31,10 @@ def ratcen(f: jnp.ndarray, g: jnp.ndarray) -> jnp.ndarray:
 
     Based on newlip routine by Ed Williams.
     Args:
-        f:
-        g:
-
+        f (jnp.ndarray): 2D complex array (shape: [batch, N]) representing the numerator values of the rational function.
+        g (jnp.ndarray): 1D complex array (shape: [N]) representing the denominator values of the rational function.
     Returns:
+        jnp.ndarray: 2D real array (shape: [batch, N-2]) containing the rationally centered values for integration.
 
     """
 

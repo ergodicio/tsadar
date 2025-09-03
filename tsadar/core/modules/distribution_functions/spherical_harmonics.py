@@ -12,6 +12,23 @@ from .base import DistributionFunction2V, smooth1d
 
 
 class FLM_NN(eqx.Module):
+    """
+    A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`.
+    This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
+    Attributes:
+        flm_mag (eqx.nn.MLP): MLP that predicts the (logarithmic) magnitude of the FLM coefficients.
+        flm_sign (eqx.nn.MLP): MLP that predicts the sign of the FLM coefficients.
+        vr (Array): Radial velocity array over which the FLM coefficients are evaluated.
+    Args:
+        vr (Array): The radial velocity array.
+    Methods:
+        __call__(**kwargs):
+            Computes the FLM coefficients for the given input.
+            Args:
+                f00 (float or Array): The normalization factor for the magnitude.
+            Returns:
+                flm (Array): The computed FLM coefficients as a function of `vr`.
+    """
     flm_mag: eqx.nn.MLP
     flm_sign: eqx.nn.MLP
     vr: Array
@@ -33,6 +50,40 @@ class FLM_NN(eqx.Module):
 
 
 class FLM_MY(eqx.Module):
+    """
+    A module for computing the first-order Legendre moment (FLM) of a distribution function
+    using the model from Mora & Yahi (1982) for thermal heat-flux reduction in laser-produced plasmas.
+    Parameters
+    ----------
+    vr : Array
+        Array of velocity values (normalized to thermal velocity).
+    LT : float
+        Gradient scale length (in units of mean free path).
+    Attributes
+    ----------
+    vr : Array
+        Array of velocity values.
+    log_10_LT : float
+        Base-10 logarithm of the gradient scale length.
+    Methods
+    -------
+    __call__(**kwargs)
+        Computes the FLM coefficient for the given distribution parameters.
+        Parameters
+        ----------
+        m_f0 : float
+            Super-gaussian order controlling the shape of the distribution function.
+        f00 : float or Array
+            Zeroth-order distribution function value(s).
+        Returns
+        -------
+        coeff : float or Array
+            The computed FLM coefficient, normalized by the gradient scale length and f00.
+    References
+    ----------
+    Mora, P. & Yahi, H. (1982). Thermal heat-flux reduction in laser-produced plasmas.
+    Phys. Rev. A 26, 2259–2261.
+    """
     vr: Array
     log_10_LT: float
 
@@ -64,6 +115,20 @@ class FLM_MY(eqx.Module):
 
 
 class ArbitraryVr(eqx.Module):
+    """
+    ArbitraryVr is a model for generating numerical radial functions for the spherical harmonics to produce a 2D distribution function.
+    
+    Attributes:
+        smooth (Callable): A function that applies 1D smoothing to input arrays, parameterized by window size.
+        flm_sign (Array): Learnable parameters representing the sign component of the function, initialized to zeros.
+        flm_mag (Array): Learnable parameters representing the magnitude component of the function, initialized to zeros.
+    Args:
+        nvr (int): The number of radial velocity grid points, used to set the size of parameters and smoothing window.
+    Methods:
+        __call__(**kwargs):
+            Computes the radial function by applying smoothing, nonlinearities (tanh and sigmoid), and scaling.
+            Returns the resulting array representing the function values.
+    """
     smooth: Callable
     flm_sign: Array
     flm_mag: Array
@@ -83,6 +148,41 @@ class ArbitraryVr(eqx.Module):
 
 
 class SphericalHarmonics(DistributionFunction2V):
+    """
+    Represents a 2D velocity distribution function using spherical harmonics expansion.
+    This class models the distribution function in velocity space using a truncated
+    spherical harmonics expansion, with coefficients parameterized by various models
+    (neural network, Mora-Yahi, or arbitrary). It supports normalization and
+    parameterization of the distribution, and provides methods to evaluate the
+    distribution on a velocity grid.
+    Attributes:
+        vr (Array): Radial velocity grid.
+        th (Array): Angular grid (theta) in velocity space.
+        phi (Array): Angular grid (phi) in velocity space.
+        sph_harm (Callable): Vectorized spherical harmonics function.
+        vr_vxvy (Array): Radial grid in (vx, vy) coordinates.
+        Nl (int): Maximum order of spherical harmonics expansion.
+        flm (Dict[str, Dict[str, Callable]]): Dictionary of spherical harmonics coefficients.
+        m_scale (float): Scaling factor for the 'm' parameter.
+        m_shift (float): Shift for the 'm' parameter.
+        act_fun (Callable): Activation function for 'm' parameter normalization.
+        normed_m (Array): Normalized 'm' parameter, defining the super-gaussian order for the f0 term.
+        flm_type (str): Type of parameterization for spherical harmonics coefficients.
+    Args:
+        dist_cfg (dict): Configuration dictionary containing distribution parameters.
+    Methods:
+        get_unnormed_params():
+            Returns the unnormalized spherical harmonics coefficients and parameters.
+        get_unnormed_m():
+            Returns the unnormalized 'm' parameter (Super-gaussian order) for the distribution.
+        get_f00():
+            Computes the isotropic (l=0, m=0) part of the distribution function.
+        __call__():
+            Evaluates the full distribution function on the (vx, vy) grid using the
+            spherical harmonics expansion and current parameters.
+    Raises:
+        NotImplementedError: If an unsupported 'flm_type' or spherical harmonics index is requested.
+    """
     vr: Array
     th: Array
     phi: Array
@@ -143,6 +243,16 @@ class SphericalHarmonics(DistributionFunction2V):
                     raise NotImplementedError(f"Unknown flm_type: {dist_cfg['params']['flm_type']}")
 
     def get_unnormed_params(self):
+        """
+        Computes and returns the unnormalized parameters for the spherical harmonics distribution.
+        This method constructs a dictionary of spherical harmonics coefficients (`flm_dict`) up to order `self.Nl`.
+        The zeroth order coefficient (f00) is obtained from `self.get_f00()`. For higher orders, the coefficients
+        are computed using the corresponding functions in `self.flm`, with keyword arguments including the
+        unnormalized moment (`m_f0`) and the zeroth order coefficient (`f00`).
+        Returns:
+            dict: A dictionary with a single key "flm", whose value is a nested dictionary of spherical harmonics
+                  coefficients indexed by their order and degree.
+        """
         flm_dict = {0: {0: self.get_f00()}, 1: {}}
         kwargs = {"m_f0": self.get_unnormed_m(), "f00": flm_dict[0][0]}
         for i in range(1, self.Nl + 1):
@@ -155,6 +265,15 @@ class SphericalHarmonics(DistributionFunction2V):
         return self.act_fun(self.normed_m) * self.m_scale + self.m_shift
 
     def get_f00(self):
+        """
+        Computes the normalized isotropic (l=0, m=0) component of the distribution function in velocity space. Which is modeled as a super-gaussian distribution.
+        Returns:
+            jnp.ndarray: The normalized f00 distribution as a function of the radial velocity grid `self.vr`.
+        Notes:
+            - The function uses a super-gaussian distribution parameterized by `unnormed_m`.
+            - The normalization ensures that the integral of f00 over all velocities equals 1.
+            - Requires `self.get_unnormed_m()` to provide the distribution shape parameter, and `self.vr` to be the velocity grid.
+        """
         unnormed_m = self.get_unnormed_m()
 
         ve = 1.0
@@ -166,6 +285,17 @@ class SphericalHarmonics(DistributionFunction2V):
         return f00
 
     def __call__(self):
+        """
+        Evaluates the distribution function on a velocity grid using spherical harmonics expansion.
+        This method reconstructs the distribution function `f(vx, vy)` by interpolating the zeroth-order
+        coefficient and adding higher-order spherical harmonics contributions. The result is normalized
+        and ensured to be non-negative.
+        Returns:
+            jnp.ndarray: The normalized, non-negative distribution function evaluated on the (vx, vy) grid.
+        Notes:
+            - FLM coefficients are computed on the radial velocity grid `self.vr` and interpolated to the
+              (vx, vy) grid defined by `self.vr_vxvy`. This decoples the radial and cartesian grids.
+        """
 
         f00 = self.get_f00()
         fvxvy = jnp.interp(self.vr_vxvy, self.vr, f00, right=1e-16)

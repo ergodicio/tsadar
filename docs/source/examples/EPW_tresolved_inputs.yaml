@@ -1,148 +1,116 @@
-parameters:
-    species1:
-        type:
-            electron:
-            active: False
-        Te:
-            val: 0.48
-            active: True
-            lb: 0.01
-            ub: 1.25
-        ne:
-            val: 0.2
-            active: true
-            lb: 0.01
-            ub: 0.75
-        m:
-            val: 2.7
-            active: True
-            lb: 2.0
-            ub: 5.0
-            matte: True
-            intens: 2.0
-        fe:
-            val: [ ]
-            active: False
-            length: 3999
-            type:
-                DLM:
-            lb: -100.
-            ub: -0.5
-            fe_decrease_strict: False
-            symmetric: False
-            dim: 1
-            v_res: 0.05
-            temp_asym: 1.0
-            m_theta: 0.0
-            m_asym: 1.
-
-    species2:
-        type:
-            ion:
-            active: False
-        Ti:
-            val: 0.15
-            active: False
-            same: False
-            lb: 0.01
-            ub: 1.0
-        Z:
-            val: 10.0
-            active: False
-            lb: 1.0
-            ub: 18.0
-        A:
-            val: 40.0
-            active: False
-        fract:
-            val: 1.0
-            active: False
-
-    general:
-        type:
-            general:
-            active: False
-        amp1:
-            val: 0.7
-            active: True
-            lb: 0.01
-            ub: 3.75
-        amp2:
-            val: 0.5
-            active: True
-            lb: 0.01
-            ub: 3.75
-        amp3:
-            val: 1.0
-            active: False
-            lb: 0.01
-            ub: 3.75
-        lam:
-            val: 526.5
-            active: True
-            lb: 523.0
-            ub: 528.0
-        Te_gradient:
-            val: 0.0
-            active: false
-            lb: 0.
-            ub: 10.
-            num_grad_points: 1
-        ne_gradient:
-            val: 0.
-            active: False
-            lb: 0.
-            ub: 15.
-            num_grad_points: 1
-        ud:
-            val: 0.0
-            angle: 0.0
-            active: False
-            lb: -10.0
-            ub: 10.0
-        Va:
-            val: -1.3
-            angle: 0.0
-            active: false
-            lb: -20.5
-            ub: 20.5
-
 data:
-    shotnum: 101676
-    fit_rng:
-        blue_min: 460
-        blue_max: 510
-        red_min: 545
-        red_max: 600
-    lineouts:
-        type:
-            pixel
-        start: 290
-        end: 760
-        skip: 10
-    background:
-        type:
-            pixel
-        slice: 900
+  background:
+    slice: 900
+    type: pixel
+  lineouts:
+    end: 760
+    skip: 20
+    start: 290
+    type: pixel
+  shotnum: 101676
 
-other:
-    extraoptions:
-        load_ion_spec: False
-        load_ele_spec: true
-        fit_IAW: false
-        fit_EPWb: True
-        fit_EPWr: true
-    PhysParams:
-        widIRF:
-            spect_stddev_ion: 0.015
-            spect_stddev_ele: 0.1
-            spect_FWHM_ele: 0.9
-            ang_FWHM_ele: 1.0
-    refit: False
-    refit_thresh: 5.0
-    calc_sigmas: False
-
+machine: gpu
 
 mlflow:
-    experiment: inverse-thomson-scattering
-    run: Time-resolved EPW
+  experiment: inverse-thomson-scattering
+  run: EPW example 101676
+
+other:
+  calc_sigmas: false
+  extraoptions:
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: false
+    load_ele_spec: true
+    load_ion_spec: false
+  refit: false
+  refit_thresh: 5.0
+
+parameters:
+  electron:
+    Te:
+      active: True
+      lb: 0.01
+      ub: 2.0
+      val: 0.6
+    fe:
+      active: true
+      dim: 1
+      nvx: 320
+      params:
+        m:
+          lb: 2.0
+          ub: 5.0
+          val: 2.7
+          matte: True
+          intens: 2.5
+      type: dlm
+    ne:
+      active: true
+      lb: 0.03
+      ub: 2.0
+      val: 0.25
+  general:
+    Te_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 10.0
+      val: 0.0
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.0
+      ub: 20.0
+      val: 0.0
+    amp1:
+      active: true
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp2:
+      active: true
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp3:
+      active: false
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    lam:
+      active: true
+      lb: 525.0
+      ub: 528.0
+      val: 526.5
+    ne_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 15.0
+      val: 0.0
+    ud:
+      active: false
+      angle: 0.0
+      lb: -15.0
+      ub: 15.0
+      val: 0.0
+    
+  ion-1:
+    A:
+      active: false
+      val: 40.0
+    Ti:
+      active: false
+      lb: 0.01
+      same: false
+      ub: 2.0
+      val: 0.07
+    Z:
+      active: false
+      lb: 0.5
+      ub: 18.0
+      val: 16.0
+    fract:
+      active: false
+      val: 1.0
