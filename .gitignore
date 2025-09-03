@@ -7,11 +7,19 @@
 # slurm files
 slurm/
 
+# pscratch files
+‘/pscratch/sd/s/soham_b/mlflow’/
+
 # not interesting system files, data, input
 env_gpu_fresh.yml
 env_gpu.yml
 env.yml
-
+nersc-cpu.sh
+nersc-gpu.sh
+new_job.sh
+requirements-docs.txt
+requirements.txt
+docker/
 =23
 configs/
 mlruns/
@@ -25,10 +33,19 @@ tsadar/core/physics/.ipynb_checkpoints/
 tsadar/core/physics/__pycache__/
 tsadar/forward/__pycache__/
 tsadar/inverse/__pycache__/
+tsadar/process/__pycache__/
+tsadar/plotting/__pycache__/
+tsadar/distribution_functions/__pycache__/
+tsadar/misc/__pycache__/
+tsadar/model/physics/__pycache__/
+tsadar/model/__pycache__/
 tsadar/utils/__pycache__/
 tsadar/utils/data_handling/.ipynb_checkpoints/
 tsadar/utils/data_handling/__pycache__/
+tsadar/data_handleing/calibrations/__pycache__/
+tsadar/data_handleing/__pycache__/
 tsadar/utils/plotting/__pycache__/
 tsadar/utils/process/__pycache__/
 "\342\200\230/"
 tsadar/external/
+
