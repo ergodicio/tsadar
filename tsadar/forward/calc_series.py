@@ -146,8 +146,8 @@ def forward_pass(config):
             elif len(np.shape(np.squeeze(fe_val))) == 2:
                 final_dist = pandas.DataFrame(
                     data=np.squeeze(fe_val),
-                    columns=velocity[0][0],
-                    index=velocity[0][:, 0],
+                    columns=velocity,
+                    index=velocity,
                 )
             final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
