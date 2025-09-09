@@ -7,7 +7,7 @@
 # slurm files
 slurm/
 
-# pscratch files
+# pscratch files, I think at some point you ran locally 
 ‘/pscratch/sd/s/soham_b/mlflow’/
 
 # not interesting system files, data, input
