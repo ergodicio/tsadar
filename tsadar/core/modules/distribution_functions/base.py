@@ -1,6 +1,5 @@
 import os
-from typing import Dict, Callable
-from collections import defaultdict
+from typing import Dict, Callable, Union
 from functools import partial
 
 from jax import numpy as jnp, vmap, Array
@@ -32,9 +31,8 @@ def smooth1d(array, window_size):
     # Use a Hanning window
     window = jnp.hanning(window_size)
     window /= window.sum()  # Normalize
-    v1= jnp.convolve(array, window, mode="same")
-    v2= jnp.convolve(array, window, mode="valid")
-    window_size = 5
+    #v1= jnp.convolve(array, window, mode="same")
+    #v2= jnp.convolve(array, window, mode="valid")
     signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
     y = jnp.convolve(signal, window, mode="same")
     v3 = y[(window_size - 1) : -(window_size - 1)]
@@ -209,7 +207,7 @@ class Arbitrary1V(DistributionFunction1V):
         fdlm  = jnp.exp(-(jnp.abs(self.vx/x0) ** m))
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
         fdlm = -jnp.log10(fdlm)
-        #removed the divide by 7, not sure why we are doing that
+        #removed the divide by 7 to put edf on the 0-1 scale
         return jnp.sqrt(fdlm)
 
     def get_unnormed_params(self):
@@ -453,7 +451,7 @@ class Arbitrary2V(DistributionFunction2V):
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0]) ** 2.0
 
 
-def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
+def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict, replace: Union[str, bool] = True) -> Dict:
     """
     Generates a filter for seperating trainable parameters in a distribution function from static parameters, based on the distribution type and parameters.
     This function modifies the `filter_spec` dictionary to indicate which parameters of the electron distribution functions are trainable, depending on the type of distribution specified in `dist_params`. It supports several distribution types, including 'dlm', 'mx', 'arbitrary', 'arbitrary-nn', and 'sphericalharmonic'.
@@ -471,11 +469,11 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
             num_dists = len(filter_spec.electron.distribution_functions)
             for i in range(num_dists):
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=replace
                 )
         else:
             filter_spec = eqx.tree_at(
-                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=replace
             )
 
     elif dist_params["type"].casefold() == "mx":
@@ -486,10 +484,10 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
             num_dists = len(filter_spec.electron.distribution_functions)
             for i in range(num_dists):
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions[i].fval, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions[i].fval, filter_spec, replace=replace
                 )
         else:
-            filter_spec = eqx.tree_at(lambda tree: tree.electron.distribution_functions.fval, filter_spec, replace=True)
+            filter_spec = eqx.tree_at(lambda tree: tree.electron.distribution_functions.fval, filter_spec, replace=replace)
 
     elif dist_params["type"].casefold() == "arbitrary-nn":
         df = filter_spec.electron.distribution_functions
@@ -505,27 +503,27 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
 
         else:
             filter_spec = eqx.tree_at(
-                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=replace
             )
             if dist_params["params"]["flm_type"].casefold() == "arbitrary":
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].flm_mag, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][0].flm_mag, filter_spec, replace=replace
                 )
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].flm_sign, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][0].flm_sign, filter_spec, replace=replace
                 )
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].flm_mag, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][1].flm_mag, filter_spec, replace=replace
                 )
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].flm_sign, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][1].flm_sign, filter_spec, replace=replace
                 )
             elif dist_params["params"]["flm_type"].casefold() == "mora-yahi":
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].log_10_LT, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][0].log_10_LT, filter_spec, replace=replace
                 )
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].log_10_LT, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][1].log_10_LT, filter_spec, replace=replace
                 )
             elif dist_params["params"]["flm_type"].casefold() == "nn":
                 for m in range(2):
@@ -534,12 +532,12 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
                         filter_spec = eqx.tree_at(
                             lambda tree: tree.electron.distribution_functions.flm[1][m].flm_mag.layers[j].weight,
                             filter_spec,
-                            replace=True,
+                            replace=replace,
                         )
                         filter_spec = eqx.tree_at(
                             lambda tree: tree.electron.distribution_functions.flm[1][m].flm_sign.layers[j].weight,
                             filter_spec,
-                            replace=True,
+                            replace=replace,
                         )
             else:
                 raise NotImplementedError(f"Unknown flm_type: {dist_params['flm_type']}")

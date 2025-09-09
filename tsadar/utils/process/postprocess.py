@@ -400,6 +400,5 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     plotters.plot_ang_lineouts(1, sqdevs, losses, all_params, all_axes, savedata, td)
     if config["parameters"]["electron"]["fe"]["type"] != 'dlm':
         plotters.plot_dist(config, final_params, sigma_fe, td)
-
     
     return t1, final_params
