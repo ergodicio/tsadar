@@ -52,7 +52,7 @@ optimizer:
   method: rmsprop
   moment_loss: false
   num_epochs: 1
-  num_mins: 2
+  num_mins: 3
   parameter_norm: true
   refine_factor: 2
   save_state: true

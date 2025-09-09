@@ -41,8 +41,8 @@ parameters:
       dim: 1
       nvx: 128
       params:
-        LTx: 22500.0
-        LTy: 40000.0
+        dtx: 0.002
+        dty: 0.0002
         Nl: 1
         flm_type: arbitrary
         init_m: 3.0

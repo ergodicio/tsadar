@@ -85,12 +85,13 @@ class FLM_MY(eqx.Module):
     Phys. Rev. A 26, 2259–2261.
     """
     vr: Array
-    log_10_LT: float
+    #log_10_LT: float
+    dt: float
 
-    def __init__(self, vr: Array, LT: float):
+    def __init__(self, vr: Array, dt: float):
         super().__init__()
         self.vr = vr
-        self.log_10_LT = jnp.log10(LT)
+        self.dt = dt
 
     def __call__(self, **kwargs):
         m_f0 = kwargs["m_f0"]
@@ -98,20 +99,25 @@ class FLM_MY(eqx.Module):
 
         # Uses eq. 3 from
         # Mora, P. & Yahi, H. Thermal heat-flux reduction in laser-produced plasmas. Phys. Rev. A 26, 2259–2261 (1982).
-        v0 = 1.0  # distributions are normalized to vth anyway
-        lambda_e = (
-            1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
-        )
-        # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
-        ve = gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0) * v0
+        # v0 = 1.0  # distributions are normalized to vth anyway
+        # lambda_e = (
+        #     1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
+        # )
+        # # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
+        # ve = gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0) * v0
 
-        uu = self.vr / v0
-        lambda_v = lambda_e * (self.vr / ve) ** 4.0
+        # uu = self.vr / v0
+        # lambda_v = lambda_e * (self.vr / ve) ** 4.0
+        # coeff = (
+        #     m_f0 / 2 * uu**m_f0 - 5 * m_f0 / 12 * gamma(8 / m_f0) / gamma(6 / m_f0) * uu ** (m_f0 - 2) - 1.5
+        # ) * lambda_v
+
+        uu = self.vr *gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0)
         coeff = (
             m_f0 / 2 * uu**m_f0 - 5 * m_f0 / 12 * gamma(8 / m_f0) / gamma(6 / m_f0) * uu ** (m_f0 - 2) - 1.5
-        ) * lambda_v
+        ) * (self.vr) ** 4.0
 
-        return coeff / 10**self.log_10_LT * f00
+        return coeff * self.dt * f00
 
 
 class ArbitraryVr(eqx.Module):
@@ -230,9 +236,9 @@ class SphericalHarmonics(DistributionFunction2V):
 
                 elif self.flm_type.casefold() == "mora-yahi":
                     if i == 1 and j == 0:
-                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["LTx"])
+                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["dtx"])
                     elif i == 1 and j == 1:
-                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["LTy"])
+                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["dty"])
                     else:
                         raise NotImplementedError("Mora-Yahi only supports l=1, m=0 and l=1, m=1")
 

@@ -40,26 +40,26 @@ parameters:
       val: 1.1
     fe:
       active: true
-      dim: 1
+      dim: 2
       nvx: 16
       params:
-        LTx: 22500.0
-        LTy: 40000.0
+        dtx: 0.002
+        dty: 0.0002
         Nl: 1
-        flm_type: arbitrary
+        flm_type: mora-yahi
         init_m: 3.0
         learn_log: true
         smooth: true
         window:
-          len: 4
+          len: 13
           sampling: 100
           type: hanning
         m:
           lb: 2.0
           ub: 5.0
           val: 3.0
-        nvr: 64
-      type: arbitrary
+        nvr: 32
+      type: sphericalharmonic
     ne:
       active: true
       gradient_scalar: 10.0

@@ -199,9 +199,9 @@ def plot_dist(config, final_params, sigma_fe, td):
 
     if config["parameters"]['electron']["fe"]["dim"] == 1:
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-        ax[0].plot(final_params["v"], final_params["fe"])
-        ax[1].plot(np.log10(np.exp(final_params["fe"])))
-        ax[2].plot(np.exp(final_params["fe"]))
+        ax[0].plot(final_params["v"], np.log(final_params["fe"]))
+        ax[1].plot(final_params["v"], np.log10(final_params["fe"]))
+        ax[2].plot(final_params["v"], final_params["fe"])
 
         if config["other"]["calc_sigmas"]:
             ax[0].fill_between(
@@ -554,8 +554,22 @@ def plot_2D_data_vs_fit(
     newcolors[:r, :] = lower
     newcmp = ListedColormap(newcolors)
 
-    vmin = np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"]
-    vmax = np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]
+    # Check if data is all zeros
+    data_all_zeros = np.all(data == 0)
+    if config["plotting"]["data_cbar_l"] == "data":
+        if data_all_zeros:
+            vmin = np.amin(fit)
+        else:
+            vmin = np.amin(data)
+    else:
+        vmin = config["plotting"]["data_cbar_l"]
+    if config["plotting"]["data_cbar_u"] == "data":
+        if data_all_zeros:
+            vmax = np.amax(fit)
+        else:
+            vmax = np.amax(data)
+    else:
+        vmax = config["plotting"]["data_cbar_u"]
 
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
