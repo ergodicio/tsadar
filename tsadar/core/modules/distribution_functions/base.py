@@ -520,10 +520,10 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict, replace: 
                 )
             elif dist_params["params"]["flm_type"].casefold() == "mora-yahi":
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].log_10_LT, filter_spec, replace=replace
+                    lambda tree: tree.electron.distribution_functions.flm[1][0].dt, filter_spec, replace=replace
                 )
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].log_10_LT, filter_spec, replace=replace
+                    lambda tree: tree.electron.distribution_functions.flm[1][1].dt, filter_spec, replace=replace
                 )
             elif dist_params["params"]["flm_type"].casefold() == "nn":
                 for m in range(2):

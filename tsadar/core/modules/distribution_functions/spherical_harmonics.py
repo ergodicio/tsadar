@@ -112,7 +112,7 @@ class FLM_MY(eqx.Module):
         #     m_f0 / 2 * uu**m_f0 - 5 * m_f0 / 12 * gamma(8 / m_f0) / gamma(6 / m_f0) * uu ** (m_f0 - 2) - 1.5
         # ) * lambda_v
 
-        uu = self.vr *gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0)
+        uu = self.vr *jnp.sqrt(gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0))
         coeff = (
             m_f0 / 2 * uu**m_f0 - 5 * m_f0 / 12 * gamma(8 / m_f0) / gamma(6 / m_f0) * uu ** (m_f0 - 2) - 1.5
         ) * (self.vr) ** 4.0

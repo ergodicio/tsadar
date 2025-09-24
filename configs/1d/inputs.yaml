@@ -3,25 +3,17 @@ data:
     slice: 10002
     type: Fit
   lineouts:
-    end: 1024
+    end: 950
     skip: 20
-    start: 0
+    start: 150
     type: range
   shot_rot: 90.0
-  shotnum:
-  - 10002
-  - 10007
+  shotnum: 10013
 machine: gpu
 mlflow:
-  experiment: inverse-thomson-scattering
-  run: MYSH_m4x5e8y5e8_testdata
+  experiment: tsadar-tests-2
+  run: MoraYahi_test_model_arbSH_newratesshorter
 other:
-  PhysParams:
-    widIRF:
-      ang_FWHM_ele: 1.0
-      spect_FWHM_ele: 0.9
-      spect_stddev_ele: 0.1
-      spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
@@ -36,36 +28,44 @@ parameters:
   electron:
     Te:
       active: true
+      gradient_scalar: 10.0
       lb: 0.01
-      ub: 1.0
-      val: 1.0
+      ub: 2.0
+      val: 1.1
     fe:
       active: true
       dim: 2
-      nvx: 320
+      nvx: 128
       params:
-        dtx: 0.002
-        dty: 0.0002
+        dtx: 0.0005
+        dty: 0.0005
         Nl: 1
-        flm_type: mora-yahi
-        init_m: 4.0
+        flm_type: arbitrary
+        init_m: 3.0
+        learn_log: true
         m:
           lb: 2.0
           ub: 5.0
-          val: 4.0
+          val: 3.0
         nvr: 128
+        smooth: true
+        window:
+          len: 45
+          sampling: 30
+          type: hanning
       type: sphericalharmonic
     ne:
       active: true
-      lb: 0.001
-      ub: 0.1
-      val: 0.4
+      gradient_scalar: 10.0
+      lb: 0.03
+      ub: 2.0
+      val: 0.44
   general:
     Te_gradient:
       active: false
       lb: 0.0
       num_grad_points: 1
-      ub: 15.0
+      ub: 10.0
       val: 0.0
     Va:
       active: false
@@ -89,9 +89,9 @@ parameters:
       ub: 3.75
       val: 1.0
     lam:
-      active: true
-      lb: 524.0
-      ub: 529.0
+      active: false
+      lb: 525.0
+      ub: 528.0
       val: 526.5
     ne_gradient:
       active: false
@@ -102,8 +102,8 @@ parameters:
     ud:
       active: false
       angle: 0.0
-      lb: -200.0
-      ub: 200.0
+      lb: -10.0
+      ub: 30.0
       val: 0.0
   ion-1:
     A:
@@ -113,12 +113,12 @@ parameters:
       active: false
       lb: 0.01
       same: false
-      ub: 1.0
-      val: 0.03
+      ub: 2.0
+      val: 0.1
     Z:
       active: false
       lb: 0.5
-      ub: 1.0
+      ub: 36.0
       val: 1.0
     fract:
       active: false
