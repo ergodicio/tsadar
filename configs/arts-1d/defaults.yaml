@@ -52,7 +52,9 @@ optimizer:
   method: rmsprop
   moment_loss: false
   num_epochs: 1
-  num_mins: 3
+  num_mins: 1
+  param_learning_rate: 0.01
+  param_method: adam
   parameter_norm: true
   refine_factor: 2
   save_state: true

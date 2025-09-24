@@ -46,8 +46,11 @@ parameters:
         dtx: 0.002
         dty: 0.0002
         Nl: 1
-        flm_type: mora-yahi
+        flm_type: bidlm
         init_m: 3.0
+        init_masym: 1.5
+        init_tasym: 1.5
+        init_theta: 45.0
         learn_log: true
         smooth: true
         window:
@@ -58,8 +61,8 @@ parameters:
           lb: 2.0
           ub: 5.0
           val: 3.0
-        nvr: 32
-      type: sphericalharmonic
+        nvr: 16
+      type: arbitrary
     ne:
       active: true
       gradient_scalar: 10.0

@@ -466,5 +466,9 @@ def label(diff_params, cfg_params):
 
     if cfg_params["electron"]["fe"]["active"]:
         label_spec = get_distribution_filter_spec(label_spec, dist_params=cfg_params["electron"]["fe"], replace="dist")
+        if "normed_m" in dir(label_spec.electron.distribution_functions):
+            label_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions.normed_m, label_spec, replace="macro"
+                )
 
     return label_spec
