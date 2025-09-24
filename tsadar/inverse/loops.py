@@ -470,5 +470,4 @@ def label(diff_params, cfg_params):
             label_spec = eqx.tree_at(
                     lambda tree: tree.electron.distribution_functions.normed_m, label_spec, replace="macro"
                 )
-
     return label_spec

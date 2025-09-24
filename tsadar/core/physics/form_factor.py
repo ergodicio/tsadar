@@ -562,6 +562,9 @@ class FormFactor:
         chiE = chiERrat + 1j * chiEI
         epsilon = 1.0 + chiE + chiI
 
+        # #adds damping to mimic collisional damping and prevent divide by zero issues
+        # epsilon = epsilon - 0.1j
+
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
         ion_comp = ion_comp_fact * (
