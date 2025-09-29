@@ -5,21 +5,15 @@ data:
   lineouts:
     end: 950
     skip: 20
-    start: 90
+    start: 150
     type: range
   shot_rot: 90.0
   shotnum: 10011
 machine: gpu
 mlflow:
   experiment: tsadar-tests-2
-  run: maxwellian_test_model_arb_cos_schedule_-25-4_higherres
+  run: MoraYahi_test_model_MYSH_newratesshorter
 other:
-  PhysParams:
-    widIRF:
-      ang_FWHM_ele: 1.0
-      spect_FWHM_ele: 0.9
-      spect_stddev_ele: 0.1
-      spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
@@ -41,28 +35,25 @@ parameters:
     fe:
       active: true
       dim: 2
-      nvx: 16
+      nvx: 8
       params:
-        dtx: 0.002
-        dty: 0.0002
         Nl: 1
-        flm_type: bidlm
+        dtx: 0.0005
+        dty: 0.0005
+        flm_type: mora-yahi
         init_m: 3.0
-        init_masym: 1.5
-        init_tasym: 1.5
-        init_theta: 45.0
         learn_log: true
-        smooth: true
-        window:
-          len: 13
-          sampling: 100
-          type: hanning
         m:
           lb: 2.0
           ub: 5.0
           val: 3.0
-        nvr: 16
-      type: arbitrary
+        nvr: 8
+        smooth: true
+        window:
+          len: 45
+          sampling: 30
+          type: hanning
+      type: sphericalharmonic
     ne:
       active: true
       gradient_scalar: 10.0
@@ -122,12 +113,12 @@ parameters:
       active: false
       lb: 0.01
       same: false
-      ub: 1.0
-      val: 0.03
+      ub: 2.0
+      val: 0.1
     Z:
       active: false
       lb: 0.5
-      ub: 1.0
+      ub: 36.0
       val: 1.0
     fract:
       active: false
