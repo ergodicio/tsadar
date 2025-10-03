@@ -6,7 +6,7 @@ data:
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 2
-  ele_lam_shift: -3.35
+  ele_lam_shift: -3.55
   ele_t0: 0
   fit_rng:
     blue_max: 335
@@ -189,4 +189,4 @@ plotting:
   ion_window_start: 350
   n_sigmas: 3
   rolling_std_width: 5
-  detailed_breakdown: true
+  detailed_breakdown: false
