@@ -359,16 +359,42 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         for k2 in batch_fitted_params[k]:
             all_params[k][k2].append(batch_fitted_params[k][k2])
 
-    # Prepare batch data
+   # Prepare batch data
     start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
-    batch = {
-        "e_data": all_data["e_data"][start:end, :],
-        "e_amps": all_data["e_amps"][start:end, :],
+    # batch = {
+    #     "e_data": all_data["e_data"][start:end, :],
+    #     "e_amps": all_data["e_amps"][start:end, :],
+    #     "i_data": all_data["i_data"],
+    #     "i_amps": all_data["i_amps"],
+    #     "noise_e": all_data["noiseE"][start:end, :],
+    #     "noise_i": all_data["noiseI"][start:end, :],
+    # }
+    batch1 = {
+        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         "i_data": all_data["i_data"],
         "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][start:end, :],
-        "noise_i": all_data["noiseI"][start:end, :],
+        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
     }
+    if isinstance(config["data"]["shotnum"], list):
+        batch2 = {
+            "e_data": all_data["e_data_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "e_amps": all_data["e_amps_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "noise_e": all_data["noiseE_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        }
+        batch = {"b1": batch1, "b2": batch2}
+    else:
+        batch = batch1
 
     # Calculate losses and fits
     losses, sqdevs, fits_ele, _, params = loss_fn.array_loss(fitted_weights, batch)
