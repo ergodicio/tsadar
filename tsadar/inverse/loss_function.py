@@ -289,11 +289,12 @@ class LossFunction:
             # params has been replace with the new ts_params but behavior has not been checked 2-20-25
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch["b1"])
             # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params["electron"]['fe']))
-            ts_params["electron"]["fe"] = rotate(
-                jnp.squeeze(ts_params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
-            )
+            ts_params_rot = eqx.tree_at(lambda tree: tree.electron.dist_rot, ts_params, self.cfg["data"]["shot_rot"])
+            # ts_params["electron"]["fe"] = rotate(
+            #     jnp.squeeze(ts_params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
+            # )
 
-            ThryE_rot, _, _, _ = self.ts_diag(ts_params, batch["b2"])
+            ThryE_rot, _, _, _ = self.ts_diag(ts_params_rot, batch["b2"])
             i_error1, e_error1, sqdev = self.calc_ei_error(
                 batch["b1"],
                 ThryI,

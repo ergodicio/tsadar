@@ -4,6 +4,7 @@ from collections import defaultdict
 from jax import Array, numpy as jnp, tree_util as jtu
 from jax.nn import sigmoid
 import equinox as eqx
+from tsadar.utils.vector_tools import rotate
 
 from .distribution_functions.base import (
     DistributionFunction1V,
@@ -55,6 +56,7 @@ class ElectronParams(eqx.Module):
         List[DistributionFunction1V], List[DistributionFunction2V], DistributionFunction1V, DistributionFunction2V
     ]
     batch: bool
+    dist_rot: float
     act_funs: Dict[str, Callable]
     inv_act_funs: Dict[str, Callable]
 
@@ -83,6 +85,7 @@ class ElectronParams(eqx.Module):
         super().__init__()
 
         self.batch = batch
+        self.dist_rot = 0.0
 
         self.act_funs, self.inv_act_funs = {}, {}
         for param in ["Te", "ne"]:
@@ -214,6 +217,8 @@ class ElectronParams(eqx.Module):
                 "fe": self.distribution_functions(),
                 "v": self.distribution_functions.vx,
             }
+            if self.dist_rot != 0.0 and dist_params["fe"].ndim == 2:
+                dist_params["fe"] = rotate(dist_params["fe"], self.dist_rot/180.0*jnp.pi)
 
         return physical_params | dist_params
 

@@ -8,11 +8,13 @@ data:
     start: 150
     type: range
   shot_rot: 90.0
-  shotnum: 10011
+  shotnum:
+  - 10011
+  - 10011
 machine: gpu
 mlflow:
   experiment: tsadar-tests-2
-  run: MoraYahi_test_model_MYSH_newratesshorter
+  run: Maxwellian_wrot_test_model_dlm
 other:
   calc_sigmas: false
   extraoptions:
@@ -34,26 +36,26 @@ parameters:
       val: 1.1
     fe:
       active: true
-      dim: 2
-      nvx: 8
+      dim: 1
+      nvx: 128
       params:
         Nl: 1
         dtx: 0.0005
         dty: 0.0005
-        flm_type: mora-yahi
+        flm_type: arbitrary
         init_m: 3.0
         learn_log: true
         m:
           lb: 2.0
           ub: 5.0
           val: 3.0
-        nvr: 8
+        nvr: 128
         smooth: true
         window:
           len: 45
           sampling: 30
           type: hanning
-      type: sphericalharmonic
+      type: dlm
     ne:
       active: true
       gradient_scalar: 10.0
