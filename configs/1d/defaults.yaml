@@ -163,7 +163,7 @@ parameters:
       angle: 0.0
       lb: -100.0
       ub: 100.0
-      val: -50.0
+      val: 0.0
   ion-1:
     A:
       active: false

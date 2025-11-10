@@ -125,7 +125,7 @@ parameters:
     Z:
       active: false
       lb: 0.5
-      ub: 1.0
+      ub: 36.0
       val: 1.0
     fract:
       active: false

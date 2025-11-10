@@ -4,6 +4,7 @@ from collections import defaultdict
 from jax import Array, numpy as jnp, tree_util as jtu
 from jax.nn import sigmoid
 import equinox as eqx
+from tsadar.utils.vector_tools import rotate
 
 from .distribution_functions.base import (
     DistributionFunction1V,
@@ -55,6 +56,7 @@ class ElectronParams(eqx.Module):
         List[DistributionFunction1V], List[DistributionFunction2V], DistributionFunction1V, DistributionFunction2V
     ]
     batch: bool
+    dist_rot: float
     act_funs: Dict[str, Callable]
     inv_act_funs: Dict[str, Callable]
 
@@ -83,6 +85,7 @@ class ElectronParams(eqx.Module):
         super().__init__()
 
         self.batch = batch
+        self.dist_rot = 0.0
 
         self.act_funs, self.inv_act_funs = {}, {}
         for param in ["Te", "ne"]:
@@ -214,6 +217,8 @@ class ElectronParams(eqx.Module):
                 "fe": self.distribution_functions(),
                 "v": self.distribution_functions.vx,
             }
+            if self.dist_rot != 0.0 and dist_params["fe"].ndim == 2:
+                dist_params["fe"] = rotate(dist_params["fe"], self.dist_rot/180.0*jnp.pi)
 
         return physical_params | dist_params
 
@@ -561,6 +566,36 @@ class ThomsonParams(eqx.Module):
             tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
 
         return tmp_dict
+    
+    def set_fe_to_matte(self, tmp_dict):
+        """
+        I looked into putting this in the distribution function definition but since it need information from the electron and all ions it had to be done last
+        """
+        zbar = 0
+        z2bar = 0
+        if "matte" in self.param_cfg['electron']['fe']['params']['m'] and self.param_cfg['electron']['fe']['params']['m']['matte']:
+            for ion_index in range(len(self.ions)):
+                zbar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]
+                z2bar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]**2
+            zeff = z2bar/zbar
+            lang = 0.042*self.param_cfg['electron']['fe']['params']['m']['intens']*zeff/( tmp_dict['electron']['Te']*9)
+            unnormed_m = 2+3/(1+1.66/lang**0.724)
+            
+            if self.electron.batch:
+                 dist_params = {
+                    "fe": jnp.concatenate([DLM1V.call_matte(self.electron.distribution_functions[i], unnormed_m[i])[None, :] for i in range(len(self.electron.distribution_functions))]),
+                }
+            else:
+                dist_params = {
+                    "fe": DLM1V.call_matte(self.electron.distribution_functions, tmp_dict['electron']['Te'], zeff, self.param_cfg['electron']['fe']['params']['m']['intens']),
+                }
+            
+            tmp_dict["electron"]["fe"] = dist_params["fe"]
+            if 'm' in tmp_dict['electron']:
+                tmp_dict['electron']['m'] = unnormed_m
+
+
+        return tmp_dict
 
     def get_unnormed_params(self):
         """
@@ -577,6 +612,7 @@ class ThomsonParams(eqx.Module):
         } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
 
         tmp_dict = self.renormalize_ions(tmp_dict)
+        tmp_dict = self.set_fe_to_matte(tmp_dict)
 
         return tmp_dict
 
@@ -600,6 +636,7 @@ class ThomsonParams(eqx.Module):
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
         tmp_dict = self.renormalize_ions(tmp_dict)
+        tmp_dict = self.set_fe_to_matte(tmp_dict)
         return tmp_dict
 
     def get_fitted_params(self, param_cfg):

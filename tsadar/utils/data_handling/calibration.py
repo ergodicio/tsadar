@@ -321,13 +321,13 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
 
         elif 111410 < shotNum < 111435:
             # needs to be updated with the calibrations from 7-26-22
-            EPWDisp = 0.4104 #should be 0.4143
-            IAWDisp = 0.00678 #should be 0.00683?
-            EPWoff = 317.4 #314.967
+            EPWDisp = 0.4143
+            IAWDisp = 0.00683
+            EPWoff = 316.4
             IAWoff = 522.92
-            stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated #should be 0.0503?
-            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data #prob should be 1.33 #1.48
-            print("used 0.668 nm irf")
+            stddev["spect_stddev_ion"] = 0.0503 #0.025 # 0.0095  # needs to be updated
+            stddev["spect_stddev_ele"] = 1.33#0.668  # based of hg lamp data
+            #print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
@@ -354,6 +354,18 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             stddev["spect_stddev_ion"] = 0.042#0.0321#0.0421  # 0.0095  # needs to be updated
             print(stddev["spect_stddev_ion"])
             stddev["spect_stddev_ele"] = 2.4  # based of hg lamp data
+            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
+
+        elif 116090 < shotNum < 116120:
+            # 4w data from Ed's data (all params should be checked)
+            EPWDisp = 0.05069
+            IAWDisp = 0.00446
+            EPWoff = 135.74 #rough guess
+            IAWoff = 261.1 #need to be checked
+            stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
+            stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess

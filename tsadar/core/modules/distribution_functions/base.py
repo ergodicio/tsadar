@@ -1,6 +1,5 @@
 import os
-from typing import Dict, Callable
-from collections import defaultdict
+from typing import Dict, Callable, Union
 from functools import partial
 
 from jax import numpy as jnp, vmap, Array
@@ -10,6 +9,8 @@ from jax.random import PRNGKey
 from jax.scipy.special import gamma, sph_harm
 from scipy.io import loadmat
 import equinox as eqx
+from tsadar.utils.vector_tools import rotate
+from interpax import interp2d
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 
@@ -32,10 +33,12 @@ def smooth1d(array, window_size):
     # Use a Hanning window
     window = jnp.hanning(window_size)
     window /= window.sum()  # Normalize
-    return jnp.convolve(array, window, mode="same")
-    # signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
-    # y = jnp.convolve(signal, window, mode="same")
-    # return y[(window_size // 2 - 1) : -(window_size // 2)]
+    #v1= jnp.convolve(array, window, mode="same")
+    #v2= jnp.convolve(array, window, mode="valid")
+    signal = jnp.r_[array[window_size - 1 : 0 : -1], array, array[-2 : -window_size - 1 : -1]]
+    y = jnp.convolve(signal, window, mode="same")
+    v3 = y[(window_size - 1) : -(window_size - 1)]
+    return v3
 
 
 def second_order_butterworth(
@@ -183,23 +186,37 @@ class Arbitrary1V(DistributionFunction1V):
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
         self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
-        self.smooth = partial(second_order_butterworth, f_sampling=100, f_cutoff=6, method="forward_backward")
+        if dist_cfg["params"]["smooth"]:
+            if dist_cfg["params"]["window"]["type"] == "butterworth":
+                self.smooth = partial(
+                    second_order_butterworth, f_sampling=100, f_cutoff=dist_cfg["params"]["window"]["len"], method="forward_backward"
+                )
+            elif dist_cfg["params"]["window"]["type"] == "hanning":
+                self.smooth = partial(smooth1d, window_size=dist_cfg["params"]["window"]["len"])
+            else:
+                raise NotImplementedError(f"Unknown smoothing type: {dist_cfg['params']['window']['type']}")
+        #self.smooth = partial(second_order_butterworth, f_sampling=100, f_cutoff=6, method="forward_backward")
+        #self.smooth = partial(smooth1d, window_size=dist_cfg["nvx"] // 4)
 
     def init_dlm(self, m):
-        vth_x = 1.0  # jnp.sqrt(2.0)
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
-        cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
-        fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
+        # vth_x = 1.0  # jnp.sqrt(2.0)
+        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        # cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** m))
+        # fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+        # fdlm = -jnp.log10(fdlm)
+        x0 = jnp.sqrt(3.0 * gamma(3.0 / m) / gamma(5.0 / m))
+        fdlm  = jnp.exp(-(jnp.abs(self.vx/x0) ** m))
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
         fdlm = -jnp.log10(fdlm)
-
-        return jnp.sqrt(fdlm) / 7.0
+        #removed the divide by 7 to put edf on the 0-1 scale
+        return jnp.sqrt(fdlm)
 
     def get_unnormed_params(self):
         return {"f": self()}
 
     def __call__(self):
-        fval = (7.0 * self.smooth(self.fval)) ** 2.0
+        fval = (self.smooth(self.fval)) ** 2.0
         fval = jnp.power(10.0, -fval)
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0])
 
@@ -264,9 +281,9 @@ class DLM1V(DistributionFunction1V):
 
         self.normed_m = inv_act_fun((dist_cfg["params"]["m"]["val"] - self.m_shift) / self.m_scale)
         projected_distributions = loadmat(
-            os.path.join(cwd, "..", "..", "..", "external", "numDistFuncs", "DLM_x_-3_-10_10_m_-1_2_5.mat")
+            os.path.join(cwd, "..", "..", "..", "external", "numDistFuncs", "DLM_x_-4_-10_10_m_-1_2_5.mat")
         )["IT"]
-        vx_ax = jnp.linspace(-10, 10, 20001)
+        vx_ax = jnp.linspace(-10, 10, 200001)
         self.m_ax = jnp.linspace(2, 5, 31)
         self.f_vx_m = vmap(jnp.interp, in_axes=(None, None, 1), out_axes=1)(self.vx, vx_ax, projected_distributions)
         self.interpolate_f_in_m = vmap(jnp.interp, in_axes=(None, None, 0), out_axes=0)
@@ -285,10 +302,20 @@ class DLM1V(DistributionFunction1V):
             jnp.ndarray: The normalized distribution function evaluated over the velocity grid.
         """
         unnormed_m = self.act_fun(self.normed_m) * self.m_scale + self.m_shift
-        # vth_x = 1.0  # jnp.sqrt(2.0)
-        # alpha = jnp.sqrt(3.0 * gamma(3.0 / unnormed_m) / 2.0 / gamma(5.0 / unnormed_m))
-        # cst = unnormed_m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / unnormed_m))
-        # fdlm = cst / vth_x**3.0 * jnp.exp(-(jnp.abs(self.vx / alpha / vth_x) ** unnormed_m))
+        fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
+
+        return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+    
+    def call_matte(self, unnormed_m):
+        """
+        Computes the normalized distribution function for the current parameters.
+        This method applies the activation function to the normalized parameter `normed_m`, 
+        scales and shifts it to obtain `unnormed_m`, and then interpolates the distribution 
+        function using `interpolate_f_in_m`. The resulting distribution is normalized such 
+        that its sum over the velocity axis `vx` is unity.
+        Returns:
+            jnp.ndarray: The normalized distribution function evaluated over the velocity grid.
+        """
         fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
 
         return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
@@ -370,7 +397,15 @@ class Arbitrary2V(DistributionFunction2V):
     def __init__(self, dist_cfg):
         super().__init__(dist_cfg)
         self.learn_log = dist_cfg["params"]["learn_log"]
-        self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
+        if dist_cfg["params"]["flm_type"].casefold() == "bidlm":
+            self.fval = self.init_bidlm(
+                dist_cfg["params"]["init_m"],
+                dist_cfg["params"]["init_masym"],
+                dist_cfg["params"]["init_tasym"],
+                dist_cfg["params"]["init_theta"],
+            )
+        else:
+            self.fval = self.init_dlm(dist_cfg["params"]["init_m"])
 
     def init_dlm(self, m):
         """
@@ -391,22 +426,71 @@ class Arbitrary2V(DistributionFunction2V):
         - If `self.learn_log` is True, the function returns the negative base-10 logarithm of the distribution before taking the square root.
         """
 
-        vth_x = jnp.sqrt(2.0)
-        alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
-        cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
-        fdlm = (
-            cst
-            / vth_x**3.0
-            * jnp.exp(-((jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0) / alpha / vth_x) ** m))
-        )
+        # vth_x = jnp.sqrt(2.0)
+        # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
+        # cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
+        # fdlm = (
+        #     cst
+        #     / vth_x**3.0
+        #     * jnp.exp(-((jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0) / alpha / vth_x) ** m))
+        # )
 
+        # fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
+        #unified with 1D version
+        x0 = jnp.sqrt(3.0 * gamma(3.0 / m) / gamma(5.0 / m))
+        fdlm  = jnp.exp(-((jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0)/x0) ** m))
         fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
 
         if self.learn_log:
             fdlm = -jnp.log10(fdlm)
 
         return jnp.sqrt(fdlm)
+    
+    def init_bidlm(self, m, masym, tasym, theta):
+        """
+        Initialize the distribution function using a 2D version of the Dum-Langdon-Matte (DLM) form. This formulation can have different widths and super-gaussian orders in the two dimensions.
+        Parameters
+        ----------
+        m : float
+            The super-gaussian order parameter for the DLM, controlling the shape of the distribution.
+        Returns
+        -------
+        jax.numpy.ndarray
+            The square root of the (optionally log-transformed) normalized DLM distribution function
+            evaluated on the velocity grid defined by `self.vx`.
+        Notes
+        -----
+        - The function computes the DLM distribution on a 2D velocity grid using the parameter `m`.
+        - The distribution is normalized such that its sum over the grid equals one.
+        - If `self.learn_log` is True, the function returns the negative base-10 logarithm of the distribution before taking the square root.
+        - The distribution is rotated by an angle `theta` and has different widths in the x and y directions, controlled by `tasym`.
+        - The distribution does not reduce to Matte (i.e. using masym = 1 is not the same as using regular dlm) due to being in cartesian not spherical, however the moments are correct
+        """
 
+        n=m*masym
+        #vx, vy, vz = jnp.meshgrid(self.vx[:, 0], self.vx[:, 0], self.vx[:, 0])
+        vx, vy, vz = jnp.meshgrid(self.vx, self.vx, self.vx)
+        r0 = 2.0*jnp.sqrt(gamma((2.0+m)/m))/jnp.sqrt(gamma((4.0+m)/m))
+        z0 = jnp.sqrt(3.0*gamma(1.0+1.0/n)/gamma((3.0+n)/n))
+        fdlm = jnp.exp(-((jnp.sqrt(vx ** 2 + vy ** 2)/r0) ** m))*jnp.exp(-((jnp.abs(vz/jnp.sqrt(tasym))/z0) ** n))
+
+        # integrate over vy to get the 2D distribution
+        fdlm = trapz(fdlm, self.vx[1]-self.vx[0], axis=1)
+        # rotate the distribution
+        fdlm = rotate(fdlm, theta/180.0*jnp.pi)
+        # recalculate the vx, vy grid after rotation
+        vx, vy = jnp.meshgrid(self.vx, self.vx)
+        renorm = jnp.sqrt(calc_moment(fdlm,(vx,vy),2)/ (2*calc_moment(fdlm,(vx,vy),0)))#the 2 is to make the moment equal the number of dimensions, not sure on this
+        vx2 = vx[0]/renorm
+        vy2 = vx[0]/renorm
+        
+        fdlm = jnp.exp(interp2d(vx.flatten(), vy.flatten(), vx2, vy2, jnp.log(fdlm), extrap=[-100, -100], method="linear").reshape(jnp.shape(vx),order="F"))
+        fdlm = fdlm / calc_moment(fdlm,(vx,vy),0)
+
+        if self.learn_log:
+            fdlm = -jnp.log10(fdlm)
+
+        return jnp.sqrt(fdlm)
     def get_unnormed_params(self):
         return {"f": self()}
 
@@ -426,7 +510,7 @@ class Arbitrary2V(DistributionFunction2V):
         return fval / jnp.sum(fval) / (self.vx[1] - self.vx[0]) ** 2.0
 
 
-def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
+def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict, replace: Union[str, bool] = True) -> Dict:
     """
     Generates a filter for seperating trainable parameters in a distribution function from static parameters, based on the distribution type and parameters.
     This function modifies the `filter_spec` dictionary to indicate which parameters of the electron distribution functions are trainable, depending on the type of distribution specified in `dist_params`. It supports several distribution types, including 'dlm', 'mx', 'arbitrary', 'arbitrary-nn', and 'sphericalharmonic'.
@@ -444,11 +528,11 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
             num_dists = len(filter_spec.electron.distribution_functions)
             for i in range(num_dists):
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions[i].normed_m, filter_spec, replace=replace
                 )
         else:
             filter_spec = eqx.tree_at(
-                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=replace
             )
 
     elif dist_params["type"].casefold() == "mx":
@@ -459,10 +543,10 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
             num_dists = len(filter_spec.electron.distribution_functions)
             for i in range(num_dists):
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions[i].fval, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions[i].fval, filter_spec, replace=replace
                 )
         else:
-            filter_spec = eqx.tree_at(lambda tree: tree.electron.distribution_functions.fval, filter_spec, replace=True)
+            filter_spec = eqx.tree_at(lambda tree: tree.electron.distribution_functions.fval, filter_spec, replace=replace)
 
     elif dist_params["type"].casefold() == "arbitrary-nn":
         df = filter_spec.electron.distribution_functions
@@ -478,27 +562,35 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
 
         else:
             filter_spec = eqx.tree_at(
-                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=True
+                lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=replace
             )
             if dist_params["params"]["flm_type"].casefold() == "arbitrary":
-                filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].flm_mag, filter_spec, replace=True
-                )
-                filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].flm_sign, filter_spec, replace=True
-                )
-                filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].flm_mag, filter_spec, replace=True
-                )
-                filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].flm_sign, filter_spec, replace=True
-                )
+                # filter_spec = eqx.tree_at(
+                #     lambda tree: tree.electron.distribution_functions.flm[1][0].flm_mag, filter_spec, replace=replace
+                # )
+                # filter_spec = eqx.tree_at(
+                #     lambda tree: tree.electron.distribution_functions.flm[1][0].flm_sign, filter_spec, replace=replace
+                # )
+                # filter_spec = eqx.tree_at(
+                #     lambda tree: tree.electron.distribution_functions.flm[1][1].flm_mag, filter_spec, replace=replace
+                # )
+                # filter_spec = eqx.tree_at(
+                #     lambda tree: tree.electron.distribution_functions.flm[1][1].flm_sign, filter_spec, replace=replace
+                # )
+                for l in range(1, dist_params["params"]["Nl"]+1):
+                    for m in range(1+l):
+                        filter_spec = eqx.tree_at(
+                            lambda tree: tree.electron.distribution_functions.flm[l][m].flm_mag, filter_spec, replace=replace
+                        )
+                        filter_spec = eqx.tree_at(
+                            lambda tree: tree.electron.distribution_functions.flm[l][m].flm_sign, filter_spec, replace=replace
+                        )
             elif dist_params["params"]["flm_type"].casefold() == "mora-yahi":
-                filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][0].log_10_LT, filter_spec, replace=True
+                filter_spec =eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions.flm[1][0].dt, filter_spec, replace=replace,  is_leaf=lambda x: x is None
                 )
                 filter_spec = eqx.tree_at(
-                    lambda tree: tree.electron.distribution_functions.flm[1][1].log_10_LT, filter_spec, replace=True
+                    lambda tree: tree.electron.distribution_functions.flm[1][1].dt, filter_spec, replace=replace, is_leaf=lambda x: x is None
                 )
             elif dist_params["params"]["flm_type"].casefold() == "nn":
                 for m in range(2):
@@ -507,12 +599,12 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict) -> Dict:
                         filter_spec = eqx.tree_at(
                             lambda tree: tree.electron.distribution_functions.flm[1][m].flm_mag.layers[j].weight,
                             filter_spec,
-                            replace=True,
+                            replace=replace,
                         )
                         filter_spec = eqx.tree_at(
                             lambda tree: tree.electron.distribution_functions.flm[1][m].flm_sign.layers[j].weight,
                             filter_spec,
-                            replace=True,
+                            replace=replace,
                         )
             else:
                 raise NotImplementedError(f"Unknown flm_type: {dist_params['flm_type']}")
@@ -541,3 +633,50 @@ def update_distribution_layers(filter_spec, df):
             filter_spec = eqx.tree_at(lambda tree: df.f_nn.layers[j].linear.bias, filter_spec, replace=True)
 
     return filter_spec
+
+def calc_moment(f,v,m):
+    """
+    Calculates the moment of the distribtuion function specified by m
+    
+    Args:
+        f: function to calculate the moment of
+        m: moment 0, 1, or 2
+        v: velocity grid
+    
+    Returns:
+        moment_val: value of the mth moment
+    """
+    #print(jnp.shape(f))
+    #print(jnp.shape(v))
+    if len(jnp.shape(f))==1:
+        moment_val = trapz(v**m *f, v[1]-v[0])
+    elif len(jnp.shape(f))==2:
+        moment_val = trapz(trapz((v[0]**2 + v[1]**2)**(m/2) *f, v[0][0][1]-v[0][0][0]), v[1][1][0]-v[1][0][0])
+
+    return moment_val
+
+def trapz(y, dx, axis=-1):
+    """
+    JAX compatible trapizoidal intergration.
+
+    Args:
+        y: numerical array to be integrated
+        dx: spacing of the associated x-axis
+
+    Returns:
+        z: integral of ydx
+    """
+    nd = y.ndim
+    slice1 = [slice(None)]*nd
+    slice2 = [slice(None)]*nd
+    slice1[axis] = slice(1, None)
+    slice2[axis] = slice(None, -1)
+
+    # Operations didn't work, cast to ndarray
+    d = jnp.asarray(dx)
+    y = jnp.asarray(y)
+
+    ret = (d * (y[tuple(slice1)] + y[tuple(slice2)]) / 2.0).sum(axis)
+    #ret = add.reduce(d * (y[tuple(slice1)]+y[tuple(slice2)])/2.0, axis)
+
+    return ret
