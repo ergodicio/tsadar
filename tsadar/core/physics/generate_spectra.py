@@ -86,6 +86,10 @@ class FitModel:
             if config["parameters"]["electron"]["fe"]["dim"] < 2
             else config["parameters"]["general"]["Va"]["angle"]
         )
+
+        if 'include_gains' in config["other"]:
+            calc_gain = {'calc': config["other"]["include_gains"], 'Ipump': config["other"]["Ipump_14"], 'beam_diam_um': config["other"]["beam_diam_um"]}
+
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
@@ -94,6 +98,7 @@ class FitModel:
             num_grad_points=num_grad_points,
             va_ang=va_angle,
             ud_ang=ud_angle,
+            calc_gain=calc_gain,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -103,6 +108,7 @@ class FitModel:
             num_grad_points=num_grad_points,
             va_ang=va_angle,
             ud_ang=ud_angle,
+            calc_gain=calc_gain,
         )
 
     def __call__(self, all_params: Dict):

@@ -71,7 +71,7 @@ def _1d_adam_loop_(
         Tuple[float, Dict]: A tuple containing the best loss achieved and the corresponding model weights.
     """
 
-    opt = optax.adam(config["optimizer"]["learning_rate"])
+    opt = optax.adam(config["optimizer"]["learning_rate_init"])
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
     else:
@@ -141,7 +141,7 @@ def one_d_loop(
                 "noise_i": all_data["noiseI"][inds],
             }
 
-            if config["optimizer"]["method"] == "adam":  # Stochastic Gradient Descent
+            if config["optimizer"]["method"] != "l-bfgs-b":  # Stochastic Gradient Descent
                 best_loss, best_weights = _1d_adam_loop_(config, loss_fn, previous_weights, batch, tbatch)
             else:
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds

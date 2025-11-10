@@ -117,7 +117,7 @@ class FormFactor:
                 formfactor (jnp.ndarray): Calculated spectrum.
                 lams (jnp.ndarray): Wavelength axis.
     """
-    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang):
+    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang, calc_gain):
 
         # basic quantities
         self.C = 2.99792458e10
@@ -143,6 +143,9 @@ class FormFactor:
 
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
         self.ud_angle, self.va_angle = ud_ang, va_ang
+
+        #option to include calculation of SBS and SRS gain
+        self.calc_gain = calc_gain
 
         # Create a Sharding object to distribute a value across devices:
         is_gpu_present = any(["gpu" == device.platform for device in devices()])
@@ -294,6 +297,23 @@ class FormFactor:
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
         # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = PsLam
+
+        if self.calc_gain['calc']:
+            Ipump = self.calc_gain['Ipump']*1e14  # Convert to W/cm^2
+            beam_diam_cm = self.calc_gain['beam_diam_um'] * 1e-4  # Convert um to cm
+            interaction_length_cm = jnp.linspace(0,1,8).reshape(1,1,1,8)*beam_diam_cm/jnp.sin(sarad[...,np.newaxis]) *0.85 # effective interaction length cm
+            nc = 1.115e21/(lam*1e-3)**2
+            ne_nc = ne/nc
+
+            a0 = 8.55e-4 * lam*1e-9 * jnp.sqrt(Ipump)
+            j0 = a0**2 / jnp.sqrt(1-ne_nc)
+
+            Fchi = chiE * (1.0 + chiI) / (1.0 + chiE + chiI)
+            #this negative sign is because the scattered frequency is the probe in the gain calculation so the phase colcity has the opposite sign
+            GD = (k**2)/4/kL * j0 * -jnp.imag(Fchi)
+            GDl = GD[...,jnp.newaxis]* interaction_length_cm
+            formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
+
 
         return formfactor, lams
 

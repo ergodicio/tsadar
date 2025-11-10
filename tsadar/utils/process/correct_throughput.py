@@ -5,6 +5,7 @@ import scipy.interpolate as sp
 import scipy.io as sio
 from os.path import join
 import os
+import pandas as pd
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
@@ -42,9 +43,17 @@ def correctThroughput(data, tstype, axisy, shotNum):
     elif tstype == "temporal":
         if np.mean(axisy) <425.0:
             #calibration derived from DU lamp data on 5/22/25, data from 2019 meant for 3w data
-            trans = 7.167e-5*axisy**(2) - 0.04169*axisy + 7.016
+            #trans = 7.167e-5*axisy**(2) - 0.04169*axisy + 7.016
             #trans = 12.7875*axisy**(2) - 7439.0*axisy + 1252000.0
-            vq1 = 1.0 / trans
+
+            wb = pd.read_csv(join(BASE_FILES_PATH, "files", "EPW_UV_Spectral_Senstivity_Calculatedcsv.csv"))
+            trans = wb["Total (Notmalized to 300nm)"].rolling(window=5).mean().to_numpy()
+            trans[np.isnan(trans)] = 0
+            lambdas = wb["Lambda"].to_numpy()
+            speccalshift = sp.interp1d(lambdas, trans, "linear", bounds_error=False, fill_value=(0,0))
+            vq1 = speccalshift(axisy)
+            vq1 = 1.0 / vq1
+            vq1[vq1>=5.0] = 5.0
         else:
             wb = xlrd.open_workbook(join(BASE_FILES_PATH, "files", "Copy of MeasuredSensitivity_9.21.15.xls"))
             sheet = wb.sheet_by_index(0)
