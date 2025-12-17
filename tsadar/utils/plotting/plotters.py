@@ -27,10 +27,12 @@ def get_final_params(config, best_weights, all_axes, td):
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
             if k in ["fe","f"]:
-                fitted_dist = True
-                dist["fe"] = np.array(v).squeeze()
-                dist["v"] = dist["v"] = best_weights["electron"]["v"]
-                #pass
+                if config["parameters"][species]["fe"]["active"]:
+                    fitted_dist = True
+                    dist["fe"] = np.array(v).squeeze()
+                    dist["v"] = best_weights["electron"]["v"]
+                else:
+                    continue
             elif k =="flm":
                 fitted_dist = True
                 #need to turn this into a lop for when we go to higher orders
@@ -89,34 +91,35 @@ def plot_final_params(config, all_params, sigmas_ds, td):
     """
     for species in all_params.keys():
         for param in all_params[species].keys():
-            vals = pandas.Series(all_params[species][param], dtype=float)
-            fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-            lineouts = np.array(config["data"]["lineouts"]["val"])
-            std = vals.rolling(config["plotting"]["rolling_std_width"], min_periods=1, center=True).std()
+            if param not in ["fe","f","v","flm0","flm10","flm11"]:
+                vals = pandas.Series(all_params[species][param], dtype=float)
+                fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+                lineouts = np.array(config["data"]["lineouts"]["val"])
+                std = vals.rolling(config["plotting"]["rolling_std_width"], min_periods=1, center=True).std()
 
-            ax.plot(lineouts, vals)
-            ax.fill_between(
-                lineouts,
-                (vals.values - config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
-                (vals.values + config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
-                color="b",
-                alpha=0.1,
-            )
-            ax.fill_between(
-                lineouts,
-                (vals.values - config["plotting"]["n_sigmas"] * std.values),
-                (vals.values + config["plotting"]["n_sigmas"] * std.values),
-                color="r",
-                alpha=0.1,
-            )
-            ax.set_xlabel("lineout", fontsize=14)
-            ax.grid()
-            #ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
-            ax.set_ylabel(param, fontsize=14)
-            fig.savefig(
-                os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
-                bbox_inches="tight",
-            )
+                ax.plot(lineouts, vals)
+                ax.fill_between(
+                    lineouts,
+                    (vals.values - config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
+                    (vals.values + config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
+                    color="b",
+                    alpha=0.1,
+                )
+                ax.fill_between(
+                    lineouts,
+                    (vals.values - config["plotting"]["n_sigmas"] * std.values),
+                    (vals.values + config["plotting"]["n_sigmas"] * std.values),
+                    color="r",
+                    alpha=0.1,
+                )
+                ax.set_xlabel("lineout", fontsize=14)
+                ax.grid()
+                #ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
+                ax.set_ylabel(param, fontsize=14)
+                fig.savefig(
+                    os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
+                    bbox_inches="tight",
+                )
     return
 
 

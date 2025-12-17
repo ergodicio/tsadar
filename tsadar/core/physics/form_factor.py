@@ -265,15 +265,24 @@ class FormFactor:
         ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
+        xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
         chiERratprim = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
             ratdf, self.xi1[None, :] - self.xi2[:, None], self.xi1
         )
-
+        chiERratprim2 = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
+            ratdf, self.xi1[None, :] - xi2[:, None], self.xi1
+        )
         chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
         chiERrat = -1.0 / (klde**2) * chiERrat
 
         chiE = chiERrat + chiEI
         epsilon = 1.0 + chiE + chiI
+
+        # chiERrat2 = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim2[:, 0]), xie.shape)
+        # chiERrat2 = -1.0 / (klde**2) * chiERrat2
+
+        # chiE2 = chiERrat2 + chiEI
+        # epsilon2 = 1.0 + chiE2 + chiI
 
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
@@ -301,7 +310,7 @@ class FormFactor:
         if self.calc_gain['calc']:
             Ipump = self.calc_gain['Ipump']*1e14  # Convert to W/cm^2
             beam_diam_cm = self.calc_gain['beam_diam_um'] * 1e-4  # Convert um to cm
-            interaction_length_cm = jnp.linspace(0,1,8).reshape(1,1,1,8)*beam_diam_cm/jnp.sin(sarad[...,np.newaxis]) *0.85 # effective interaction length cm
+            interaction_length_cm = jnp.linspace(0,1,8).reshape(1,1,1,8)*beam_diam_cm/jnp.sin(sarad[...,np.newaxis]) # effective interaction length cm
             nc = 1.115e21/(lam*1e-3)**2
             ne_nc = ne/nc
 
@@ -310,7 +319,7 @@ class FormFactor:
 
             Fchi = chiE * (1.0 + chiI) / (1.0 + chiE + chiI)
             #this negative sign is because the scattered frequency is the probe in the gain calculation so the phase colcity has the opposite sign
-            GD = (k**2)/4/kL * j0 * -jnp.imag(Fchi)
+            GD = (k**2)/4/ks * j0 * -jnp.imag(Fchi)
             GDl = GD[...,jnp.newaxis]* interaction_length_cm
             formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
 

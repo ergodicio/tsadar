@@ -175,23 +175,29 @@ def get_lineout_bg(
             # replace background lineout with double exponential for extra smoothing
             if config["other"]["extraoptions"]["spectype"] != "angular":
 
-                def exp2(x, a, b, c, d):
-                    return a * np.exp(-b * x) + c * np.exp(-d * x)
+                #redoing how the background lineout works as the exponential fitting was not very robust
+                #now the algorithm simply smooths the background lineout and rescales it to the edges of the data lineouts
 
-                # this defines the region of the background lineout to fit, for temporal data [250 480 540 900] usualy works but at 4w there canbe issues
-                bgfitx = np.hstack([
-                    np.arange(config["data"]["background"]["bg_alg_domain"][0],
-                               config["data"]["background"]["bg_alg_domain"][1]),
-                                 np.arange(config["data"]["background"]["bg_alg_domain"][2],
-                                           config["data"]["background"]["bg_alg_domain"][3])])
+                # def exp2(x, a, b, c, d):
+                #     return a * np.exp(-b * x) + c * np.exp(-d * x)
+
+                # # this defines the region of the background lineout to fit, for temporal data [250 480 540 900] usualy works but at 4w there canbe issues
+                # bgfitx = np.hstack([
+                #     np.arange(config["data"]["background"]["bg_alg_domain"][0],
+                #                config["data"]["background"]["bg_alg_domain"][1]),
+                #                  np.arange(config["data"]["background"]["bg_alg_domain"][2],
+                #                            config["data"]["background"]["bg_alg_domain"][3])])
                 
-                # this defines the region of the data lineout to rescale the background to
+                # # this defines the region of the data lineout to rescale the background to
                 bgfitx2 = np.hstack([np.arange(250, 300), np.arange(700, 900)])
-                plt.plot(bgfitx, LineoutBGE[bgfitx])
-
-                [expbg, _] = spopt.curve_fit(exp2, bgfitx, LineoutBGE[bgfitx], p0=[100, 0.003, 20, 0.001])
-                LineoutBGE = config["data"]["bgscaleE"] * exp2(np.arange(1024), *expbg)
-                print(expbg)
+                # plt.plot(bgfitx, LineoutBGE[bgfitx])
+                # try:
+                #     [expbg, _] = spopt.curve_fit(exp2, bgfitx, LineoutBGE[bgfitx], p0=[8000, 0.003, -2000, 0.0001])
+                #     LineoutBGE = config["data"]["bgscaleE"] * exp2(np.arange(1024), *expbg)
+                #     print(expbg)
+                # except:
+                #     print("Background fit failed, using flat background")
+                #     LineoutBGE = config["data"]["bgscaleE"] * np.mean(LineoutBGE[bgfitx]) * np.ones(1024)
 
                 # rescale background exponential using the edge of each data lineout
                 LineoutBGE_rescaled = []

@@ -12,12 +12,12 @@ data:
 machine: gpu
 mlflow:
   experiment: flux_cbet
-  run: s115124_wgain_noepwr_noud
+  run: srs-sbs-forwardtest
 other:
   calc_sigmas: false
   include_gains: true
-  Ipump_14: 6.0
-  beam_diam_um: 174
+  Ipump_14: 4.0
+  beam_diam_um: 190
   extraoptions:
     fit_EPWb: true
     fit_EPWr: false
@@ -38,9 +38,9 @@ parameters:
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
-      val: 0.9
+      val: 0.5
     fe:
-      active: true
+      active: false
       dim: 1
       nvx: 32
       params:
@@ -53,7 +53,9 @@ parameters:
         m:
           lb: 1.8
           ub: 5.0
-          val: 2.45
+          val: 2.5
+          intens: 4.0
+          matte: false
         nvr: 32
         smooth: true
         window:
@@ -66,7 +68,7 @@ parameters:
       gradient_scalar: 10.0
       lb: 0.03
       ub: 4.0
-      val: 2.0
+      val: 1.00
   general:
     Te_gradient:
       active: false
@@ -79,14 +81,14 @@ parameters:
       angle: 0.0
       lb: -40.5
       ub: 40.5
-      val: -4.0
+      val: 0.0
     amp1:
       active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -97,8 +99,8 @@ parameters:
       val: 1.0
     lam:
       active: false
-      lb: 350.0
-      ub: 352.0
+      lb: 345.0
+      ub: 357.0
       val: 351.0
     ne_gradient:
       active: false
@@ -107,10 +109,10 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: false
+      active: true
       angle: 0.0
       lb: -200.0
-      ub: 100.0
+      ub: 200.0
       val: 0.0
   ion-1:
     A:
@@ -121,7 +123,7 @@ parameters:
       lb: 0.01
       same: false
       ub: 2.0
-      val: 0.25
+      val: 0.1
     Z:
       active: false
       lb: 0.5
@@ -139,12 +141,12 @@ parameters:
       lb: 0.01
       same: true
       ub: 2.0
-      val: 0.25
+      val: 0.1
     Z:
       active: true
       lb: 0.5
       ub: 7.0
-      val: 6.36
+      val: 7.0
     fract:
       active: false
       val: 0.45

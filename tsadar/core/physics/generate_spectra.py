@@ -87,8 +87,10 @@ class FitModel:
             else config["parameters"]["general"]["Va"]["angle"]
         )
 
-        if 'include_gains' in config["other"]:
+        if 'include_gains' in config["other"] and config["other"]["include_gains"]:
             calc_gain = {'calc': config["other"]["include_gains"], 'Ipump': config["other"]["Ipump_14"], 'beam_diam_um': config["other"]["beam_diam_um"]}
+        else:
+            calc_gain = {'calc': False, 'Ipump': 0, 'beam_diam_um': 0}
 
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],

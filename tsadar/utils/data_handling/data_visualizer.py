@@ -165,4 +165,13 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             fig.colorbar(jc)
             fig.savefig(os.path.join(td, "plots", "electron_fit_ranges.png"), bbox_inches="tight")
 
+        if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
+            fig = plt.figure()
+            plt.plot(all_axes["epw_x"], np.sum(elecData[200:800,:], axis=0), label="Electron Spectrum")
+            plt.plot(all_axes["iaw_x"]+config["data"]["ion_t0_shift"], np.sum(ionData[200:800,:], axis=0), label="Ion Spectrum")
+            plt.xlabel(all_axes["x_label"])
+            plt.ylabel("Integrated counts (a.u.)")
+            plt.legend()
+            fig.savefig(os.path.join(td, "plots", "temporal comparison.png"), bbox_inches="tight")
+
         mlflow.log_artifacts(td)

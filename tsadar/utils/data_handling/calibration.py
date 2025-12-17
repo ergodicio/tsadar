@@ -349,11 +349,11 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             # 3w data from CBET study (all params should be checked)
             EPWDisp = 0.4153
             IAWDisp = 0.00378
-            EPWoff = 137.99 #rough guess 137.99
+            EPWoff = 138.42 #rough calc gives 138.42 #best when using ud 142.04
             IAWoff = 349.17#349.02 #need to be checked
-            stddev["spect_stddev_ion"] = 0.042#0.0321#0.0421  # 0.0095  # needs to be updated
+            stddev["spect_stddev_ion"] = 0.013 #based off epw for this pinhole
             print(stddev["spect_stddev_ion"])
-            stddev["spect_stddev_ele"] = 2.4  # based of hg lamp data
+            stddev["spect_stddev_ele"] = 1.35 #2.4  # based of hg lamp data
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
