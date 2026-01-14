@@ -310,18 +310,21 @@ class FormFactor:
         if self.calc_gain['calc']:
             Ipump = self.calc_gain['Ipump']*1e14  # Convert to W/cm^2
             beam_diam_cm = self.calc_gain['beam_diam_um'] * 1e-4  # Convert um to cm
-            interaction_length_cm = jnp.linspace(0,1,8).reshape(1,1,1,8)*beam_diam_cm/jnp.sin(sarad[...,np.newaxis]) # effective interaction length cm
+            # interaction_length_cm = jnp.linspace(0,1,8).reshape(1,1,1,8)*beam_diam_cm/jnp.sin(sarad[...,np.newaxis]) # effective interaction length cm
+            interaction_length_cm = beam_diam_cm/2.0/jnp.sin(sarad[...,np.newaxis]) 
+
             nc = 1.115e21/(lam*1e-3)**2
             ne_nc = ne/nc
 
             a0 = 8.55e-4 * lam*1e-9 * jnp.sqrt(Ipump)
             j0 = a0**2 / jnp.sqrt(1-ne_nc)
-
+            
             Fchi = chiE * (1.0 + chiI) / (1.0 + chiE + chiI)
-            #this negative sign is because the scattered frequency is the probe in the gain calculation so the phase colcity has the opposite sign
+          
             GD = (k**2)/4/ks * j0 * -jnp.imag(Fchi)
             GDl = GD[...,jnp.newaxis]* interaction_length_cm
-            formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
+            # formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
+            formfactor = jnp.mean(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
 
 
         return formfactor, lams

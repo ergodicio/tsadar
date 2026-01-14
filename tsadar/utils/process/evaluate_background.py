@@ -170,7 +170,7 @@ def get_lineout_bg(
                 ],
                 1,
             )
-            LineoutBGE = np.convolve(LineoutBGE, np.ones(span) / span, "same")
+            # LineoutBGE = np.convolve(LineoutBGE, np.ones(2*span) / (2.*span), "same")
 
             # replace background lineout with double exponential for extra smoothing
             if config["other"]["extraoptions"]["spectype"] != "angular":

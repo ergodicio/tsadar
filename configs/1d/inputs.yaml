@@ -5,40 +5,40 @@ data:
   lineouts:
     end: -400
     skip: 20
-    start: -900
+    start: -800
     type: ps
   shot_rot: 90.0
   shotnum: 115124
 machine: gpu
 mlflow:
   experiment: flux_cbet
-  run: srs-sbs-forwardtest
+  run: s115124_wgain_wrednoamp_highres
 other:
+  Ipump_14: 6.6
+  PhysParams:
+    widIRF:
+      spect_stddev_ele: 1.3
+      spect_stddev_ion: 0.015
+  beam_diam_um: 165
   calc_sigmas: false
-  include_gains: true
-  Ipump_14: 4.0
-  beam_diam_um: 190
   extraoptions:
     fit_EPWb: true
-    fit_EPWr: false
+    fit_EPWr: true
     fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
     spectype: temporal
-  PhysParams:
-      widIRF:
-        spect_stddev_ele: 1.3
-        spect_stddev_ion: 0.015
+  include_gains: true
   refit: false
   refit_thresh: 5.0
 parameters:
   electron:
     Te:
-      active: true
+      active: false
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
-      val: 0.5
+      val: 0.8
     fe:
       active: false
       dim: 1
@@ -51,11 +51,11 @@ parameters:
         init_m: 3.0
         learn_log: true
         m:
+          intens: 6.6
           lb: 1.8
+          matte: false
           ub: 5.0
           val: 2.5
-          intens: 4.0
-          matte: false
         nvr: 32
         smooth: true
         window:
@@ -64,11 +64,11 @@ parameters:
           type: hanning
       type: dlm
     ne:
-      active: true
+      active: false
       gradient_scalar: 10.0
       lb: 0.03
       ub: 4.0
-      val: 1.00
+      val: 2.0
   general:
     Te_gradient:
       active: false
@@ -109,7 +109,7 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -200.0
       ub: 200.0
@@ -123,7 +123,7 @@ parameters:
       lb: 0.01
       same: false
       ub: 2.0
-      val: 0.1
+      val: 0.2
     Z:
       active: false
       lb: 0.5
@@ -141,7 +141,7 @@ parameters:
       lb: 0.01
       same: true
       ub: 2.0
-      val: 0.1
+      val: 0.2
     Z:
       active: true
       lb: 0.5

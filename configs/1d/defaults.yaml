@@ -105,7 +105,7 @@ other:
   - 355
   iawoff: 0
   lam_res_unit: 5
-  points_per_pixel: 1
+  points_per_pixel: 10
   refit: false
   refit_thresh: 0.25
 parameters:
