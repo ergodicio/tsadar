@@ -12,14 +12,14 @@ data:
 machine: gpu
 mlflow:
   experiment: flux_cbet
-  run: s115124_wgain_wrednoamp_highres
+  run: s115124_wgain_redwamp_hires_55-174
 other:
-  Ipump_14: 6.6
+  Ipump_14: 5.5
   PhysParams:
     widIRF:
       spect_stddev_ele: 1.3
       spect_stddev_ion: 0.015
-  beam_diam_um: 165
+  beam_diam_um: 174
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
@@ -34,7 +34,7 @@ other:
 parameters:
   electron:
     Te:
-      active: false
+      active: true
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
@@ -51,9 +51,9 @@ parameters:
         init_m: 3.0
         learn_log: true
         m:
-          intens: 6.6
+          intens: 5.5
           lb: 1.8
-          matte: false
+          matte: true
           ub: 5.0
           val: 2.5
         nvr: 32
@@ -64,7 +64,7 @@ parameters:
           type: hanning
       type: dlm
     ne:
-      active: false
+      active: true
       gradient_scalar: 10.0
       lb: 0.03
       ub: 4.0
@@ -88,7 +88,7 @@ parameters:
       ub: 3.75
       val: 1.0
     amp2:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
