@@ -170,8 +170,16 @@ def get_lineout_bg(
                 ],
                 1,
             )
-            # LineoutBGE = np.convolve(LineoutBGE, np.ones(2*span) / (2.*span), "same")
+            #smooth the lineout to reduce high frequency noise
+            #LineoutBGE = np.convolve(LineoutBGE, np.ones(3*span) / (3.*span), "same")
+            LineoutBGE = np.convolve(LineoutBGE, np.ones(2*span) / (2.*span), "same")
 
+            # if config["other"]["extraoptions"]["spectype"] == "temporal":
+            #     #currently different probe wavelengths have different backgrouund shapes
+            #     #this selects different forms with lots of wiggle room around exact lambda values
+            #     if config["parameters"]["general"]["lam"] - 526.5 < 10:
+            
+            
             # replace background lineout with double exponential for extra smoothing
             if config["other"]["extraoptions"]["spectype"] != "angular":
 
@@ -239,7 +247,7 @@ def get_lineout_bg(
             BackgroundPixel = config["data"]["background"]["slice"]
 
         # quantify a uniform background
-        noiseI = np.mean(
+        noiseI = np.sum(
             (ionData - BGion)[
                 :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"]
             ],

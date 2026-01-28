@@ -96,15 +96,16 @@ def recalculate_with_chosen_weights(
     else:
         fits["ion"]["spec_comps"] = np.zeros(all_data["i_data"].shape)
 
+    background_subtract = config["data"]["background"]["bg_subtract"]
     for i_batch, inds in enumerate(batch_indices):
         batch = {
-            "e_data": all_data["e_data"][inds],
-            "e_amps": all_data["e_amps"][inds],
-            "i_data": all_data["i_data"][inds],
-            "i_amps": all_data["i_amps"][inds],
-            "noise_e": all_data["noiseE"][inds],
-            "noise_i": all_data["noiseI"][inds],
-        }
+                "e_data": all_data["e_data"][0]-all_data["noiseE"][0] if background_subtract else all_data["e_data"][0],
+                "e_amps": all_data["e_amps"][inds],
+                "i_data": all_data["i_data"][inds]-all_data["noiseI"][0] if background_subtract else all_data["i_data"][0],
+                "i_amps": all_data["i_amps"][inds],
+                "noise_e": all_data["noiseE"][0] if not background_subtract else 0.0,
+                "noise_i": all_data["noiseI"][0] if not background_subtract else 0.0,
+            }
 
         loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
