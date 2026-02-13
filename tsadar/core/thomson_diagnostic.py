@@ -27,15 +27,16 @@ class ThomsonScatteringDiagnostic:
         self.scattering_angles = scattering_angles
         self.model = FitModel(cfg, scattering_angles)
 
-        if (
+        if ("angular" in cfg["other"]["extraoptions"]["spectype"] 
+            or "_interactive" in cfg["other"]["extraoptions"]["spectype"]):
+            pass
+        elif (
             "temporal" in cfg["other"]["extraoptions"]["spectype"]
             or "imaging" in cfg["other"]["extraoptions"]["spectype"]
             or "1d" in cfg["other"]["extraoptions"]["spectype"]
         ):
             self.model = vmap(self.model)
             self.postprocess_theory = vmap(self.postprocess_theory)
-        elif "angular" in cfg["other"]["extraoptions"]["spectype"]:
-            pass
         else:
             raise NotImplementedError(f"Unknown spectype: {cfg['other']['extraoptions']['spectype']}")
 

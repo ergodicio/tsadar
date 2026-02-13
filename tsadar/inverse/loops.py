@@ -142,17 +142,18 @@ def one_d_loop(
     all_weights = []
     overall_loss = 0.0
     previous_batch = None
+    background_subtract = config["data"]["background"]["bg_subtract"]
     with trange(num_batches, unit="batch") as tbatch:
         for i_batch in tbatch:
             previous_batch = previous_weights[i_batch] if previous_weights is not None else previous_batch
             inds = batch_indices[i_batch]
             batch = {
-                "e_data": all_data["e_data"][inds],
+                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
                 "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds],
+                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
                 "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds],
-                "noise_i": all_data["noiseI"][inds],
+                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
+                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
             }
 
             if config["optimizer"]["method"] == "l-bfgs-b":  # Stochastic Gradient Descent

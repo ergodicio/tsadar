@@ -86,8 +86,10 @@ class LossFunction:
         self.cfg = cfg
 
         if cfg["optimizer"]["y_norm"]:
-            self.i_norm = np.amax(dummy_batch["i_data"])
-            self.e_norm = np.amax(dummy_batch["e_data"])
+            self.i_norm = np.amax(dummy_batch["i_amps"])
+            self.e_norm = np.amax(dummy_batch["e_amps"])
+            # self.i_norm = np.amax(dummy_batch["i_data"])
+            # self.e_norm = np.amax(dummy_batch["e_data"])
         else:
             self.i_norm = self.e_norm = 1.0
 
@@ -371,7 +373,7 @@ class LossFunction:
 
         weights = eqx.combine(static_weights, diff_weights)
         total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
-            weights, batch, denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)], reduce_func=jnp.nanmean
+            weights, batch, denom=[jnp.abs(self.i_norm), jnp.abs(self.e_norm)], reduce_func=jnp.nanmean
         )
         return total_loss, [ThryE, params]
 

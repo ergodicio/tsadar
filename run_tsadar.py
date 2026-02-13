@@ -6,7 +6,7 @@ from jax import config
 
 config.update("jax_enable_x64", True)
 # config.update("jax_debug_nans", True)
-config.update("jax_disable_jit", True)
+# config.update("jax_disable_jit", True)
 
 from tsadar.runner import run, run_job, load_and_make_folders
 from tsadar.utils.misc import export_run

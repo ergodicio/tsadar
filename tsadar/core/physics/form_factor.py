@@ -265,13 +265,13 @@ class FormFactor:
         ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
-        xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
+        # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
         chiERratprim = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
             ratdf, self.xi1[None, :] - self.xi2[:, None], self.xi1
         )
-        chiERratprim2 = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
-            ratdf, self.xi1[None, :] - xi2[:, None], self.xi1
-        )
+        # chiERratprim2 = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
+        #     ratdf, self.xi1[None, :] - xi2[:, None], self.xi1
+        # )
         chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
         chiERrat = -1.0 / (klde**2) * chiERrat
 
