@@ -191,19 +191,19 @@ def sa_lookup(beam):
     elif beam == "B62":
         # Scattering angle in degrees for OMEGA TIM6 TS
         sa = dict(
-            sa=np.linspace(147.818, 160.129, 10),
+            sa=np.linspace(147.956, 160.353, 10),
             weights=np.array(
                 [
-                    0.0049997747,
-                    0.0280167560,
-                    0.0686455565,
-                    0.1195892076,
-                    0.1689113103,
-                    0.1943155713,
-                    0.1876041619,
-                    0.1412098554,
-                    0.0715283095,
-                    0.0151794964,
+                    0.008918517183911,
+                    0.047160037836134,
+                    0.104184496193865,
+                    0.162335029953606,
+                    0.194225485338498,
+                    0.189766226746543,
+                    0.151254447997838,
+                    0.093869645511463,
+                    0.040718886536642,
+                    0.007567226701500,
                 ]
             ),
         )
@@ -351,7 +351,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             IAWDisp = 0.00378
             EPWoff = 138.42 #rough calc gives 138.42 #best when using ud 142.04
             IAWoff = 349.17#349.02 #need to be checked
-            stddev["spect_stddev_ion"] = 0.013 #based off epw for this pinhole
+            stddev["spect_stddev_ion"] = 0.0166#0.013 #based off epw for this pinhole
             print(stddev["spect_stddev_ion"])
             stddev["spect_stddev_ele"] = 1.35 #2.4  # based of hg lamp data
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
@@ -381,7 +381,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             elif shotNum == 116770 or shotNum == 116771 or shotNum == 116775:
                 EPWoff = 429.5
             elif shotNum == 116772 or shotNum == 116773:
-                EPWoff = 315.5
+                EPWoff = 315.7#314.5
             else:
                 EPWoff = 316.5
             IAWoff = 523.17
@@ -390,7 +390,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
                 stddev["spect_stddev_ion"] = 0.0289
                 stddev["spect_stddev_ele"] = 1.364
             else:
-                stddev["spect_stddev_ion"] = 0.0192 #0.0174
+                stddev["spect_stddev_ion"] = 0.0289# 0.0192 #0.0174
                 stddev["spect_stddev_ele"] = 1.091
 
             #print("used 0.668 nm irf")
