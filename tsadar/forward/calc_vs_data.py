@@ -166,10 +166,10 @@ def forward_pass(config):
     """
 
     #hard coded options for interactive forward pass
-    ksmear= True  #if True includes k-smearing in the forward model
+    ksmear= False  #if True includes k-smearing in the forward model
     include_IRF=True
-    background_subtract=True #if True the BG is subtracted from the data before plotting, if false BG is added to the fit model
-    update_fig = True  #if true the figure is updated after each forward pass with curves being replaced, if false a new curve is added each time
+    background_subtract=False #if True the BG is subtracted from the data before plotting, if false BG is added to the fit model
+    update_fig = False  #if true the figure is updated after each forward pass with curves being replaced, if false a new curve is added each time
     
     config = _validate_inputs_(config)
 
@@ -183,7 +183,7 @@ def forward_pass(config):
 
     if not is_angular:
         if not ksmear:
-            sas['sa'] = np.array([60.0])  # hardcoded for now
+            sas['sa'] = np.array([154.0])  # hardcoded for now
             sas['weights'] = np.array([1.0])
         else:
             sas['sa'] = sas['sa']

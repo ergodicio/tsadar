@@ -465,6 +465,10 @@ def plot_ts_data(config, fits, all_data, all_axes, td):
 
     Returns:
     """
+    background_subtract = config["data"]["background"]["bg_subtract"]
+    if background_subtract:
+        all_data["e_data"] = all_data["e_data"] - all_data["noiseE"]
+        all_data["i_data"] = all_data["i_data"] - all_data["noiseI"]
     if config["other"]["extraoptions"]["load_ion_spec"]:
         coords_x = all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]])
         coords_y = "Wavelength", all_axes["iaw_y"]

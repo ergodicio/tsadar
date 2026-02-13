@@ -1,19 +1,25 @@
 data:
   background:
-    slice: 800
+    slice: 900
     type: pixel
   lineouts:
-    end: 2400
-    skip: 50
-    start: 1500
+    end: -300
+    skip: 20
+    start: -600
     type: ps
   shot_rot: 90.0
-  shotnum: 116768
+  shotnum: 115122
 machine: gpu
 mlflow:
-  experiment: shot_day_10_22_25
-  run: shot 116768
+  experiment: flux_cbet
+  run: s115122_wgain_bothepw
 other:
+  Ipump_14: 5.8
+  PhysParams:
+    widIRF:
+      spect_stddev_ele: 1.3
+      spect_stddev_ion: 0.015
+  beam_diam_um: 174
   calc_sigmas: false
   extraoptions:
     fit_EPWb: true
@@ -21,8 +27,8 @@ other:
     fit_IAW: true
     load_ele_spec: true
     load_ion_spec: true
-    spectype: angular
-  include_gains: false
+    spectype: temporal
+  include_gains: true
   refit: false
   refit_thresh: 5.0
 parameters:
@@ -32,25 +38,25 @@ parameters:
       gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
-      val: 1.0
+      val: 0.40
     fe:
       active: false
       dim: 1
-      nvx: 128
+      nvx: 32
       params:
         Nl: 1
-        dtx: 0.002
+        dtx: 0.0005
         dty: 0.0005
         flm_type: arbitrary
         init_m: 3.0
         learn_log: true
         m:
-          lb: 2.0
+          intens: 6.1
+          lb: 1.8
+          matte: true
           ub: 5.0
-          val: 2.0
-          matte: false
-          intens: 2.0
-        nvr: 128
+          val: 2.45
+        nvr: 32
         smooth: true
         window:
           len: 45
@@ -61,8 +67,8 @@ parameters:
       active: true
       gradient_scalar: 10.0
       lb: 0.03
-      ub: 3.0
-      val: 1.1
+      ub: 4.0
+      val: .61
   general:
     Te_gradient:
       active: false
@@ -75,17 +81,17 @@ parameters:
       angle: 0.0
       lb: -40.5
       ub: 40.5
-      val: 1.766
+      val: -2.8
     amp1:
       active: true
-      lb: 0.20
+      lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
       active: true
-      lb: 0.20
+      lb: 0.01
       ub: 3.75
-      val: 1.0
+      val: 1.3
     amp3:
       active: true
       lb: 0.01
@@ -93,9 +99,9 @@ parameters:
       val: 1.0
     lam:
       active: false
-      lb: 524.0
-      ub: 529.0
-      val: 526.5
+      lb: 345.0
+      ub: 357.0
+      val: 351.0
     ne_gradient:
       active: false
       lb: 0.0
@@ -103,44 +109,44 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: false
+      active: true
       angle: 0.0
-      lb: -100.0
-      ub: 100.0
+      lb: -200.0
+      ub: 200.0
       val: 0.0
   ion-1:
     A:
       active: false
-      val: 40.0
+      val: 1.0
     Ti:
       active: true
       lb: 0.01
       same: false
-      ub: 1.0
-      val: 0.1594
+      ub: 2.0
+      val: 0.08
     Z:
-      active: true
-      lb: 6.0
-      ub: 18.0
-      val: 15.0
+      active: false
+      lb: 0.5
+      ub: 36.0
+      val: 1.0
     fract:
       active: false
-      val: 0.11
+      val: 0.55
   ion-2:
     A:
       active: false
-      val: 1.0
+      val: 14.0
     Ti:
       active: false
       lb: 0.01
       same: true
-      ub: 1.0
-      val: 0.12
+      ub: 2.0
+      val: 0.08
     Z:
-      active: false
+      active: true
       lb: 0.5
-      ub: 1.5
-      val: 1.0
+      ub: 7.0
+      val: 6.9
     fract:
       active: false
-      val: 0.89
+      val: 0.45

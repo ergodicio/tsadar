@@ -116,11 +116,11 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
                 eDat = np.rot90(np.squeeze(eDat), 3)
             try:
                 if specType == "temporal" and loadspecs["absolute_timing"]:
-                    # this sets t0 by locating the fiducial and placing t0 164px earlier
+                    # this sets t0 by locating the fiducial and placing t0 95px earlier
                     fidu = np.sum(eDat[0:100, :], 0)
                     res = find_peaks(fidu, prominence=np.max(fidu)/2, width=10)
                     peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
-                    t0[1] = round(peak_center - 95)
+                    t0[1] = round(peak_center - 115) #95 is the nominal value but i found i had to shift the IAW 100ps later consistently across shots
             except BaseException:
                 print("Fiducial timing encountered an error, default timing is being used")
         except BaseException:

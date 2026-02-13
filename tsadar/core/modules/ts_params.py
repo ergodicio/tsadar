@@ -587,7 +587,7 @@ class ThomsonParams(eqx.Module):
                 }
             else:
                 dist_params = {
-                    "fe": DLM1V.call_matte(self.electron.distribution_functions, tmp_dict['electron']['Te'], zeff, self.param_cfg['electron']['fe']['params']['m']['intens']),
+                    "fe": DLM1V.call_matte(self.electron.distribution_functions, unnormed_m),
                 }
             
             tmp_dict["electron"]["fe"] = dist_params["fe"]
