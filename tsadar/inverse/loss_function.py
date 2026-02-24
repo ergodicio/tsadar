@@ -8,8 +8,6 @@ from jax.flatten_util import ravel_pytree
 import numpy as np
 import equinox as eqx
 
-import time
-
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 # from ..core.modules import exchange_params, get_filter_spec
@@ -113,7 +111,7 @@ class LossFunction:
                     for category in cfg["parameters"].values()
                     for p in category.values()
                     if isinstance(p, dict) and "active" in p
-                )
+                )*cfg["optimizer"]["batch_size"]
                 # CCD spread function
                 a, b = np.meshgrid(np.linspace(-5*self.sig_px, 5*self.sig_px, int(10*self.sig_px+1)), 
                             np.linspace(-5*self.sig_px, 5*self.sig_px, int(10*self.sig_px+1)))
@@ -258,16 +256,11 @@ class LossFunction:
             )
 
             if self.cfg["optimizer"]["loss_method"] == "covar":
-                t0 = time.time()
                 k = self.calculate_covariance_matrix(ThryI)  # This function needs to be defined to compute the covariance matrix based on the data
-                t1 = time.time()
                 norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
                 _error_ = jnp.nan_to_num(_error_)
-                t2 = time.time()
                 x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
-                t3 = time.time()
                 i_error += jnp.sum(jnp.vecdot(_error_, x))/norm
-                t4 = time.time()
             else:
                 i_error += reduce_func(_error_)
             sqdev["ion"] = jnp.nan_to_num(_error_)
