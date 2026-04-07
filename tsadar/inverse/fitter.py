@@ -7,7 +7,7 @@ import mlflow
 
 from tsadar.inverse.loops import angular_optax, one_d_loop
 
-from ..utils.process import prepare, postprocess
+from tsadar.inverse.process import prepare, postprocess
 
 
 def _validate_inputs_(config: Dict) -> Dict:

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tsadar"
+version = "0.2.0"
+description = "Thomson Scattering Analysis software"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Avi Milder", email = "amild@lle.rochester.edu" },
+    { name = "Archis Joglekar", email = "archis@ergodic.io" },
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "opencv-python",
+    "scikit-image",
+    "matplotlib",
+    "xlrd",
+    "pyyaml",
+    "mlflow",
+    "mlflow_export_import",
+    "boto3",
+    "flatten-dict",
+    "optax",
+    "tqdm",
+    "jaxopt",
+    "xarray",
+    "pandas",
+    "interpax",
+    "tabulate",
+    "psutil",
+    "equinox",
+]
+
+[project.optional-dependencies]
+cpu = ["jax"]
+gpu = ["jax[cuda12]"]
+
+[project.urls]
+Homepage = "https://github.com/ergodicio/tsadar"
+
+[tool.setuptools.packages.find]
+include = ["tsadar*"]
+
+[tool.setuptools.package-data]
+tsadar = ["external/**/*"]

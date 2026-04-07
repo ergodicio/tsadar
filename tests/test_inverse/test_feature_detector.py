@@ -1,5 +1,5 @@
 from jax import config
-from tsadar.utils.process import prepare
+from tsadar.inverse.process import prepare
 
 config.update("jax_enable_x64", True)
 
