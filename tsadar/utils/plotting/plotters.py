@@ -667,6 +667,9 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
     sorted_sqdev = []
     yaxis = []
 
+    if config["optimizer"]["loss_method"]=='covar'
+        include_data_uncert = True
+
     if config["other"]["extraoptions"]["load_ele_spec"]:
         s_ind.append(np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"])))
         e_ind.append(np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"])))
