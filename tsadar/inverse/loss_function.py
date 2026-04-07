@@ -258,6 +258,7 @@ class LossFunction:
             if self.cfg["optimizer"]["loss_method"] == "covar":
                 k = self.calculate_covariance_matrix(i_data)  # This function needs to be defined to compute the covariance matrix based on the data
                 norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
+                print(norm)
                 _error_ = jnp.nan_to_num(_error_)
                 x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
                 i_error += jnp.sum(jnp.vecdot(_error_, x))/norm
@@ -277,9 +278,12 @@ class LossFunction:
             if self.cfg["optimizer"]["loss_method"] == "covar":
                 k = self.calculate_covariance_matrix(ThryE)  # This function needs to be defined to compute the covariance matrix based on the data
                 norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
+                print(norm)
                 _error_ = jnp.nan_to_num(_error_)
                 x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
+                print(x)
                 e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
+                print(e_error
             else:
                 e_error += reduce_func(_error_)
             sqdev["ele"] = jnp.nan_to_num(_error_)
@@ -296,6 +300,7 @@ class LossFunction:
             if self.cfg["optimizer"]["loss_method"] == "covar":
                 k = self.calculate_covariance_matrix(ThryE)  # This function needs to be defined to compute the covariance matrix based on the data
                 norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
+                print(norm)
                 _error_ = jnp.nan_to_num(_error_)
                 x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
                 e_error += jnp.sum(jnp.vecdot(_error_, x))/norm

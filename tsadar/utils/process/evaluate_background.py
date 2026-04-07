@@ -155,10 +155,6 @@ def get_lineout_bg(
                 bgalg  = methods[config["data"]["background"]["bg_alg"]]
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                     [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], config["data"]["background"]["bg_alg_params"])
-                    # if config["data"]["background"]["show"]:
-                    #     plt.plot(rat11(np.arange(1024), *rat1bg))
-                    #     plt.plot(LineoutTSE_smooth[i])
-                    #     plt.show()
 
                     LineoutBGE.append(bgalg(np.arange(1024), *pvec))
         # if not fit use a pixel lineout with smoothing
@@ -238,6 +234,11 @@ def get_lineout_bg(
         # constant addition to the background
         noiseE += config["other"]["flatbg"]
 
+    
+        if config["data"]["background"]["show"]:
+            plt.plot(rat11(np.arange(1024), *rat1bg))
+            plt.plot(LineoutTSE_smooth[i])
+            plt.show()
     else:
         noiseE = np.zeros(len(config["data"]["lineouts"]["val"]))
 

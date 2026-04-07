@@ -350,6 +350,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
     savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
     if config["plotting"]["detailed_breakdown"]:
         plotters.detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
+    elif
     else:
         plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
     sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)
