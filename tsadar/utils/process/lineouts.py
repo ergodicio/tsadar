@@ -6,6 +6,26 @@ import numpy as np
 from tsadar.utils.process.evaluate_background import get_lineout_bg
 
 
+def compute_lineout_pixel_indices(config, axisxE, axisxI, shift_zero, IAWtime, type_name="lineouts"):
+    """Return electron and ion lineout pixel indices for the configured lineouts."""
+    lineout_type = config["data"][type_name]["type"]
+    signifier = "slice" if type_name == "background" else "val"
+    lineout_vals = np.atleast_1d(config["data"][type_name][signifier])
+    if lineout_type in ("ps", "um"):
+        LineoutPixelE = [np.argmin(np.abs(axisxE - loc - shift_zero)) for loc in lineout_vals]
+        LineoutPixelI = [np.argmin(np.abs(axisxI - loc - shift_zero)) for loc in lineout_vals]
+        IAWtime_pixels = IAWtime / (axisxI[1] - axisxI[0])
+    elif lineout_type in ("pixel", "range"):
+        LineoutPixelE = lineout_vals.tolist()
+        LineoutPixelI = lineout_vals.tolist()
+        IAWtime_pixels = IAWtime
+    else:
+        raise NotImplementedError(f"Unsupported lineout type: {lineout_type}")
+
+    LineoutPixelI = np.round(np.array(LineoutPixelI) - IAWtime_pixels).astype(int)
+    return LineoutPixelE, LineoutPixelI
+
+
 def get_lineouts(
     elecData, ionData, BGele, BGion, axisxE, axisxI, axisyE, axisyI, shift_zero, IAWtime, xlab, sa, config
 ) -> Dict:
@@ -57,24 +77,21 @@ def get_lineouts(
         If the lineout or background type specified in config is not supported.
     """
     # Convert lineout locations to pixel
-    
-    if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":
-        LineoutPixelE = [np.argmin(abs(axisxE - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
-        IAWtime = IAWtime / (axisxI[1] - axisxI[0])  # corrects the iontime to be in the same units as the lineout
-        LineoutPixelI = [np.argmin(abs(axisxI - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
-    elif config["data"]["lineouts"]["type"] == "pixel":
-        LineoutPixelE = config["data"]["lineouts"]["val"]
-        LineoutPixelI = config["data"]["lineouts"]["val"]
-    else:
-        raise NotImplementedError
-    LineoutPixelI = np.round(np.array(LineoutPixelI) - IAWtime).astype(int)
+    LineoutPixelE, LineoutPixelI = compute_lineout_pixel_indices(
+        config, axisxE, axisxI, shift_zero, IAWtime
+    )
     config["data"]["lineouts"]["pixelE"] = LineoutPixelE
     config["data"]["lineouts"]["pixelI"] = LineoutPixelI
 
-    if config["data"]["background"]["type"] == "ps" or config["data"]["background"]["type"] == "um":
-        BackgroundPixel = np.argmin(abs(axisxE - config["data"]["background"]["slice"]))
-    elif config["data"]["background"]["type"] == "pixel":
-        BackgroundPixel = config["data"]["background"]["slice"]
+    if config["data"]["background"]["type"] in ("ps", "um", "pixel"):
+        BackgroundPixel = compute_lineout_pixel_indices(
+            config,
+            axisxE,
+            axisxI,
+            shift_zero=0,
+            IAWtime=0,
+            type_name="background",
+        )[0][0]
     elif config["data"]["background"]["type"] == "auto":
         BackgroundPixel = LineoutPixelE + 100
     elif config["data"]["background"]["type"].casefold() == "shot":

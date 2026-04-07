@@ -136,6 +136,10 @@ def recalculate_with_chosen_weights(
 
         sqdevs["ele"][inds] = sqds["ele"]
         sqdevs["ion"][inds] = sqds["ion"]
+
+        if config["optimizer"]["loss_method"] =='covar':
+            sqdevs["ele"][inds] = sqds["ele"]
+            sqdevs["ion"][inds] = sqds["ion"]
         if calc_sigma:
             sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
             # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?

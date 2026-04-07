@@ -4,6 +4,8 @@ import matplotlib.colors as colors
 import matplotlib.patheffects as patheffects
 import tempfile, mlflow, os
 
+from tsadar.utils.process.lineouts import compute_lineout_pixel_indices
+
 
 def launch_data_visualizer(elecData, ionData, all_axes, config):
     """
@@ -27,25 +29,13 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
         - The function assumes that the data is in a format compatible with numpy and matplotlib.
 
     """
-    if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":
-        LineoutPixelE = [
-            np.argmin(abs(all_axes["epw_x"] - loc - config["data"]["ele_t0"]))
-            for loc in config["data"]["lineouts"]["val"]
-        ]
-        IAWtime = config["data"]["ion_t0_shift"] / (
-            all_axes["iaw_x"][1] - all_axes["iaw_x"][0]
-        )  # corrects the iontime to be in the same units as the lineout
-        LineoutPixelI = [
-            np.argmin(abs(all_axes["iaw_x"] - loc - config["data"]["ele_t0"]))
-            for loc in config["data"]["lineouts"]["val"]
-        ]
-    elif config["data"]["lineouts"]["type"] == "pixel" or config["data"]["lineouts"]["type"] == "range":
-        LineoutPixelE = config["data"]["lineouts"]["val"]
-        LineoutPixelI = config["data"]["lineouts"]["val"]
-        IAWtime = config["data"]["ion_t0_shift"]
-    else:
-        raise NotImplementedError
-    LineoutPixelI = np.round(np.array(LineoutPixelI) - IAWtime).astype(int)
+    LineoutPixelE, LineoutPixelI = compute_lineout_pixel_indices(
+        config,
+        all_axes["epw_x"],
+        all_axes["iaw_x"],
+        config["data"]["ele_t0"],
+        config["data"]["ion_t0_shift"],
+    )
 
     with tempfile.TemporaryDirectory() as td:
         os.makedirs(os.path.join(td, "plots"), exist_ok=True)
@@ -165,6 +155,8 @@ def launch_data_visualizer(elecData, ionData, all_axes, config):
             fig.colorbar(jc)
             fig.savefig(os.path.join(td, "plots", "electron_fit_ranges.png"), bbox_inches="tight")
 
+        
+        
         if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
             fig = plt.figure()
             plt.plot(all_axes["epw_x"], np.sum(elecData[200:800,:], axis=0), label="Electron Spectrum")

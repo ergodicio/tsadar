@@ -256,7 +256,7 @@ class LossFunction:
             )
 
             if self.cfg["optimizer"]["loss_method"] == "covar":
-                k = self.calculate_covariance_matrix(ThryI)  # This function needs to be defined to compute the covariance matrix based on the data
+                k = self.calculate_covariance_matrix(i_data)  # This function needs to be defined to compute the covariance matrix based on the data
                 norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
                 _error_ = jnp.nan_to_num(_error_)
                 x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
@@ -624,17 +624,17 @@ class LossFunction:
             # print(temperature_loss)
         return density_loss, temperature_loss, momentum_loss
     
-    def calculate_covariance_matrix(self,t):
+    def calculate_covariance_matrix(self,data):
         # function to calculate the covariance matrix based on the theoretical values following
         # the method describe in George's RSI
 
         # Calculate noise (here it is done with the signal but it should be done with the model)
-        sig_s = jnp.sqrt(t * self.G * self.F2)
+        sig_s = jnp.sqrt(data * self.G * self.F2)
 
-        eye = jnp.eye(jnp.shape(t)[-1])
+        eye = jnp.eye(jnp.shape(data)[-1])
         #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
-        k_noise = jnp.zeros((jnp.shape(t)[0], jnp.shape(eye)[0], jnp.shape(eye)[1]))
-        for i in range(jnp.shape(t)[0]):
+        k_noise = jnp.zeros((jnp.shape(data)[0], jnp.shape(eye)[0], jnp.shape(eye)[1]))
+        for i in range(jnp.shape(data)[0]):
             slice_noise=jax.scipy.signal.convolve2d(eye * sig_s[i]**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
             k_noise=k_noise.at[i,:,:].set(slice_noise)
         #k_noise = jax.scipy.signal.convolve2d(eye * sig_s**2, self.g, mode="same") + eye * self.n * self.sig_rn**2

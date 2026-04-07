@@ -62,7 +62,7 @@ optimizer:
   loss_method: l2
   method: adam
   moment_loss: false
-  num_epochs: 150
+  num_epochs: 1
   num_mins: 1
   param_learning_rate: 0.01
   param_method: adam
