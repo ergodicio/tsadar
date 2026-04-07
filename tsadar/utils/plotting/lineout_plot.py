@@ -36,15 +36,15 @@ def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, include
         ax[0][col].plot(
             yaxis[col][s_ind[col] : e_ind[col]], np.squeeze(data[col][s_ind[col] : e_ind[col]]), label="Data"
         )
-        if include_uncert:
+        # if include_uncert:
             
-            ax.fill_between(
-                        yaxis[col][s_ind[col] : e_ind[col]],
-                        ( np.squeeze(data[col][s_ind[col] : e_ind[col]]) - ),
-                        ( np.squeeze(data[col][s_ind[col] : e_ind[col]]) + ),
-                        color="b",
-                        alpha=0.1,
-                    )
+            # ax.fill_between(
+            #             yaxis[col][s_ind[col] : e_ind[col]],
+            #             ( np.squeeze(data[col][s_ind[col] : e_ind[col]]) - ),
+            #             ( np.squeeze(data[col][s_ind[col] : e_ind[col]]) + ),
+            #             color="b",
+            #             alpha=0.1,
+            #         )
         ax[0][col].plot(
             yaxis[col][s_ind[col] : e_ind[col]], np.squeeze(fits[col][s_ind[col] : e_ind[col]]), label="Fit"
         )

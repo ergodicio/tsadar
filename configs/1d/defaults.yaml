@@ -10,6 +10,7 @@ data:
     - -16
     - 200000
     - 170
+    bg_smoothing_window: 11
     bg_subtract: true
     slice: 900
     type: pixel

@@ -121,16 +121,16 @@ def get_lineout_bg(
     # for electrons, if the background type is "fit" and the data type is not "angular"
     if config["other"]["extraoptions"]["load_ele_spec"]:
         # fit a background model to the edges of the lineout
-        if config["data"]["background"]["type"].casefold() == "fit":
-            if config["other"]["extraoptions"]["spectype"] != "angular":
-                # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
-                # should be checked in more situations
-
-                bgfitx = np.hstack([
+        bgfitx = np.hstack([
                     np.arange(config["data"]["background"]["bg_alg_domain"][0],
                                config["data"]["background"]["bg_alg_domain"][1]),
                                  np.arange(config["data"]["background"]["bg_alg_domain"][2],
                                            config["data"]["background"]["bg_alg_domain"][3])])
+        
+        if config["data"]["background"]["type"].casefold() == "fit":
+            if config["other"]["extraoptions"]["spectype"] != "angular":
+                # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
+                # should be checked in more situations
 
                 def exp2(x, a, b, c, d):
                     return a * np.exp(b * x) + c * np.exp(d * x)
@@ -167,59 +167,21 @@ def get_lineout_bg(
                 1,
             )
             #smooth the lineout to reduce high frequency noise
-            #LineoutBGE = np.convolve(LineoutBGE, np.ones(3*span) / (3.*span), "same")
-            LineoutBGE = np.convolve(LineoutBGE, np.ones(2*span) / (2.*span), "same")
-
-            # if config["other"]["extraoptions"]["spectype"] == "temporal":
-            #     #currently different probe wavelengths have different backgrouund shapes
-            #     #this selects different forms with lots of wiggle room around exact lambda values
-            #     if config["parameters"]["general"]["lam"] - 526.5 < 10:
+            LineoutBGE = np.convolve(LineoutBGE, np.ones(config["data"]["background"]["bg_smoothing_window"]) / (config["data"]["background"]["bg_smoothing_window"]), "same")
             
             
             # replace background lineout with double exponential for extra smoothing
             if config["other"]["extraoptions"]["spectype"] != "angular":
-
-                #redoing how the background lineout works as the exponential fitting was not very robust
-                #now the algorithm simply smooths the background lineout and rescales it to the edges of the data lineouts
-
-                # def exp2(x, a, b, c, d):
-                #     return a * np.exp(-b * x) + c * np.exp(-d * x)
-
-                # # this defines the region of the background lineout to fit, for temporal data [250 480 540 900] usualy works but at 4w there canbe issues
-                # bgfitx = np.hstack([
-                #     np.arange(config["data"]["background"]["bg_alg_domain"][0],
-                #                config["data"]["background"]["bg_alg_domain"][1]),
-                #                  np.arange(config["data"]["background"]["bg_alg_domain"][2],
-                #                            config["data"]["background"]["bg_alg_domain"][3])])
-                
-                # # this defines the region of the data lineout to rescale the background to
-                bgfitx2 = np.hstack([np.arange(250, 300), np.arange(700, 900)])
-                # plt.plot(bgfitx, LineoutBGE[bgfitx])
-                # try:
-                #     [expbg, _] = spopt.curve_fit(exp2, bgfitx, LineoutBGE[bgfitx], p0=[8000, 0.003, -2000, 0.0001])
-                #     LineoutBGE = config["data"]["bgscaleE"] * exp2(np.arange(1024), *expbg)
-                #     print(expbg)
-                # except:
-                #     print("Background fit failed, using flat background")
-                #     LineoutBGE = config["data"]["bgscaleE"] * np.mean(LineoutBGE[bgfitx]) * np.ones(1024)
-
                 # rescale background exponential using the edge of each data lineout
                 LineoutBGE_rescaled = []
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                     scale = spopt.minimize_scalar(
-                        lambda a: np.sum(abs(LineoutTSE_smooth[i][bgfitx2] - a * LineoutBGE[bgfitx2]))
+                        lambda a: np.sum(abs(LineoutTSE_smooth[i][bgfitx] - a * LineoutBGE[bgfitx]))
                     )
 
                     LineoutBGE_rescaled.append(scale.x * LineoutBGE)
 
                 LineoutBGE = np.array(LineoutBGE_rescaled)
-                # if config["data"]["background"]["show"]:
-                #     plt.plot(bgfitx, LineoutBGE[bgfitx])
-                #     plt.plot(bgfitx, scale.x * LineoutBGE[bgfitx])
-                #     plt.plot(bgfitx, exp2(bgfitx, 200, 0.001, 200, 0.001))
-                #     lin = np.mean((elecData - BGele)[:, 480 - config["data"]["dpixel"] : 480 + config["data"]["dpixel"]], 1)
-                #     plt.plot(bgfitx, lin[bgfitx])
-                #     plt.show()
 
         # add background from background shot if applicable
         if np.shape(BGele) == tuple(config["other"]["CCDsize"]):
@@ -234,11 +196,6 @@ def get_lineout_bg(
         # constant addition to the background
         noiseE += config["other"]["flatbg"]
 
-    
-        if config["data"]["background"]["show"]:
-            plt.plot(rat11(np.arange(1024), *rat1bg))
-            plt.plot(LineoutTSE_smooth[i])
-            plt.show()
     else:
         noiseE = np.zeros(len(config["data"]["lineouts"]["val"]))
 

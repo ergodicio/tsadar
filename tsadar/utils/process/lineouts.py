@@ -99,6 +99,7 @@ def get_lineouts(
     else:
         BackgroundPixel = []
 
+    config["data"]["background"]["pixel"] = BackgroundPixel
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
     # extract lineouts

@@ -283,7 +283,7 @@ class LossFunction:
                 x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
                 print(x)
                 e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
-                print(e_error
+                print(e_error)
             else:
                 e_error += reduce_func(_error_)
             sqdev["ele"] = jnp.nan_to_num(_error_)

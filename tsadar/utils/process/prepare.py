@@ -134,7 +134,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
 
     # Lauch the data visualizer to show linout selection, not currently interactable
     if config["data"]["launch_data_visualizer"]:
-        launch_data_visualizer(elecData, ionData, all_axes, config)
+        launch_data_visualizer(elecData, ionData, all_data, all_axes, config)
 
     config["other"]["PhysParams"]["widIRF"] = stddev
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
