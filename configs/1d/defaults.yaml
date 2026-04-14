@@ -1,11 +1,16 @@
 data:
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: false
+  load_ele_spec: true
+  load_ion_spec: false
   background:
     bg_alg: rat11
     bg_alg_domain:
-    - 115
-    - 200
-    - 800
-    - 1023
+    - 250
+    - 300
+    - 700
+    - 900
     bg_alg_params:
     - -16
     - 200000
@@ -45,11 +50,6 @@ data:
   probe_beam: B62
   shotDay: false
   shotnum: 101675
-dist_fit:
-  smooth: false
-  window:
-    len: 4
-    type: hanning
 mlflow:
   experiment: tsadar-test
   run: arts2d
@@ -76,20 +76,12 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
-  BinWidth: 10
-  CCDsize:
-  - 1024
-  - 1024
-  NumBinInRng: 0
   PhysParams:
-    background:
-    - 0
-    - 0
-    norm: 0
-  TotalNumBin: 1023
+    widIRF:
+      spect_stddev_ele: 1.3
+      spect_stddev_ion: 0.015
   ang_res_unit: 10
   calc_sigmas: false
-  crop_window: 1
   expandedions: false
   extraoptions:
     absolute_timing: true
@@ -98,7 +90,7 @@ other:
     fit_IAW: false
     load_ele_spec: true
     load_ion_spec: false
-    spectype: temporal
+    spectype: None
   flatbg: 0
   gain: 1
   iawfilter:
@@ -111,6 +103,9 @@ other:
   points_per_pixel: 10
   refit: false
   refit_thresh: 0.25
+  Ipump_14: 0.0
+  beam_diam_um: 100
+  include_gains: true
 parameters:
   electron:
     Te:
@@ -120,13 +115,28 @@ parameters:
       val: 0.6
     fe:
       active: false
-      dim: 2
-      nvx: 128
+      dim: 1
+      nvx: 32
       params:
         Nl: 1
-        init_m: 2.7
-        nvr: 64
-      type: sphericalharmonic
+        dtx: 0.0005
+        dty: 0.0005
+        flm_type: arbitrary
+        init_m: 3.0
+        learn_log: true
+        m:
+          intens: 5.0
+          lb: 1.8
+          matte: true
+          ub: 5.0
+          val: 2.45
+        nvr: 32
+        smooth: true
+        window:
+          len: 45
+          sampling: 30
+          type: hanning
+      type: dlm
     ne:
       active: false
       lb: 0.001
@@ -144,7 +154,7 @@ parameters:
       angle: 0.0
       lb: -20.5
       ub: 20.5
-      val: -2.0
+      val: 0.0
     amp1:
       active: true
       lb: 0.01

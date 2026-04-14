@@ -1,4 +1,9 @@
 data:
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: false
+  load_ele_spec: true
+  load_ion_spec: true
   background:
     slice: 900
     type: pixel
@@ -70,11 +75,6 @@ other:
   calc_sigmas: false
   expandedions: false
   extraoptions:
-    fit_EPWb: true
-    fit_EPWr: true
-    fit_IAW: false
-    load_ele_spec: true
-    load_ion_spec: true
   flatbg: 0
   gain: 1
   iawfilter:

@@ -1,4 +1,9 @@
 data:
+  fit_EPWb: false
+  fit_EPWr: false
+  fit_IAW: true
+  load_ele_spec: true
+  load_ion_spec: true
   background:
     slice: 900
     type: pixel
@@ -18,11 +23,6 @@ mlflow:
 other:
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: false
-    fit_EPWr: false
-    fit_IAW: true
-    load_ele_spec: true
-    load_ion_spec: true
   refit: false
   refit_thresh: 5.0
 

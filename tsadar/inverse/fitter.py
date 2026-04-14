@@ -45,10 +45,10 @@ def _validate_inputs_(config: Dict) -> Dict:
     if not config["data"]["fit_rng"]["iaw_min"]<config["data"]["fit_rng"]["iaw_cf_min"]<config["data"]["fit_rng"]["iaw_cf_max"]<config["data"]["fit_rng"]["iaw_max"]:
         raise ValueError("IAW fit range is not ordered properly, must satisfy: iaw_min < iaw_cf_min < iaw_cf_max < iaw_max")
     
-    if config["other"]["extraoptions"]["fit_EPWb"]:
+    if config["data"]["fit_EPWb"]:
         if config["plotting"]["ele_window_start"] > config["data"]["fit_rng"]["blue_min"] or config["plotting"]["ele_window_end"] < config["data"]["fit_rng"]["blue_max"]:
             raise ValueError("Electron fitting range is not contained within the plotting range, please check your inputs")
-    if config["other"]["extraoptions"]["fit_EPWr"]:
+    if config["data"]["fit_EPWr"]:
         if config["plotting"]["ele_window_start"] > config["data"]["fit_rng"]["red_min"] or config["plotting"]["ele_window_end"] < config["data"]["fit_rng"]["red_max"]:
             raise ValueError("Electron fitting range is not contained within the plotting range, please check your inputs")
 

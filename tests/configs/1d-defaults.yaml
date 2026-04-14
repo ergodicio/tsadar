@@ -80,11 +80,6 @@ other:
     expandedions: False
     extraoptions:
         spectype: 1d
-        load_ion_spec: false
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
         absolute_timing: false
     PhysParams:
         background: [0, 0]
@@ -105,6 +100,11 @@ other:
     calc_sigmas: False
 
 data:
+    fit_EPWb: True
+    fit_EPWr: True
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: false
     shotnum: 101675
     shotDay: False
     launch_data_visualizer: True

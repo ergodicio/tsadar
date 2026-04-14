@@ -98,11 +98,6 @@ data:
 
 other:
     extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
         spectype: angular
     PhysParams:
         widIRF:

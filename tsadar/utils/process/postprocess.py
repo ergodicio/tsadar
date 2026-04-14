@@ -65,7 +65,7 @@ def recalculate_with_chosen_weights(
     }
     sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         sigmas = np.zeros((all_data["e_data"].shape[0], num_params))
         fits["ele"]["spec_comps"] = np.ones(
             [
@@ -80,7 +80,7 @@ def recalculate_with_chosen_weights(
         )
     else:
         fits["ele"]["spec_comps"] = np.zeros(all_data["e_data"].shape)
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
         fits["ion"]["spec_comps"] = np.ones(
             [

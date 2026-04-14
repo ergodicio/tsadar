@@ -1,4 +1,9 @@
 data:
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: true
+  load_ele_spec: true
+  load_ion_spec: true
   background:
     slice: 900
     type: pixel
@@ -15,18 +20,9 @@ mlflow:
   run: s115124_wgain_bothepw_85en_covar_test_2
 other:
   Ipump_14: 4.76
-  PhysParams:
-    widIRF:
-      spect_stddev_ele: 1.3
-      spect_stddev_ion: 0.015
   beam_diam_um: 174
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: true
-    fit_EPWr: true
-    fit_IAW: true
-    load_ele_spec: true
-    load_ion_spec: true
     spectype: temporal
   include_gains: true
   refit: false
@@ -35,7 +31,6 @@ parameters:
   electron:
     Te:
       active: true
-      gradient_scalar: 10.0
       lb: 0.01
       ub: 2.0
       val: 0.9
@@ -65,7 +60,6 @@ parameters:
       type: dlm
     ne:
       active: true
-      gradient_scalar: 10.0
       lb: 0.03
       ub: 4.0
       val: 2.08

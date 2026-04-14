@@ -4,7 +4,7 @@ Forward Pass
 This example demosntartes the application of a forward pass
 
 
-Update the input decks to mimic those used here, and use **forward** mode to run the code. 
+Update the input decks to mimic those used here, and use ``forward`` mode to run the code. 
 
 .. tip:: When computing a forward pass, check the input deck to indicate the spectype
 

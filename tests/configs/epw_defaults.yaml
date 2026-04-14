@@ -87,11 +87,6 @@ parameters:
 other:
     expandedions: False
     extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
     PhysParams:
         background: [0, 0]
         norm: 0
@@ -107,8 +102,11 @@ other:
     refit_thresh: 0.25
     calc_sigmas: False
 
-data:
-    shotnum: 101675
+data:    fit_EPWb: True
+    fit_EPWr: True
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: False    shotnum: 101675
     shotDay: False
     launch_data_visualizer: True
     fit_rng:

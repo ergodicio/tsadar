@@ -22,12 +22,7 @@ other:
       spect_stddev_ion: 0.015
   calc_sigmas: false
   extraoptions:
-    fit_EPWb: true
-    fit_EPWr: true
-    fit_IAW: false
-    load_ele_spec: true
-    load_ion_spec: false
-    spectype: angular
+    #moved to data
   refit: false
   refit_thresh: 5.0
 parameters:

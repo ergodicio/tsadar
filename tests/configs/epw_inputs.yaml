@@ -86,6 +86,11 @@ parameters:
             ub: 20.5
 
 data:
+    fit_EPWb: False
+    fit_EPWr: False
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: False
     shotnum: 101675
     lineouts:
         type:
@@ -101,11 +106,6 @@ data:
 
 other:
     extraoptions:
-        load_ion_spec: True
-        load_ele_spec: True
-        fit_IAW: True
-        fit_EPWb: False
-        fit_EPWr: False
         spectype: temporal
     PhysParams:
         widIRF:

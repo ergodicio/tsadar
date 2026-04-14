@@ -50,7 +50,7 @@ def get_final_params(config, best_weights, all_axes, td):
                 #     all_params[k] = pandas.Series(v.reshape(-1))
 
     final_params = pandas.DataFrame(all_params)
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         final_params.insert(0, all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]]))
         final_params.insert(0, "lineout pixel", config["data"]["lineouts"]["pixelI"])
     elif config["other"]["extraoptions"]["spectype"] != "angular_full":
@@ -469,7 +469,7 @@ def plot_ts_data(config, fits, all_data, all_axes, td):
     if background_subtract:
         all_data["e_data"] = all_data["e_data"] - all_data["noiseE"]
         all_data["i_data"] = all_data["i_data"] - all_data["noiseI"]
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         coords_x = all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]])
         coords_y = "Wavelength", all_axes["iaw_y"]
         coords = coords_x, coords_y
@@ -498,7 +498,7 @@ def plot_ts_data(config, fits, all_data, all_axes, td):
             name="fit_and_data_ion.png",
         )
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         coords = (all_axes["x_label"], np.array(all_axes["epw_x"][config["data"]["lineouts"]["pixelE"]])), (
             "Wavelength",
             all_axes["epw_y"],
@@ -670,7 +670,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
     if config["optimizer"]["loss_method"]=='covar':
         include_data_uncert = True
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         s_ind.append(np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"])))
         e_ind.append(np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"])))
         sorted_fits.append(fits["ele"]["total_spec"][loss_inds])
@@ -678,7 +678,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
         sorted_sqdev.append(sqdevs["ele"][loss_inds])
         yaxis.append(all_axes["epw_y"])
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         s_ind.append(np.argmin(np.abs(all_axes["iaw_y"] - config["plotting"]["ion_window_start"])))
         e_ind.append(np.argmin(np.abs(all_axes["iaw_y"] - config["plotting"]["ion_window_end"])))
         sorted_fits.append(fits["ion"]["total_spec"][loss_inds])
@@ -766,14 +766,14 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         )
         filename = f"loss={losses[loss_inds[i]]:.2e}-reduced_loss={red_losses[loss_inds[i]]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[i]]}.png"
 
-        # if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
+        # if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
         #     num_col = 2
         # else:
         #     num_col = 1
         
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][0].plot(
@@ -815,7 +815,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
             ax[1][0].set_ylabel(r"$\chi_i^2$")
         
         
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][1].plot(
@@ -864,14 +864,14 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         )
         filename = f"loss={losses[loss_inds[-1-i]]:.2e}-reduced_loss={red_losses[loss_inds[-1-i]]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[-1-i]]}.png"
 
-        # if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
+        # if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
         #     num_col = 2
         # else:
         #     num_col = 1
 
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][0].plot(
@@ -912,7 +912,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
             ax[1][0].set_ylabel(r"$\chi_i^2$")
         
         
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][1].plot(

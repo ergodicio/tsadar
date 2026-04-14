@@ -240,7 +240,7 @@ class LossFunction:
         e_data = batch["e_data"]
         sqdev = {"ele": jnp.zeros(e_data.shape), "ion": jnp.zeros(i_data.shape)}
 
-        if self.cfg["other"]["extraoptions"]["fit_IAW"]:
+        if self.cfg["data"]["fit_IAW"]:
             _error_ = self.loss_functionals(i_data, ThryI, uncert[0], method=self.cfg["optimizer"]["loss_method"])
             _error_ = jnp.where(
                 (
@@ -266,7 +266,7 @@ class LossFunction:
                 i_error += reduce_func(_error_)
             sqdev["ion"] = jnp.nan_to_num(_error_)
 
-        if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
+        if self.cfg["data"]["fit_EPWb"]:
             _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
             _error_ = jnp.where(
                 (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
@@ -288,7 +288,7 @@ class LossFunction:
                 e_error += reduce_func(_error_)
             sqdev["ele"] = jnp.nan_to_num(_error_)
 
-        if self.cfg["other"]["extraoptions"]["fit_EPWr"]:
+        if self.cfg["data"]["fit_EPWr"]:
             _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
             _error_ = jnp.where(
                 (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
@@ -307,7 +307,7 @@ class LossFunction:
             else:
                 e_error += reduce_func(_error_)
             e_error += reduce_func(_error_)
-            if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
+            if self.cfg["data"]["fit_EPWb"]:
                 # the set e_error to the true mean if both sides are fit
                 e_error *= 1.0 / 2.0
             sqdev["ele"] += jnp.nan_to_num(_error_)

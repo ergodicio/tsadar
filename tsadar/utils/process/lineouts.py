@@ -103,7 +103,7 @@ def get_lineouts(
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
     # extract lineouts
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         LineoutTSE = [
             np.sum(elecData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
             for a in LineoutPixelE
@@ -124,7 +124,7 @@ def get_lineouts(
     else:
         LineoutTSE_smooth = []
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         LineoutTSI = [
             np.sum(ionData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
             for a in LineoutPixelI
@@ -140,7 +140,7 @@ def get_lineouts(
 
     # Find data amplitudes
     gain = config["other"]["gain"]
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         noiseI = noiseI / gain
         LineoutTSI_norm = [LineoutTSI_smooth[i] / gain for i, _ in enumerate(LineoutPixelI)]
         LineoutTSI_norm = np.array(LineoutTSI_norm)
@@ -155,7 +155,7 @@ def get_lineouts(
             axis=1,
         )
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         noiseE = noiseE / gain
         LineoutTSE_norm = [LineoutTSE_smooth[i] / gain for i, _ in enumerate(LineoutPixelE)]
         LineoutTSE_norm = np.array(LineoutTSE_norm)
@@ -173,12 +173,12 @@ def get_lineouts(
     all_data["noiseI"] = noiseI
     all_data["noiseE"] = noiseE
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         all_data["i_data"] = LineoutTSI_norm
         all_data["i_amps"] = ampI
     else:
         all_data["i_data"] = all_data["i_amps"] = np.zeros(len(config["data"]["lineouts"]["val"]))
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         all_data["e_data"] = LineoutTSE_norm
         all_data["e_amps"] = ampE
     else:

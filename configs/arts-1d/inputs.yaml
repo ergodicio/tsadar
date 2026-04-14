@@ -1,4 +1,9 @@
 data:
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: false
+  load_ele_spec: true
+  load_ion_spec: false
   background:
     slice: 10002
     type: Fit
@@ -19,11 +24,6 @@ other:
   calc_sigmas: false
   include_gains: false
   extraoptions:
-    fit_EPWb: true
-    fit_EPWr: true
-    fit_IAW: false
-    load_ele_spec: true
-    load_ion_spec: false
     spectype: angular
   refit: false
   refit_thresh: 5.0

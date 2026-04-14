@@ -160,7 +160,7 @@ class FitModel:
             - The spectrum is averaged and weighted by the scattering angles.
             - If 'load_ion_spec' is disabled, returns zeros for both outputs.
         """
-        if self.config["other"]["extraoptions"]["load_ion_spec"]:
+        if self.config["data"]["load_ion_spec"]:
 
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryI, lamAxisI = self.ion_form_factor(all_params)
@@ -189,7 +189,7 @@ class FitModel:
                 lamAxisE (jnp.ndarray or list): The wavelength axis for the electron spectrum, rescaled to nanometers.
                 modlE (jnp.ndarray or int): The processed electron spectrum model. Returns 0 if spectrum loading is disabled.
         """
-        if self.config["other"]["extraoptions"]["load_ele_spec"]:
+        if self.config["data"]["load_ele_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryE, lamAxisE = self.electron_form_factor(all_params)
             elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
@@ -264,7 +264,7 @@ class FitModel:
                 modlI (jnp.ndarray or int): Processed ion spectrum model or 0 if not loaded.
                 ThryI (jnp.ndarray or int): Theoretical ion spectrum or 0 if not loaded.
         """
-        if self.config["other"]["extraoptions"]["load_ion_spec"]:
+        if self.config["data"]["load_ion_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryI, lamAxisI = self.ion_form_factor(all_params)
             elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
@@ -302,7 +302,7 @@ class FitModel:
             - Some operations are hardcoded (e.g., wavelength offsets for ion feature suppression).
             - If the spectrum is not loaded (`load_ele_spec` is False), returns zeros and an empty wavelength axis.
         """
-        if self.config["other"]["extraoptions"]["load_ele_spec"]:
+        if self.config["data"]["load_ele_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryE, lamAxisE_orig = self.electron_form_factor(all_params)
             elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:

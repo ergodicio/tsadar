@@ -4,7 +4,7 @@ Combined Spatial Resolved
 
 This example illustrates how to fit Spatially-resolved data for both EPW and IAW.
 
-.. Tip:: To fix co-timing issues, adjust the tcc locations which are defined in the :bdg-success-line:`calibration.py` file.
+.. Tip:: To fix co-timing issues, adjust the tcc locations which are defined in the ``calibration.py`` file.
    
     .. code-block:: python
         :caption: calibration.py
@@ -15,7 +15,7 @@ This example illustrates how to fit Spatially-resolved data for both EPW and IAW
             EPWtcc = 1024 - 503 
             IAWtcc = 1024 - 578  
 
-    If you need to shift the EPW are IAW position beyond that, you should use :bdg-success-line:`ion_t0_shift` and :bdg-success-line:`ele_t0`` variables, which are found in the default deck.
+    If you need to shift the EPW or IAW position beyond that, you should use ``ion_t0_shift`` and ``ele_t0`` variables, which are found in the default deck.
     
     
     .. code-block:: yaml

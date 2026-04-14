@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 def plot_measured_data(fig, all_data, all_axes, config):
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         fig.add_trace(
             go.Scatter(
                 x=all_axes["epw_y"].squeeze(),
@@ -26,7 +26,7 @@ def plot_measured_data(fig, all_data, all_axes, config):
         )
         fig.update_xaxes(title_text="Wavelength (nm)", row=1, col=1)
         fig.update_yaxes(title_text="Amp (arb. units)", row=1, col=1)
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         fig.add_trace(
             go.Scatter(
                 x=all_axes["iaw_y"].squeeze(),
@@ -53,7 +53,7 @@ def gen_and_plot_theory(ts_diag, loss_fn, batch, config, fig):
     ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
     ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, batch)
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         fig.add_trace(
             go.Scatter(
                 x=lamAxisE.squeeze(),
@@ -64,7 +64,7 @@ def gen_and_plot_theory(ts_diag, loss_fn, batch, config, fig):
             row=1,
             col=1,
         )
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         fig.add_trace(
             go.Scatter(
                 x=lamAxisI.squeeze(),

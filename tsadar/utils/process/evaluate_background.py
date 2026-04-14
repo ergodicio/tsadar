@@ -32,11 +32,11 @@ def get_shot_bg(config, shotNum, axisyE, elecData):
         [BGele, BGion, _, _, _] = loadData(
             config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
         )
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             BGion = conv2(BGion, np.ones([5, 3]) / 15, mode="same")
         else:
             BGion = 0
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             BGele = correctThroughput(
                 BGele, config["other"]["extraoptions"]["spectype"], axisyE, config["data"]["shotnum"]
             )
@@ -119,7 +119,7 @@ def get_lineout_bg(
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'Pixel'")
 
     # for electrons, if the background type is "fit" and the data type is not "angular"
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         # fit a background model to the edges of the lineout
         bgfitx = np.hstack([
                     np.arange(config["data"]["background"]["bg_alg_domain"][0],
@@ -199,7 +199,7 @@ def get_lineout_bg(
     else:
         noiseE = np.zeros(len(config["data"]["lineouts"]["val"]))
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         # Due to the low background associated with IAWs the fitted background is only performed for the EPW
         if config["data"]["background"]["type"].casefold() == "fit":
             BackgroundPixel = config["data"]["background"]["slice"]

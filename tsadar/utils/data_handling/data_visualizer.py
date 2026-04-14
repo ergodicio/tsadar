@@ -42,7 +42,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
         os.makedirs(os.path.join(td, "plots"), exist_ok=True)
         # until this can be made interactive this plots all the data regions
         # plot the raw data with solid lines indicating the beginning and ending of the analysis and dashed lines indicating the portions of the spectrum that are included in the analysis
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
 
             fig, ax = plt.subplots()
@@ -83,7 +83,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             fig.colorbar(cb)
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
 
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
             fig, ax = plt.subplots()
@@ -126,7 +126,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
 
         
         # Plot temporal comparison of electron and ion spectra if both are loaded to check timing alignment
-        if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
             fig = plt.figure()
             plt.plot(all_axes["epw_x"], np.sum(elecData[200:800,:], axis=0), label="Electron Spectrum")
             plt.plot(all_axes["iaw_x"]+config["data"]["ion_t0_shift"], np.sum(ionData[200:800,:], axis=0), label="Ion Spectrum")
@@ -143,13 +143,13 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             
             fig, ax = plt.subplots(2, 3, figsize=(12, 8), tight_layout=True)
             for idx, lineout_idx in enumerate(lineout_indices):
-                if config["other"]["extraoptions"]["load_ele_spec"]:
+                if config["data"]["load_ele_spec"]:
                     ax[0][idx].plot(all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["e_data"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Electron Lineout")
                     ax[0][idx].plot(all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["noiseE"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Electron Background")
                     ax[0][idx].set_xlabel("Wavelength (nm)")
                     ax[0][idx].set_ylabel("Counts (a.u.)")
                     ax[0][idx].legend()
-                if config["other"]["extraoptions"]["load_ion_spec"]:
+                if config["data"]["load_ion_spec"]:
                     ax[1][idx].plot(all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["i_data"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Ion Lineout")
                     ax[1][idx].plot(all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["noiseI"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Ion Background")
                     ax[1][idx].set_xlabel("Wavelength (nm)")

@@ -11,7 +11,7 @@ import tempfile, os
 def first_guess(elecData, ionData, all_axes, config):
      
     #with tempfile.TemporaryDirectory() as tdir: #temporary directory to save figures
-    if config["other"]["extraoptions"]["load_ion_spec"]: # ploting the iaw spec w/out lineouts
+    if config["data"]["load_ion_spec"]: # ploting the iaw spec w/out lineouts
         X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
         fig1, ax1 = plt.subplots()
         ax1.axis('off')
@@ -67,7 +67,7 @@ def first_guess(elecData, ionData, all_axes, config):
         iaw_max = OGy_min
         iaw_cf = (OGy_min + OGy_max)/2
 
-    if config["other"]["extraoptions"]["load_ele_spec"]: #plotting the epw spec wi/out lineouts
+    if config["data"]["load_ele_spec"]: #plotting the epw spec wi/out lineouts
         X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
         fig2, ax2 = plt.subplots()
         ax2.axis('off')
@@ -130,7 +130,7 @@ def first_guess(elecData, ionData, all_axes, config):
 """  FIRST ATTEMPT AT MAKING AND TEMP SAVING THE PLOTS
     with tempfile.TemporaryDirectory() as tdir:
         #polting figure like data_visualizer.py but without the lineouts 
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
             fig, ax1 = plt.subplots()
             ax1.axis('off')
@@ -144,7 +144,7 @@ def first_guess(elecData, ionData, all_axes, config):
             )
             fig.savefig(tdir + '/temp_iaw.png',bbox_inches='tight')
             plt.close(fig)
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
                 X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
                 fig, ax = plt.subplots()
@@ -163,7 +163,7 @@ def first_guess(elecData, ionData, all_axes, config):
         with tempfile.TemporaryDirectory() as td:
             os.makedirs(os.path.join(td, "plots"), exist_ok=True)
             # until this can be made interactive this plots all the data regions
-            if config["other"]["extraoptions"]["load_ion_spec"]:
+            if config["data"]["load_ion_spec"]:
                 X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
 
                 fig, ax = plt.subplots()
@@ -178,7 +178,7 @@ def first_guess(elecData, ionData, all_axes, config):
                 )
                 fig.savefig(os.path.join(td, "ion1.png"), bbox_inches="tight")
 
-            if config["other"]["extraoptions"]["load_ele_spec"]:
+            if config["data"]["load_ele_spec"]:
                 X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
                 fig, ax = plt.subplots()
