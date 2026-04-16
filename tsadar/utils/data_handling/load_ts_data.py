@@ -81,15 +81,21 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             iDat = iDat.astype(float)
             iDat = iDat[0, :, :] - iDat[1, :, :]
             iDat = np.flipud(iDat)
+            CCDsize = np.shape(iDat)
 
             if specType == "imaging":
                 iDat = np.rot90(np.squeeze(iDat), 1)
-            elif loadspecs["absolute_timing"]:
-                # this sets t0 by locating the fiducial and placing t0 164px earlier
-                fidu = np.sum(iDat[850:950, :], 0)
-                res = find_peaks(fidu, prominence=np.max(fidu)/2, width=10)
-                peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
-                t0[0] = round(peak_center - 164)
+            
+            try:
+                if specType == "temporal" and loadspecs["absolute_timing"]:
+                    # this sets t0 by locating the fiducial and placing t0 95px earlier
+                    fidu = np.sum(iDat[850:950, :], 0)
+                    res = find_peaks(fidu, prominence=np.max(fidu)/2, width=10)
+                    peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
+                    t0[0] = round(peak_center - 164)
+            except BaseException:
+                print("Fiducial timing encountered an error, default timing is being used")
+            
         except BaseException:
             print("Unable to find IAW")
             iDat = []
@@ -114,6 +120,8 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
                 eDat = perform_warp_correction(eDat)
             elif specType == "imaging":
                 eDat = np.rot90(np.squeeze(eDat), 3)
+
+            CCDsize = np.shape(eDat)
             try:
                 if specType == "temporal" and loadspecs["absolute_timing"]:
                     # this sets t0 by locating the fiducial and placing t0 95px earlier
@@ -133,4 +141,4 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
     if not loadspecs["load_ele_spec"] and not loadspecs["load_ion_spec"]:
         raise LookupError(f"No data found for shotnumber {sNum} in the data folder")
 
-    return eDat, iDat, xlab, t0, specType
+    return eDat, iDat, xlab, t0, specType, CCDsize

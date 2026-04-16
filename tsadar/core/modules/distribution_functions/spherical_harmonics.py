@@ -13,21 +13,31 @@ from .base import DistributionFunction2V, smooth1d
 
 class FLM_NN(eqx.Module):
     """
-    A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`.
-    This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
+    A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`. This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
+
     Attributes:
+        
         flm_mag (eqx.nn.MLP): MLP that predicts the (logarithmic) magnitude of the FLM coefficients.
         flm_sign (eqx.nn.MLP): MLP that predicts the sign of the FLM coefficients.
         vr (Array): Radial velocity array over which the FLM coefficients are evaluated.
+    
     Args:
+        
         vr (Array): The radial velocity array.
+    
     Methods:
+        
         __call__(**kwargs):
+            
             Computes the FLM coefficients for the given input.
             Args:
+                
                 f00 (float or Array): The normalization factor for the magnitude.
+            
             Returns:
+                
                 flm (Array): The computed FLM coefficients as a function of `vr`.
+    
     """
     flm_mag: eqx.nn.MLP
     flm_sign: eqx.nn.MLP
@@ -51,38 +61,18 @@ class FLM_NN(eqx.Module):
 
 class FLM_MY(eqx.Module):
     """
-    A module for computing the first-order Legendre moment (FLM) of a distribution function
-    using the model from Mora & Yahi (1982) for thermal heat-flux reduction in laser-produced plasmas.
-    Parameters
-    ----------
-    vr : Array
-        Array of velocity values (normalized to thermal velocity).
-    LT : float
-        Gradient scale length (in units of mean free path).
-    Attributes
-    ----------
-    vr : Array
-        Array of velocity values.
-    log_10_LT : float
-        Base-10 logarithm of the gradient scale length.
-    Methods
-    -------
-    __call__(**kwargs)
-        Computes the FLM coefficient for the given distribution parameters.
-        Parameters
-        ----------
-        m_f0 : float
-            Super-gaussian order controlling the shape of the distribution function.
-        f00 : float or Array
-            Zeroth-order distribution function value(s).
-        Returns
-        -------
-        coeff : float or Array
-            The computed FLM coefficient, normalized by the gradient scale length and f00.
-    References
-    ----------
-    Mora, P. & Yahi, H. (1982). Thermal heat-flux reduction in laser-produced plasmas.
-    Phys. Rev. A 26, 2259–2261.
+    Compute the first-order Legendre moment (FLM) of a distribution function.
+
+    This module uses the Mora & Yahi (1982) model for thermal heat-flux reduction
+    in laser-produced plasmas.
+
+    Attributes:
+        vr (Array): Array of velocity values (normalized to thermal velocity).
+        dt (float): Time step or scaling factor applied to the FLM coefficient.
+
+    References:
+        Mora, P. & Yahi, H. (1982). Thermal heat-flux reduction in laser-produced plasmas.
+        Phys. Rev. A 26, 2259–2261.
     """
     vr: Array
     #log_10_LT: float

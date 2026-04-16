@@ -1,0 +1,23 @@
+﻿tsadar
+======
+
+.. automodule:: tsadar
+
+   
+   
+   
+
+   
+   
+   
+
+   
+   
+   
+
+   
+   
+   
+
+
+

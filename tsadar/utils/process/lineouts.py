@@ -96,6 +96,8 @@ def get_lineouts(
         BackgroundPixel = LineoutPixelE + 100
     elif config["data"]["background"]["type"].casefold() == "shot":
         BackgroundPixel = 900
+    elif config["data"]["background"]["type"].casefold() == "fit":
+        BackgroundPixel = config["data"]["background"]["slice"]
     else:
         BackgroundPixel = []
 

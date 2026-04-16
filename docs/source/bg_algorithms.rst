@@ -1,3 +1,5 @@
+.. _bg_algs:
+
 Background Algorithms
 ===============================
 
@@ -10,6 +12,9 @@ spectral fit range options.
 
 Three algorithms are included in TSADAR and accesible through the ``data:background:type`` field. These are ``shot``, ``pixel``, and ``fit``.
 
+.. toctree::
+   :maxdepth: 4
+
 
 Shot background
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -19,19 +24,15 @@ In this case the background shot number should be supplied to the ``data:backgro
 A small smoothing kernel is applied to the background data and corresponding lineouts are taken in order to provide backgounds for
 each lineout.
 
-
 Pixel background
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This is the workhorse algorithm for time resolved data which tends to have lower background levels. This algorithm can be called 
-by supplying ``pixel``, ``ps``, ``um``, or ``auto`` to the ``data:background:type`` field. The first 3 options just specify the units for
-the ``data:background:slice`` field similar to how lineouts are defined. The ``auto`` option is only recomended for single lineouts,
-it selects a line 100 units after the lineout to analyze the background.
+by supplying ``pixel`` to the ``data:background:type`` field and the pixel location where the background is to be analyzed should be supplied to to the ``data:background:slice`` field.
 
 The pixel algorithm takes a group of lineouts centered at the specified location with a width 2* ``data:dpixel`` +1 and averages them. 
-This background lineout is then smoothed. At this point the algorithm divereges for the EPW and IAW. For IAW the spectral range is very
-small and very little spectral dependence is usualy seen in the background, so the background is averaged again to produce a scale background
-value. For the EPW there is far more spectral dependence so the smothed background is fit with a double exponential function to further smooth it.
+This background lineout is then smoothed. The smoothing is done with a moving average whose window size is set with the ``data:background:bg_smoothing_window``. At this point the algorithm divereges for the EPW and IAW. For IAW the spectral range is very
+small and very little spectral dependence is usualy seen in the background, so the background is averaged again to produce a scalar background value. For the EPW there is far more spectral dependence so the smothed background used as is.
 Finaly this idealized background is scaled in magnitude to match the data at that lineout using the endges of the data.
 
 

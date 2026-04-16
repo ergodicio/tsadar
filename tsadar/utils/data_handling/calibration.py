@@ -284,8 +284,8 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             # These are valid for the 8-26-21 shot day, not sure how far back they are valid
             EPWDisp = 0.4104
             IAWDisp = 0.00678
-            EPWoff = 319.3
-            IAWoff = 523.1  # 522.90
+            EPWoff = 322.3
+            IAWoff = 522.9  # 522.90
             stddev["spect_stddev_ion"] = 0.02262  # spectral IAW IRF for 8 / 26 / 21(grating was masked)
             stddev["spect_stddev_ele"] = 1.4294  # spectral EPW IRF for 200um pinhole used on 8 / 26 / 21
 
@@ -418,7 +418,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             EPWDisp = 0.27093
             IAWDisp = 0.00438
             EPWoff = 396.256  # needs to be checked
-            IAWoff = 524.275
+            IAWoff = 524.175
 
             stddev["spect_stddev_ion"] = 0.028  # needs to be checked
             stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
@@ -427,7 +427,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magE = 5.10  # um / px
 
             EPWtcc = 1024 - 456.1  # 562;
-            IAWtcc = 1024 - 519  # 469;
+            IAWtcc = 1024 - 550  # 469;
 
         elif 106303 <= shotNum <= 106321:
             # refractive teloscope used on 11/8/22

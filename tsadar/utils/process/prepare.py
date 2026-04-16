@@ -36,8 +36,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         if config["data"]["filenames"]["iaw"] is not None:
             custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
 
-    [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"]] = loadData(
-        shotNum, config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
+    [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"],config["other"]["CCDsize"]] = loadData(
+        shotNum, config["data"]["shotDay"], config["data"], custom_path=custom_path
     )
 
     # get scattering angles and weights

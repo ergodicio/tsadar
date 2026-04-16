@@ -32,7 +32,8 @@ If fields require inputs other than the standard 4 attributes, the additional at
 
 
 Electron Parameters
-~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
+
 These parameters are found in the ``parameters:electron`` section of the input deck and describe various properties of the electrons.
 
 - ``Te`` is the electron temperature in keV
@@ -56,6 +57,7 @@ These parameters are found in the ``parameters:electron`` section of the input d
 
 Ion Parameters
 ~~~~~~~~~~~~~
+
 These parameters are found in the ``parameters:ion-1`` section of the input deck and describe various properties of the ions. If multiple ion species are being fit additional sections such as ``parameters:ion-2`` which have the same parameters as ``parameters:ion-1`` can be appended.
 
 - ``Ti`` is the ion temperature in keV
@@ -75,6 +77,7 @@ These parameters are found in the ``parameters:ion-1`` section of the input deck
 
 General parameters
 ~~~~~~~~~~~~~~~~~~
+
 These parameters are found in the ``parameters:general`` section of the input deck and describe various properties of the plasma that are not specific to a single species.
 
 - ``amp1`` is the blue-shifted EPW amplitude multiplier with 1 being the maximum of the data
@@ -106,7 +109,6 @@ A copy of the inputs decks will also be saved by MLFlow for easier reference. Th
 - ``run`` is the name of the analysis or forward model run. Run names do not need to be unique as they are also associated with a UUID. It is recommended that this is changed before each run.
 
 
-.. _Data inputs:
 Data
 ^^^^^
 The ``data:`` section contains the specifics on which shot and what region of the shot should be analyzed.

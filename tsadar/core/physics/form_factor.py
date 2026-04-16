@@ -331,16 +331,17 @@ class FormFactor:
 
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
-        Rotate a 2D array by a specified angle in radians.
-        This method rotates the input 2D array `df` using a rotation matrix constructed from the given angle.
-        The rotation is performed around the origin, and the rotated coordinates are interpolated back onto
-        the original grid using cubic interpolation.
+        Rotate a 2D array by a specified angle in radians. This method rotates the input 2D array `df` using a rotation matrix constructed from the given angle. The rotation is performed around the origin, and the rotated coordinates are interpolated back onto the original grid using cubic interpolation.
+
             vx (jnp.ndarray): 1D array representing the grid points along each axis.
             df (jnp.ndarray): 2D array to be rotated.
             angle (float): Rotation angle in radians (counterclockwise).
             reshape (bool, optional): Whether to reshape the output array. Defaults to False.
+        
         Returns:
+            
             jnp.ndarray: The rotated and interpolated 2D array.
+        
         """
 
         rad_angle = jnp.deg2rad(-angle)
@@ -360,15 +361,20 @@ class FormFactor:
         Calculate the values of the susceptibility at a given point in the distribution function
 
         Args:
+            
             carry: container for
+                
                 x: 1D array
                 DF: 2D array
+            
             xs: container for
+                
                 element: angle in radians
                 xie_mag_at: float
                 klde_mag_at: float
 
         Returns:
+            
             fe_vphi: float, value of the projected distribution function at the point xie
             chiEI: float, value of the imaginary part of the electron susceptibility at the point xie
             chiERrat: float, value of the real part of the electron susceptibility at the point xie
@@ -383,15 +389,19 @@ class FormFactor:
         Calculate the values of the susceptibility at a given point in the distribution function
 
         Args:
+            
             carry: container for
+                
                 x: 1D array
                 DF: 2D array
                 inputs: container for
+                    
                     element: angle in radians
                     xie_mag_at: float
                     klde_mag_at: float
 
         Returns:
+            
             fe_vphi: float, value of the projected distribution function at the point xie
             chiEI: float, value of the imaginary part of the electron susceptibility at the point xie
             chiERrat: float, value of the real part of the electron susceptibility at the point xie
@@ -424,6 +434,7 @@ class FormFactor:
         Calculate the susceptibility values for all the desired points xie
 
         Args:
+            
             x: normalized velocity grid
             beta: angle of the k-vector form the x-axis
             DF: 2D array, distribution function
@@ -431,6 +442,7 @@ class FormFactor:
             klde_mag: magnitude of the wavevector time debye length where the calculations need to be performed
 
         Returns:
+            
             fe_vphi: projected distribution function
             chiEI: imaginary part of the electron susceptibility
             chiERrat: real part of the electron susceptibility

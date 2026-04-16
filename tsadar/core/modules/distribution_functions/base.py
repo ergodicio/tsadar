@@ -20,15 +20,19 @@ def smooth1d(array, window_size):
     Smooths a 1D array using a Hanning window.
 
     Parameters:
+        
         array (jnp.ndarray): Input 1D array to be smoothed.
         window_size (int): Size of the Hanning window to use for smoothing.
 
     Returns:
+        
         jnp.ndarray: Smoothed array of the same shape as the input.
 
     Notes:
+        
         - The function uses a Hanning window for smoothing and applies convolution with 'same' mode.
         - Requires JAX's numpy module (jnp).
+    
     """
     # Use a Hanning window
     window = jnp.hanning(window_size)
@@ -45,22 +49,27 @@ def second_order_butterworth(
     signal: Array, f_sampling: int = 100, f_cutoff: int = 15, method: str = "forward_backward"
 ) -> Array:
     """
-    Applies a second-order Butterworth filter to a signal using JAX.
-    This function implements a digital Butterworth filter, similar to using
-    `scipy.signal.butter` and `scipy.signal.filtfilt`, but is compatible with JAX arrays.
-    It supports forward, backward, and forward-backward (zero-phase) filtering.
+    Applies a second-order Butterworth filter to a signal using JAX. This function implements a digital Butterworth filter, similar to using `scipy.signal.butter` and `scipy.signal.filtfilt`, but is compatible with JAX arrays. It supports forward, backward, and forward-backward (zero-phase) filtering.
+
     Args:
+        
         signal (Array): The input signal to be filtered.
         f_sampling (int, optional): The sampling frequency of the signal. Default is 100.
         f_cutoff (int, optional): The cutoff frequency of the filter. Default is 15.
         method (str, optional): The filtering method to use. Can be "forward", "backward",
             or "forward_backward" (default). "forward_backward" applies zero-phase filtering
             by filtering forward and then backward.
+    
     Returns:
+        
         Array: The filtered signal.
+    
     Raises:
+        
         NotImplementedError: If an unsupported method is specified.
+    
     References:
+        
         Adapted from https://github.com/jax-ml/jax/issues/17540
 
     """
@@ -104,17 +113,22 @@ def smooth2d(array, window_size):
     Smooths a 2D array using a Hanning window of the specified size.
 
     Parameters:
+        
         array (jnp.ndarray): The 2D input array to be smoothed.
         window_size (int): The size of the Hanning window to use for smoothing.
 
     Returns:
+        
         jnp.ndarray: The smoothed 2D array, with the same shape as the input.
 
     Notes:
+        
         - This function applies a 2D Hanning window to the input array and performs convolution.
         - The convolution is performed with 'same' mode, so the output has the same shape as the input.
         - Requires the input array and window size to be compatible with JAX (jnp).
+    
     """
+    
     # Use a Hanning window
     window = jnp.outer(jnp.hanning(window_size), jnp.hanning(window_size))
     window /= window.sum()  # Normalize
@@ -123,16 +137,22 @@ def smooth2d(array, window_size):
 
 class DistributionFunction1V(eqx.Module):
     """
-    Base class for 1D velocity distribution functions.
-    This class represents a distribution function defined over a 1D velocity grid.
-    It initializes the velocity grid `vx` based on the configuration provided.
+    Base class for 1D velocity distribution functions. This class represents a distribution function defined over a 1D velocity grid. It initializes the velocity grid `vx` based on the configuration provided.
+
     Attributes:
+    
         vx (Array): 1D array of velocity grid points.
+    
     Args:
+    
         dist_cfg (Dict): Configuration dictionary containing:
+    
             - "nvx" (int): Number of velocity grid points.
+    
     Raises:
+    
         NotImplementedError: If the instance is called directly, as this is an abstract base class.
+    
     """
     vx: Array
 
@@ -161,12 +181,12 @@ class Arbitrary1V(DistributionFunction1V):
     """
     Represents a 1D arbitrary velocity distribution function.
     This class allows for the initialization, smoothing, and evaluation of a custom 1D distribution
-    function. The distribution is initialized using a Super-gaussian distribtuion parameterized by a parameter `m`.
-    The distribution function is defined in a 1D velocity space and can be smoothed using a second-order
-    Butterworth filter.
+    function. The distribution is initialized using a Super-gaussian distribtuion parameterized by a parameter `m`. The distribution function is defined in a 1D velocity space and can be smoothed using a second-order Butterworth filter.
+    
     Attributes:
         fval (Array): The internal representation of the distribution function values.
         smooth (Callable): A smoothing function (Butterworth filter) applied to the distribution.
+    
     Methods:
         __init__(dist_cfg):
             Initializes the distribution function with configuration parameters, sets up the initial
@@ -179,6 +199,7 @@ class Arbitrary1V(DistributionFunction1V):
         __call__():
             Applies smoothing and normalization to the distribution function and returns the
             normalized distribution array.
+
     """
     fval: Array
     smooth: Callable
@@ -330,17 +351,25 @@ class DistributionFunction2V(eqx.Module):
     Parameters
     ----------
     dist_cfg : dict
+        
         Configuration dictionary containing:
+            
             - "nvx": int
+                
                 Number of velocity grid points along the x-axis.
+    
     Attributes
     ----------
     vx : Array
+        
         1D array of velocity grid points along the x-axis.
+    
     Methods
     -------
     __call__(*args, **kwds)
+        
         Calls the parent class's __call__ method.
+    
     """
     vx: Array
 
@@ -368,28 +397,41 @@ class DistributionFunction2V(eqx.Module):
 class Arbitrary2V(DistributionFunction2V):
     """
     Arbitrary2V is a two-velocity distribution function class that allows for arbitrary initialization and parameterization.
+    
     Attributes:
+        
         fval (Array): The current value of the distribution function parameters.
         learn_log (bool): If True, the logarithm (base 10) of the distribution is learned instead of the distribution itself.
+    
     Methods:
+        
         __init__(dist_cfg):
+            
             Initializes the Arbitrary2V distribution with configuration parameters.
             Args:
                 dist_cfg (dict): Configuration dictionary containing initialization parameters.
+        
         init_dlm(m):
+            
             Initializes the distribution function using a generalized Super-gaussian form.
             Args:
                 m (float): Super-gaussian order for the distribution.
             Returns:
                 Array: The initialized distribution function values.
+        
         get_unnormed_params():
+            
             Returns the current (unnormalized) distribution parameters.
             Returns:
+                
                 dict: Dictionary with the current distribution function.
+        
         __call__():
+            
             Computes the normalized distribution function based on current parameters.
             Returns:
                 Array: The normalized distribution function.
+    
     """
     fval: Array
     learn_log: bool
@@ -413,17 +455,22 @@ class Arbitrary2V(DistributionFunction2V):
         Parameters
         ----------
         m : float
+            
             The super-gaussian order parameter for the DLM, controlling the shape of the distribution.
+       
         Returns
         -------
         jax.numpy.ndarray
+            
             The square root of the (optionally log-transformed) normalized DLM distribution function
             evaluated on the velocity grid defined by `self.vx`.
+        
         Notes
         -----
         - The function computes the DLM distribution on a 2D velocity grid using the parameter `m`.
         - The distribution is normalized such that its sum over the grid equals one.
         - If `self.learn_log` is True, the function returns the negative base-10 logarithm of the distribution before taking the square root.
+        
         """
 
         # vth_x = jnp.sqrt(2.0)
@@ -452,7 +499,9 @@ class Arbitrary2V(DistributionFunction2V):
         Parameters
         ----------
         m : float
+            
             The super-gaussian order parameter for the DLM, controlling the shape of the distribution.
+        
         Returns
         -------
         jax.numpy.ndarray
