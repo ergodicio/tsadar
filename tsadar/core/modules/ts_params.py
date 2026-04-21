@@ -408,7 +408,6 @@ class GeneralParams(eqx.Module):
     normed_ne_gradient: Array
     normed_Te_gradient: Array
     normed_ud: Array
-    #normed_Va: Array   
     lam_scale: float
     lam_shift: float
     amp1_scale: float
@@ -422,9 +421,7 @@ class GeneralParams(eqx.Module):
     Te_gradient_scale: float
     Te_gradient_shift: float
     ud_scale: float
-    ud_shift: float
-    #Va_scale: float    
-    #Va_shift: float    
+    ud_shift: float   
     act_funs: Dict[str, Callable]
 
     def __init__(self, cfg, batch_size: int, batch=True, activate=False):
@@ -489,7 +486,6 @@ class GeneralParams(eqx.Module):
             self.act_funs["Te_gradient"](self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
         )
         unnormed_ud = self.act_funs["ud"](self.normed_ud) * self.ud_scale + self.ud_shift
-       # unnormed_Va = self.act_funs["Va"](self.normed_Va) * self.Va_scale + self.Va_shift   
 
         return {
             "lam": unnormed_lam,
@@ -498,8 +494,7 @@ class GeneralParams(eqx.Module):
             "amp3": unnormed_amp3,
             "ne_gradient": unnormed_ne_gradient,
             "Te_gradient": unnormed_Te_gradient,
-            "ud": unnormed_ud,
-            #"Va": unnormed_Va,  
+            "ud": unnormed_ud,  
         }
 
 
