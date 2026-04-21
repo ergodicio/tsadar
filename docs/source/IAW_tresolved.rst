@@ -9,11 +9,6 @@ To run this example, download the data and the decks and the run the code in ``f
     :scale: 85%
 
 
-::download:`IAW data <examples/IAW_tresolved_data.hdf>` 
-::download:`input decks <examples/IAW_tresolved_input_decks.zip>` 
-::download:`default deck <examples/time_resolved/EPW_tresolved_defaults.yaml>` 
-::download:`output plots <examples/IAW_tresolved_outputs.zip>`
-
 ::download:`IAW data <examples/time_resolved/IAW-s116773.hdf>` 
 ::download:`input deck <examples/time_resolved/IAW_tresolved_inputs.yaml>` 
 ::download:`default deck <examples/time_resolved/IAW_tresolved_defaults.yaml>` 

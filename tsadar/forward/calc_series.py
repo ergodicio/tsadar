@@ -53,7 +53,7 @@ def forward_pass(config):
 
     sas = get_scattering_angles(config)
     if not is_angular:
-        sas['sa']=np.array([154.2])  # hardcoded for now
+        sas['sa']=np.array([60.0])  # hardcoded for now
         sas['weights'] = np.array([1.0])
     dummy_batch = {
         "i_data": np.array([1]),

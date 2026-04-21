@@ -1,3 +1,5 @@
+from cmath import rect
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
@@ -146,12 +148,20 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
                 if config["data"]["load_ele_spec"]:
                     ax[0][idx].plot(all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["e_data"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Electron Lineout")
                     ax[0][idx].plot(all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["noiseE"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Electron Background")
+                    
+                    ax[0][idx].axvspan(all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][0]],all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][1]], alpha=0.3, color='yellow')
+                    ax[0][idx].axvspan(all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][2]],all_axes["epw_y"][config["data"]["background"]["bg_alg_domain"][3]], alpha=0.3, color='yellow')
+
                     ax[0][idx].set_xlabel("Wavelength (nm)")
                     ax[0][idx].set_ylabel("Counts (a.u.)")
                     ax[0][idx].legend()
                 if config["data"]["load_ion_spec"]:
                     ax[1][idx].plot(all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["i_data"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Ion Lineout")
                     ax[1][idx].plot(all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], all_data["noiseI"][lineout_idx][config["data"]["background"]["bg_alg_domain"][0]:config["data"]["background"]["bg_alg_domain"][-1]], label="Ion Background")
+
+                    ax[1][idx].axvspan(all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][0]],all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][1]], alpha=0.3, color='yellow')
+                    ax[1][idx].axvspan(all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][2]],all_axes["iaw_y"][config["data"]["background"]["bg_alg_domain"][3]], alpha=0.3, color='yellow')
+
                     ax[1][idx].set_xlabel("Wavelength (nm)")
                     ax[1][idx].set_ylabel("Counts (a.u.)")
                     ax[1][idx].legend()

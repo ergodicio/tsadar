@@ -25,42 +25,40 @@ For a detailed tutorial, see the :ref:`getting started page <getting started>`.
       :link-type: doc
       :link: IAW_tresolved
 
-      .. image:: _elfolder/fit_and_data_iaw.png
+      .. image:: _elfolder/fit_and_data_ion.png
 
   .. grid-item-card:: Spatialy Resolved EPW
       :text-align: center
       :link-type: doc
       :link: imaging_EPW
       
-      .. image:: examples/imaging_epw.png
+      .. image:: _elfolder/imaging_epw.png
 
   .. grid-item-card:: Spatialy Resolved IAW
       :link-type: doc
       :link: imaging_IAW
 
-      .. image:: examples/imaging_iaw.png
+      .. image:: _elfolder/imaging_iaw.png
 
   .. grid-item-card:: Combined Spatialy Resolved
       :link-type: doc
       :link: combined_sresolved
 
-      .. image:: examples/combined_s_profile.PNG
 
   .. grid-item-card:: Combined Time Resolved
       :link-type: doc
       :link: combined_tresolved
 
-      .. image:: examples/combined_t_profile.PNG
 
   .. grid-item-card:: Forward Pass
       :link-type: doc
       :link: fpass_example
 
-      .. image:: examples/forward_pass_plot.png
+      .. image:: _elfolder/simulated_data.png
 
   .. grid-item-card:: Forward Pass Series
       :link-type: doc
       :link: fpass_series
 
-      .. image:: examples/forwardp_comingsoon.jpg
+      .. image:: _elfolder/simulated_data_series.png
 

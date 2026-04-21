@@ -52,8 +52,8 @@ data:
   shotDay: false
   shotnum: 101675
 mlflow:
-  experiment: tsadar-test
-  run: arts2d
+  experiment: experiment-1
+  run: run-1
 optimizer:
   batch_size: 6
   grad_method: AD

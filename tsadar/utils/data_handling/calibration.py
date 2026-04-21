@@ -414,7 +414,22 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
     # IAWtime = 0  # temporal offset between EPW ross and IAW ross (varies shot to shot, can potentially add a fix based off the fiducials)
 
     else:
-        if shotNum < 104000:
+        if shotNum < 98000:
+            EPWDisp = 0.277
+            IAWDisp = 0.00438
+            EPWoff = 393.256  # needs to be checked
+            IAWoff = 524.175
+
+            stddev["spect_stddev_ion"] = 0.0142  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.23  # needs to be checked
+
+            magI = 2.87  # um / px
+            magE = 5.10  # um / px
+
+            EPWtcc = 1024 - 456.1  # 562;
+            IAWtcc = 1024 - 550  # 469;
+    
+        elif shotNum < 104000:
             EPWDisp = 0.27093
             IAWDisp = 0.00438
             EPWoff = 396.256  # needs to be checked

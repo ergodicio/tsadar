@@ -1,68 +1,57 @@
 data:
   fit_EPWb: true
   fit_EPWr: true
-  fit_IAW: true
+  fit_IAW: false
   load_ele_spec: true
-  load_ion_spec: true
+  load_ion_spec: false
   background:
     slice: 900
     type: pixel
   lineouts:
-    end: -300
-    skip: 20
-    start: -800
+    end: 2400
+    skip: 50
+    start: 500
     type: ps
-  shot_rot: 90.0
-  shotnum: 115124
+  shotnum: 116773
+
 machine: gpu
+
 mlflow:
-  experiment: flux_cbet
-  run: s115124_wgain_bothepw_85en_covar_test_2
+  experiment: inverse-thomson-scattering
+  run: EPW example s116773
+
 other:
-  Ipump_14: 4.76
-  beam_diam_um: 174
+  Ipump_14: 0
+  beam_diam_um: 100
   calc_sigmas: false
-  extraoptions:
-    spectype: temporal
-  include_gains: true
+  include_gains: false
   refit: false
   refit_thresh: 5.0
+
 parameters:
   electron:
     Te:
       active: true
       lb: 0.01
       ub: 2.0
-      val: 0.9
+      val: 0.8
     fe:
-      active: false
+      active: true
       dim: 1
-      nvx: 32
+      nvx: 320
       params:
-        Nl: 1
-        dtx: 0.0005
-        dty: 0.0005
-        flm_type: arbitrary
-        init_m: 3.0
-        learn_log: true
         m:
           intens: 5.0
-          lb: 1.8
-          matte: true
+          lb: 1.9
+          matte: false
           ub: 5.0
-          val: 2.45
-        nvr: 32
-        smooth: true
-        window:
-          len: 45
-          sampling: 30
-          type: hanning
+          val: 2.5
       type: dlm
     ne:
       active: true
       lb: 0.03
-      ub: 4.0
-      val: 2.08
+      ub: 2.0
+      val: 0.5
   general:
     Te_gradient:
       active: false
@@ -71,10 +60,10 @@ parameters:
       ub: 10.0
       val: 0.0
     Va:
-      active: true
+      active: false
       angle: 0.0
-      lb: -40.5
-      ub: 40.5
+      lb: -20.5
+      ub: 20.5
       val: 0.0
     amp1:
       active: true
@@ -87,15 +76,15 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     lam:
-      active: false
-      lb: 345.0
-      ub: 357.0
-      val: 351.0
+      active: true
+      lb: 525.0
+      ub: 528.0
+      val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
@@ -103,44 +92,27 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
-      lb: -200.0
-      ub: 200.0
+      lb: -20.0
+      ub: 20.0
       val: 0.0
+  
   ion-1:
     A:
       active: false
-      val: 1.0
+      val: 83.8
     Ti:
-      active: true
+      active: false
       lb: 0.01
       same: false
       ub: 2.0
-      val: 0.25
+      val: 0.3
     Z:
       active: false
-      lb: 0.5
+      lb: 6.0
       ub: 36.0
+      val: 24.0
+    fract:
+      active: false
       val: 1.0
-    fract:
-      active: false
-      val: 0.55
-  ion-2:
-    A:
-      active: false
-      val: 14.0
-    Ti:
-      active: false
-      lb: 0.01
-      same: true
-      ub: 2.0
-      val: 0.13
-    Z:
-      active: true
-      lb: 0.5
-      ub: 7.0
-      val: 6.9
-    fract:
-      active: false
-      val: 0.45

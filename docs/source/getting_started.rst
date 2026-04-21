@@ -64,6 +64,9 @@ contains the commonly altered parameters. The secondary input deck `defaults.yam
    Any parameters in `inputs.yaml` will override the parameters supplied by `defaults.yaml`
 More information on the specifics of each deck can be found by clicking the cards bellow. 
 
+.. note::
+   The input deck names are fixed and the code will always execute the decks named `inputs.yaml` and `defaults.yaml` in the specified directory. So creating additional decks with differnet names will not work, these named decks must be altered.
+
 .. grid:: 2
 
     .. grid-item-card::  Inputs.yaml
@@ -324,7 +327,7 @@ Fit ranges plots will show the entire loaded dataset with the region excluded fr
     :width: 45%
     :alt: Ion Fit Ranges
 
-The lineouts with background plot shows the first last and middle lineout with the background plotted on top. This plot can be used to evaluate if the background is being appropriately modeled. The example below is from the **pixel** background algorithm, so the background is a smoothed lineout rescaled to the current lineout. The spectral range of this plot reflects the range used in the background algorithm, so these plots can be quickly used to evaluate if there are non-background features visible to the algorithm such as fiducial which will throw off the background model.
+The lineouts with background plot shows the first last and middle lineout with the background plotted on top. This plot can be used to evaluate if the background is being appropriately modeled. The example below is from the **fit** background algorithm, so the background has beed fit to the edges of the current lineout. A yellow shaded region is also plotted showing the range used by the background algorithm. The spectral range of this plot also reflects the range used in the background algorithm, so these plots can be quickly used to evaluate if there are non-background features visible to the algorithm such as fiducial which will throw off the background model.
 
 .. image:: _elfolder/lineouts_with_background.png
     :width: 90%
@@ -347,7 +350,7 @@ Fit and data plots show a side by side of the fit and data, which can be used to
     :scale: 35%
     :alt: Fit and data EPW
 
-.. image:: _elfolder/fit_and_data_iaw.png
+.. image:: _elfolder/fit_and_data_ion.png
     :scale: 35%
     :alt: Fit and data IAW
 

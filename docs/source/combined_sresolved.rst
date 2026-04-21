@@ -4,7 +4,7 @@ Combined Spatial Resolved
 
 This example illustrates how to fit Spatially-resolved data for both EPW and IAW.
 
-.. Tip:: To fix co-timing issues, adjust the tcc locations which are defined in the ``calibration.py`` file.
+.. Tip:: To fix co-location issues, adjust the tcc locations which are defined in the ``calibration.py`` file.
    
     .. code-block:: python
         :caption: calibration.py
@@ -15,27 +15,17 @@ This example illustrates how to fit Spatially-resolved data for both EPW and IAW
             EPWtcc = 1024 - 503 
             IAWtcc = 1024 - 578  
 
-    If you need to shift the EPW or IAW position beyond that, you should use ``ion_t0_shift`` and ``ele_t0`` variables, which are found in the default deck.
-    
-    
-    .. code-block:: yaml
-        :caption: Inputs.yaml
-        :emphasize-lines: 3,5
-
-        data:
-            ...
-            ele_t0:
-            ...
-            ion_t0_shift: 
 
 Load the provided data, update the input decks to mimc those used here, and use **fit** mode to run the code. 
 
-.. image:: examples/combined_s_ele.png
+.. image:: _elfolder/imaging_epw.png
     :scale: 35%
 
-.. image:: examples/combined_s_ion.png
+.. image:: _elfolder/imaging_iaw.png
     :scale: 35%
 
-::download:`data <examples/combined_s_data.zip>` 
-::download:`input decks <examples/combined_s_inputs.zip>` 
-::download:`output plots <examples/combined_s_outputs.zip>`
+::download:`EPW imaging data <examples/space_resolved/EPW_CCD-s97357.hdf>` 
+::download:`IAW imaging data <examples/space_resolved/IAW_CCD-s97357.hdf>` 
+::download:`input deck <examples/space_resolved/Combined_spatial_inputs.yaml>` 
+::download:`default deck <examples/space_resolved/Combined_spatial_defaults.yaml>` 
+::download:`output plots <examples/space_resolved/Spatial_combined.zip>`

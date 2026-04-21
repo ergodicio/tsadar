@@ -10,8 +10,8 @@ data:
     bg_alg_domain:
     - 100
     - 200
-    - 750
-    - 900
+    - 820
+    - 920
     bg_alg_params:
     - -16
     - 200000
@@ -36,8 +36,8 @@ data:
     forward_iaw_start: 524
     iaw_cf_max: 526.6
     iaw_cf_min: 526.4
-    iaw_max: 527.5
-    iaw_min: 525.5
+    iaw_max: 527.0
+    iaw_min: 526.0
     red_max: 625
     red_min: 545
   ion_loss_scale: 1.0
@@ -52,8 +52,8 @@ data:
   shotDay: false
   shotnum: 101675
 mlflow:
-  experiment: tsadar-test
-  run: arts2d
+  experiment: experiment-1
+  run: run-1
 optimizer:
   batch_size: 6
   grad_method: AD
@@ -65,7 +65,7 @@ optimizer:
   loss_method: l2
   method: adam
   moment_loss: false
-  num_epochs: 150
+  num_epochs: 200
   num_mins: 1
   param_learning_rate: 0.01
   param_method: adam
