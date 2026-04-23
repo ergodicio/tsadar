@@ -255,14 +255,18 @@ class FormFactor:
 
         # electron susceptibility
         # calculating normilized phase velcoity(xi's) for electrons
-        udr = ud - Va  # drift velocity w.r.t different ions 
-        xie = omgdop / (k * vTe) - udr / vTe
+        udr = ud - Va[:,:,:,0]
+        udr = udr[..., jnp.newaxis]  
+        
+        omgdop = omgdop[..., 0] 
+        omgdop = omgdop[..., jnp.newaxis]  
+        xie = omgdop/ (k * vTe) - udr / vTe  
 
         #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
         fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
 
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
-        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]),num_species)), 1)
+        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]),1)), 1) 
 
         chiEI = -jnp.pi / (klde**2) * 1j * df
         
@@ -277,11 +281,14 @@ class FormFactor:
         chiERrat = -1.0 / (klde**2) * chiERrat
 
         chiE = chiERrat + chiEI
+        chiI = jnp.sum(chiI, 3) # Sum over ion species to get total ion susceptibility
+        chiI = chiI[..., jnp.newaxis]  
         epsilon = 1.0 + chiE + chiI
 
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
         #ion_comp_fact = jnp.transpose(fract * Zbar / vTi, [1, 0, 2, 3])
+
         ion_comp = ion_comp_fact * (
             (jnp.abs(chiE)) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
         )
@@ -291,12 +298,14 @@ class FormFactor:
 
         SKW_ion_omg = 1.0 / k * ion_comp / ((jnp.abs(epsilon)) ** 2)
 
-        #SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)  # commented 
+        SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)  
+        SKW_ion_omg = SKW_ion_omg[..., jnp.newaxis] 
         SKW_ele_omg = 1.0 / k * (ele_comp) / ((jnp.abs(epsilon)) ** 2)
         # SKW_ele_omgE = 2 * jnp.pi * 1.0 / klde * (ele_compE) / ((jnp.abs(1 + (chiE))) ** 2) * vTe / omgpe # commented because unused
 
+        
         PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne[:, None, None]
-        PsOmg = jnp.sum(PsOmg,3)
+        PsOmg = jnp.squeeze(PsOmg,axis=-1) 
         # PsOmgE = (SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * jnp.transpose(ne) # commented because unused
         lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2

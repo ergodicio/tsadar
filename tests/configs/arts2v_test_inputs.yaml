@@ -38,12 +38,6 @@ parameters:
       num_grad_points: 1
       ub: 10.0
       val: 0.0
-    Va:
-      active: false
-      angle: 0.0
-      lb: -40.5
-      ub: 40.5
-      val: 0.0
     amp1:
       active: false
       lb: 0.01
@@ -112,6 +106,12 @@ parameters:
       same: false
       ub: 1.0
       val: 0.03
+    Va:
+      active: false
+      angle: 0.0
+      lb: -40.5
+      ub: 40.5
+      val: 0.0
     Z:
       active: false
       lb: 0.5
