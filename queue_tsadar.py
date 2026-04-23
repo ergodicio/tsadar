@@ -7,6 +7,7 @@ if "BASE_TEMPDIR" in os.environ:
 else:
     BASE_TEMPDIR = None
 
+
 def _queue_run_(machine, mode, run_id):
     if "cpu" in machine:
         base_job_file = os.environ["CPU_BASE_JOB_FILE"]

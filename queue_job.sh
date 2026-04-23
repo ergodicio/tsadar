@@ -18,5 +18,5 @@ module load cudatoolkit/12.0.lua
 module load conda
 conda activate ts
 
-cd /global/u1/s/soham_b/tsadar_copy
+cd /global/homes/a/amilder/inverse-thomson-scattering
 srun python3 run.py
