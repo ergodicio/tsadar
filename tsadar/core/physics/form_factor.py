@@ -128,10 +128,9 @@ class FormFactor:
         self.h = 0.01
         minmax = 8.2
         h1 = 1024  # 1024
-        c = 2.99792458e10
         lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
-        self.omgL_num = 2 * jnp.pi * 1e7 * c
-        omgs = 2e7 * jnp.pi * c / lamAxis  # Scattered frequency axis(1 / sec)
+        self.omgL_num = 2 * jnp.pi * 1e7 * self.C
+        omgs = 2e7 * jnp.pi * self.C / lamAxis  # Scattered frequency axis(1 / sec)
         self.omgs = omgs[None, ..., None]
 
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
@@ -197,9 +196,11 @@ class FormFactor:
         A = [params[species]["A"] for species in params.keys() if "ion" in species]
         Z = [params[species]["Z"] for species in params.keys() if "ion" in species]
         Ti = [params[species]["Ti"] for species in params.keys() if "ion" in species]
+        Va = [params[species]["Va"] for species in params.keys() if "ion" in species] 
         fract = [params[species]["fract"] for species in params.keys() if "ion" in species]
-        Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s
-        ud = params["general"]["ud"] * 1e6  # drift velocity in 1e6 cm/s
+        #Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s # commented out 
+        Va = jnp.reshape(jnp.array(Va),[1,1,1,-1]) * 1.0e6
+        ud = params["general"]["ud"] * 1.0e6  # drift velocity in 1e6 cm/s
         fe = params["electron"]["fe"]
         vx = params["electron"]["v"]
 
@@ -214,10 +215,12 @@ class FormFactor:
         # calculate k and omega vectors
         omgpe = constants * jnp.sqrt(ne[..., jnp.newaxis, jnp.newaxis])  # plasma frequency Rad/cm
         omg = self.omgs - omgL
+        omg = omg[..., jnp.newaxis]
 
         ks = jnp.sqrt(self.omgs**2 - omgpe**2) / self.C
         kL = jnp.sqrt(omgL**2 - omgpe**2) / self.C
         k = jnp.sqrt(ks**2 + kL**2 - 2 * ks * kL * jnp.cos(sarad))
+        k = k[...,jnp.newaxis]  
 
         kdotv = k * Va
         omgdop = omg - kdotv
@@ -234,31 +237,38 @@ class FormFactor:
         Zbar = jnp.sum(Z * fract)
         ni = fract * ne[..., jnp.newaxis, jnp.newaxis, jnp.newaxis] / Zbar
         omgpi = constants * Z * jnp.sqrt(ni * self.Me / Mi)
+        num_species = fract.shape[3]
 
         vTi = jnp.sqrt(jnp.array(Ti) / Mi)  # ion thermal velocity
-        kldi = (vTi / omgpi) * (k[..., jnp.newaxis])
+        kldi = (vTi / omgpi) * (k)  
 
         # ion susceptibilities
         # finding derivative of plasma dispersion function along xii array
-        xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k)[..., jnp.newaxis])
+        xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k))  
 
         # num_ion_pts = jnp.shape(xii)
         # chiI = jnp.zeros(num_ion_pts)
         ZpiR = jnp.interp(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
         ZpiI = jnp.interp(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
-        chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
+        #chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
+        chiI = -0.5 / (kldi**2) * (ZpiR + 1j * ZpiI) 
 
         # electron susceptibility
         # calculating normilized phase velcoity(xi's) for electrons
-        xie = omgdop / (k * vTe) - ud / vTe
+        udr = ud - Va[:,:,:,0]
+        udr = udr[..., jnp.newaxis]  
+        
+        omgdop = omgdop[..., 0] 
+        omgdop = omgdop[..., jnp.newaxis]  
+        xie = omgdop/ (k * vTe) - udr / vTe  
 
         #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
         fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
 
         df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
-        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]))), 1)
+        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]),1)), 1) 
 
-        chiEI = jnp.pi / (klde**2) * 1j * df
+        chiEI = -jnp.pi / (klde**2) * 1j * df
         
         ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
@@ -271,24 +281,31 @@ class FormFactor:
         chiERrat = -1.0 / (klde**2) * chiERrat
 
         chiE = chiERrat + chiEI
+        chiI = jnp.sum(chiI, 3) # Sum over ion species to get total ion susceptibility
+        chiI = chiI[..., jnp.newaxis]  
         epsilon = 1.0 + chiE + chiI
 
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
+        #ion_comp_fact = jnp.transpose(fract * Zbar / vTi, [1, 0, 2, 3])
+
         ion_comp = ion_comp_fact * (
-            (jnp.abs(chiE[..., jnp.newaxis])) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
+            (jnp.abs(chiE)) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
         )
 
         ele_comp = (jnp.abs(1.0 + chiI)) ** 2.0 * fe_vphi / vTe
         # ele_compE = fe_vphi / vTe # commented because unused
 
-        SKW_ion_omg = 1.0 / k[..., jnp.newaxis] * ion_comp / ((jnp.abs(epsilon[..., jnp.newaxis])) ** 2)
+        SKW_ion_omg = 1.0 / k * ion_comp / ((jnp.abs(epsilon)) ** 2)
 
-        SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)
+        SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)  
+        SKW_ion_omg = SKW_ion_omg[..., jnp.newaxis] 
         SKW_ele_omg = 1.0 / k * (ele_comp) / ((jnp.abs(epsilon)) ** 2)
         # SKW_ele_omgE = 2 * jnp.pi * 1.0 / klde * (ele_compE) / ((jnp.abs(1 + (chiE))) ** 2) * vTe / omgpe # commented because unused
 
+        
         PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne[:, None, None]
+        PsOmg = jnp.squeeze(PsOmg,axis=-1) 
         # PsOmgE = (SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * jnp.transpose(ne) # commented because unused
         lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2

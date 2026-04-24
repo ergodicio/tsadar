@@ -151,6 +151,7 @@ class LossFunction:
 
             diff_weights = self.unravel_weights(diff_weights)
             (value, aux), grad = self._vg_func_(diff_weights, static_weights, batch)
+            self.aux = aux
 
             # if "fe" in grad:
             #     grad["fe"] = self.cfg["optimizer"]["grad_scalar"] * grad["fe"]

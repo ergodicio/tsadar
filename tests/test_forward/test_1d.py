@@ -79,6 +79,7 @@ def test_1d_forward_pass():
             ax.set_ylabel("Intensity (arb. units)")
             ax.set_title("Electron Spectrum")
             fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
+            plt.show()
             mlflow.log_artifacts(td)
 
         np.testing.assert_allclose(ThryE, ground_truth, rtol=1e-4)
