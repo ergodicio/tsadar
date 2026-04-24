@@ -520,6 +520,21 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
 
             EPWtcc = 528  # 562;
             IAWtcc = 475  # 469;
+        
+        elif shotNum == 112059:
+            EPWDisp = 0.277
+            IAWDisp = 0.00448
+            EPWoff = 381.141905
+            IAWoff = 524.1416133146356
+
+            stddev["spect_stddev_ion"] = 0.007838851799629626
+            stddev["spect_stddev_ele"] = 0.5348962893498197
+
+            magI = 2.88 
+            magE = 5.13 
+
+            EPWtcc = 544.6141
+            IAWtcc = 526.4255994117018
 
         else:
             # needs to be updated with the calibrations from 7-26-22

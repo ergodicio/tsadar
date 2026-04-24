@@ -8,8 +8,10 @@ dependencies:
   - xlrd
   - pip:
       - "jax[cuda12]"
-      - jaxopt
+      - "jaxopt>=0.6.0"
       - numpy
+      - opencv-python
+      - scikit-image
       - scipy
       - matplotlib
       - pyyaml
