@@ -8,10 +8,10 @@ data:
   background:
     bg_alg: rat11
     bg_alg_domain:
-    - 100
-    - 200
-    - 820
-    - 920
+    - 250
+    - 300
+    - 700
+    - 900
     bg_alg_params:
     - -16
     - 200000
@@ -29,7 +29,7 @@ data:
   ele_t0: 0
   fit_rng:
     blue_max: 510
-    blue_min: 455
+    blue_min: 450
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 528
@@ -51,11 +51,19 @@ data:
   probe_beam: P9
   shotDay: false
   shotnum: 101675
+feature_detector:
+  estimate_lineouts_epw: false
+  estimate_lineouts_iaw: false
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 mlflow:
   experiment: experiment-1
   run: run-1
 optimizer:
-  batch_size: 2
+  batch_size: 6
   grad_method: AD
   hessian: false
   jit: true
@@ -88,7 +96,7 @@ other:
   extraoptions:
     spectype: temporal
   flatbg: 0
-  gain: 150
+  gain: 1
   iawfilter:
   - 1
   - 4

@@ -32,12 +32,6 @@ parameters:
         active: False
         lb: -2.0
         ub: 2.0
-    Va:
-        val: 0.0
-        angle: 0.0
-        active: False
-        lb: -1.1
-        ub: 2.5
     ne_gradient:
         val: 0.
         active: False
@@ -59,6 +53,12 @@ parameters:
     A:
         val: 14.
         active: False
+    Va:
+        val: 0.0
+        angle: 0.0
+        active: False
+        lb: -1.1
+        ub: 2.5
   electron:
     Te:
         val: 1.0

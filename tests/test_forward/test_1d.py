@@ -79,7 +79,6 @@ def test_1d_forward_pass():
             ax.set_ylabel("Intensity (arb. units)")
             ax.set_title("Electron Spectrum")
             fig.savefig(os.path.join(td, "ThryE.png"), bbox_inches="tight")
-            plt.show()
             mlflow.log_artifacts(td)
 
             fig, ax = plt.subplots(1, 1, figsize=(9, 4), tight_layout=True)

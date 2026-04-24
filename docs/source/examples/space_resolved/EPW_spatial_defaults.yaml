@@ -51,6 +51,14 @@ data:
   probe_beam: P9
   shotDay: false
   shotnum: 101675
+feature_detector:
+  estimate_lineouts_epw: false
+  estimate_lineouts_iaw: false
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 mlflow:
   experiment: experiment-1
   run: run-1

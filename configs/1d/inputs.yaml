@@ -70,7 +70,7 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -86,7 +86,7 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.0
       ub: 20.0
@@ -103,7 +103,7 @@ parameters:
       ub: 2.0
       val: 0.3
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.5
       ub: 20.5
