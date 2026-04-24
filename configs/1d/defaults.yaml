@@ -29,7 +29,7 @@ data:
   ele_t0: 0
   fit_rng:
     blue_max: 510
-    blue_min: 450
+    blue_min: 455
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 528
@@ -44,9 +44,9 @@ data:
   ion_t0_shift: 0
   launch_data_visualizer: true
   lineouts:
-    end: 502
-    skip: 1
-    start: 500
+    end: 600
+    skip: 50
+    start: 400
     type: pixel
   probe_beam: P9
   shotDay: false
@@ -55,9 +55,8 @@ mlflow:
   experiment: experiment-1
   run: run-1
 optimizer:
-  batch_size: 6
+  batch_size: 2
   grad_method: AD
-  grad_scalar: 1.0
   hessian: false
   jit: true
   learning_rate_final: 0.0001
@@ -89,7 +88,7 @@ other:
   extraoptions:
     spectype: temporal
   flatbg: 0
-  gain: 1
+  gain: 150
   iawfilter:
   - 1
   - 4

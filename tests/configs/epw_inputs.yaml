@@ -40,6 +40,13 @@ parameters:
             val: 1.0
             active: False
 
+        Va:
+            val: 0.0
+            angle: 0.0
+            active: True
+            lb: -20.5
+            ub: 20.5
+
     general:
         amp1:
             val: 1.
@@ -79,12 +86,6 @@ parameters:
             active: False
             lb: -10.0
             ub: 10.0
-        Va:
-            val: 0.0
-            angle: 0.0
-            active: True
-            lb: -20.5
-            ub: 20.5
 
 data:
     fit_EPWb: False
@@ -104,7 +105,14 @@ data:
             pixel
         slice: 900
         show: False
-
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 20
+    lineout_end: 20
+    spectral_start: 20
+    spectral_end: 20
 other:
     extraoptions:
         spectype: temporal

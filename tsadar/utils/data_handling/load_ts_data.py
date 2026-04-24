@@ -79,7 +79,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             sds_obj = iDatfile.select("Streak_array")  # select sds
             iDat = sds_obj.get()  # get sds data
             iDat = iDat.astype(float)
-            iDat = iDat[0, :, :] - iDat[1, :, :]
+            iDat = iDat[0, :, :] - iDat[1, :, :] # added 5 to avoid huge spikes in chi2
             iDat = np.flipud(iDat)
             CCDsize = np.shape(iDat)
 
@@ -105,7 +105,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
 
     if loadspecs["load_ele_spec"]:
         from pyhdf.SD import SD, SDC
-
+ 
         try:
             eDatfile = SD(hdfnameE, SDC.READ)
             sds_obj = eDatfile.select("Streak_array")  # select sds
