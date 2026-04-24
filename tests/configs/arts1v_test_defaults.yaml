@@ -81,6 +81,7 @@ other:
     TotalNumBin: 1023
     expandedions: False
     extraoptions:
+        spectype: None
     PhysParams:
         background: [0, 0]
         norm: 0

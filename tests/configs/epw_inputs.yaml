@@ -11,7 +11,7 @@ parameters:
             lb: 0.001
             ub: 1.0
         fe:
-            type: "DLM"
+            type: dlm
             dim: 1
             nvx: 128
             params:
@@ -19,6 +19,7 @@ parameters:
                     val: 2.0
                     ub: 5.0
                     lb: 2.0
+                    matte: false
 
     ion-1:
         Ti:

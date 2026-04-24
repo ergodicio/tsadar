@@ -87,12 +87,16 @@ parameters:
 other:
     expandedions: False
     extraoptions:
+        spectype: None
     PhysParams:
         background: [0, 0]
         norm: 0
     iawoff: 0
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
+    Ipump_14: 0
+    beam_diam_um: 100
+    include_gains: false
     flatbg: 0
     gain: 1
     points_per_pixel: 1
@@ -102,11 +106,13 @@ other:
     refit_thresh: 0.25
     calc_sigmas: False
 
-data:    fit_EPWb: True
+data:    
+    fit_EPWb: True
     fit_EPWr: True
     fit_IAW: False
     load_ele_spec: True
-    load_ion_spec: False    shotnum: 101675
+    load_ion_spec: False    
+    shotnum: 101675
     shotDay: False
     launch_data_visualizer: True
     fit_rng:
