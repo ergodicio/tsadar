@@ -306,7 +306,7 @@ class LossFunction:
                 e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
             else:
                 e_error += reduce_func(_error_)
-            e_error += reduce_func(_error_)
+            
             if self.cfg["data"]["fit_EPWb"]:
                 # the set e_error to the true mean if both sides are fit
                 e_error *= 1.0 / 2.0
