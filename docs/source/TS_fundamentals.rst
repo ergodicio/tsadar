@@ -3,109 +3,66 @@
 Fundamentals of Thomson Scattering 
 ==========================================
 
-This page provides some basics on Thomson scatering to help users figure out how to modify the input deck. 
+This page just provides some high level basics on Thomson scatering to help users figure out how to modify the input deck. If you are interested in a more complete understanding we recommend the textbook `Plasma Scattering of Electromagnetic Radiation <https://www.sciencedirect.com/book/monograph/9780123748775/plasma-scattering-of-electromagnetic-radiation>`_  by Froula *et. al.*
+
+.. toctree::
+   :maxdepth: 4
+
 
 Key Concepts
 ^^^^^^^^^^^^^
 
-**Thomson scattering** is a diagnostic technique used to obtain information about the plasma conditions such as temperature and density.
+**Thomson scattering** is one of the classical light matter interactions describing the elastic scattering of an electromagnetic wave from a free electron. Thomson scattering is part of a continuum of interactions with Compton scattering, Rayleigh scattering, Mie scattering, and the photolectric effect. By measureing the scattered wave its possible to obtain infromation about the electron that wave scattered off. In a plasma the scattering from many electrons interfere to produce the Thomson-scattered spectrum. The spectrum is usually separated into a high frequency response and low frequency response.
 
-**Langmuir waves**, also known as **Electron Plasma Waves (EPW)**, are high frequency electrostatic waves in a plasma with electrons as the oscillating species.
+There are two primary regiemes of Thomson scattering, **Colective Thomson scattering** and **Non-collective Thomson scattering**. In non-collective scattering the scattering from all the electrons interferes to give a spectrum reflective of the underlying electron distribtuion function. In collective Thomson scattering there is constructive interference from electrons oscilating as part of a natural mode of the plasma. This produces a spectrum with peaks that are representative of that natural mode.
 
-**Ion Acoustic Waves (IAW)** are low frequency electrostatic waves in a plasma, with ions as the primary oscillating species. 
-In this case the electrons fight to sustain charge neutrality.
+**Electron Plasma Waves (EPW)**, also known as **Langmuir waves**, are high frequency longitudinal electrostatic waves in a plasma with electrons as the oscillating species.
 
-**Scattering angle** is the angle between the incident and scattered  electromagnetic wave.
+**Ion Acoustic Waves (IAW)** are low frequency electrostatic waves in a plasma, with ions as the primary oscillating species and the electrons following the wave to maintain quasi-neutrality 
 
-Light scattered off of plasma waves experience **Doppler shifts** due to the velocity of electrons relative to the incoming light. 
-These shifts provide insights into the movemet of electrons and characteristics of the plasma waves. 
+Since Thomson scattering occurs from individual electrons, their correlations are just due to the random particle noise or fluctuations in the plasma. The scattering is often refered to as scattering from plasma waves but this is just due to the correlations following the dispersion relations for the natural modes of a plasma. If any of these fluctuations is driven and becomes a true wave the Thomson scattering theory breaks down.
 
-Fit and data plot for EPW
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Scattering angle** is the angle between the incident and scattered electromagnetic wave and has significant influence on the particular modes observbed as they follow the dispersion relations which require momentum matching.
 
-This plot gives an insight into the quality of the analysis, as it compares the fitted results (left) with the raw data (right).
-
-
-.. image:: _elfolder/fit_and_data_ele.png
-    :scale: 75%
 
 Thomson scattering spectra for EPW 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The image provides a simplified visual representation of the effect of each parameter on the spectrum.  
+The image provides a simplified visual representation of the effect of each parameter on the collective electron plasma wave spectrum. It is only meant to guide the user in how the input deck should be altered not to provide an comprehensive explaination of the features.
 
 .. image:: _elfolder/TS_spectra_EPW.JPG
     :scale: 75%
 
-**Electron temperature (Te)**  as defined througth the averarge kinetic energy.
+**Electron temperature (Te)** as defined via the second moment of the distribtuion function (i.e. averarge kinetic energy). Temperature alters the amount of Landau damping on the waves and therefore is related with the peak width with higher temperature giveing wider peaks.
 
-**Electron density (ne)** is the number of free electrons per unit volume,and it is used to characterize the plasma.
+**Electron density (ne)** is the number of free electrons per unit volume, for electron plasma waves it is also the leading term in the Bohm-Gross dispersion relation so the peak separation scales with electron density.
 
-**m** is the super-Gaussian order of the electron velocity distribution function
+**m** is the super-Gaussian order of the electron velocity distribution function. This alters the damping like temperature but the easiest place to see its effect is in the plateau between the peaks. As m increases the plateaus will curve up more.
 
-**amp1** is the blue-shifted EPW amplitude multiplier.
+**amp1** is the blue-shifted EPW amplitude multiplier, this is a fudge factor that helps deal with Poisson noise.
 
-**amp2** is the red-shifted EPW amplitude multiplier. 
+**amp2** is the red-shifted EPW amplitude multiplier, this is a fudge factor that helps deal with Poisson noise.
 
-
-Electron fit ranges plot 
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-This plot uses lines to visually represent the region where data is being analyzed.
-
-.. image:: _elfolder/electron_fit_annotated.png
-    :scale: 75%
-
-**Lineouts** are locations where data will be analyzed. 
-
-**Lineout start** specifies the first location where a lineout will be take
-
-**lineout end** specifies the last location where a lineout will be taken
-
-**Red** and **blue**,  **min** and **max** are the start and end of the region where the shifts will be analyzed.
-
-
-Fit and data plot for IAW
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-This plot gives an insight into the quality of the analysis, as it compares the fitted results (left) with the raw data (right).
-
-.. image:: _elfolder/fit_and_data_iaw.png
-    :scale: 75%
-    
 
 Thomson scattering spectra for IAW
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-This image provides a simplified visual representation of the effect of each parameter on the spectrum.  
+This image provides a simplified visual representation of the effect of each parameter on the collective ion acoustic wave spectrum. It is only meant to guide the user in how the input deck should be altered not to provide an comprehensive explaination of the features.
 
 .. image:: _elfolder/TS_spectra_IAW.JPG
     :scale: 75%
 
-**Ion tempreature (Ti)** the ion temperature as defined through the average kinetic energy.
+**Ion tempreature (Ti)** is the ion temperature as defined through the average kinetic energy. Like the electron temperature this effects the landau damping so higher temperaturtes means a wider peak.
 
-**Z** is the average ionization state. 
+**Z** is the average ionization state. The separation between the 2 peaks is related to the sound speed in the plasma which scales with Z and Te, so increasing either of them will lead to more peak seperation.  
 
-**Va** is the plasma flow velocity.
+**lam** is the probe wavelength. The ion acoustic wave spectrum should be centered about the probe wavelength in the absence of flow.
 
-**lam** is the probe wavelenght. 
+**Va** is the plasma flow velocity. This provides a doppler shift to the entire spectrum resuling in the center of the 2 peaks shifting relative to the probe wavelength. 
 
-**ud** is the electron drfit velocity. 
+**ud** is the electron drfit velocity or the velocity of the electrons relative to the fluid velocity of the ions. Shifting the electrons relative to the ions will increase damping on one wave while reducing it on the other leading to an asymmetry in the peak amplitudes. 
 
-**amp3** is the IAW amplitude multiplier.
-
-Ion fit ranges plot
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-This plot uses lines to visually represent the region where data is being analyzed.
-
-.. image:: _elfolder/ion_fit_annotated.png
-    :scale: 75%
-
-**IAW max & min** designate the starting and ending wavelenghts for the analysis of the IAW.
-
-**IAW cf min & max** indicate the starting and ending wavelenghts for a central feature to be excluded from analysis.
-
+**amp3** is the IAW amplitude multiplier, this is a fudge factor that helps deal with Poisson noise.
 
 
 

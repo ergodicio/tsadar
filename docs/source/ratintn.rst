@@ -5,5 +5,5 @@ The dispersion relation integral is the most computationally expensive component
 integral, we perform a rational integral that is described by the following routines
 
 
-.. autofunction::   tsadar.model.physics.ratintn.ratintn
-.. autofunction::   tsadar.model.physics.ratintn.ratcen
+.. autofunction::   tsadar.core.physics.ratintn.ratintn
+.. autofunction::   tsadar.core.physics.ratintn.ratcen

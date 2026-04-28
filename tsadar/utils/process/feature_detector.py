@@ -9,7 +9,25 @@ from skimage import feature
 from skimage.util import invert
 
 #defining the main function 
-def first_guess(elecData, ionData, config):
+def first_guess(elecData, ionData, all_axes, config):
+     
+    #with tempfile.TemporaryDirectory() as tdir: #temporary directory to save figures
+    if config["data"]["load_ion_spec"]: # ploting the iaw spec w/out lineouts
+        X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
+        fig1, ax1 = plt.subplots()
+        ax1.axis('off')
+        ax1.pcolormesh(
+            X,
+            Y,
+            ionData,
+            cmap="gray",
+            vmin=0,
+            vmax=0.05*np.amax(ionData),
+        )
+        #fig1_path = os.path.join(tdir,'temp_iaw.png') #path for iaw plot 
+        #fig1.savefig(fig1_path , bbox_inches='tight') #save in temp dir
+        #openinn iaw and geting roi
+        #iaw1 = cv.imread(fig1_path)
 
     # normalizing data nd accounting for feducials if necesary 
     def data_processing(data, config,wave_type):
@@ -79,29 +97,23 @@ def first_guess(elecData, ionData, config):
         corners = cv.goodFeaturesToTrack(img, 100, 0.1, 10)
         corners = np.intp(corners).reshape(-1, 2)
 
-        #filter found corners, only keep corners that have at least one neighboor within the max distance 
-        filtered_corners = []
-        max_distance = 100
-        for i, corner in enumerate(corners):
-            has_neighboor = False
-            for j, other_corner in enumerate(corners):
-                if i == j : 
-                    continue # skip the same corner 
-                # Euclaidian distance between current corner and other corners
-                distance = np.linalg.norm(corner-other_corner)
-                if distance <= max_distance:
-                    has_neighboor = True
-                    break
-            if has_neighboor:
-                filtered_corners.append(corner)
-        filtered_corners = np.array(filtered_corners)
-        #  uncomment the next few lines to display located corners
-        # for corner in filtered_corners:
-        #     x, y = corner.ravel()
-        #     cv.circle(img, (x, y), 5 , 255, 2)
-        # cv.imshow('Filtered Corners', img)
-        # cv.waitKey(0)
-        # cv.destroyAllWindows()
+    if config["data"]["load_ele_spec"]: #plotting the epw spec wi/out lineouts
+        X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
+        fig2, ax2 = plt.subplots()
+        ax2.axis('off')
+        ax2.pcolormesh(
+            X,
+            Y,
+            elecData,
+            cmap="hot",
+            vmin=0,
+            vmax=0.15*np.amax(elecData)
+        )
+        """fig2_path = os.path.join(tdir, 'temp_epw.png') #path for epw spectra 
+        fig2.savefig(fig2_path, bbox_inches='tight') #saving fig in temp dir
+        #openinn iaw and geting roi
+        epw1 = cv.imread(fig2_path)"""
+        img_epw = elecData[70:390,10:497]
 
         #find the max and min x and y coordinates
         min_x = filtered_corners[:, 0].min()
@@ -164,16 +176,25 @@ def first_guess(elecData, ionData, config):
         red_min_x, red_max_x, red_min_y, red_max_y = data_analysis(preprocessed_ewp_red)
         blue_min_x, blue_max_x, blue_min_y, blue_max_y = data_analysis(preprocessed_ewp_blue)
 
-        if config["other"]["extraoptions"]["spectype"] == "temporal":
-            a = 200
-            b = 540
-        else: 
-            a = 150
-            b = 540
-        red_max_y = red_max_y + a
-        red_min_y = red_min_y + a
-        blue_max_y = blue_max_y + b
-        blue_min_y = blue_min_y + b
+"""  FIRST ATTEMPT AT MAKING AND TEMP SAVING THE PLOTS
+    with tempfile.TemporaryDirectory() as tdir:
+        #polting figure like data_visualizer.py but without the lineouts 
+        if config["data"]["load_ion_spec"]:
+            X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
+            fig, ax1 = plt.subplots()
+            ax1.axis('off')
+            cb = ax.pcolormesh(
+                X,
+                Y,
+                ionData,
+                cmap="gray",
+                vmin=0,
+                vmax=0.05*np.amax(ionData),
+            )
+            fig.savefig(tdir + '/temp_iaw.png',bbox_inches='tight')
+            plt.close(fig)
+        if config["data"]["load_ele_spec"]:
+                X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
         print("this are the min and maxs for red and blue shifted EPW")
         print(f"Blue min x: {blue_min_x}, Blue max x: {blue_max_x}")
@@ -188,8 +209,11 @@ def first_guess(elecData, ionData, config):
         red_min =  red_min_y
         red_max = red_max_y 
 
-        return lineout_end, lineout_start, blue_min, blue_max, red_min, red_max
-    
+        with tempfile.TemporaryDirectory() as td:
+            os.makedirs(os.path.join(td, "plots"), exist_ok=True)
+            # until this can be made interactive this plots all the data regions
+            if config["data"]["load_ion_spec"]:
+                X, Y = np.meshgrid(all_axes["iaw_x"], all_axes["iaw_y"])
 
     if config["feature_detector"]["estimate_lineouts_iaw"] and not config["feature_detector"]["estimate_lineouts_epw"]:
         lineout_end,lineout_start,iaw_cf_min, iaw_cf_max,iaw_max,iaw_min = iaw_feature_detector()
@@ -200,7 +224,8 @@ def first_guess(elecData, ionData, config):
             pass
         return lineout_end, lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min
 
-    if config["feature_detector"]["estimate_lineouts_epw"] and not config["feature_detector"]["estimate_lineouts_iaw"]:    
+            if config["data"]["load_ele_spec"]:
+                X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
 
         lineout_end, lineout_start, blue_min, blue_max, red_min, red_max = epw_feature_detector()
         #Sanity checks
@@ -210,27 +235,6 @@ def first_guess(elecData, ionData, config):
             pass
         return lineout_end, lineout_start, blue_min, blue_max, red_min, red_max
 
-    if config["feature_detector"]["estimate_lineouts_epw"] and config["feature_detector"]["estimate_lineouts_iaw"]:
-
-        iaw_lineout_end, iaw_lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min = iaw_feature_detector()
-
-        epw_lineout_end, epw_lineout_start, blue_min, blue_max, red_min, red_max = epw_feature_detector()
-        
-        #Sanity checks
-        if epw_lineout_end < epw_lineout_start or blue_min > blue_max or red_min > red_max:
-            raise ValueError("Lineout end is less than lineout start or  blue/red min is greater than max. Detector failed")
-        else:
-            pass
-
-        if iaw_lineout_start > iaw_lineout_end or iaw_min > iaw_max:
-            raise ValueError("Lineout end is less than lineout start or IAW min is greater than max. Detector failed")
-        else:
-            pass
-        # Calculate ion t0 shift
-        if iaw_lineout_start == epw_lineout_start:
-            ion_t0_shift = 0
-        else:
-            ion_t0_shift =  epw_lineout_start - iaw_lineout_start
-
-        return epw_lineout_end, epw_lineout_start, iaw_cf_min, iaw_cf_max, iaw_max, iaw_min, ion_t0_shift, blue_min, blue_max, red_min, red_max
-    
+            mlflow.log_artifacts(td)
+    #plotting the raw data without lineouts using functions from data visualizer 
+#def plot_raw_data(): """

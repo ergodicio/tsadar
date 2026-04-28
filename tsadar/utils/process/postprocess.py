@@ -65,7 +65,7 @@ def recalculate_with_chosen_weights(
     }
     sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         sigmas = np.zeros((all_data["e_data"].shape[0], num_params))
         fits["ele"]["spec_comps"] = np.ones(
             [
@@ -80,7 +80,7 @@ def recalculate_with_chosen_weights(
         )
     else:
         fits["ele"]["spec_comps"] = np.zeros(all_data["e_data"].shape)
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
         fits["ion"]["spec_comps"] = np.ones(
             [
@@ -96,15 +96,16 @@ def recalculate_with_chosen_weights(
     else:
         fits["ion"]["spec_comps"] = np.zeros(all_data["i_data"].shape)
 
+    background_subtract = config["data"]["background"]["bg_subtract"]
     for i_batch, inds in enumerate(batch_indices):
         batch = {
-            "e_data": all_data["e_data"][inds],
-            "e_amps": all_data["e_amps"][inds],
-            "i_data": all_data["i_data"][inds],
-            "i_amps": all_data["i_amps"][inds],
-            "noise_e": all_data["noiseE"][inds],
-            "noise_i": all_data["noiseI"][inds],
-        }
+                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
+                "e_amps": all_data["e_amps"][inds],
+                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
+                "i_amps": all_data["i_amps"][inds],
+                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
+                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
+            }
 
         loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
@@ -135,6 +136,10 @@ def recalculate_with_chosen_weights(
 
         sqdevs["ele"][inds] = sqds["ele"]
         sqdevs["ion"][inds] = sqds["ion"]
+
+        if config["optimizer"]["loss_method"] =='covar':
+            sqdevs["ele"][inds] = sqds["ele"]
+            sqdevs["ion"][inds] = sqds["ion"]
         if calc_sigma:
             sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
             # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
@@ -316,6 +321,7 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
 
         if loss < losses_init[i]:
+            del fitted_weights[(i - 1) // true_batch_size]["electron"]["m"]
             fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
                 insert,
                 fitted_weights[(i - 1) // true_batch_size],
@@ -344,6 +350,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
     savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
     if config["plotting"]["detailed_breakdown"]:
         plotters.detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
+    #elif
     else:
         plotters.model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td)
     sigma_ds = plotters.save_sigmas_params(config, all_params, sigmas, all_axes, td)
@@ -359,16 +366,42 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         for k2 in batch_fitted_params[k]:
             all_params[k][k2].append(batch_fitted_params[k][k2])
 
-    # Prepare batch data
+   # Prepare batch data
     start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
-    batch = {
-        "e_data": all_data["e_data"][start:end, :],
-        "e_amps": all_data["e_amps"][start:end, :],
+    # batch = {
+    #     "e_data": all_data["e_data"][start:end, :],
+    #     "e_amps": all_data["e_amps"][start:end, :],
+    #     "i_data": all_data["i_data"],
+    #     "i_amps": all_data["i_amps"],
+    #     "noise_e": all_data["noiseE"][start:end, :],
+    #     "noise_i": all_data["noiseI"][start:end, :],
+    # }
+    batch1 = {
+        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
         "i_data": all_data["i_data"],
         "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][start:end, :],
-        "noise_i": all_data["noiseI"][start:end, :],
+        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
     }
+    if isinstance(config["data"]["shotnum"], list):
+        batch2 = {
+            "e_data": all_data["e_data_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "e_amps": all_data["e_amps_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "noise_e": all_data["noiseE_rot"][
+                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
+            ],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
+        }
+        batch = {"b1": batch1, "b2": batch2}
+    else:
+        batch = batch1
 
     # Calculate losses and fits
     losses, sqdevs, fits_ele, _, params = loss_fn.array_loss(fitted_weights, batch)
@@ -398,6 +431,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
 
     savedata = plotters.plot_data_angular(config, fits, all_data, all_axes, td)
     plotters.plot_ang_lineouts(1, sqdevs, losses, all_params, all_axes, savedata, td)
-    plotters.plot_dist(config, final_params, sigma_fe, td)
+    if config["parameters"]["electron"]["fe"]["type"] != 'dlm':
+        plotters.plot_dist(config, final_params, sigma_fe, td)
     
     return t1, final_params

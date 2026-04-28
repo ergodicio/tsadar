@@ -52,8 +52,9 @@ def forward_pass(config):
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
 
     sas = get_scattering_angles(config)
-    sas['sa']=np.array([59.9])
-    sas['weights'] = np.array([1.0])
+    if not is_angular:
+        sas['sa']=np.array([60.0])  # hardcoded for now
+        sas['weights'] = np.array([1.0])
     dummy_batch = {
         "i_data": np.array([1]),
         "e_data": np.array([1]),
@@ -139,22 +140,29 @@ def forward_pass(config):
                 {"epw_x": sas["angAxis"], "epw_y": lamAxisE, 'x_label': 'Angle'},
                 td,
             )
-            # plotters.plot_dist(config, "electron", {"fe": np.squeeze(fe_val), "v": velocity}, np.zeros_like(fe_val), td)
-            # if len(np.shape(np.squeeze(fe_val))) == 1:
-            #     final_dist = pandas.DataFrame({"fe": [l for l in fe_val], "vx": [vx for vx in velocity]})
-            # elif len(np.shape(np.squeeze(fe_val))) == 2:
-            #     final_dist = pandas.DataFrame(
-            #         data=np.squeeze(fe_val),
-            #         columns=velocity[0][0],
-            #         index=velocity[0][:, 0],
-            #     )
-            # final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
+            plotters.plot_dist(config, {"fe": np.squeeze(fe_val), "v": velocity}, np.zeros_like(fe_val), td)
+            if len(np.shape(np.squeeze(fe_val))) == 1:
+                final_dist = pandas.DataFrame({"fe": [l for l in fe_val], "vx": [vx for vx in velocity]})
+            elif len(np.shape(np.squeeze(fe_val))) == 2:
+                if config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic":
+                    final_dist = pandas.DataFrame(
+                        data=np.squeeze(fe_val),
+                        columns=velocity,
+                        index=velocity,
+                    )
+                else:
+                    final_dist = pandas.DataFrame(
+                        data=np.squeeze(fe_val),
+                        columns=velocity[0][0],
+                        index=velocity[0][:,0],
+                    )
+            final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
             if config["parameters"]["electron"]["fe"]["dim"] == 2:
                 plotters.plot_dist(config, "electron", {"fe": fe_val, "v": velocity}, np.zeros_like(fe_val), td)
 
             fig, ax = plt.subplots(1, 2, figsize=(12, 6), tight_layout=True, sharex=False)
-            if config["other"]["extraoptions"]["load_ele_spec"]:
+            if config["data"]["load_ele_spec"]:
                 ax[0].plot(
                     lamAxisE.squeeze().transpose(), ThryE.squeeze().transpose()
                 )  # transpose might break single specs?
@@ -179,7 +187,7 @@ def forward_pass(config):
                     ele_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ele) for k, v in ele_dat.items()})
                 ele_data.to_netcdf(os.path.join(td, "binary", "electron_data.nc"))
 
-            if config["other"]["extraoptions"]["load_ion_spec"]:
+            if config["data"]["load_ion_spec"]:
                 ax[1].plot(lamAxisI.squeeze().transpose(), ThryI.squeeze().transpose())
                 ax[1].set_title("Simulated Data", fontsize=14)
                 ax[1].set_ylabel("Amp (arb. units)")

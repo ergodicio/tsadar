@@ -1,4 +1,10 @@
 data:
+  absolute_timing: true
+  fit_EPWb: false
+  fit_EPWr: false
+  fit_IAW: false
+  load_ele_spec: true
+  load_ion_spec: true
   background:
     bg_alg: rat11
     bg_alg_domain:
@@ -93,12 +99,6 @@ other:
   calc_sigmas: false
   expandedions: false
   extraoptions:
-    absolute_timing: true
-    fit_EPWb: false
-    fit_EPWr: false
-    fit_IAW: false
-    load_ele_spec: true
-    load_ion_spec: true
     spectype: 1d
   flatbg: 0
   gain: 150

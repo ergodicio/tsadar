@@ -4,7 +4,7 @@ from optax import tree_utils as otu
 import equinox as eqx
 import scipy.optimize as spopt
 from tsadar.inverse.loss_function import LossFunction
-
+from tsadar.core.modules.distribution_functions.base import DLM1V
 
 import mlflow
 import numpy as np
@@ -75,7 +75,7 @@ def _1d_optax_loop_(
     minimizer = getattr(optax, config["optimizer"]["method"])
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
-    opt = minimizer(None if config["optimizer"]["method"]=='lbfgs' else config["optimizer"]["learning_rate"])
+    opt = minimizer(None if config["optimizer"]["method"]=='lbfgs' else config["optimizer"]["learning_rate_init"])
 
     #ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
     #diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
@@ -142,17 +142,18 @@ def one_d_loop(
     all_weights = []
     overall_loss = 0.0
     previous_batch = None
+    background_subtract = config["data"]["background"]["bg_subtract"]
     with trange(num_batches, unit="batch") as tbatch:
         for i_batch in tbatch:
             previous_batch = previous_weights[i_batch] if previous_weights is not None else previous_batch
             inds = batch_indices[i_batch]
             batch = {
-                "e_data": all_data["e_data"][inds],
+                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
                 "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds],
+                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
                 "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds],
-                "noise_i": all_data["noiseI"][inds],
+                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
+                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
             }
 
             if config["optimizer"]["method"] == "l-bfgs-b":  # Stochastic Gradient Descent
@@ -327,37 +328,49 @@ def multirun_angular_optax(
     # Run the angular optimization loop num_mins times
     for i_min in range(config["optimizer"]["num_mins"]):
         loss_fn = LossFunction(config, sa, batch1)
-        previous_weights, overall_loss, total_epochs, loss_fn, exit_cond = angular_optax(config, sa, loss_fn, actual_data, previous_weights, total_epochs)
+        previous_weights, overall_loss, total_epochs, loss_fn, exit_cond = angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights, total_epochs)
         mlflow.set_tag(f"exit cond {i_min}", exit_cond)
         mlflow.log_metrics({"min loss": float(overall_loss)}, step=i_min)
         best_loss = min(best_loss, overall_loss)
         if i_min < config["optimizer"]["num_mins"]-1:
-            config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
-            config["parameters"]["electron"]["fe"]["params"]["window"]["len"]= config["parameters"]["electron"]["fe"]["params"]["window"]["len"]*config["optimizer"]["refine_factor"]+1
-            #currently may only work for 1D arbitrary
+            if config["parameters"]["electron"]["fe"]["dim"] == 1:
+                config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
+                config["parameters"]["electron"]["fe"]["params"]["window"]["len"]= config["parameters"]["electron"]["fe"]["params"]["window"]["len"]*config["optimizer"]["refine_factor"]+1
+                #currently may only work for 1D arbitrary
+    
+                new_vx = np.linspace(
+                        previous_weights.electron.distribution_functions.vx[0],
+                        previous_weights.electron.distribution_functions.vx[-1],
+                        config["parameters"]["electron"]["fe"]["nvx"],
+                    )
+                if config["parameters"]["electron"]["fe"]["type"] == 'arbitrary':
+                    fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
+                    refined_fe = np.interp(new_vx,
+                        previous_weights.electron.distribution_functions.vx,
+                        previous_weights.electron.distribution_functions.fval,
+                    )
+                    refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
+    
+                    getleaf = lambda t: t.electron.distribution_functions.fval
+                    previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
 
-            new_vx = np.linspace(
-                    previous_weights.electron.distribution_functions.vx[0],
-                    previous_weights.electron.distribution_functions.vx[-1],
-                    config["parameters"]["electron"]["fe"]["nvx"],
-                )
-            fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
-            refined_fe = np.interp(new_vx,
-                previous_weights.electron.distribution_functions.vx,
-                previous_weights.electron.distribution_functions.fval,
-            )
-            refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
-
-            getleaf = lambda t: t.electron.distribution_functions.fval
-            previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
-            getleaf = lambda t: t.electron.distribution_functions.vx
-            previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
+                elif config["parameters"]["electron"]["fe"]["type"] == 'dlm':
+                    distconfigs = config["parameters"]["electron"]["fe"]
+                    cur_m = previous_weights.electron.distribution_functions.get_unnormed_params()
+                    distconfigs["params"]["m"]["val"] = cur_m['m']
+                    #previous_weights.electron.distribution_functions.__init__(distconfigs,True)
+                    new_edf = DLM1V(distconfigs, True)
+                    getleaf = lambda t: t.electron.distribution_functions
+                    previous_weights = eqx.tree_at(getleaf, previous_weights, new_edf)
+                    
+                getleaf = lambda t: t.electron.distribution_functions.vx
+                previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
+            else:
+                raise ValueError("Multiple minimizations are only enabled for 1D edfs")
 
     return previous_weights, overall_loss, loss_fn
 
-
-
-def angular_multiple_optax(config, all_data, sa):
+def angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights=None, previous_epoch=None):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
     Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
@@ -377,46 +390,21 @@ def angular_multiple_optax(config, all_data, sa):
         - Handles both single and multiple shot number data configurations for rotated repeats of data.
 
     """
-
-    config["optimizer"]["batch_size"] = 1
-    config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
-    config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
-    batch1 = {
-        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "i_data": all_data["i_data"],
-        "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-    }
-    if isinstance(config["data"]["shotnum"], list):
-        batch2 = {
-            "e_data": all_data["e_data_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "e_amps": all_data["e_amps_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "noise_e": all_data["noiseE_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        }
-        actual_data = {"b1": batch1, "b2": batch2}
-    else:
-        actual_data = batch1
-
-    loss_fn = LossFunction(config, sa, batch1)
     # minimizer = getattr(optax, config["optimizer"]["method"])
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
     # solver = minimizer(config["optimizer"]["learning_rate"])
+    minimizer = getattr(optax, config["optimizer"]["method"])
+    param_minimizer = getattr(optax, config["optimizer"]["param_method"])
+    schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate_init"], np.round(0.75*config["optimizer"]["num_epochs"]), alpha = config["optimizer"]["learning_rate_final"]/config["optimizer"]["learning_rate_init"])
 
-    ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
+        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    else:
+        ts_params = previous_weights
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
-    solver = optax.partition({"macro": optax.adam(learning_rate=0.1), "dist": optax.adam(learning_rate=0.0001)}, partial(label, cfg_params=config["parameters"]))
+    
+    solver = optax.partition({"macro": param_minimizer(config["optimizer"]["param_learning_rate"]), "dist": minimizer(schedule)}, partial(label, cfg_params=config["parameters"]))
     opt_state = solver.init(diff_params)
 
     # start train loop
@@ -435,36 +423,42 @@ def angular_multiple_optax(config, all_data, sa):
         epoch_loss = val
         if epoch_loss < best_loss:
             print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.000001:
-                best_loss = epoch_loss
-                best_weights = eqx.combine(diff_params, static_params)
+            if best_loss - epoch_loss < 0.00000001:
                 num_g_wait += 1
-                if num_g_wait > 5:
-                    print("Minimizer exited due to change in loss < 1e-6")
-                    break
-            elif epoch_loss > best_loss:
-                num_b_wait += 1
-                if num_b_wait > 5:
-                    print("Minimizer exited due to increase in loss")
+                if num_g_wait > 500:
+                    print("Minimizer exited due to change in loss < 1e-8")
+                    exit_cond = "Change in loss < 1e-8"
                     break
             else:
-                best_loss = epoch_loss
-                best_weights = eqx.combine(diff_params, static_params)
                 num_b_wait = 0
                 num_g_wait = 0
+            best_loss = epoch_loss
+            best_weights = eqx.combine(diff_params, static_params)
+                
+        elif epoch_loss > best_loss:
+            num_b_wait += 1
+            if num_b_wait > 500:
+                print("Minimizer exited due to increase in loss")
+                exit_cond = "Increase in loss"
+                break
+        
         pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
-
+        
         if config["optimizer"]["save_state"]:
-            if i_epoch % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[i_epoch] = best_weights.get_unnormed_params()
+            if (previous_epoch+i_epoch) % config["optimizer"]["save_state_freq"] == 0:
+                state_weights[previous_epoch + i_epoch] = best_weights.get_unnormed_params()
 
-        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, step=i_epoch)
+        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, previous_epoch + i_epoch)
 
+    if i_epoch == config["optimizer"]["num_epochs"] - 1:
+        print("Minimizer exited due to reaching max epochs")
+        exit_cond = "Reached epoch limit"
+        
     with open("state_weights.txt", "wb") as file:
         file.write(pickle.dumps(state_weights))
 
     mlflow.log_artifact("state_weights.txt")
-    return best_weights, epoch_loss, loss_fn
+    return best_weights, best_loss, previous_epoch + i_epoch, loss_fn, exit_cond
 
 def label(diff_params, cfg_params):
     from jax import tree_util as jtu
@@ -473,5 +467,8 @@ def label(diff_params, cfg_params):
 
     if cfg_params["electron"]["fe"]["active"]:
         label_spec = get_distribution_filter_spec(label_spec, dist_params=cfg_params["electron"]["fe"], replace="dist")
-
+        if "normed_m" in dir(label_spec.electron.distribution_functions):
+            label_spec = eqx.tree_at(
+                    lambda tree: tree.electron.distribution_functions.normed_m, label_spec, replace="macro"
+                )
     return label_spec

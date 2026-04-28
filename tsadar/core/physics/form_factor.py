@@ -117,7 +117,7 @@ class FormFactor:
                 formfactor (jnp.ndarray): Calculated spectrum.
                 lams (jnp.ndarray): Wavelength axis.
     """
-    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang):
+    def __init__(self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang, calc_gain):
 
         # basic quantities
         self.C = 2.99792458e10
@@ -142,6 +142,9 @@ class FormFactor:
 
         self.vmap_calc_chi_vals = vmap(checkpoint(self.calc_chi_vals), in_axes=(None, None, 0, 0, 0), out_axes=0)
         self.ud_angle, self.va_angle = ud_ang, va_ang
+
+        #option to include calculation of SBS and SRS gain
+        self.calc_gain = calc_gain
 
         # Create a Sharding object to distribute a value across devices:
         is_gpu_present = any(["gpu" == device.platform for device in devices()])
@@ -273,10 +276,13 @@ class FormFactor:
         ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
+        # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
         chiERratprim = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
             ratdf, self.xi1[None, :] - self.xi2[:, None], self.xi1
         )
-
+        # chiERratprim2 = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
+        #     ratdf, self.xi1[None, :] - xi2[:, None], self.xi1
+        # )
         chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
         chiERrat = -1.0 / (klde**2) * chiERrat
 
@@ -285,10 +291,15 @@ class FormFactor:
         chiI = chiI[..., jnp.newaxis]  
         epsilon = 1.0 + chiE + chiI
 
+        # chiERrat2 = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim2[:, 0]), xie.shape)
+        # chiERrat2 = -1.0 / (klde**2) * chiERrat2
+
+        # chiE2 = chiERrat2 + chiEI
+        # epsilon2 = 1.0 + chiE2 + chiI
+
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
         #ion_comp_fact = jnp.transpose(fract * Zbar / vTi, [1, 0, 2, 3])
-
         ion_comp = ion_comp_fact * (
             (jnp.abs(chiE)) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
         )
@@ -312,20 +323,41 @@ class FormFactor:
         # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = PsLam
 
+        if self.calc_gain['calc']:
+            Ipump = self.calc_gain['Ipump']*1e14  # Convert to W/cm^2
+            beam_diam_cm = self.calc_gain['beam_diam_um'] * 1e-4  # Convert um to cm
+            # interaction_length_cm = jnp.linspace(0,1,8).reshape(1,1,1,8)*beam_diam_cm/jnp.sin(sarad[...,np.newaxis]) # effective interaction length cm
+            interaction_length_cm = beam_diam_cm/2.0/jnp.sin(sarad[...,np.newaxis]) 
+
+            nc = 1.115e21/(lam*1e-3)**2
+            ne_nc = ne/nc
+
+            a0 = 8.55e-4 * lam*1e-9 * jnp.sqrt(Ipump)
+            j0 = a0**2 / jnp.sqrt(1-ne_nc)
+            
+            Fchi = chiE * (1.0 + chiI) / (1.0 + chiE + chiI)
+          
+            GD = (k**2)/4/ks * j0 * -jnp.imag(Fchi)
+            GDl = GD[...,jnp.newaxis]* interaction_length_cm
+            # formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
+            formfactor = jnp.mean(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
+
+
         return formfactor, lams
 
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
-        Rotate a 2D array by a specified angle in radians.
-        This method rotates the input 2D array `df` using a rotation matrix constructed from the given angle.
-        The rotation is performed around the origin, and the rotated coordinates are interpolated back onto
-        the original grid using cubic interpolation.
+        Rotate a 2D array by a specified angle in radians. This method rotates the input 2D array `df` using a rotation matrix constructed from the given angle. The rotation is performed around the origin, and the rotated coordinates are interpolated back onto the original grid using cubic interpolation.
+
             vx (jnp.ndarray): 1D array representing the grid points along each axis.
             df (jnp.ndarray): 2D array to be rotated.
             angle (float): Rotation angle in radians (counterclockwise).
             reshape (bool, optional): Whether to reshape the output array. Defaults to False.
+        
         Returns:
+            
             jnp.ndarray: The rotated and interpolated 2D array.
+        
         """
 
         rad_angle = jnp.deg2rad(-angle)
@@ -345,15 +377,20 @@ class FormFactor:
         Calculate the values of the susceptibility at a given point in the distribution function
 
         Args:
+            
             carry: container for
+                
                 x: 1D array
                 DF: 2D array
+            
             xs: container for
+                
                 element: angle in radians
                 xie_mag_at: float
                 klde_mag_at: float
 
         Returns:
+            
             fe_vphi: float, value of the projected distribution function at the point xie
             chiEI: float, value of the imaginary part of the electron susceptibility at the point xie
             chiERrat: float, value of the real part of the electron susceptibility at the point xie
@@ -368,15 +405,19 @@ class FormFactor:
         Calculate the values of the susceptibility at a given point in the distribution function
 
         Args:
+            
             carry: container for
+                
                 x: 1D array
                 DF: 2D array
                 inputs: container for
+                    
                     element: angle in radians
                     xie_mag_at: float
                     klde_mag_at: float
 
         Returns:
+            
             fe_vphi: float, value of the projected distribution function at the point xie
             chiEI: float, value of the imaginary part of the electron susceptibility at the point xie
             chiERrat: float, value of the real part of the electron susceptibility at the point xie
@@ -409,6 +450,7 @@ class FormFactor:
         Calculate the susceptibility values for all the desired points xie
 
         Args:
+            
             x: normalized velocity grid
             beta: angle of the k-vector form the x-axis
             DF: 2D array, distribution function
@@ -416,6 +458,7 @@ class FormFactor:
             klde_mag: magnitude of the wavevector time debye length where the calculations need to be performed
 
         Returns:
+            
             fe_vphi: projected distribution function
             chiEI: imaginary part of the electron susceptibility
             chiERrat: real part of the electron susceptibility
@@ -578,6 +621,9 @@ class FormFactor:
 
         chiE = chiERrat + 1j * chiEI
         epsilon = 1.0 + chiE + chiI
+
+        # #adds damping to mimic collisional damping and prevent divide by zero issues
+        # epsilon = epsilon - 0.1j
 
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])

@@ -23,6 +23,7 @@ Table of Contents
    Example Gallery<examples>
    Inputs<inputs>
    Defaults<defaults>
+   Background Algorithms<bg_algorithms>
    Forward<forward_pass>
    Fundamentals of Thomson Scattering<TS_fundamentals>
    FAQ
@@ -49,11 +50,3 @@ Indices and tables
 
 * :ref:`genindex`
 * :ref:`modindex`
-
-.. commenting search tab out since it is empty, and a search field has been added to the navigation bar
-    * :ref:`search`..
-
-.. TSADAR documentation master file, created by
-   sphinx-quickstart on Fri Nov 10 11:06:38 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.

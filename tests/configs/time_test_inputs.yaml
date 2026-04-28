@@ -18,6 +18,7 @@ parameters:
                     val: 3.0
                     lb: 2.0
                     ub: 5.0
+                    matte: false
             dim: 1
             nvx: 320
     ion-1:
@@ -60,7 +61,7 @@ parameters:
             lb: 0.
             ub: 10.
         lam:
-            val: 524.0
+            val: 526.5
             active: True
             lb: 523.
             ub: 528.

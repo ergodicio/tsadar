@@ -37,8 +37,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         if config["data"]["filenames"]["iaw"] is not None:
             custom_path = os.path.dirname(config["data"]["filenames"]["iaw-local"])
 
-    [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"]] = loadData(
-        config["data"]["shotnum"], config["data"]["shotDay"], config["other"]["extraoptions"], custom_path=custom_path
+    [elecData, ionData, xlab, t0, config["other"]["extraoptions"]["spectype"],config["other"]["CCDsize"]] = loadData(
+        shotNum, config["data"]["shotDay"], config["data"], custom_path=custom_path
     )
 
     # get scattering angles and weights
@@ -51,20 +51,19 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
     all_axes = {"epw_x": axisxE, "epw_y": axisyE, "iaw_x": axisxI, "iaw_y": axisyI, "x_label": xlab}
 
     # turn off ion or electron fitting if the corresponding spectrum was not loaded
-    if not config["other"]["extraoptions"]["load_ion_spec"]:
-        config["other"]["extraoptions"]["fit_IAW"] = 0
+    if not config["data"]["load_ion_spec"]:
+        config["data"]["fit_IAW"] = 0
         print("IAW data not loaded, omitting IAW fit")
-    if not config["other"]["extraoptions"]["load_ele_spec"]:
-        config["other"]["extraoptions"]["fit_EPWb"] = 0
-        config["other"]["extraoptions"]["fit_EPWr"] = 0
+    if not config["data"]["load_ele_spec"]:
+        config["data"]["fit_EPWb"] = 0
+        config["data"]["fit_EPWr"] = 0
         print("EPW data not loaded, omitting EPW fit")
-    # config["data"]["lineouts"]["start"]=start
     # Correct for spectral throughput
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         elecData = correctThroughput(elecData, config["other"]["extraoptions"]["spectype"], axisyE, shotNum)
         # temp fix for zeros
         elecData = elecData + 0.1
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         ionData = ionData + 0.1
 
     # load and correct background
@@ -194,7 +193,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
 
     # Lauch the data visualizer to show linout selection, not currently interactable
     if config["data"]["launch_data_visualizer"]:
-        launch_data_visualizer(elecData, ionData, all_axes, config)
+        launch_data_visualizer(elecData, ionData, all_data, all_axes, config)
 
     config["other"]["PhysParams"]["widIRF"] = stddev
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]

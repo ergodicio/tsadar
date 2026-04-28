@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 
-def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, filename, td, tag):
+def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, include_uncert, filename, td, tag):
     """
     Plots lineouts of data and their fits, along with residuals, and saves the figure to a file.
     Parameters:
@@ -36,6 +36,15 @@ def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, filenam
         ax[0][col].plot(
             yaxis[col][s_ind[col] : e_ind[col]], np.squeeze(data[col][s_ind[col] : e_ind[col]]), label="Data"
         )
+        # if include_uncert:
+            
+            # ax.fill_between(
+            #             yaxis[col][s_ind[col] : e_ind[col]],
+            #             ( np.squeeze(data[col][s_ind[col] : e_ind[col]]) - ),
+            #             ( np.squeeze(data[col][s_ind[col] : e_ind[col]]) + ),
+            #             color="b",
+            #             alpha=0.1,
+            #         )
         ax[0][col].plot(
             yaxis[col][s_ind[col] : e_ind[col]], np.squeeze(fits[col][s_ind[col] : e_ind[col]]), label="Fit"
         )
@@ -50,7 +59,7 @@ def lineout_plot(data, fits, sqdev, yaxis, ylim, s_ind, e_ind, titlestr, filenam
             yaxis[col][s_ind[col] : e_ind[col]], np.squeeze(sqdev[col][s_ind[col] : e_ind[col]]), label="Residual"
         )
         ax[1][col].set_xlabel("Wavelength (nm)")
-        ax[1][col].set_ylabel(r"$\chi_i^2$")
+        ax[1][col].set_ylabel("Residual")#(r"$\chi_i^2$")
 
     fig.savefig(os.path.join(td, tag, filename), bbox_inches="tight")
     plt.close(fig)

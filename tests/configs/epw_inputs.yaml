@@ -11,7 +11,7 @@ parameters:
             lb: 0.001
             ub: 1.0
         fe:
-            type: "DLM"
+            type: dlm
             dim: 1
             nvx: 128
             params:
@@ -19,6 +19,7 @@ parameters:
                     val: 2.0
                     ub: 5.0
                     lb: 2.0
+                    matte: false
 
     ion-1:
         Ti:
@@ -87,6 +88,11 @@ parameters:
             ub: 10.0
 
 data:
+    fit_EPWb: False
+    fit_EPWr: False
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: False
     shotnum: 101675
     lineouts:
         type:
@@ -109,11 +115,6 @@ feature_detector:
     spectral_end: 20
 other:
     extraoptions:
-        load_ion_spec: True
-        load_ele_spec: True
-        fit_IAW: True
-        fit_EPWb: False
-        fit_EPWr: False
         spectype: temporal
     PhysParams:
         widIRF:
