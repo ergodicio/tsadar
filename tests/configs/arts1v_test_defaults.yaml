@@ -81,11 +81,7 @@ other:
     TotalNumBin: 1023
     expandedions: False
     extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
+        spectype: None
     PhysParams:
         background: [0, 0]
         norm: 0

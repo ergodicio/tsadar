@@ -43,6 +43,7 @@ def test_epw():
             num_grad_points=config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
             ud_ang=None,
             va_ang=None,
+            calc_gain = {'calc': False},
         )
 
         sa = np.array([60])

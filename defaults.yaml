@@ -88,11 +88,6 @@ other:
     TotalNumBin: 1023
     expandedions: False
     extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
         plot_raw_data: False
     PhysParams:
         background: [0, 0]
@@ -117,6 +112,11 @@ plotting:
     
 
 data:
+    fit_EPWb: True
+    fit_EPWr: True
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: False
     launch_data_visualizer: False
     shotnum: 101675
     shotDay: False

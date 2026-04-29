@@ -8,7 +8,7 @@
 
 export SLURM_CPU_BIND="cores"
 export BASE_TEMPDIR="$PSCRATCH/tmp/"
-export MLFLOW_TRACKING_URI="$PSCRATCH/mlflow"
+export MLFLOW_TRACKING_URI="https://continuum.ergodic.io/experiments/"
 export MLFLOW_EXPORT=True
 
 # copy job stuff over

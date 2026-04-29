@@ -32,11 +32,11 @@ def get_shot_bg(config, shotNum, axisyE, elecData):
         [BGele, BGion, _, _, _] = loadData(
             config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
         )
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             BGion = conv2(BGion, np.ones([5, 3]) / 15, mode="same")
         else:
             BGion = 0
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             BGele = correctThroughput(
                 BGele, config["other"]["extraoptions"]["spectype"], axisyE, config["data"]["shotnum"]
             )
@@ -119,18 +119,18 @@ def get_lineout_bg(
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'Pixel'")
 
     # for electrons, if the background type is "fit" and the data type is not "angular"
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         # fit a background model to the edges of the lineout
-        if config["data"]["background"]["type"].casefold() == "fit":
-            if config["other"]["extraoptions"]["spectype"] != "angular":
-                # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
-                # should be checked in more situations
-
-                bgfitx = np.hstack([
+        bgfitx = np.hstack([
                     np.arange(config["data"]["background"]["bg_alg_domain"][0],
                                config["data"]["background"]["bg_alg_domain"][1]),
                                  np.arange(config["data"]["background"]["bg_alg_domain"][2],
                                            config["data"]["background"]["bg_alg_domain"][3])])
+        
+        if config["data"]["background"]["type"].casefold() == "fit":
+            if config["other"]["extraoptions"]["spectype"] != "angular":
+                # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
+                # should be checked in more situations
 
                 def exp2(x, a, b, c, d):
                     return a * np.exp(b * x) + c * np.exp(d * x)
@@ -155,10 +155,6 @@ def get_lineout_bg(
                 bgalg  = methods[config["data"]["background"]["bg_alg"]]
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                     [pvec, _] = spopt.curve_fit(bgalg, bgfitx, LineoutTSE_smooth[i][bgfitx], config["data"]["background"]["bg_alg_params"])
-                    # if config["data"]["background"]["show"]:
-                    #     plt.plot(rat11(np.arange(1024), *rat1bg))
-                    #     plt.plot(LineoutTSE_smooth[i])
-                    #     plt.show()
 
                     LineoutBGE.append(bgalg(np.arange(1024), *pvec))
         # if not fit use a pixel lineout with smoothing
@@ -170,42 +166,24 @@ def get_lineout_bg(
                 ],
                 1,
             )
-            LineoutBGE = np.convolve(LineoutBGE, np.ones(span) / span, "same")
-
+            #smooth the lineout to reduce high frequency noise
+            LineoutBGE = np.convolve(LineoutBGE, np.ones(config["data"]["background"]["bg_smoothing_window"]) / (config["data"]["background"]["bg_smoothing_window"]), "same")
+            
+            
             # replace background lineout with double exponential for extra smoothing
             if config["other"]["extraoptions"]["spectype"] != "angular":
-
-                def exp2(x, a, b, c, d):
-                    return a * np.exp(-b * x) + c * np.exp(-d * x)
-
-                bgfitx = np.hstack(
-                    [np.arange(250, 480), np.arange(540, 900)]
-                )  # this is specificaly targeted at streaked data, removes the fiducials at top and bottom and notch filter
-                bgfitx2 = np.hstack([np.arange(250, 300), np.arange(700, 900)])
-                plt.plot(bgfitx, LineoutBGE[bgfitx])
-
-                [expbg, _] = spopt.curve_fit(exp2, bgfitx, LineoutBGE[bgfitx], p0=[200, 0.001, 200, 0.001])
-                LineoutBGE = config["data"]["bgscaleE"] * exp2(np.arange(1024), *expbg)
-
                 # rescale background exponential using the edge of each data lineout
                 LineoutBGE_rescaled = []
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                     scale = spopt.minimize_scalar(
-                        lambda a: np.sum(abs(LineoutTSE_smooth[i][bgfitx2] - a * LineoutBGE[bgfitx2]))
+                        lambda a: np.sum(abs(LineoutTSE_smooth[i][bgfitx] - a * LineoutBGE[bgfitx]))
                     )
 
                     LineoutBGE_rescaled.append(scale.x * LineoutBGE)
 
                 LineoutBGE = np.array(LineoutBGE_rescaled)
-                # if config["data"]["background"]["show"]:
-                #     plt.plot(bgfitx, LineoutBGE[bgfitx])
-                #     plt.plot(bgfitx, scale.x * LineoutBGE[bgfitx])
-                #     plt.plot(bgfitx, exp2(bgfitx, 200, 0.001, 200, 0.001))
-                #     lin = np.mean((elecData - BGele)[:, 480 - config["data"]["dpixel"] : 480 + config["data"]["dpixel"]], 1)
-                #     plt.plot(bgfitx, lin[bgfitx])
-                #     plt.show()
 
-        # add background from background shot is applicable
+        # add background from background shot if applicable
         if np.shape(BGele) == tuple(config["other"]["CCDsize"]):
             LineoutBGE2 = [
                 np.mean(BGele[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
@@ -221,13 +199,13 @@ def get_lineout_bg(
     else:
         noiseE = np.zeros(len(config["data"]["lineouts"]["val"]))
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         # Due to the low background associated with IAWs the fitted background is only performed for the EPW
         if config["data"]["background"]["type"].casefold() == "fit":
             BackgroundPixel = config["data"]["background"]["slice"]
 
         # quantify a uniform background
-        noiseI = np.mean(
+        noiseI = np.sum(
             (ionData - BGion)[
                 :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"]
             ],

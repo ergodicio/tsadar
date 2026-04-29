@@ -165,10 +165,13 @@ napoleon_use_param = True
 napoleon_use_rtype = False
 
 autodoc_default_options = {
+    "members": True,
+    "undoc-members": True,
     "member-order": "bysource",
     "special-members": "__call__",
     "exclude-members": "__init__",
 }
+autosummary_generate = True
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
 
@@ -235,7 +238,7 @@ html_theme_options = {
     # remove secondary sidebar
     "secondary_sidebar_items": [],
     # "display_version": True,
-    "show_nav_level": 2,
+    "show_nav_level": 5,
     # "prev_next_buttons_location": "both",
     # "style_external_links": False,
     # "style_nav_header_background": "#3c4142",
@@ -255,10 +258,9 @@ html_theme_options = {
     # Toc options
     "collapse_navigation": True,
     # "sticky_navigation": True,
-    "navigation_depth": 2,
+    "navigation_depth": 5,
     # "includehidden": True,
     # "titles_only": False,
-    "use_issues_button": True,
 }
 
 
@@ -292,7 +294,7 @@ html_last_updated_fmt = "%b %d, %Y"
 html_use_smartypants = True
 
 # Custom sidebar templates, maps document names to template names.
-html_sidebars = {"**": ["globaltoc.html", "sidebar-nav-bs.html"]}
+html_sidebars = {"**": ["globaltoc.html", "page-toc.html"]}
 # html_sidebars = {
 #   "**": ["sbt-sidebar-nav.html", "sidebar-primary.html"]
 #    "**": ["sbt-sidebar-nav.html"]

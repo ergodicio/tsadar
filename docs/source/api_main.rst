@@ -3,25 +3,12 @@ API Documentation
 
 Note: This section is under heavy development and the API is very much subject to change
 
+.. .. autosummary::
+..    :toctree: generated
+..    :maxdepth: 3
 
 .. toctree::
-    :maxdepth: 2
-    :caption: High Level API:
+   :glob:
+   :maxdepth: 1
 
-    runner
-    fitter
-
-.. toctree::
-    :maxdepth: 2
-    :caption: Middle Level API:
-
-    ThomsonScattering
-    spectrum
-
-.. toctree::
-    :maxdepth: 2
-    :caption: Low Level API:
-
-    formfactor
-    fitmodel
-    ratintn
+   generated/*

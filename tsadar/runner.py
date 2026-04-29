@@ -8,6 +8,7 @@ from flatten_dict import flatten, unflatten
 from .inverse import fitter
 from .forward import calc_series
 from .utils import misc
+from .forward import calc_vs_data
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
@@ -139,6 +140,8 @@ def _run_(config: Dict, mode: str = "fit"):
         fit_results, loss = fitter.fit(config=config)
     elif mode == "forward" or mode == "series":
         calc_series.forward_pass(config=config)
+    elif mode == "interactive":
+        calc_vs_data.forward_pass(config=config)
     else:
         raise NotImplementedError(f"Mode {mode} not implemented")
 

@@ -18,6 +18,7 @@ parameters:
                     val: 3.0
                     lb: 2.0
                     ub: 5.0
+                    matte: false
             dim: 1
             nvx: 320
     ion-1:
@@ -37,6 +38,12 @@ parameters:
         fract:
             val: 1.0
             active: False
+        Va:
+            val: 0.0
+            angle: 0.0
+            active: False
+            lb: -20.5
+            ub: 20.5
     general:
         amp1:
             val: 1.
@@ -54,7 +61,7 @@ parameters:
             lb: 0.
             ub: 10.
         lam:
-            val: 524.0
+            val: 526.5
             active: True
             lb: 523.
             ub: 528.
@@ -76,13 +83,15 @@ parameters:
             active: False
             lb: -10.0
             ub: 10.0
-        Va:
-            val: 0.0
-            angle: 0.0
-            active: False
-            lb: -20.5
-            ub: 20.5
 
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 20
+    lineout_end: 20
+    spectral_start: 20
+    spectral_end: 20
 
 other:
     refit: False

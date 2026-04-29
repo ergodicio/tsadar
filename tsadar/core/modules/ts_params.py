@@ -4,6 +4,7 @@ from collections import defaultdict
 from jax import Array, numpy as jnp, tree_util as jtu
 from jax.nn import sigmoid
 import equinox as eqx
+from tsadar.utils.vector_tools import rotate
 
 from .distribution_functions.base import (
     DistributionFunction1V,
@@ -55,6 +56,7 @@ class ElectronParams(eqx.Module):
         List[DistributionFunction1V], List[DistributionFunction2V], DistributionFunction1V, DistributionFunction2V
     ]
     batch: bool
+    dist_rot: float
     act_funs: Dict[str, Callable]
     inv_act_funs: Dict[str, Callable]
 
@@ -83,6 +85,7 @@ class ElectronParams(eqx.Module):
         super().__init__()
 
         self.batch = batch
+        self.dist_rot = 0.0
 
         self.act_funs, self.inv_act_funs = {}, {}
         for param in ["Te", "ne"]:
@@ -214,6 +217,8 @@ class ElectronParams(eqx.Module):
                 "fe": self.distribution_functions(),
                 "v": self.distribution_functions.vx,
             }
+            if self.dist_rot != 0.0 and dist_params["fe"].ndim == 2:
+                dist_params["fe"] = rotate(dist_params["fe"], self.dist_rot/180.0*jnp.pi)
 
         return physical_params | dist_params
 
@@ -249,11 +254,14 @@ class IonParams(eqx.Module):
     """
     normed_Ti: Array
     normed_Z: Array
+    normed_Va: Array 
     fract: Array
     Ti_scale: float
     Ti_shift: float
     Z_scale: float
     Z_shift: float
+    Va_scale: float  
+    Va_shift: float  
     A: int
     act_funs: Dict[str, Callable]
     inv_act_funs: Dict[str, Callable]
@@ -280,7 +288,7 @@ class IonParams(eqx.Module):
         """
         super().__init__()
         self.act_funs, self.inv_act_funs = {}, {}
-        for param in ["Ti", "Z"]:
+        for param in ["Ti", "Z", "Va"]:  
             setattr(self, param + "_scale", cfg[param]["ub"] - cfg[param]["lb"])
             setattr(self, param + "_shift", cfg[param]["lb"])
             self.act_funs[param], self.inv_act_funs[param] = get_act_and_inv_act(cfg[param], activate)
@@ -294,11 +302,15 @@ class IonParams(eqx.Module):
             self.normed_Z = self.inv_act_funs["Z"](
                 jnp.full(batch_size, (cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
             )
+            self.normed_Va = self.inv_act_funs["Va"](
+                jnp.full(batch_size, (cfg["Va"]["val"] - self.Va_shift) / self.Va_scale)  
+            )
             self.A = jnp.full(batch_size, cfg["A"]["val"])
             self.fract = self.inv_act_funs["fract"](jnp.full(batch_size, cfg["fract"]["val"]))
         else:
             self.normed_Ti = self.inv_act_funs["Ti"]((cfg["Ti"]["val"] - self.Ti_shift) / self.Ti_scale)
             self.normed_Z = self.inv_act_funs["Z"]((cfg["Z"]["val"] - self.Z_shift) / self.Z_scale)
+            self.normed_Va = self.inv_act_funs["Va"]((cfg["Va"]["val"] - self.Va_shift) / self.Va_scale)  
             self.A = cfg["A"]["val"]
             self.fract = float(self.inv_act_funs["fract"](cfg["fract"]["val"]))
 
@@ -323,6 +335,7 @@ class IonParams(eqx.Module):
             "fract": self.act_funs["fract"](self.fract),
             "Ti": self.act_funs["Ti"](self.normed_Ti) * self.Ti_scale + self.Ti_shift,
             "Z": self.act_funs["Z"](self.normed_Z) * self.Z_scale + self.Z_shift,
+            "Va": self.act_funs["Va"](self.normed_Va) * self.Va_scale + self.Va_shift,
         }
 
 
@@ -400,7 +413,6 @@ class GeneralParams(eqx.Module):
     normed_ne_gradient: Array
     normed_Te_gradient: Array
     normed_ud: Array
-    normed_Va: Array
     lam_scale: float
     lam_shift: float
     amp1_scale: float
@@ -414,9 +426,7 @@ class GeneralParams(eqx.Module):
     Te_gradient_scale: float
     Te_gradient_shift: float
     ud_scale: float
-    ud_shift: float
-    Va_scale: float
-    Va_shift: float
+    ud_shift: float   
     act_funs: Dict[str, Callable]
 
     def __init__(self, cfg, batch_size: int, batch=True, activate=False):
@@ -424,7 +434,7 @@ class GeneralParams(eqx.Module):
 
         # this is all a bit ugly but we use setattr instead of = to be able to use the for loop
         self.act_funs, inv_act_funs = {}, {}
-        for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "Va"]:
+        for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud"]:   
             self.act_funs[param], inv_act_funs[param] = get_act_and_inv_act(cfg[param], activate)
             setattr(self, param + "_scale", cfg[param]["ub"] - cfg[param]["lb"])
             setattr(self, param + "_shift", cfg[param]["lb"])
@@ -432,7 +442,7 @@ class GeneralParams(eqx.Module):
         # this is where the linear and nonlinear transformations are applied i.e.
         # the rescaling and the activation function
         if batch:
-            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "Va"]:
+            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud"]:   
                 setattr(
                     self,
                     "normed_" + param,
@@ -444,7 +454,7 @@ class GeneralParams(eqx.Module):
                     ),
                 )
         else:
-            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "Va"]:
+            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud"]:   
                 setattr(
                     self,
                     "normed_" + param,
@@ -481,7 +491,6 @@ class GeneralParams(eqx.Module):
             self.act_funs["Te_gradient"](self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
         )
         unnormed_ud = self.act_funs["ud"](self.normed_ud) * self.ud_scale + self.ud_shift
-        unnormed_Va = self.act_funs["Va"](self.normed_Va) * self.Va_scale + self.Va_shift
 
         return {
             "lam": unnormed_lam,
@@ -490,8 +499,7 @@ class GeneralParams(eqx.Module):
             "amp3": unnormed_amp3,
             "ne_gradient": unnormed_ne_gradient,
             "Te_gradient": unnormed_Te_gradient,
-            "ud": unnormed_ud,
-            "Va": unnormed_Va,
+            "ud": unnormed_ud,  
         }
 
 
@@ -561,6 +569,36 @@ class ThomsonParams(eqx.Module):
             tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
 
         return tmp_dict
+    
+    def set_fe_to_matte(self, tmp_dict):
+        """
+        I looked into putting this in the distribution function definition but since it need information from the electron and all ions it had to be done last
+        """
+        zbar = 0
+        z2bar = 0
+        if "matte" in self.param_cfg['electron']['fe']['params']['m'] and self.param_cfg['electron']['fe']['params']['m']['matte']:
+            for ion_index in range(len(self.ions)):
+                zbar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]
+                z2bar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]**2
+            zeff = z2bar/zbar
+            lang = 0.042*self.param_cfg['electron']['fe']['params']['m']['intens']*zeff/( tmp_dict['electron']['Te']*9)
+            unnormed_m = 2+3/(1+1.66/lang**0.724)
+            
+            if self.electron.batch:
+                 dist_params = {
+                    "fe": jnp.concatenate([DLM1V.call_matte(self.electron.distribution_functions[i], unnormed_m[i])[None, :] for i in range(len(self.electron.distribution_functions))]),
+                }
+            else:
+                dist_params = {
+                    "fe": DLM1V.call_matte(self.electron.distribution_functions, unnormed_m),
+                }
+            
+            tmp_dict["electron"]["fe"] = dist_params["fe"]
+            if 'm' in tmp_dict['electron']:
+                tmp_dict['electron']['m'] = unnormed_m
+
+
+        return tmp_dict
 
     def get_unnormed_params(self):
         """
@@ -577,6 +615,7 @@ class ThomsonParams(eqx.Module):
         } | {f"ion-{i+1}": ion.get_unnormed_params() for i, ion in enumerate(self.ions)}
 
         tmp_dict = self.renormalize_ions(tmp_dict)
+        tmp_dict = self.set_fe_to_matte(tmp_dict)
 
         return tmp_dict
 
@@ -600,6 +639,7 @@ class ThomsonParams(eqx.Module):
             f"ion-{i+1}": ion() for i, ion in enumerate(self.ions)
         }
         tmp_dict = self.renormalize_ions(tmp_dict)
+        tmp_dict = self.set_fe_to_matte(tmp_dict)
         return tmp_dict
 
     def get_fitted_params(self, param_cfg):
@@ -638,7 +678,7 @@ class ThomsonParams(eqx.Module):
                         fitted_params[k][k2]['fvxvy']=temp_out['electron']['fe']
                         fitted_params[k][k2]['v']=temp_out['electron']['v']
                     pass
-                elif param_cfg[k][k2]["active"]:
+                elif k2 != "m" and param_cfg[k][k2]["active"]:
                     fitted_params[k][k2] = param_dict[k][k2]
                     num_params += 1
 
@@ -668,7 +708,7 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
                 if key == "fe":
                     filter_spec = get_distribution_filter_spec(filter_spec, dist_params=_params)
                 else:
-                    nkey = f"normed_{key}"
+                    nkey = f"normed_{key}" if key!="fract" else f"{key}"   # treat fractions differently
                     if "ion" in species:
                         filter_spec = eqx.tree_at(
                             lambda tree: getattr(getattr(tree, "ions")[ion_num - 1], nkey),

@@ -47,10 +47,11 @@ def test_data():
 
         # These are the best values as of 3/22/25 and represent a good fit (although potentially not as good as the matlab fit)
         # and have been rigourously investigated for any potential source of inaccuracy
+        # 4-24-26 the value for lam was changed from 524.016 to 526.5 to reflect an updated calibration for this shot day, other values were unchanged.
         real_values = {
             "amp1_general": 0.733,
             "amp2_general": 0.520,
-            "lam_general": 523.855,
+            "lam_general": 526.5,
             "Te_electron": 0.641,
             "ne_electron": 0.228,
             "m_electron": 3.20,

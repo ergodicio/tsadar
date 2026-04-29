@@ -37,6 +37,12 @@ parameters:
         fract:
             val: 0.1
             active: False
+        Va:
+            val: 0.0
+            angle: 0.0
+            active: False
+            lb: -20.5
+            ub: 20.5
 
     general:
         amp1:
@@ -77,27 +83,20 @@ parameters:
             active: False
             lb: -100.0
             ub: 100.0
-        Va:
-            val: 0.0
-            angle: 0.0
-            active: False
-            lb: -20.5
-            ub: 20.5
 
 other:
     expandedions: False
     extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
+        spectype: None
     PhysParams:
         background: [0, 0]
         norm: 0
     iawoff: 0
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
+    Ipump_14: 0
+    beam_diam_um: 100
+    include_gains: false
     flatbg: 0
     gain: 1
     points_per_pixel: 1
@@ -107,7 +106,12 @@ other:
     refit_thresh: 0.25
     calc_sigmas: False
 
-data:
+data:    
+    fit_EPWb: True
+    fit_EPWr: True
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: False    
     shotnum: 101675
     shotDay: False
     launch_data_visualizer: True
@@ -143,7 +147,14 @@ data:
         type:
             pixel
         slice: 900
-
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 20
+    lineout_end: 20
+    spectral_start: 20
+    spectral_end: 20
 plotting:
     n_sigmas: 3
     rolling_std_width: 5
