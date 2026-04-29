@@ -6,7 +6,7 @@ from jax import numpy as jnp, vmap, Array
 from jax.lax import scan
 from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
-from jax.scipy.special import gamma, sph_harm
+from jax.scipy.special import gamma, sph_harm_y
 from scipy.io import loadmat
 import equinox as eqx
 from tsadar.utils.vector_tools import rotate

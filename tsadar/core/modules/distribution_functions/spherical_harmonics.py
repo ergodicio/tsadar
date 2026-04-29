@@ -5,7 +5,7 @@ from functools import partial
 from jax import numpy as jnp, vmap, Array
 from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
-from jax.scipy.special import gamma, sph_harm
+from jax.scipy.special import gamma, sph_harm_y
 import equinox as eqx
 
 from .base import DistributionFunction2V, smooth1d
@@ -155,7 +155,7 @@ class SphericalHarmonics(DistributionFunction2V):
         vr (Array): Radial velocity grid.
         th (Array): Angular grid (theta) in velocity space.
         phi (Array): Angular grid (phi) in velocity space.
-        sph_harm (Callable): Vectorized spherical harmonics function.
+        sph_harm_y (Callable): Vectorized spherical harmonics function.
         vr_vxvy (Array): Radial grid in (vx, vy) coordinates.
         Nl (int): Maximum order of spherical harmonics expansion.
         flm (Dict[str, Dict[str, Callable]]): Dictionary of spherical harmonics coefficients.
@@ -182,7 +182,7 @@ class SphericalHarmonics(DistributionFunction2V):
     vr: Array
     th: Array
     phi: Array
-    sph_harm: Callable
+    sph_harm_y: Callable
     vr_vxvy: Array
     Nl: int
     flm: Dict[str, Dict[str, Callable]]
@@ -205,7 +205,7 @@ class SphericalHarmonics(DistributionFunction2V):
         self.vr_vxvy = jnp.sqrt(vx**2 + vy**2)
         self.Nl = dist_cfg["params"]["Nl"]
 
-        self.sph_harm = vmap(sph_harm, in_axes=(None, None, 0, 0, None))
+        self.sph_harm_y = vmap(sph_harm_y, in_axes=(None, None, 0, 0, None))
         self.flm = defaultdict(dict)
 
         init_m = dist_cfg["params"]["init_m"]
@@ -303,10 +303,10 @@ class SphericalHarmonics(DistributionFunction2V):
                 flm = self.flm[i][j](**kwargs)
 
                 _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, flm, right=1e-32)
-                _sph_harm = self.sph_harm(
+                _sph_harm_y = self.sph_harm_y(
                     jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2
                 ).reshape(self.vr_vxvy.shape, order="C")
-                fvxvy += _flmvxvy * jnp.real(_sph_harm)
+                fvxvy += _flmvxvy * jnp.real(_sph_harm_y)
 
         fvxvy = jnp.maximum(fvxvy, 1e-32)
         fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])
