@@ -6,7 +6,7 @@ from flatten_dict import flatten, unflatten
 import matplotlib.pyplot as plt
 
 config.update("jax_enable_x64", True)
-config.update("jax_disable_jit", True)
+# config.update("jax_disable_jit", True)
 
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
