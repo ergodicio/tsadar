@@ -19,3 +19,4 @@ interpax
 tabulate
 psutil
 equinox
+plotly

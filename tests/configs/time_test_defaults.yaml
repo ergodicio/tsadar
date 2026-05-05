@@ -44,8 +44,8 @@ data:
   ion_t0_shift: 0
   launch_data_visualizer: true
   lineouts:
-    end: 502
-    skip: 1
+    end: 510
+    skip: 5
     start: 500
     type: pixel
   probe_beam: P9
