@@ -26,11 +26,13 @@ def get_final_params(config, best_weights, all_axes, td):
     fitted_dist = False
     for species in best_weights.keys():
         for k, v in best_weights[species].items():
-            if k == "fe":
-                fitted_dist = True
-                dist[k] = v.squeeze()
-                dist["v"] = config["parameters"][species]["fe"]["velocity"]
-                #pass
+            if k in ["fe","f"]:
+                if config["parameters"][species]["fe"]["active"]:
+                    fitted_dist = True
+                    dist["fe"] = np.array(v).squeeze()
+                    dist["v"] = best_weights["electron"]["v"]
+                else:
+                    continue
             elif k =="flm":
                 fitted_dist = True
                 #need to turn this into a lop for when we go to higher orders
@@ -48,7 +50,7 @@ def get_final_params(config, best_weights, all_axes, td):
                 #     all_params[k] = pandas.Series(v.reshape(-1))
 
     final_params = pandas.DataFrame(all_params)
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         final_params.insert(0, all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]]))
         final_params.insert(0, "lineout pixel", config["data"]["lineouts"]["pixelI"])
     elif config["other"]["extraoptions"]["spectype"] != "angular_full":
@@ -89,34 +91,35 @@ def plot_final_params(config, all_params, sigmas_ds, td):
     """
     for species in all_params.keys():
         for param in all_params[species].keys():
-            vals = pandas.Series(all_params[species][param], dtype=float)
-            fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-            lineouts = np.array(config["data"]["lineouts"]["val"])
-            std = vals.rolling(config["plotting"]["rolling_std_width"], min_periods=1, center=True).std()
+            if param not in ["fe","f","v","flm0","flm10","flm11"]:
+                vals = pandas.Series(all_params[species][param], dtype=float)
+                fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+                lineouts = np.array(config["data"]["lineouts"]["val"])
+                std = vals.rolling(config["plotting"]["rolling_std_width"], min_periods=1, center=True).std()
 
-            ax.plot(lineouts, vals)
-            ax.fill_between(
-                lineouts,
-                (vals.values - config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
-                (vals.values + config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
-                color="b",
-                alpha=0.1,
-            )
-            ax.fill_between(
-                lineouts,
-                (vals.values - config["plotting"]["n_sigmas"] * std.values),
-                (vals.values + config["plotting"]["n_sigmas"] * std.values),
-                color="r",
-                alpha=0.1,
-            )
-            ax.set_xlabel("lineout", fontsize=14)
-            ax.grid()
-            #ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
-            ax.set_ylabel(param, fontsize=14)
-            fig.savefig(
-                os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
-                bbox_inches="tight",
-            )
+                ax.plot(lineouts, vals)
+                ax.fill_between(
+                    lineouts,
+                    (vals.values - config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
+                    (vals.values + config["plotting"]["n_sigmas"] * sigmas_ds[param + "_" + species].values),
+                    color="b",
+                    alpha=0.1,
+                )
+                ax.fill_between(
+                    lineouts,
+                    (vals.values - config["plotting"]["n_sigmas"] * std.values),
+                    (vals.values + config["plotting"]["n_sigmas"] * std.values),
+                    color="r",
+                    alpha=0.1,
+                )
+                ax.set_xlabel("lineout", fontsize=14)
+                ax.grid()
+                #ax.set_ylim(0.8 * np.min(vals), 1.2 * np.max(vals))
+                ax.set_ylabel(param, fontsize=14)
+                fig.savefig(
+                    os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
+                    bbox_inches="tight",
+                )
     return
 
 
@@ -181,7 +184,7 @@ def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     return red_losses
 
 
-def plot_dist(config, ele_species, final_params, sigma_fe, td):
+def plot_dist(config, final_params, sigma_fe, td):
     """
     Plots the fitted or used distribution function. For 1D distributions plots are does as line plots verse the 1D
     velocity. For 2D distributions a surface plot is shown as a function of the 2 velocities and contours are projected
@@ -197,11 +200,11 @@ def plot_dist(config, ele_species, final_params, sigma_fe, td):
     Returns:
     """
 
-    if config["parameters"][ele_species]["fe"]["dim"] == 1:
+    if config["parameters"]['electron']["fe"]["dim"] == 1:
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-        ax[0].plot(final_params["v"], final_params["fe"])
-        ax[1].plot(np.log10(np.exp(final_params["fe"])))
-        ax[2].plot(np.exp(final_params["fe"]))
+        ax[0].plot(final_params["v"], np.log(final_params["fe"]))
+        ax[1].plot(final_params["v"], np.log10(final_params["fe"]))
+        ax[2].plot(final_params["v"], final_params["fe"])
 
         if config["other"]["calc_sigmas"]:
             ax[0].fill_between(
@@ -462,7 +465,11 @@ def plot_ts_data(config, fits, all_data, all_axes, td):
 
     Returns:
     """
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    background_subtract = config["data"]["background"]["bg_subtract"]
+    if background_subtract:
+        all_data["e_data"] = all_data["e_data"] - all_data["noiseE"]
+        all_data["i_data"] = all_data["i_data"] - all_data["noiseI"]
+    if config["data"]["load_ion_spec"]:
         coords_x = all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]])
         coords_y = "Wavelength", all_axes["iaw_y"]
         coords = coords_x, coords_y
@@ -491,7 +498,7 @@ def plot_ts_data(config, fits, all_data, all_axes, td):
             name="fit_and_data_ion.png",
         )
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         coords = (all_axes["x_label"], np.array(all_axes["epw_x"][config["data"]["lineouts"]["pixelE"]])), (
             "Wavelength",
             all_axes["epw_y"],
@@ -554,8 +561,22 @@ def plot_2D_data_vs_fit(
     newcolors[:r, :] = lower
     newcmp = ListedColormap(newcolors)
 
-    vmin = np.amin(data) if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"]
-    vmax = np.amax(data) if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]
+    # Check if data is all zeros
+    data_all_zeros = np.all(data == 0)
+    if config["plotting"]["data_cbar_l"] == "data":
+        if data_all_zeros:
+            vmin = np.amin(fit)
+        else:
+            vmin = np.amin(data)
+    else:
+        vmin = config["plotting"]["data_cbar_l"]
+    if config["plotting"]["data_cbar_u"] == "data":
+        if data_all_zeros:
+            vmax = np.amax(fit)
+        else:
+            vmax = np.amax(data)
+    else:
+        vmax = config["plotting"]["data_cbar_u"]
 
     # Create fit and data image
     fig, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
@@ -646,7 +667,10 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
     sorted_sqdev = []
     yaxis = []
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["optimizer"]["loss_method"]=='covar':
+        include_data_uncert = True
+
+    if config["data"]["load_ele_spec"]:
         s_ind.append(np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"])))
         e_ind.append(np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"])))
         sorted_fits.append(fits["ele"]["total_spec"][loss_inds])
@@ -654,7 +678,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
         sorted_sqdev.append(sqdevs["ele"][loss_inds])
         yaxis.append(all_axes["epw_y"])
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         s_ind.append(np.argmin(np.abs(all_axes["iaw_y"] - config["plotting"]["ion_window_start"])))
         e_ind.append(np.argmin(np.abs(all_axes["iaw_y"] - config["plotting"]["ion_window_end"])))
         sorted_fits.append(fits["ion"]["total_spec"][loss_inds])
@@ -682,6 +706,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             s_ind,
             e_ind,
             titlestr,
+            False,
             filename,
             td,
             "worst",
@@ -705,6 +730,7 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             s_ind,
             e_ind,
             titlestr,
+            False,
             filename,
             td,
             "best",
@@ -742,14 +768,14 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         )
         filename = f"loss={losses[loss_inds[i]]:.2e}-reduced_loss={red_losses[loss_inds[i]]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[i]]}.png"
 
-        # if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
+        # if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
         #     num_col = 2
         # else:
         #     num_col = 1
         
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][0].plot(
@@ -791,7 +817,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
             ax[1][0].set_ylabel(r"$\chi_i^2$")
         
         
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][1].plot(
@@ -840,14 +866,14 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
         )
         filename = f"loss={losses[loss_inds[-1-i]]:.2e}-reduced_loss={red_losses[loss_inds[-1-i]]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[-1-i]]}.png"
 
-        # if config["other"]["extraoptions"]["load_ele_spec"] and config["other"]["extraoptions"]["load_ion_spec"]:
+        # if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
         #     num_col = 2
         # else:
         #     num_col = 1
 
         fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
     
-        if config["other"]["extraoptions"]["load_ele_spec"]:
+        if config["data"]["load_ele_spec"]:
             s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][0].plot(
@@ -888,7 +914,7 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
             ax[1][0].set_ylabel(r"$\chi_i^2$")
         
         
-        if config["other"]["extraoptions"]["load_ion_spec"]:
+        if config["data"]["load_ion_spec"]:
             #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
             #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
             ax[0][1].plot(

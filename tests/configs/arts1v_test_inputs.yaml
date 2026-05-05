@@ -32,12 +32,6 @@ parameters:
         active: False
         lb: -2.0
         ub: 2.0
-    Va:
-        val: 0.0
-        angle: 0.0
-        active: False
-        lb: -1.1
-        ub: 2.5
     ne_gradient:
         val: 0.
         active: False
@@ -59,6 +53,12 @@ parameters:
     A:
         val: 14.
         active: False
+    Va:
+        val: 0.0
+        angle: 0.0
+        active: False
+        lb: -1.1
+        ub: 2.5
   electron:
     Te:
         val: 1.0
@@ -84,6 +84,11 @@ parameters:
         nvx: 256
 
 data:
+    fit_EPWb: true
+    fit_EPWr: true
+    fit_IAW: false
+    load_ele_spec: true
+    load_ion_spec: false
     shotnum: 94475
     lineouts:
         type:
@@ -98,11 +103,6 @@ data:
 
 other:
     extraoptions:
-        load_ion_spec: False
-        load_ele_spec: True
-        fit_IAW: False
-        fit_EPWb: True
-        fit_EPWr: True
         spectype: angular
     PhysParams:
         widIRF:

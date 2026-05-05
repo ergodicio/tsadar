@@ -6,7 +6,7 @@ from flatten_dict import flatten, unflatten
 import matplotlib.pyplot as plt
 
 config.update("jax_enable_x64", True)
-config.update("jax_disable_jit", True)
+# config.update("jax_disable_jit", True)
 
 from scipy.signal import find_peaks
 from tsadar.core.physics.form_factor import FormFactor
@@ -43,6 +43,7 @@ def test_epw():
             num_grad_points=config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
             ud_ang=None,
             va_ang=None,
+            calc_gain = {'calc': False},
         )
 
         sa = np.array([60])

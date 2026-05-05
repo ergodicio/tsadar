@@ -8,29 +8,44 @@ from jax import numpy as jnp
 class FitModel:
     """
     FitModel is a class that wraps the FormFactor class to add finite aperture and finite volume effects for generating Thomson scattering spectra. It manages configuration options, handles multiple scattering angles, and supports both electron and ion features, including gradient effects and angular spectra.
-    Args:    
+
+    Args: 
+
         config (Dict): Configuration dictionary built from the input deck, containing all static and runtime parameters for spectrum generation.
         scattering_angles (Dict): Dictionary containing the scattering angles at which the spectrum will be calculated and the relative weights for each angle.
+
     Methods:
+
         __call__(all_params: Dict):
+
             Calculates Thomson spectra corrected for finite aperture and optionally including plasma gradients, based on the current parameter dictionary.
+
                 all_params (Dict): Dictionary of current values for all active and static parameters.
                 modlE: Electron plasma wave spectrum (array or int 0 if not loaded).
                 modlI: Ion acoustic wave spectrum (array or int 0 if not loaded).
                 lamAxisE: Wavelength axis for electron plasma wave (array or empty list if not loaded).
                 lamAxisI: Wavelength axis for ion acoustic wave (array or empty list if not loaded).
+
         ion_spectrum(all_params: Dict):
+
             Calculates the ion acoustic wave spectrum, applying finite aperture and angular weighting.
+                
                 all_params (Dict): Parameter dictionary.
                 lamAxisI: Wavelength axis for ion acoustic wave.
                 modlI: Ion acoustic wave spectrum.
+        
         electron_spectrum(all_params: Dict):
+            
             Calculates the electron plasma wave spectrum, applying finite aperture, angular weighting, and optional filtering.
+                
                 all_params (Dict): Parameter dictionary.
                 lamAxisE: Wavelength axis for electron plasma wave.
                 modlE: Electron plasma wave spectrum.
+        
         detailed_spectrum(all_params: Dict):
+            
             Calculates both the total spectrum and all its components for postprocessing.
+                
                 all_params (Dict): Parameter dictionary.
                 modlE: Electron plasma wave spectrum.
                 modlI: Ion acoustic wave spectrum.
@@ -38,18 +53,25 @@ class FitModel:
                 ThryI: Detailed ion spectrum components.
                 lamAxisE: Wavelength axis for electron plasma wave.
                 lamAxisI: Wavelength axis for ion acoustic wave.
+        
         ion_spectrum_detailed(all_params: Dict):
+            
             Calculates the detailed ion acoustic wave spectrum and its components.
+                
                 all_params (Dict): Parameter dictionary.
                 lamAxisI: Wavelength axis for ion acoustic wave.
                 modlI: Ion acoustic wave spectrum.
                 ThryI: Detailed ion spectrum components.
+        
         electron_spectrum_detailed(all_params: Dict):
+            
             Calculates the detailed electron plasma wave spectrum and its components, with optional filtering.
+                
                 all_params (Dict): Parameter dictionary.
                 lamAxisE: Wavelength axis for electron plasma wave.
                 modlE: Electron plasma wave spectrum.
                 ThryE: Detailed electron spectrum components.
+
     """
 
     def __init__(self, config: Dict, scattering_angles: Dict):
@@ -86,6 +108,12 @@ class FitModel:
             if config["parameters"]["electron"]["fe"]["dim"] < 2
             else config["parameters"]["general"]["Va"]["angle"]
         )
+
+        if 'include_gains' in config["other"] and config["other"]["include_gains"]:
+            calc_gain = {'calc': config["other"]["include_gains"], 'Ipump': config["other"]["Ipump_14"], 'beam_diam_um': config["other"]["beam_diam_um"]}
+        else:
+            calc_gain = {'calc': False, 'Ipump': 0, 'beam_diam_um': 0}
+
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
@@ -94,6 +122,7 @@ class FitModel:
             num_grad_points=num_grad_points,
             va_ang=va_angle,
             ud_ang=ud_angle,
+            calc_gain=calc_gain,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -103,6 +132,7 @@ class FitModel:
             num_grad_points=num_grad_points,
             va_ang=va_angle,
             ud_ang=ud_angle,
+            calc_gain=calc_gain,
         )
 
     def __call__(self, all_params: Dict):
@@ -114,21 +144,18 @@ class FitModel:
 
 
         Args:
-            all_params: Parameter dictionary containing the current values for all active and static parameters. Only a
-                few permanently static properties from the configuration dictionary will be used, everything else must
-                be included in this input.
+
+            all_params: Parameter dictionary containing the current values for all active and static parameters. Only a few permanently static properties from the configuration dictionary will be used, everything else must be included in this input.
 
         Returns:
-            modlE: calculated electron plasma wave spectrum as an array with length of npts. If an angular spectrum is
-                calculated then it will be 2D. If the EPW is not loaded this is returned as the int 0.
-            modlI: calculated ion acoustic wave spectrum as an array with length of npts. If the IAW is not loaded this
-                is returned as the int 0.
-            lamAxisE: electron plasma wave wavelength axis as an array with length of npts. If the EPW is not loaded
-                this is returned as an empty list.
-            lamAxisI: ion acoustic wave wavelength axis as an array with length of npts. If the IAW is not loaded
-                this is returned as an empty list.
+            
+            modlE: calculated electron plasma wave spectrum as an array with length of npts. If an angular spectrum is calculated then it will be 2D. If the EPW is not loaded this is returned as the int 0.
+            modlI: calculated ion acoustic wave spectrum as an array with length of npts. If the IAW is not loaded this is returned as the int 0.
+            lamAxisE: electron plasma wave wavelength axis as an array with length of npts. If the EPW is not loaded this is returned as an empty list.
+            lamAxisI: ion acoustic wave wavelength axis as an array with length of npts. If the IAW is not loaded this is returned as an empty list.
             all_params: The input all_params is returned
 
+            
         """
 
         lamAxisI, modlI = self.ion_spectrum(all_params)
@@ -152,7 +179,7 @@ class FitModel:
             - The spectrum is averaged and weighted by the scattering angles.
             - If 'load_ion_spec' is disabled, returns zeros for both outputs.
         """
-        if self.config["other"]["extraoptions"]["load_ion_spec"]:
+        if self.config["data"]["load_ion_spec"]:
 
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryI, lamAxisI = self.ion_form_factor(all_params)
@@ -173,15 +200,20 @@ class FitModel:
         Computes the electron spectrum based on the provided parameters and configuration.
         This method also applies optional filters or modifications such as
         suppressing the ion feature or applying an IAW (ion-acoustic wave) filter.
+        
         Parameters:
-            all_params (dict): Dictionary containing all relevant parameters for spectrum generation,
-                including general and electron-specific settings.
+            
+            all_params (dict): Dictionary containing all relevant parameters for spectrum generation,including general and electron-specific settings.
+        
         Returns:
+            
             tuple:
+                
                 lamAxisE (jnp.ndarray or list): The wavelength axis for the electron spectrum, rescaled to nanometers.
                 modlE (jnp.ndarray or int): The processed electron spectrum model. Returns 0 if spectrum loading is disabled.
+
         """
-        if self.config["other"]["extraoptions"]["load_ele_spec"]:
+        if self.config["data"]["load_ele_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryE, lamAxisE = self.electron_form_factor(all_params)
             elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
@@ -221,20 +253,20 @@ class FitModel:
 
     def detailed_spectrum(self, all_params: Dict):
         """
-        Calculates detailed spectra for both electron plasma waves (EPW) and ion acoustic waves (IAW), including their
-        wavelength axes and theoretical components, for postprocessing analysis.
-        This method produces both the total spectrum and all its components for EPWs and IAWs, using the provided parameter
-        dictionary. It is intended for postprocessing and requires all relevant parameters to be included in the input.
+        Calculates detailed spectra for both electron plasma waves (EPW) and ion acoustic waves (IAW), including their wavelength axes and theoretical components, for postprocessing analysis. This method produces both the total spectrum and all its components for EPWs and IAWs, using the provided parameter dictionary. It is intended for postprocessing and requires all relevant parameters to be included in the input.
         Args:
-            all_params (Dict): Dictionary containing current values for all active and static parameters. Most configuration
-                properties must be included in this input, except for a few permanently static ones.
+            
+            all_params (Dict): Dictionary containing current values for all active and static parameters. Most configuration properties must be included in this input, except for a few permanently static ones.
+        
         Returns:
+            
             modlE (np.ndarray or int): Calculated electron plasma wave spectrum as an array of length npts, or 0 if EPW is not loaded.
             modlI (np.ndarray or int): Calculated ion acoustic wave spectrum as an array of length npts, or 0 if IAW is not loaded.
             ThryE (np.ndarray): Theoretical components of the electron plasma wave spectrum.
             ThryI (np.ndarray): Theoretical components of the ion acoustic wave spectrum.
             lamAxisE (np.ndarray or list): Wavelength axis for the electron plasma wave spectrum, or empty list if EPW is not loaded.
             lamAxisI (np.ndarray or list): Wavelength axis for the ion acoustic wave spectrum, or empty list if IAW is not loaded.
+        
         """
 
         lamAxisI, modlI, ThryI = self.ion_spectrum_detailed(all_params)
@@ -248,15 +280,22 @@ class FitModel:
         If the 'load_ion_spec' option is enabled, it computes the theoretical ion spectrum and corresponding wavelength axis.
         The results are processed by removing extra dimensions, rescaling the wavelength axis to nanometers, and averaging
         over the theoretical spectrum. If the option is disabled, it returns zeros.
+        
         Args:
+            
             all_params (dict): Dictionary containing all necessary parameters for spectrum calculation.
+        
         Returns:
+            
             tuple:
+                
                 lamAxisI (jnp.ndarray): Wavelength axis for the ion spectrum (in nanometers).
                 modlI (jnp.ndarray or int): Processed ion spectrum model or 0 if not loaded.
                 ThryI (jnp.ndarray or int): Theoretical ion spectrum or 0 if not loaded.
+        
         """
-        if self.config["other"]["extraoptions"]["load_ion_spec"]:
+        
+        if self.config["data"]["load_ion_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryI, lamAxisI = self.ion_form_factor(all_params)
             elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
@@ -274,27 +313,31 @@ class FitModel:
 
     def electron_spectrum_detailed(self, all_params):
         """
-        Computes the detailed electron spectrum based on the provided parameters and configuration.
-        This method generates the electron spectrum using either 1D or 2D electron form factors,
-        applies various configuration-based modifications (such as angular weighting, ion feature suppression,
-        and filtering), and returns the processed wavelength axis, the modeled electron spectrum, and the
-        theoretical electron form factor.
+        Computes the detailed electron spectrum based on the provided parameters and configuration. This method generates the electron spectrum using either 1D or 2D electron form factors, applies various configuration-based modifications (such as angular weighting, ion feature suppression, and filtering), and returns the processed wavelength axis, the modeled electron spectrum, and the theoretical electron form factor.
+        
         Parameters:
-            all_params (dict): Dictionary containing all relevant parameters for spectrum generation,
-                including general and electron-specific settings.
+            
+            all_params (dict): Dictionary containing all relevant parameters for spectrum generation,including general and electron-specific settings.
+        
         Returns:
+            
             tuple:
+                
                 lamAxisE (array-like): The wavelength axis (in nm) for the electron spectrum.
                 modlE (array-like or int): The processed/model electron spectrum. Returns 0 if not loaded.
                 ThryE (array-like or int): The theoretical electron form factor. Returns 0 if not loaded.
+        
         Notes:
+            
             - The method behavior is controlled by the configuration dictionary (`self.config`), which determines
               whether to load the electron spectrum, the dimensionality of the electron form factor, and various
               spectrum modifications (e.g., angular weighting, ion feature suppression, filtering).
             - Some operations are hardcoded (e.g., wavelength offsets for ion feature suppression).
             - If the spectrum is not loaded (`load_ele_spec` is False), returns zeros and an empty wavelength axis.
+        
         """
-        if self.config["other"]["extraoptions"]["load_ele_spec"]:
+        
+        if self.config["data"]["load_ele_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryE, lamAxisE_orig = self.electron_form_factor(all_params)
             elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:

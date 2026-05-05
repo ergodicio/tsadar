@@ -27,15 +27,16 @@ class ThomsonScatteringDiagnostic:
         self.scattering_angles = scattering_angles
         self.model = FitModel(cfg, scattering_angles)
 
-        if (
+        if ("angular" in cfg["other"]["extraoptions"]["spectype"] 
+            or "_interactive" in cfg["other"]["extraoptions"]["spectype"]):
+            pass
+        elif (
             "temporal" in cfg["other"]["extraoptions"]["spectype"]
             or "imaging" in cfg["other"]["extraoptions"]["spectype"]
             or "1d" in cfg["other"]["extraoptions"]["spectype"]
         ):
             self.model = vmap(self.model)
             self.postprocess_theory = vmap(self.postprocess_theory)
-        elif "angular" in cfg["other"]["extraoptions"]["spectype"]:
-            pass
         else:
             raise NotImplementedError(f"Unknown spectype: {cfg['other']['extraoptions']['spectype']}")
 
@@ -58,12 +59,12 @@ class ThomsonScatteringDiagnostic:
             lamAxisI: IAW wavelength axis
 
         """
-        if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
+        if self.cfg["data"]["load_ion_spec"]:
             lamAxisI, ThryI = irf.add_ion_IRF(self.cfg, lamAxisI, modlI, amps["i_amps"], TSins)
         else:
             ThryI = modlI
 
-        if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
+        if self.cfg["data"]["load_ele_spec"]:
             if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
                 lamAxisE, ThryE = irf.add_ATS_IRF(
                     self.cfg, self.scattering_angles, lamAxisE, modlE, amps["e_amps"], TSins
@@ -178,7 +179,7 @@ class ThomsonScatteringDiagnostic:
         # add the IRF to a delta function of the peak locations to produce a IRF only plot
 
         eIRF = jnp.zeros_like(modlE)
-        if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
+        if self.cfg["data"]["load_ele_spec"]:
             for i in range(jnp.shape(modlE)[0]):
                 peaksE, propertiesE = find_peaks(modlE[i], prominence=0.1)
                 eIRF = eIRF.at[i, peaksE[jnp.argmax(propertiesE["prominences"])]].set(1.0)
@@ -186,7 +187,7 @@ class ThomsonScatteringDiagnostic:
                     eIRF = eIRF.at[i, peaksE[jnp.argpartition(propertiesE["prominences"], -2)[-2]]].set(1.0)
 
         iIRF = jnp.zeros_like(modlI)
-        if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
+        if self.cfg["data"]["load_ion_spec"]:
             for i in range(jnp.shape(modlI)[0]):
                 try:
                     peaksI, propertiesI = find_peaks(modlI[i], prominence=0.1)
@@ -206,10 +207,10 @@ class ThomsonScatteringDiagnostic:
         modlE = modlE + batch["noise_e"]
         modlI = modlI + batch["noise_i"]
 
-        if self.cfg["other"]["extraoptions"]["load_ele_spec"]:
+        if self.cfg["data"]["load_ele_spec"]:
             ThryE = jnp.reshape(batch["e_amps"], (-1, 1, 1, 1)) * ThryE / jnp.amax(ThryE)
             eIRF = jnp.reshape(batch["e_amps"], (-1, 1)) * eIRF / jnp.amax(eIRF)
-        if self.cfg["other"]["extraoptions"]["load_ion_spec"]:
+        if self.cfg["data"]["load_ion_spec"]:
             ThryI = jnp.reshape(batch["i_amps"], (-1, 1, 1, 1)) * ThryI / jnp.amax(ThryI)
             iIRF = jnp.reshape(batch["i_amps"], (-1, 1)) * iIRF / jnp.amax(iIRF)
 

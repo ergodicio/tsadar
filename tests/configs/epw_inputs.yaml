@@ -11,7 +11,7 @@ parameters:
             lb: 0.001
             ub: 1.0
         fe:
-            type: "DLM"
+            type: dlm
             dim: 1
             nvx: 128
             params:
@@ -19,6 +19,7 @@ parameters:
                     val: 2.0
                     ub: 5.0
                     lb: 2.0
+                    matte: false
 
     ion-1:
         Ti:
@@ -38,6 +39,13 @@ parameters:
         fract:
             val: 1.0
             active: False
+
+        Va:
+            val: 0.0
+            angle: 0.0
+            active: True
+            lb: -20.5
+            ub: 20.5
 
     general:
         amp1:
@@ -78,14 +86,13 @@ parameters:
             active: False
             lb: -10.0
             ub: 10.0
-        Va:
-            val: 0.0
-            angle: 0.0
-            active: True
-            lb: -20.5
-            ub: 20.5
 
 data:
+    fit_EPWb: False
+    fit_EPWr: False
+    fit_IAW: False
+    load_ele_spec: True
+    load_ion_spec: False
     shotnum: 101675
     lineouts:
         type:
@@ -98,14 +105,16 @@ data:
             pixel
         slice: 900
         show: False
-
+feature_detector:
+  estimate_lineouts_iaw: false
+  estimate_lineouts_epw: false
+  buffer:
+    lineout_start: 20
+    lineout_end: 20
+    spectral_start: 20
+    spectral_end: 20
 other:
     extraoptions:
-        load_ion_spec: True
-        load_ele_spec: True
-        fit_IAW: True
-        fit_EPWb: False
-        fit_EPWr: False
         spectype: temporal
     PhysParams:
         widIRF:

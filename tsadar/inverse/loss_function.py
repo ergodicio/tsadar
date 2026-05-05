@@ -86,8 +86,10 @@ class LossFunction:
         self.cfg = cfg
 
         if cfg["optimizer"]["y_norm"]:
-            self.i_norm = np.amax(dummy_batch["i_data"])
-            self.e_norm = np.amax(dummy_batch["e_data"])
+            self.i_norm = np.amax(dummy_batch["i_amps"])
+            self.e_norm = np.amax(dummy_batch["e_amps"])
+            # self.i_norm = np.amax(dummy_batch["i_data"])
+            # self.e_norm = np.amax(dummy_batch["e_data"])
         else:
             self.i_norm = self.e_norm = 1.0
 
@@ -96,6 +98,24 @@ class LossFunction:
             self.e_input_norm = np.amax(dummy_batch["e_data"])
         else:
             self.i_input_norm = self.e_input_norm = 1.0
+
+        if cfg["optimizer"]["loss_method"] == "covar":
+                self.sig_px = 1.0 #this is device specific and can be left hardcoded
+                self.sig_rn = 17.0 # this is from the background of the camera and should be derived from the data image
+                self.n = 2 * cfg["data"]["dpixel"] + 1
+                self.G = 108
+                self.F2 = 1.15
+
+                self.num_free_params = sum(
+                    p["active"]
+                    for category in cfg["parameters"].values()
+                    for p in category.values()
+                    if isinstance(p, dict) and "active" in p
+                )*cfg["optimizer"]["batch_size"]
+                # CCD spread function
+                a, b = np.meshgrid(np.linspace(-5*self.sig_px, 5*self.sig_px, int(10*self.sig_px+1)), 
+                            np.linspace(-5*self.sig_px, 5*self.sig_px, int(10*self.sig_px+1)))
+                self.g = 1 / (2 * np.pi * self.sig_px**2) * np.exp(-(a**2 + b**2) / (2 * self.sig_px**2))
 
         # boolean used to determine if the analyis is performed twice with rotation of the EDF
         self.multiplex_ang = isinstance(cfg["data"]["shotnum"], list)
@@ -151,6 +171,7 @@ class LossFunction:
 
             diff_weights = self.unravel_weights(diff_weights)
             (value, aux), grad = self._vg_func_(diff_weights, static_weights, batch)
+            self.aux = aux
 
             # if "fe" in grad:
             #     grad["fe"] = self.cfg["optimizer"]["grad_scalar"] * grad["fe"]
@@ -219,7 +240,7 @@ class LossFunction:
         e_data = batch["e_data"]
         sqdev = {"ele": jnp.zeros(e_data.shape), "ion": jnp.zeros(i_data.shape)}
 
-        if self.cfg["other"]["extraoptions"]["fit_IAW"]:
+        if self.cfg["data"]["fit_IAW"]:
             _error_ = self.loss_functionals(i_data, ThryI, uncert[0], method=self.cfg["optimizer"]["loss_method"])
             _error_ = jnp.where(
                 (
@@ -234,10 +255,18 @@ class LossFunction:
                 jnp.nan,
             )
 
-            i_error += reduce_func(_error_)
+            if self.cfg["optimizer"]["loss_method"] == "covar":
+                k = self.calculate_covariance_matrix(i_data)  # This function needs to be defined to compute the covariance matrix based on the data
+                norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
+                print(norm)
+                _error_ = jnp.nan_to_num(_error_)
+                x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
+                i_error += jnp.sum(jnp.vecdot(_error_, x))/norm
+            else:
+                i_error += reduce_func(_error_)
             sqdev["ion"] = jnp.nan_to_num(_error_)
 
-        if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
+        if self.cfg["data"]["fit_EPWb"]:
             _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
             _error_ = jnp.where(
                 (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
@@ -246,10 +275,20 @@ class LossFunction:
                 jnp.nan,
             )
 
-            e_error += reduce_func(_error_)
-            sqdev["ele"] += jnp.nan_to_num(_error_)
+            if self.cfg["optimizer"]["loss_method"] == "covar":
+                k = self.calculate_covariance_matrix(ThryE)  # This function needs to be defined to compute the covariance matrix based on the data
+                norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
+                print(norm)
+                _error_ = jnp.nan_to_num(_error_)
+                x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
+                print(x)
+                e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
+                print(e_error)
+            else:
+                e_error += reduce_func(_error_)
+            sqdev["ele"] = jnp.nan_to_num(_error_)
 
-        if self.cfg["other"]["extraoptions"]["fit_EPWr"]:
+        if self.cfg["data"]["fit_EPWr"]:
             _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
             _error_ = jnp.where(
                 (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
@@ -258,8 +297,17 @@ class LossFunction:
                 jnp.nan,
             )
 
-            e_error += reduce_func(_error_)
-            if self.cfg["other"]["extraoptions"]["fit_EPWb"]:
+            if self.cfg["optimizer"]["loss_method"] == "covar":
+                k = self.calculate_covariance_matrix(ThryE)  # This function needs to be defined to compute the covariance matrix based on the data
+                norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
+                print(norm)
+                _error_ = jnp.nan_to_num(_error_)
+                x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
+                e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
+            else:
+                e_error += reduce_func(_error_)
+            
+            if self.cfg["data"]["fit_EPWb"]:
                 # the set e_error to the true mean if both sides are fit
                 e_error *= 1.0 / 2.0
             sqdev["ele"] += jnp.nan_to_num(_error_)
@@ -287,12 +335,15 @@ class LossFunction:
         if self.multiplex_ang:
             # params has been replace with the new ts_params but behavior has not been checked 2-20-25
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch["b1"])
-            # jax.debug.print("fe size {e_error}", e_error=jnp.shape(params["electron"]['fe']))
-            ts_params["electron"]["fe"] = rotate(
-                jnp.squeeze(ts_params["electron"]["fe"]), self.cfg["data"]["shot_rot"] * jnp.pi / 180.0
-            )
+            
+            ts_params_rot = eqx.tree_at(lambda tree: tree.electron.dist_rot, ts_params, self.cfg["data"]["shot_rot"])
+            ThryE_rot, _, _, _ = self.ts_diag(ts_params_rot, batch["b2"])
 
-            ThryE_rot, _, _, _ = self.ts_diag(ts_params, batch["b2"])
+            if denom == []:
+                #50 is added to prevent divide by zero errors but should be updated to be more rigorous, this is roughly consistent with the noise
+                denom = [ThryI+50.0, ThryE+50.0]
+
+            ThryE_rot, _, _, _ = self.ts_diag(ts_params_rot, batch["b2"])
             i_error1, e_error1, sqdev = self.calc_ei_error(
                 batch["b1"],
                 ThryI,
@@ -368,7 +419,7 @@ class LossFunction:
 
         weights = eqx.combine(static_weights, diff_weights)
         total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(
-            weights, batch, denom=[jnp.square(self.i_norm), jnp.square(self.e_norm)], reduce_func=jnp.nanmean
+            weights, batch, denom=[jnp.abs(self.i_norm), jnp.abs(self.e_norm)], reduce_func=jnp.nanmean
         )
         return total_loss, [ThryE, params]
 
@@ -415,6 +466,9 @@ class LossFunction:
             _error_ = jnp.log(jnp.cosh(d - t))
         elif method == "poisson":
             _error_ = t - d * jnp.log(t)
+        elif method == "covar":
+            _error_ = d - t
+            #here the rest of the math is done in the calc_ei_error function because the fit ranges must be applied before the matrix multiplication
         return _error_
 
     def penalties(self, weights):
@@ -574,3 +628,20 @@ class LossFunction:
             momentum_loss = 0.0
             # print(temperature_loss)
         return density_loss, temperature_loss, momentum_loss
+    
+    def calculate_covariance_matrix(self,data):
+        # function to calculate the covariance matrix based on the theoretical values following
+        # the method describe in George's RSI
+
+        # Calculate noise (here it is done with the signal but it should be done with the model)
+        sig_s = jnp.sqrt(data * self.G * self.F2)
+
+        eye = jnp.eye(jnp.shape(data)[-1])
+        #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
+        k_noise = jnp.zeros((jnp.shape(data)[0], jnp.shape(eye)[0], jnp.shape(eye)[1]))
+        for i in range(jnp.shape(data)[0]):
+            slice_noise=jax.scipy.signal.convolve2d(eye * sig_s[i]**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
+            k_noise=k_noise.at[i,:,:].set(slice_noise)
+        #k_noise = jax.scipy.signal.convolve2d(eye * sig_s**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
+        
+        return k_noise

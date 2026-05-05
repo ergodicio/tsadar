@@ -1,6 +1,8 @@
 jax
 numpy
 scipy
+opencv-python
+scikit-image
 matplotlib
 xlrd
 pyyaml
@@ -17,3 +19,4 @@ interpax
 tabulate
 psutil
 equinox
+plotly

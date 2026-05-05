@@ -5,7 +5,7 @@ from functools import partial
 from jax import numpy as jnp, vmap, Array
 from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
-from jax.scipy.special import gamma, sph_harm
+from jax.scipy.special import gamma, sph_harm_y
 import equinox as eqx
 
 from .base import DistributionFunction2V, smooth1d
@@ -13,21 +13,31 @@ from .base import DistributionFunction2V, smooth1d
 
 class FLM_NN(eqx.Module):
     """
-    A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`.
-    This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
+    A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`. This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
+
     Attributes:
+        
         flm_mag (eqx.nn.MLP): MLP that predicts the (logarithmic) magnitude of the FLM coefficients.
         flm_sign (eqx.nn.MLP): MLP that predicts the sign of the FLM coefficients.
         vr (Array): Radial velocity array over which the FLM coefficients are evaluated.
+    
     Args:
+        
         vr (Array): The radial velocity array.
+    
     Methods:
+        
         __call__(**kwargs):
+            
             Computes the FLM coefficients for the given input.
             Args:
+                
                 f00 (float or Array): The normalization factor for the magnitude.
+            
             Returns:
+                
                 flm (Array): The computed FLM coefficients as a function of `vr`.
+    
     """
     flm_mag: eqx.nn.MLP
     flm_sign: eqx.nn.MLP
@@ -51,46 +61,27 @@ class FLM_NN(eqx.Module):
 
 class FLM_MY(eqx.Module):
     """
-    A module for computing the first-order Legendre moment (FLM) of a distribution function
-    using the model from Mora & Yahi (1982) for thermal heat-flux reduction in laser-produced plasmas.
-    Parameters
-    ----------
-    vr : Array
-        Array of velocity values (normalized to thermal velocity).
-    LT : float
-        Gradient scale length (in units of mean free path).
-    Attributes
-    ----------
-    vr : Array
-        Array of velocity values.
-    log_10_LT : float
-        Base-10 logarithm of the gradient scale length.
-    Methods
-    -------
-    __call__(**kwargs)
-        Computes the FLM coefficient for the given distribution parameters.
-        Parameters
-        ----------
-        m_f0 : float
-            Super-gaussian order controlling the shape of the distribution function.
-        f00 : float or Array
-            Zeroth-order distribution function value(s).
-        Returns
-        -------
-        coeff : float or Array
-            The computed FLM coefficient, normalized by the gradient scale length and f00.
-    References
-    ----------
-    Mora, P. & Yahi, H. (1982). Thermal heat-flux reduction in laser-produced plasmas.
-    Phys. Rev. A 26, 2259–2261.
+    Compute the first-order Legendre moment (FLM) of a distribution function.
+
+    This module uses the Mora & Yahi (1982) model for thermal heat-flux reduction
+    in laser-produced plasmas.
+
+    Attributes:
+        vr (Array): Array of velocity values (normalized to thermal velocity).
+        dt (float): Time step or scaling factor applied to the FLM coefficient.
+
+    References:
+        Mora, P. & Yahi, H. (1982). Thermal heat-flux reduction in laser-produced plasmas.
+        Phys. Rev. A 26, 2259–2261.
     """
     vr: Array
-    log_10_LT: float
+    #log_10_LT: float
+    dt: float
 
-    def __init__(self, vr: Array, LT: float):
+    def __init__(self, vr: Array, dt: float):
         super().__init__()
         self.vr = vr
-        self.log_10_LT = jnp.log10(LT)
+        self.dt = dt
 
     def __call__(self, **kwargs):
         m_f0 = kwargs["m_f0"]
@@ -98,20 +89,25 @@ class FLM_MY(eqx.Module):
 
         # Uses eq. 3 from
         # Mora, P. & Yahi, H. Thermal heat-flux reduction in laser-produced plasmas. Phys. Rev. A 26, 2259–2261 (1982).
-        v0 = 1.0  # distributions are normalized to vth anyway
-        lambda_e = (
-            1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
-        )
-        # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
-        ve = gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0) * v0
+        # v0 = 1.0  # distributions are normalized to vth anyway
+        # lambda_e = (
+        #     1.0  # this is the thermal mean free path but really, it is just normalizing the gradient scale lengths.
+        # )
+        # # So as long as the gradient scale lengths are provided in units of mean free path and just set this to 1.
+        # ve = gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0) * v0
 
-        uu = self.vr / v0
-        lambda_v = lambda_e * (self.vr / ve) ** 4.0
+        # uu = self.vr / v0
+        # lambda_v = lambda_e * (self.vr / ve) ** 4.0
+        # coeff = (
+        #     m_f0 / 2 * uu**m_f0 - 5 * m_f0 / 12 * gamma(8 / m_f0) / gamma(6 / m_f0) * uu ** (m_f0 - 2) - 1.5
+        # ) * lambda_v
+
+        uu = self.vr *jnp.sqrt(gamma(5.0 / m_f0) / 3 / gamma(3.0 / m_f0))
         coeff = (
             m_f0 / 2 * uu**m_f0 - 5 * m_f0 / 12 * gamma(8 / m_f0) / gamma(6 / m_f0) * uu ** (m_f0 - 2) - 1.5
-        ) * lambda_v
+        ) * (self.vr) ** 4.0
 
-        return coeff / 10**self.log_10_LT * f00
+        return coeff * self.dt * f00
 
 
 class ArbitraryVr(eqx.Module):
@@ -159,7 +155,7 @@ class SphericalHarmonics(DistributionFunction2V):
         vr (Array): Radial velocity grid.
         th (Array): Angular grid (theta) in velocity space.
         phi (Array): Angular grid (phi) in velocity space.
-        sph_harm (Callable): Vectorized spherical harmonics function.
+        sph_harm_y (Callable): Vectorized spherical harmonics function.
         vr_vxvy (Array): Radial grid in (vx, vy) coordinates.
         Nl (int): Maximum order of spherical harmonics expansion.
         flm (Dict[str, Dict[str, Callable]]): Dictionary of spherical harmonics coefficients.
@@ -186,7 +182,7 @@ class SphericalHarmonics(DistributionFunction2V):
     vr: Array
     th: Array
     phi: Array
-    sph_harm: Callable
+    sph_harm_y: Callable
     vr_vxvy: Array
     Nl: int
     flm: Dict[str, Dict[str, Callable]]
@@ -209,7 +205,7 @@ class SphericalHarmonics(DistributionFunction2V):
         self.vr_vxvy = jnp.sqrt(vx**2 + vy**2)
         self.Nl = dist_cfg["params"]["Nl"]
 
-        self.sph_harm = vmap(sph_harm, in_axes=(None, None, 0, 0, None))
+        self.sph_harm_y = vmap(sph_harm_y, in_axes=(None, None, 0, 0, None))
         self.flm = defaultdict(dict)
 
         init_m = dist_cfg["params"]["init_m"]
@@ -230,9 +226,9 @@ class SphericalHarmonics(DistributionFunction2V):
 
                 elif self.flm_type.casefold() == "mora-yahi":
                     if i == 1 and j == 0:
-                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["LTx"])
+                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["dtx"])
                     elif i == 1 and j == 1:
-                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["LTy"])
+                        self.flm[i][j] = FLM_MY(self.vr, dist_cfg["params"]["dty"])
                     else:
                         raise NotImplementedError("Mora-Yahi only supports l=1, m=0 and l=1, m=1")
 
@@ -307,10 +303,10 @@ class SphericalHarmonics(DistributionFunction2V):
                 flm = self.flm[i][j](**kwargs)
 
                 _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, flm, right=1e-32)
-                _sph_harm = self.sph_harm(
+                _sph_harm_y = self.sph_harm_y(
                     jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2
                 ).reshape(self.vr_vxvy.shape, order="C")
-                fvxvy += _flmvxvy * jnp.real(_sph_harm)
+                fvxvy += _flmvxvy * jnp.real(_sph_harm_y)
 
         fvxvy = jnp.maximum(fvxvy, 1e-32)
         fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])

@@ -6,6 +6,26 @@ import numpy as np
 from tsadar.utils.process.evaluate_background import get_lineout_bg
 
 
+def compute_lineout_pixel_indices(config, axisxE, axisxI, shift_zero, IAWtime, type_name="lineouts"):
+    """Return electron and ion lineout pixel indices for the configured lineouts."""
+    lineout_type = config["data"][type_name]["type"]
+    signifier = "slice" if type_name == "background" else "val"
+    lineout_vals = np.atleast_1d(config["data"][type_name][signifier])
+    if lineout_type in ("ps", "um"):
+        LineoutPixelE = [np.argmin(np.abs(axisxE - loc - shift_zero)) for loc in lineout_vals]
+        LineoutPixelI = [np.argmin(np.abs(axisxI - loc - shift_zero)) for loc in lineout_vals]
+        IAWtime_pixels = IAWtime / (axisxI[1] - axisxI[0])
+    elif lineout_type in ("pixel", "range"):
+        LineoutPixelE = lineout_vals.tolist()
+        LineoutPixelI = lineout_vals.tolist()
+        IAWtime_pixels = IAWtime
+    else:
+        raise NotImplementedError(f"Unsupported lineout type: {lineout_type}")
+
+    LineoutPixelI = np.round(np.array(LineoutPixelI) - IAWtime_pixels).astype(int)
+    return LineoutPixelE, LineoutPixelI
+
+
 def get_lineouts(
     elecData, ionData, BGele, BGion, axisxE, axisxI, axisyE, axisyI, shift_zero, IAWtime, xlab, sa, config
 ) -> Dict:
@@ -57,33 +77,35 @@ def get_lineouts(
         If the lineout or background type specified in config is not supported.
     """
     # Convert lineout locations to pixel
-    
-    if config["data"]["lineouts"]["type"] == "ps" or config["data"]["lineouts"]["type"] == "um":
-        LineoutPixelE = [np.argmin(abs(axisxE - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
-        IAWtime = IAWtime / (axisxI[1] - axisxI[0])  # corrects the iontime to be in the same units as the lineout
-        LineoutPixelI = [np.argmin(abs(axisxI - loc - shift_zero)) for loc in config["data"]["lineouts"]["val"]]
-    elif config["data"]["lineouts"]["type"] == "pixel":
-        LineoutPixelE = config["data"]["lineouts"]["val"]
-        LineoutPixelI = config["data"]["lineouts"]["val"]
-    else:
-        raise NotImplementedError
-    LineoutPixelI = np.round(np.array(LineoutPixelI) - IAWtime).astype(int)
+    LineoutPixelE, LineoutPixelI = compute_lineout_pixel_indices(
+        config, axisxE, axisxI, shift_zero, IAWtime
+    )
     config["data"]["lineouts"]["pixelE"] = LineoutPixelE
     config["data"]["lineouts"]["pixelI"] = LineoutPixelI
 
-    if config["data"]["background"]["type"] == "ps" or config["data"]["background"]["type"] == "um":
-        BackgroundPixel = np.argmin(abs(axisxE - config["data"]["background"]["slice"]))
-    elif config["data"]["background"]["type"] == "pixel":
-        BackgroundPixel = config["data"]["background"]["slice"]
+    if config["data"]["background"]["type"] in ("ps", "um", "pixel"):
+        BackgroundPixel = compute_lineout_pixel_indices(
+            config,
+            axisxE,
+            axisxI,
+            shift_zero=0,
+            IAWtime=0,
+            type_name="background",
+        )[0][0]
     elif config["data"]["background"]["type"] == "auto":
         BackgroundPixel = LineoutPixelE + 100
+    elif config["data"]["background"]["type"].casefold() == "shot":
+        BackgroundPixel = 900
+    elif config["data"]["background"]["type"].casefold() == "fit":
+        BackgroundPixel = config["data"]["background"]["slice"]
     else:
         BackgroundPixel = []
 
+    config["data"]["background"]["pixel"] = BackgroundPixel
     span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
 
     # extract lineouts
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         LineoutTSE = [
             np.sum(elecData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
             for a in LineoutPixelE
@@ -104,7 +126,7 @@ def get_lineouts(
     else:
         LineoutTSE_smooth = []
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         LineoutTSI = [
             np.sum(ionData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
             for a in LineoutPixelI
@@ -120,7 +142,7 @@ def get_lineouts(
 
     # Find data amplitudes
     gain = config["other"]["gain"]
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         noiseI = noiseI / gain
         LineoutTSI_norm = [LineoutTSI_smooth[i] / gain for i, _ in enumerate(LineoutPixelI)]
         LineoutTSI_norm = np.array(LineoutTSI_norm)
@@ -135,7 +157,7 @@ def get_lineouts(
             axis=1,
         )
 
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         noiseE = noiseE / gain
         LineoutTSE_norm = [LineoutTSE_smooth[i] / gain for i, _ in enumerate(LineoutPixelE)]
         LineoutTSE_norm = np.array(LineoutTSE_norm)
@@ -153,12 +175,12 @@ def get_lineouts(
     all_data["noiseI"] = noiseI
     all_data["noiseE"] = noiseE
 
-    if config["other"]["extraoptions"]["load_ion_spec"]:
+    if config["data"]["load_ion_spec"]:
         all_data["i_data"] = LineoutTSI_norm
         all_data["i_amps"] = ampI
     else:
         all_data["i_data"] = all_data["i_amps"] = np.zeros(len(config["data"]["lineouts"]["val"]))
-    if config["other"]["extraoptions"]["load_ele_spec"]:
+    if config["data"]["load_ele_spec"]:
         all_data["e_data"] = LineoutTSE_norm
         all_data["e_amps"] = ampE
     else:

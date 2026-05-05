@@ -8,23 +8,8 @@ dependencies:
   - xlrd
   - pip:
       - "jax[cuda12]"
-      - jaxopt
-      - numpy
-      - scipy
-      - matplotlib
-      - pyyaml
-      - mlflow
-      - boto3
-      - flatten-dict
+      - "jaxopt>=0.6.0"
       - typing-extensions
-      - optax
-      - tqdm
-      - xarray
-      - mlflow_export_import
-      - pandas
-      - interpax
-      - tabulate
-      - psutil
-      - equinox
       - pynvml
+      - -r requirements.txt
       

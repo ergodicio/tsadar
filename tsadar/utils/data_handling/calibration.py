@@ -191,19 +191,19 @@ def sa_lookup(beam):
     elif beam == "B62":
         # Scattering angle in degrees for OMEGA TIM6 TS
         sa = dict(
-            sa=np.linspace(147.818, 160.129, 10),
+            sa=np.linspace(147.956, 160.353, 10),
             weights=np.array(
                 [
-                    0.0049997747,
-                    0.0280167560,
-                    0.0686455565,
-                    0.1195892076,
-                    0.1689113103,
-                    0.1943155713,
-                    0.1876041619,
-                    0.1412098554,
-                    0.0715283095,
-                    0.0151794964,
+                    0.008918517183911,
+                    0.047160037836134,
+                    0.104184496193865,
+                    0.162335029953606,
+                    0.194225485338498,
+                    0.189766226746543,
+                    0.151254447997838,
+                    0.093869645511463,
+                    0.040718886536642,
+                    0.007567226701500,
                 ]
             ),
         )
@@ -284,8 +284,8 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             # These are valid for the 8-26-21 shot day, not sure how far back they are valid
             EPWDisp = 0.4104
             IAWDisp = 0.00678
-            EPWoff = 319.3
-            IAWoff = 523.1  # 522.90
+            EPWoff = 322.3
+            IAWoff = 522.9  # 522.90
             stddev["spect_stddev_ion"] = 0.02262  # spectral IAW IRF for 8 / 26 / 21(grating was masked)
             stddev["spect_stddev_ele"] = 1.4294  # spectral EPW IRF for 200um pinhole used on 8 / 26 / 21
 
@@ -328,16 +328,6 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             stddev["spect_stddev_ion"] = 0.0503 #0.025 # 0.0095  # needs to be updated
             stddev["spect_stddev_ele"] = 1.33#0.668  # based of hg lamp data
             #print("used 0.668 nm irf")
-            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
-            magI = 5.23  # (ps / px) this is just a rough guess
-            magE = 5.35  # (ps / px) this is just a rough guess
-
-        elif 114400 < shotNum < 114500:
-            # needs to be updated with the calibrations from 7-26-22
-            EPWDisp = 0.4143
-            IAWDisp = 0.00683
-            EPWoff = 316.4
-            IAWoff = 522.92
             stddev["spect_stddev_ion"] = 0.0503 #0.025 # 0.0095  # needs to be updated
             stddev["spect_stddev_ele"] = 1.33#0.668  # based of hg lamp data
             #print("used 0.668 nm irf")
@@ -345,14 +335,68 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
 
+        elif 114420 < shotNum < 114450:
+            # Princeton reconnection experiemnts
+            EPWDisp = 0.4153
+            IAWDisp = 0.00683
+            EPWoff = 314.97
+            IAWoff = 349.17
+            stddev["spect_stddev_ion"] = 0.0321 #possibly half this
+            stddev["spect_stddev_ele"] = 1.33  # based of hg lamp data
+            # Sweep speed calculated from 5 Ghz comb
+            magI = 5.23  # (ps / px)
+            magE = 5.35  # (ps / px)
+        
+        
         elif 114907 < shotNum < 115920:
             # 3w data from CBET study (all params should be checked)
             EPWDisp = 0.4153
-            IAWDisp = 0.00366
+            IAWDisp = 0.00378
+            EPWoff = 138.42 #rough calc gives 138.42 #best when using ud 142.04
+            IAWoff = 349.17#349.02 #need to be checked
+            stddev["spect_stddev_ion"] = 0.0166#0.013 #based off epw for this pinhole
+            print(stddev["spect_stddev_ion"])
+            stddev["spect_stddev_ele"] = 1.35 #2.4  # based of hg lamp data
+            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
+
+        elif 116090 < shotNum < 116120:
+            # 4w data from Ed's data (all params should be checked)
+            EPWDisp = 0.05069
+            IAWDisp = 0.00446
             EPWoff = 135.74 #rough guess
-            IAWoff = 349.10 #need to be checked
+            IAWoff = 261.1 #need to be checked
             stddev["spect_stddev_ion"] = 0.0153  # 0.0095  # needs to be updated
             stddev["spect_stddev_ele"] = 0.668  # based of hg lamp data
+            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
+            magI = 5.23  # (ps / px) this is just a rough guess
+            magE = 5.35  # (ps / px) this is just a rough guess
+
+        elif 116760 < shotNum < 116780:
+            # needs to be updated with the calibrations from 10-22-25
+            EPWDisp = 0.4143
+            IAWDisp = 0.00659
+            if shotNum == 116768:
+                EPWoff = 387.5
+            elif shotNum == 116769 or shotNum == 116774:
+                EPWoff = 389.5
+            elif shotNum == 116770 or shotNum == 116771 or shotNum == 116775:
+                EPWoff = 429.5
+            elif shotNum == 116772 or shotNum == 116773:
+                EPWoff = 315.7#314.5
+            else:
+                EPWoff = 316.5
+            IAWoff = 523.17
+            
+            if shotNum <= 116768:
+                stddev["spect_stddev_ion"] = 0.0289
+                stddev["spect_stddev_ele"] = 1.364
+            else:
+                stddev["spect_stddev_ion"] = 0.0289# 0.0192 #0.0174
+                stddev["spect_stddev_ele"] = 1.091
+
+            #print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
             magI = 5.23  # (ps / px) this is just a rough guess
             magE = 5.35  # (ps / px) this is just a rough guess
@@ -373,11 +417,87 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
     # IAWtime = 0  # temporal offset between EPW ross and IAW ross (varies shot to shot, can potentially add a fix based off the fiducials)
 
     else:
-        if shotNum < 104000:
+        if shotNum in [92522,92525,92531,92532,92534,92537,92538]:
+            EPWDisp = 0.27093
+            IAWDisp = 0.0057
+            EPWoff = 384.80361  # only this shot seems to have shifted
+            IAWoff = 523.74
+
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 2.87 #3.8  #2.87  # um / px
+            magE = 5.13  # um / px
+
+            EPWtcc = 565 #1024 - 456.1  # 562;
+            IAWtcc = 625 #519#1024 - 519  # 469;
+            
+        elif shotNum in [92527,92535]:
+            EPWDisp = 0.27093
+            IAWDisp = 0.0057
+            EPWoff = 384.53268  
+            IAWoff = 523.6842
+
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 2.87  # um / px
+            magE = 5.13  # um / px
+
+            EPWtcc = 565 #1024 - 456.1  # 562;
+            IAWtcc = 632 #519#1024 - 519  # 469;
+        
+        elif shotNum in [92528,92533,92536]:
+            EPWDisp = 0.27093
+            IAWDisp = 0.0057
+            EPWoff = 385.80361 #379.38500  
+            IAWoff = 523.6899
+
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 2.87  # um / px
+            magE = 5.13  # um / px
+
+            EPWtcc = 563 #1024 - 456.1  # 562;
+            IAWtcc = 630 #519#1024 - 519  # 469;
+            
+            
+        elif 92522 < shotNum <= 92538:
+            EPWDisp = 0.27093
+            IAWDisp = 0.0057
+            EPWoff = 385.256  # needs to be checked
+            IAWoff = 523.74
+
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 2.87  # um / px
+            magE = 5.13  # um / px
+
+            EPWtcc = 1024 - 456.1  # 562;
+            IAWtcc = 519#1024 - 519  # 469;
+
+        if shotNum < 98000:
+            EPWDisp = 0.277
+            IAWDisp = 0.00438
+            EPWoff = 393.256  # needs to be checked
+            IAWoff = 524.175
+
+            stddev["spect_stddev_ion"] = 0.0142  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.23  # needs to be checked
+
+            magI = 2.87  # um / px
+            magE = 5.10  # um / px
+
+            EPWtcc = 1024 - 456.1  # 562;
+            IAWtcc = 1024 - 550  # 469;
+    
+        elif shotNum < 104000:
             EPWDisp = 0.27093
             IAWDisp = 0.00438
             EPWoff = 396.256  # needs to be checked
-            IAWoff = 524.275
+            IAWoff = 524.175
 
             stddev["spect_stddev_ion"] = 0.028  # needs to be checked
             stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
@@ -386,7 +506,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magE = 5.10  # um / px
 
             EPWtcc = 1024 - 456.1  # 562;
-            IAWtcc = 1024 - 519  # 469;
+            IAWtcc = 1024 - 550  # 469;
 
         elif 106303 <= shotNum <= 106321:
             # refractive teloscope used on 11/8/22
@@ -419,6 +539,36 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
 
             EPWtcc = 1024 - 503  # 562;
             IAWtcc = 1024 - 568  # 578  # 469;
+            
+        elif 117830 <= shotNum <= 117839:
+            EPWDisp = 0.276
+            IAWDisp = 0.00437
+            EPWoff = 375.528  # needs to be checked
+            IAWoff = 524.189
+
+            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 2.89  # um / px times strech factor accounting for tilt in view
+            magE = 5.13 # um / px times strech factor accounting for tilt in view
+
+            EPWtcc = 528  # 562;
+            IAWtcc = 475  # 469;
+        
+        elif shotNum == 112059:
+            EPWDisp = 0.277
+            IAWDisp = 0.00448
+            EPWoff = 381.141905
+            IAWoff = 524.1416133146356
+
+            stddev["spect_stddev_ion"] = 0.007838851799629626
+            stddev["spect_stddev_ele"] = 0.5348962893498197
+
+            magI = 2.88 
+            magE = 5.13 
+
+            EPWtcc = 544.6141
+            IAWtcc = 526.4255994117018
 
         else:
             # needs to be updated with the calibrations from 7-26-22
