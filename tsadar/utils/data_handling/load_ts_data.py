@@ -8,6 +8,19 @@ from tsadar.utils.process.warpcorr import perform_warp_correction
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
 
+def _import_pyhdf():
+    try:
+        from pyhdf.SD import SD, SDC
+    except ImportError as e:
+        raise ImportError(
+            "Reading legacy HDF4 streak data requires pyhdf. "
+            "Install the optional extra: `uv pip install tsadar[hdf]` "
+            "(pyhdf needs the HDF4 system library; on macOS `brew install hdf4`, "
+            "on Debian/Ubuntu `apt install libhdf4-dev`)."
+        ) from e
+    return SD, SDC
+
+
 def loadData(sNum, sDay, loadspecs, custom_path=False):
     """
         This function loads the appropriate data based off the provided shot number (sNum) automatically determining the
@@ -72,7 +85,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             xlab = "Scattering angle (degrees)"
 
     if loadspecs["load_ion_spec"]:
-        from pyhdf.SD import SD, SDC
+        SD, SDC = _import_pyhdf()
 
         try:
             iDatfile = SD(hdfnameI, SDC.READ)
@@ -104,8 +117,8 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         iDat = []
 
     if loadspecs["load_ele_spec"]:
-        from pyhdf.SD import SD, SDC
- 
+        SD, SDC = _import_pyhdf()
+
         try:
             eDatfile = SD(hdfnameE, SDC.READ)
             sds_obj = eDatfile.select("Streak_array")  # select sds
