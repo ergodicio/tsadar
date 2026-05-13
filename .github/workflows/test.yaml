@@ -15,8 +15,10 @@ jobs:
         with:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@v3
+      - name: Install HDF4 system library
+        run: sudo apt-get update && sudo apt-get install -y libhdf4-dev
       - name: Install tsadar (CPU)
-        run: uv pip install --system -e ".[test]"
+        run: uv pip install --system -e ".[test,hdf]"
       - name: Run tests
         run: pytest tests/
 
@@ -28,7 +30,9 @@ jobs:
         with:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@v3
+      - name: Install HDF4 system library
+        run: sudo apt-get update && sudo apt-get install -y libhdf4-dev
       - name: Install tsadar (GPU)
-        run: uv pip install --system -e ".[gpu,test]"
+        run: uv pip install --system -e ".[gpu,test,hdf]"
       - name: Run tests
         run: pytest tests/
