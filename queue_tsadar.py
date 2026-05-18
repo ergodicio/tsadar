@@ -11,8 +11,10 @@ else:
 def _queue_run_(machine, mode, run_id):
     if "cpu" in machine:
         base_job_file = os.environ["CPU_BASE_JOB_FILE"]
+        run_cmd = f"srun python run_tsadar.py --mode {mode} --run_id {run_id}"
     elif "gpu" in machine:
         base_job_file = os.environ["GPU_BASE_JOB_FILE"]
+        run_cmd = f"srun python run_tsadar.py --mode {mode} --run_id {run_id}"
     else:
         raise NotImplementedError
 
@@ -21,7 +23,7 @@ def _queue_run_(machine, mode, run_id):
 
     with open(os.path.join(os.getcwd(), "new_job.sh"), "w") as job_file:
         job_file.write(base_job + "\n")
-        job_file.writelines(f"srun python run_tsadar.py --mode {mode} --run_id {run_id}")
+        job_file.writelines(run_cmd)
 
     os.system(f"sbatch new_job.sh")
     time.sleep(0.1)
@@ -33,6 +35,8 @@ if __name__ == "__main__":
     parser.add_argument("--cfg", help="enter path to cfg")
     parser.add_argument("--mode", help="forward or fit")
     args = parser.parse_args()
+
+    os.system("uv sync --extra gpu,hdf")
 
     run_id, config = load_and_make_folders(args.cfg)
     _queue_run_(config["inputs"]["machine"], args.mode, run_id)
