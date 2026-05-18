@@ -28,10 +28,10 @@ data:
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
-    blue_max: 515
+    blue_max: 510
     blue_min: 450
-    forward_epw_end: 668.78
-    forward_epw_start: 449.74
+    forward_epw_end: 700
+    forward_epw_start: 400
     forward_iaw_end: 528
     forward_iaw_start: 524
     iaw_cf_max: 526.6
@@ -100,7 +100,7 @@ other:
   iawfilter:
   - 1
   - 4
-  - 18
+  - 24
   - 528
   iawoff: 0
   lam_res_unit: 5

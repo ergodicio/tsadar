@@ -13,10 +13,13 @@ data:
     start: 500
     type: ps
   shotnum: 116773
+
 machine: gpu
+
 mlflow:
   experiment: inverse-thomson-scattering
   run: EPW example s116773
+
 other:
   Ipump_14: 0
   beam_diam_um: 100
@@ -35,19 +38,8 @@ parameters:
     fe:
       active: true
       dim: 1
-      nvx: 128
+      nvx: 320
       params:
-        LTx: 22500.0
-        LTy: 40000.0
-        Nl: 1
-        flm_type: arbitrary
-        init_m: 3.0
-        learn_log: true
-        smooth: true
-        window:
-          len: 20
-          sampling: 30
-          type: hanning
         m:
           intens: 5.0
           lb: 1.9
@@ -60,7 +52,6 @@ parameters:
       lb: 0.03
       ub: 2.0
       val: 0.5
-
   general:
     Te_gradient:
       active: false
@@ -97,9 +88,10 @@ parameters:
     ud:
       active: false
       angle: 0.0
-      lb: -10.0
-      ub: 30.0
+      lb: -20.0
+      ub: 20.0
       val: 0.0
+  
   ion-1:
     A:
       active: false
