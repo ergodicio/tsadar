@@ -1,5 +1,5 @@
 import argparse, os, time
-
+os.environ["JAX_PLATFORMS"]="cpu"
 from tsadar.runner import load_and_make_folders
 
 if "BASE_TEMPDIR" in os.environ:
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--cfg", help="enter path to cfg")
     parser.add_argument("--mode", help="forward or fit")
     args = parser.parse_args()
-
+    
     os.system("uv sync --extra gpu,hdf")
 
     run_id, config = load_and_make_folders(args.cfg)
