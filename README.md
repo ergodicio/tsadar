@@ -7,12 +7,42 @@ from other facilities
 -- work in progress -- 
 
 ## Installation
-If cloning the respository onto a windows machine it may be necessary to modify the git config `git config --global core.protectNTFS false`. This is multistep for now, at least on Mac, because `pyhdf` using `pip` has some problems. We can get around that by using conda
 
- - Install conda 
- - Make conda environment for `tsadar`
- - Install `tsadar` using `pip install https<>`
- - Install `pyhdf` using `conda`
+`tsadar` is configured via `pyproject.toml` and is installed with [`uv`](https://docs.astral.sh/uv/) (or plain `pip`). The available extras are:
+
+| Extra | Purpose |
+| ----- | ------- |
+| *(default)* | CPU-only JAX install — everything needed for forward/inverse model runs |
+| `gpu`  | CUDA 12 JAX build + `pynvml` for GPU runs |
+| `hdf`  | `pyhdf` for loading legacy HDF4 streak-camera data (requires the HDF4 system library) |
+| `docs` | Sphinx + theme deps for building the docs |
+| `test` | `pytest` for running the test suite |
+
+### CPU
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+```
+
+### GPU (CUDA 12)
+```bash
+uv pip install -e ".[gpu]"
+```
+
+### Loading legacy HDF4 data
+`pyhdf` needs the HDF4 system library. Install it first, then the extra:
+- macOS: `brew install hdf4`
+- Debian/Ubuntu: `apt install libhdf4-dev`
+
+```bash
+uv pip install -e ".[hdf]"
+```
+
+If you skip this extra, `tsadar` still imports and runs — only the legacy HDF4 loader will raise a clear error if you try to use it.
+
+### Windows note
+If cloning onto Windows you may need `git config --global core.protectNTFS false`.
 
 ## Documentation
 Go to https://tsadar.readthedocs.io/ for detailed documentation.
