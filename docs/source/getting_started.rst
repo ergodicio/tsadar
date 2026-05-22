@@ -279,7 +279,8 @@ Since the code outputs are packaged with MLFlow, these are found in the ``mlflow
         experiment: folder1
         run: name of the run
 
-Once you have adjusted the parameters and saved the changes made, you will want to implement the run command.
+Once you have adjusted the parameters and saved the changes made, you will want to implement the run command. If you have updated to the new version of the code using the new UV enviornments you can preface the following comands with ``uv run`` or you can run ``source .venv/bin/activate`` to activate the UV enviornment locally.
+
 There are three run "modes".
 
 **Fit mode** runs the fitting algorithm producing plasma conditions from the data.

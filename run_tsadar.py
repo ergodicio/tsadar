@@ -1,6 +1,7 @@
 import argparse, os
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.6")
 # os.environ["JAX_TRACEBACK_FILTERING"] = "off"
 from jax import config
 
