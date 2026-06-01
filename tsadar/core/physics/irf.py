@@ -1,5 +1,5 @@
 from typing import Tuple
-from jax import numpy as jnp
+from jax import numpy as jnp, vmap
 
 
 def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
@@ -31,10 +31,12 @@ def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
         (1.0 / (stddev_ang * jnp.sqrt(2.0 * jnp.pi)))
         * jnp.exp(-((sas["angAxis"] - origin_ang) ** 2.0) / (2.0 * (stddev_ang) ** 2.0))
     )  # Gaussian
-    ThryE = jnp.array([jnp.convolve(modlE[:, i], inst_func_ang, "same") for i in range(modlE.shape[1])])
-    # ThryE = jnp.array([fftconvolve(modlE[:, i], inst_func_ang, "same") for i in range(modlE.shape[1])])
-    ThryE = jnp.array([jnp.convolve(ThryE[:, i], inst_func_lam, "same") for i in range(ThryE.shape[1])])
-    # ThryE = jnp.array([fftconvolve(ThryE[:, i], inst_func_lam, "same") for i in range(ThryE.shape[1])])
+    # Separable 2D convolution: smooth along the angular axis (axis 0) for every
+    # wavelength column, then along the wavelength axis (axis 1) for every angle row.
+    # vmap batches each 1D convolution into a single op instead of unrolling a Python
+    # loop over thousands of columns/rows into the traced graph (huge XLA compile cost).
+    ThryE = vmap(lambda col: jnp.convolve(col, inst_func_ang, "same"), in_axes=1, out_axes=1)(modlE)
+    ThryE = vmap(lambda row: jnp.convolve(row, inst_func_lam, "same"), in_axes=0, out_axes=0)(ThryE)
 
     ThryE = jnp.amax(modlE, axis=1, keepdims=True) / jnp.amax(ThryE, axis=1, keepdims=True) * ThryE
 
