@@ -14,6 +14,7 @@ def _validate_inputs_(config: Dict) -> Dict:
     """
     Validates and augments the configuration dictionary for the fitting process.
     This function checks the boundaries and ordering of lineout and fit ranges, ensures that the electron and ion fitting ranges are contained within the plotting ranges, and generates the list of lineout indices. It also ensures that the number of lineouts is divisible by the batch size, removing excess lineouts if necessary.
+    Supports both forward iteration (start < end) and reverse iteration (start > end).
         config (Dict): Configuration dictionary containing data, optimizer, and plotting settings.
         Dict: Updated configuration dictionary with validated and derived quantities for lineouts.
         Args:    
@@ -22,8 +23,8 @@ def _validate_inputs_(config: Dict) -> Dict:
         Dict: Updated configuration dictionary with derived quantities for lineouts.
     Raises:
         ValueError: If any of the following conditions are not met:
-            - Lineout start is less than lineout end.
-            - Lineout end is greater than lineout start plus skip.
+            - Lineout start is different from lineout end.
+            - Lineout range is larger than skip value.
             - Blue max is greater than blue min.
             - Red max is greater than red min.
             - IAW fit range is ordered as iaw_min < iaw_cf_min < iaw_cf_max < iaw_max.
@@ -33,10 +34,11 @@ def _validate_inputs_(config: Dict) -> Dict:
     """
 
     # check boundries for linouts and fit ranges to ensure they are ordered properly
-    if config["data"]["lineouts"]["start"] >= config["data"]["lineouts"]["end"]:
-        raise ValueError("Lineout start must be less than lineout end")
-    if config["data"]["lineouts"]["end"]- config["data"]["lineouts"]["start"] <= config["data"]["lineouts"]["skip"]:
-        raise ValueError("Lineout end must be greater than lineout start + skip")
+    if config["data"]["lineouts"]["start"] == config["data"]["lineouts"]["end"]:
+        raise ValueError("Lineout start and end must be different")
+    lineout_distance = abs(config["data"]["lineouts"]["end"] - config["data"]["lineouts"]["start"])
+    if lineout_distance <= config["data"]["lineouts"]["skip"]:
+        raise ValueError("Lineout range must be larger than the skip value")
     
     if config["data"]["fit_rng"]["blue_max"] <= config["data"]["fit_rng"]["blue_min"]:
         raise ValueError("Blue max must be greater than blue min")
@@ -73,13 +75,15 @@ def _validate_inputs_(config: Dict) -> Dict:
             raise ValueError("Matte based m-values cannot be fit, please set active to false for fe when using the Matte model")
     
 
-    # get slices
-    config["data"]["lineouts"]["val"] = [
-        i
-        for i in range(
-            config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"], config["data"]["lineouts"]["skip"]
-        )
-    ]
+    # get slices - support both forward (start < end) and reverse (start > end) iteration
+    start = config["data"]["lineouts"]["start"]
+    end = config["data"]["lineouts"]["end"]
+    skip = config["data"]["lineouts"]["skip"]
+    
+    if start < end:
+        config["data"]["lineouts"]["val"] = list(range(start, end, skip))
+    else:  # start > end
+        config["data"]["lineouts"]["val"] = list(range(start, end, -skip))
 
     num_slices = len(config["data"]["lineouts"]["val"])
     batch_size = config["optimizer"]["batch_size"]
