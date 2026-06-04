@@ -92,6 +92,9 @@ def _1d_optax_loop_(
 
     best_loss = 1e16
     epoch_loss = 1e19
+    # fall back to the starting weights so a never-improving (e.g. NaN) loss
+    # still returns valid params instead of raising UnboundLocalError
+    best_weights = eqx.combine(diff_params, static_params)
     for i_epoch in range(config["optimizer"]["num_epochs"]):
         tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
 
