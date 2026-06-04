@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tsadar"
+version = "0.1.1"
+description = "Thomson Scattering Analysis software"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Avi Milder", email = "amild@lle.rochester.edu" },
+    { name = "Archis Joglekar", email = "archis@ergodic.io" },
+]
+dependencies = [
+    "jax",
+    "numpy",
+    "scipy",
+    "opencv-python",
+    "scikit-image",
+    "matplotlib",
+    "xlrd",
+    "pyyaml",
+    "mlflow",
+    "mlflow_export_import",
+    "boto3",
+    "flatten-dict",
+    "optax",
+    "tqdm",
+    "jaxopt>=0.6.0",
+    "xarray",
+    "pandas",
+    "interpax",
+    "tabulate",
+    "psutil",
+    "equinox",
+    "plotly",
+    "typing-extensions",
+]
+
+[project.urls]
+Homepage = "https://github.com/ergodicio/tsadar"
+
+[project.optional-dependencies]
+gpu = [
+    "jax[cuda12]",
+    "pynvml",
+]
+hdf = [
+    "pyhdf",
+]
+docs = [
+    "sphinx>3.0.0",
+    "sphinx_copybutton",
+    "sphinx-rtd-theme>=1.0,<2.0",
+    "sphinx-github-style>=1.0,<=1.1",
+    "sphinx_design",
+    "pydata_sphinx_theme",
+]
+test = [
+    "pytest",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tsadar"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "tsadar",
+    "README.md",
+    "pyproject.toml",
+]

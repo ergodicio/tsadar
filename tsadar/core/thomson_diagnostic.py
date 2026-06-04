@@ -7,6 +7,28 @@ from .physics import irf
 from .physics.generate_spectra import FitModel
 
 
+def _bin_average(arr, step, axis):
+    """Average non-overlapping windows of length ``step`` along ``axis``.
+
+    Vectorized replacement for ``jnp.array([jnp.average(arr[..., i:i+step], axis) for i
+    in range(0, n, step)])``. A ragged final window (when ``n`` is not a multiple of
+    ``step``) is averaged over its real elements only, matching the original
+    list-comprehension semantics. ``step`` and the array shape are static at trace time,
+    so this compiles to a single reshape+mean instead of unrolling the loop into the graph.
+    """
+    n = arr.shape[axis]
+    n_bins = -(-n // step)  # ceil division -> matches len(range(0, n, step))
+    pad = n_bins * step - n
+    if pad:
+        pad_width = [(0, 0)] * arr.ndim
+        pad_width[axis] = (0, pad)
+        arr = jnp.pad(arr, pad_width, constant_values=jnp.nan)
+    arr = jnp.moveaxis(arr, axis, 0)
+    arr = arr.reshape(n_bins, step, *arr.shape[1:])
+    arr = jnp.nanmean(arr, axis=1)
+    return jnp.moveaxis(arr, 0, axis)
+
+
 class ThomsonScatteringDiagnostic:
     """
     The SpectrumCalculator class wraps the FitModel class adding instrumental effects to the calculated spectrum so it
@@ -94,12 +116,10 @@ class ThomsonScatteringDiagnostic:
         lam_step = round(ThryE.shape[1] / batch["e_data"].shape[1])
         ang_step = round(ThryE.shape[0] / self.cfg["other"]["CCDsize"][0])
 
-        ThryE = jnp.array([jnp.average(ThryE[:, i : i + lam_step], axis=1) for i in range(0, ThryE.shape[1], lam_step)])
-        ThryE = jnp.array([jnp.average(ThryE[:, i : i + ang_step], axis=1) for i in range(0, ThryE.shape[1], ang_step)])
+        ThryE = _bin_average(ThryE, lam_step, axis=1)  # bin the wavelength axis
+        ThryE = _bin_average(ThryE, ang_step, axis=0)  # bin the angular axis
 
-        lamAxisE = jnp.array(
-            [jnp.average(lamAxisE[i : i + lam_step], axis=0) for i in range(0, lamAxisE.shape[0], lam_step)]
-        )
+        lamAxisE = _bin_average(lamAxisE, lam_step, axis=0)
         ThryE = ThryE[self.cfg["data"]["lineouts"]["start"] : self.cfg["data"]["lineouts"]["end"], :]
         ThryE = batch["e_amps"] * ThryE / jnp.amax(ThryE, axis=1, keepdims=True)
         ThryE = jnp.where(

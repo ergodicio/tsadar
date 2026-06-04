@@ -44,9 +44,17 @@ def ratcen(f: jnp.ndarray, g: jnp.ndarray) -> jnp.ndarray:
     gav = 0.5 * (g[1:-1] + g[0:-2])
 
     tmp = fav * gdif - gav * fdif
-    rf = fav / gav + tmp * gdif / (12.0 * gav**3)
+
+    use_rf = jnp.abs(gdif) < 1.0e-4 * jnp.abs(gav)
+    # Guard the denominator of the *unused* branch so it stays finite: near a pole gav -> 0,
+    # so the (unselected) rf branch is inf there. jnp.where picks rfn for the value, but autodiff
+    # differentiates both branches and propagates 0*inf = nan. On CPU gav is a tiny non-zero so the
+    # rf gradient is finite (0*huge=0); on GPU FMA/rounding lands gav at exactly 0 -> inf -> nan.
+    # The double-where keeps each branch's gradient finite where it is not selected.
+    gav_safe = jnp.where(use_rf, gav, 1.0)
+    rf = fav / gav_safe + tmp * gdif / (12.0 * gav_safe**3)
 
     rfn = fdif / gdif + tmp * jnp.log((gav + (0.5 + 0j) * gdif) / (gav - 0.5 * gdif)) / gdif**2
 
-    out = jnp.where((jnp.abs(gdif) < 1.0e-4 * jnp.abs(gav))[None, :], rf, rfn)
+    out = jnp.where(use_rf[None, :], rf, rfn)
     return jnp.real(out)

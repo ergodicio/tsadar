@@ -13,32 +13,43 @@ Installation
 2. Install using the commands below, or following your preferred method.
 
 
+TSADAR is configured through a single ``pyproject.toml`` and is installed with `uv <https://docs.astral.sh/uv/>`_ (or plain ``pip``). The available optional extras are:
+
+- ``gpu`` — CUDA 12 JAX build plus ``pynvml`` for GPU runs
+- ``hdf`` — ``pyhdf`` for loading legacy HDF4 streak-camera data (requires the HDF4 system library)
+- ``docs`` — Sphinx and theme dependencies for building these docs
+- ``test`` — ``pytest`` for running the test suite
+
 .. tab-set::
 
-    .. tab-item:: Conda GPU (recommended)
+    .. tab-item:: GPU (CUDA 12, recommended)
 
         .. code-block:: shell
 
-            conda env create -f env_gpu.yml
-            conda activate tsadar-gpu
-    
-    .. tab-item:: Conda CPU
+            uv venv
+            source .venv/bin/activate
+            uv pip install -e ".[gpu]"
+
+    .. tab-item:: CPU
 
         .. code-block:: shell
 
-            conda env create -f env.yml
-            conda activate tsadar-cpu
+            uv venv
+            source .venv/bin/activate
+            uv pip install -e .
 
-
-
-    .. tab-item:: Python
+    .. tab-item:: Plain pip
 
         .. code-block:: shell
-            
-            python --version                # hopefully this says >= 3.9
-            python -m venv venv             # make an environment in this folder here
-            source venv/bin/activate        # activate the new environment
-            pip install -r requirements.txt # install dependencies
+
+            python --version            # >= 3.10
+            python -m venv venv
+            source venv/bin/activate
+            pip install -e .            # add [gpu] or [hdf] as needed
+
+.. note::
+
+   ``pyhdf`` is only needed to read legacy HDF4 streak data. It is not installed by default. To enable it, install the HDF4 system library first (``brew install hdf4`` on macOS, ``apt install libhdf4-dev`` on Debian/Ubuntu) and then run ``uv pip install -e ".[hdf]"``. If the extra is not installed, TSADAR still imports and runs — only the legacy loader will raise a clear error if called.
 
 Importing raw data
 ^^^^^^^^^^^^^^^^^^^
@@ -268,7 +279,8 @@ Since the code outputs are packaged with MLFlow, these are found in the ``mlflow
         experiment: folder1
         run: name of the run
 
-Once you have adjusted the parameters and saved the changes made, you will want to implement the run command.
+Once you have adjusted the parameters and saved the changes made, you will want to implement the run command. If you have updated to the new version of the code using the new UV enviornments you can preface the following comands with ``uv run`` or you can run ``source .venv/bin/activate`` to activate the UV enviornment locally.
+
 There are three run "modes".
 
 **Fit mode** runs the fitting algorithm producing plasma conditions from the data.
