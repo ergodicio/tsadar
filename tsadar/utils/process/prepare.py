@@ -104,20 +104,20 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
     
     if True in (config["feature_detector"]["estimate_lineouts_epw"], config["feature_detector"]["estimate_lineouts_iaw"]):
         if config["data"]["lineouts"]["type"] == "pixel":
-
-            config["data"]["lineouts"]["val"] = [
-            i
-            for i in range(
-                int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"]
-            )
-            ]
+            # Support both forward and reverse iteration
+            if int(lineout_start) < int(lineout_end):
+                config["data"]["lineouts"]["val"] = list(range(int(lineout_start), int(lineout_end), config["data"]["lineouts"]["skip"]))
+            else:
+                config["data"]["lineouts"]["val"] = list(range(int(lineout_start), int(lineout_end), -config["data"]["lineouts"]["skip"]))
         else:
-            config["data"]["lineouts"]["val"] = [
-            i
-            for i in range(
-                int(config["data"]["lineouts"]["start"]), int(config["data"]["lineouts"]["end"]), int(config["data"]["lineouts"]["skip"])
-            )
-            ]
+            # Support both forward and reverse iteration
+            start = int(config["data"]["lineouts"]["start"])
+            end = int(config["data"]["lineouts"]["end"])
+            skip = int(config["data"]["lineouts"]["skip"])
+            if start < end:
+                config["data"]["lineouts"]["val"] = list(range(start, end, skip))
+            else:
+                config["data"]["lineouts"]["val"] = list(range(start, end, -skip))
 
     num_slices = len(config["data"]["lineouts"]["val"])
     batch_size = config["optimizer"]["batch_size"]
