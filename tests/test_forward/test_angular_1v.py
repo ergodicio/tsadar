@@ -11,7 +11,7 @@ from tsadar.utils import misc
 
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules.ts_params import ThomsonParams
-from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
+from tsadar.data.calibration import get_scattering_angles, get_calibrations
 
 
 def test_arts1d_forward_pass():

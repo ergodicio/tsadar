@@ -3,7 +3,7 @@ from os import listdir
 import os
 import numpy as np
 from scipy.signal import find_peaks
-from tsadar.utils.process.warpcorr import perform_warp_correction
+from .warpcorr import perform_warp_correction
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
