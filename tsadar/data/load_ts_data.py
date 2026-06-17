@@ -5,7 +5,7 @@ import numpy as np
 from scipy.signal import find_peaks
 from .warpcorr import perform_warp_correction
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
 def _import_pyhdf():
