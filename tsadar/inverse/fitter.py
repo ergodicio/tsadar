@@ -7,7 +7,7 @@ import mlflow
 
 from tsadar.inverse.loops import multirun_angular_optax, one_d_loop
 
-from ..data import prepare
+from ..data import get_data_provider
 from . import postprocess
 
 
@@ -119,8 +119,8 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     mlflow.set_tag("status", "preprocessing")
     config = _validate_inputs_(config)
 
-    # prepare data
-    all_data, sa, all_axes = load_data_for_fitting(config)
+    # prepare data via the configured diagnostic data provider (default: OMEGA)
+    all_data, sa, all_axes = get_data_provider(config)(config)
     sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
     num_batches = len(sample_indices) // config["optimizer"]["batch_size"] or 1
     mlflow.log_metrics({"setup_time": round(time.time() - t1, 2)})
@@ -146,22 +146,10 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
 
 
 def load_data_for_fitting(config):
-    if isinstance(config["data"]["shotnum"], list):
-        startCCDsize = config["other"]["CCDsize"]
-        all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"][0])
-        config["other"]["CCDsize"] = startCCDsize
-        all_data2, _, _ = prepare.prepare_data(config, config["data"]["shotnum"][1])
-        all_data.update(
-            {
-                "e_data_rot": all_data2["e_data"],
-                "e_amps_rot": all_data2["e_amps"],
-                "rot_angle": config["data"]["shot_rot"],
-                "noiseE_rot": all_data2["noiseE"],
-            }
-        )
+    """Backwards-compatible shim; dispatches to the configured data provider.
 
-        if config["other"]["extraoptions"]["spectype"] != "angular_full":
-            raise NotImplementedError("Muliplexed data fitting is only availible for angular data")
-    else:
-        all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"])
-    return all_data, sa, all_axes
+    Prefer ``tsadar.data.get_data_provider(config)(config)`` directly. Selects
+    the OMEGA loader by default; see ``tsadar.data`` to plug in another
+    diagnostic or supply preprocessed data.
+    """
+    return get_data_provider(config)(config)
