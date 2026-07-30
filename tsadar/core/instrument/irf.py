@@ -5,10 +5,11 @@ This is device-dependent code, not physics. It holds both the value objects desc
 the same pipeline stage -- sibling stages (aperture weighting, notch filters, pixel
 reduction) get their own modules alongside this one.
 
-Nothing in ``tsadar.core.instrument`` may import from ``tsadar.utils`` or read a config
-dict. Translating an input deck into these value objects is the caller's job, so that
-porting TSADAR to a new diagnostic means constructing them directly rather than
-mimicking OMEGA's nested deck layout to reach a constructor.
+Nothing here may import from the data or orchestration layers (``tsadar.data``,
+``tsadar.inverse``, ``tsadar.forward``, ``tsadar.runner``) or read a config dict.
+Translating an input deck into these value objects is the caller's job, so that porting
+TSADAR to a new diagnostic means constructing them directly rather than mimicking
+OMEGA's nested deck layout to reach a constructor.
 """
 
 from dataclasses import dataclass
