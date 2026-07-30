@@ -2,8 +2,9 @@ from jax import numpy as jnp, vmap
 from scipy.signal import find_peaks
 
 
+from .instrument import irf
+from .instrument import AngularIRF, SpectrometerIRF
 from .modules.ts_params import ThomsonParams
-from .physics import irf
 from .physics.generate_spectra import FitModel
 
 
@@ -29,6 +30,65 @@ def _bin_average(arr, step, axis):
     return jnp.moveaxis(arr, 0, axis)
 
 
+def _irfs_from_config(cfg, scattering_angles):
+    """Adapter from the input deck to device-agnostic IRF descriptions.
+
+    This is the only place that knows how instrument-response settings are laid out in
+    the deck; ``irf.py`` sees only the value objects. When a per-device factory is
+    introduced this function moves there unchanged.
+
+    Returns:
+        (ele_irf, ion_irf, ats_irf): each either its value object or ``None`` if that
+        channel is not in use. Built under exactly the conditions in which
+        ``postprocess_theory`` calls the corresponding routine, so a channel that is
+        never used is never described.
+    """
+
+    widths = cfg["other"]["PhysParams"]["widIRF"]
+    normalize = cfg["other"]["PhysParams"]["norm"]
+    spectype = cfg["other"]["extraoptions"]["spectype"]
+
+    # The IRF-convolved spectrum is computed on a fine grid of `npts` points and then
+    # averaged down onto the detector's wavelength pixels. That pixel count is the length
+    # of the calibrated wavelength axis, which is CCDsize[0] (see
+    # calibration.get_calibrations) -- not the 1024 this code used to hardcode. The two
+    # agree only because OMEGA's CCD is square.
+    n_spectral_pixels = int(cfg["other"]["CCDsize"][0])
+    npts = int(cfg["other"]["npts"])
+
+    def _spectrometer_irf(channel, stddev):
+        if npts % n_spectral_pixels:
+            raise ValueError(
+                f"Cannot bin the {channel} spectrum onto the detector: npts={npts} is not a "
+                f"multiple of n_spectral_pixels={n_spectral_pixels}. npts is derived from "
+                f"CCDsize[1] * points_per_pixel, but the wavelength axis has CCDsize[0] "
+                f"pixels, so this fails for a non-square CCD."
+            )
+        return SpectrometerIRF(
+            spect_stddev=stddev, n_spectral_pixels=n_spectral_pixels, normalize=normalize
+        )
+
+    ele_irf = ion_irf = ats_irf = None
+
+    if cfg["data"]["load_ion_spec"]:
+        ion_irf = _spectrometer_irf("ion", widths["spect_stddev_ion"])
+
+    if cfg["data"]["load_ele_spec"]:
+        if spectype == "angular_full":
+            # The deck stores these as FWHM while the 1D channels store a standard
+            # deviation; normalizing that inconsistency is the adapter's job.
+            ats_irf = AngularIRF(
+                spect_stddev=widths["spect_FWHM_ele"] / 2.3548,
+                ang_stddev=widths["ang_FWHM_ele"] / 2.3548,
+                ang_axis=scattering_angles["angAxis"],
+                normalize=normalize,
+            )
+        else:
+            ele_irf = _spectrometer_irf("electron", widths["spect_stddev_ele"])
+
+    return ele_irf, ion_irf, ats_irf
+
+
 class ThomsonScatteringDiagnostic:
     """
     The SpectrumCalculator class wraps the FitModel class adding instrumental effects to the calculated spectrum so it
@@ -48,6 +108,7 @@ class ThomsonScatteringDiagnostic:
         self.cfg = cfg
         self.scattering_angles = scattering_angles
         self.model = FitModel(cfg, scattering_angles)
+        self.ele_irf, self.ion_irf, self.ats_irf = _irfs_from_config(cfg, scattering_angles)
 
         if ("angular" in cfg["other"]["extraoptions"]["spectype"] 
             or "_interactive" in cfg["other"]["extraoptions"]["spectype"]):
@@ -82,17 +143,15 @@ class ThomsonScatteringDiagnostic:
 
         """
         if self.cfg["data"]["load_ion_spec"]:
-            lamAxisI, ThryI = irf.add_ion_IRF(self.cfg, lamAxisI, modlI, amps["i_amps"], TSins)
+            lamAxisI, ThryI = irf.add_ion_IRF(self.ion_irf, lamAxisI, modlI, amps["i_amps"], TSins)
         else:
             ThryI = modlI
 
         if self.cfg["data"]["load_ele_spec"]:
             if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
-                lamAxisE, ThryE = irf.add_ATS_IRF(
-                    self.cfg, self.scattering_angles, lamAxisE, modlE, amps["e_amps"], TSins
-                )
+                lamAxisE, ThryE = irf.add_ATS_IRF(self.ats_irf, lamAxisE, modlE, TSins)
             else:
-                lamAxisE, ThryE = irf.add_electron_IRF(self.cfg, lamAxisE, modlE, amps["e_amps"], TSins)
+                lamAxisE, ThryE = irf.add_electron_IRF(self.ele_irf, lamAxisE, modlE, amps["e_amps"], TSins)
         else:
             ThryE = modlE
 
