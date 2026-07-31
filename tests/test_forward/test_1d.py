@@ -11,7 +11,7 @@ from flatten_dict import flatten, unflatten
 from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules.ts_params import ThomsonParams
-from tsadar.utils.data_handling.calibration import get_scattering_angles
+from tsadar.data.calibration import get_scattering_angles
 
 
 def test_1d_forward_pass():

@@ -9,9 +9,9 @@ import jax
 from equinox import filter_jit
 
 from tsadar.utils.plotting import plotters
-from tsadar.inverse.loss_function import LossFunction
+from .loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from tsadar.inverse.loops import one_d_loop
+from .loops import one_d_loop
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 

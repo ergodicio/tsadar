@@ -7,7 +7,7 @@ import matplotlib.patheffects as patheffects
 from matplotlib.patches import Rectangle
 import tempfile, mlflow, os
 
-from tsadar.utils.process.lineouts import compute_lineout_pixel_indices
+from .lineouts import compute_lineout_pixel_indices
 
 
 def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):

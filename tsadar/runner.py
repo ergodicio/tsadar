@@ -8,7 +8,7 @@ from flatten_dict import flatten, unflatten
 from .inverse import fitter
 from .forward import calc_series
 from .utils import misc
-from .forward import calc_vs_data
+from .inverse import calc_vs_data
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
