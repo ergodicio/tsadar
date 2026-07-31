@@ -106,7 +106,10 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
                     res = find_peaks(fidu, prominence=np.max(fidu)/2, width=10)
                     peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
                     t0[0] = round(peak_center - 164)
-            except BaseException:
+            except KeyError:
+                print("absolute_timing field not found in input decks, default timing is being used")
+                loadspecs["absolute_timing"] = False
+            except Exception:
                 print("Fiducial timing encountered an error, default timing is being used")
             
         except BaseException:
@@ -142,7 +145,9 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
                     res = find_peaks(fidu, prominence=np.max(fidu)/2, width=10)
                     peak_center = res[1]["left_ips"][0] + (res[1]["right_ips"][0] - res[1]["left_ips"][0]) / 2.0
                     t0[1] = round(peak_center - 115) #95 is the nominal value but i found i had to shift the IAW 100ps later consistently across shots
-            except BaseException:
+            except KeyError:
+                print("absolute_timing field not found in input decks, default timing is being used")
+            except Exception:
                 print("Fiducial timing encountered an error, default timing is being used")
         except BaseException:
             print("Unable to find EPW")
