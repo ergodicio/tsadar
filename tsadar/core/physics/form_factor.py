@@ -335,7 +335,7 @@ class FormFactor:
             formfactor = formfactor * jnp.exp(GDl)
 
 
-        return formfactor, lams
+        return formfactor, jnp.squeeze(lams, axis=-1)
 
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
