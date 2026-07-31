@@ -1,35 +1,98 @@
+"""Instrument response function: spectral (and angular) blur, then binning onto pixels.
+
+This is device-dependent code, not physics. It holds both the value objects describing
+*this* detector's response and the routines that apply it, because those two belong to
+the same pipeline stage -- sibling stages (aperture weighting, notch filters, pixel
+reduction) get their own modules alongside this one.
+
+Nothing here may import from the data or orchestration layers (``tsadar.data``,
+``tsadar.inverse``, ``tsadar.forward``, ``tsadar.runner``) or read a config dict.
+Translating an input deck into these value objects is the caller's job, so that porting
+TSADAR to a new diagnostic means constructing them directly rather than mimicking
+OMEGA's nested deck layout to reach a constructor.
+"""
+
+from dataclasses import dataclass
 from typing import Tuple
+
+import numpy as np
 from jax import numpy as jnp, vmap
 
 
-def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
+@dataclass(frozen=True)
+class SpectrometerIRF:
+    """Response of a 1D spectrometer: spectral blur, then binning onto detector pixels.
+
+    Every field is required. There are no defaults on purpose: a default for
+    ``n_spectral_pixels`` would be silently correct on OMEGA and silently wrong
+    elsewhere, which is the failure mode this module exists to prevent.
+
+    This carries only *static* configuration, so it is an ordinary dataclass rather than
+    an ``equinox`` module -- nothing here is a traced JAX leaf. The fitted instrument
+    nuisance parameters (``amp1``/``amp2``/``amp3``) still arrive separately via the
+    parameter tree.
+
+    Args:
+        spect_stddev: Gaussian spectral IRF standard deviation, in nm. A falsy value
+            means "no spectral IRF" and the convolution is skipped (ion channel only).
+        n_spectral_pixels: Number of wavelength pixels on the detector. The convolved
+            spectrum is computed on a fine grid and averaged down onto this many bins.
+        normalize: Normalization mode. ``0`` scales the spectrum to the measured data
+            amplitude; ``> 0`` normalizes each wing to unity and scales it by the fitted
+            ``amp1``/``amp2``.
+    """
+
+    spect_stddev: float
+    n_spectral_pixels: int
+    normalize: int
+
+
+@dataclass(frozen=True, eq=False)
+class AngularIRF:
+    """Response of a 2D angularly-resolved detector: separable blur in wavelength and angle.
+
+    ``eq=False`` because ``ang_axis`` is an array, and elementwise comparison would make
+    a generated ``__eq__`` raise rather than return a bool.
+
+    Args:
+        spect_stddev: Gaussian spectral IRF standard deviation, in nm.
+        ang_stddev: Gaussian angular IRF standard deviation, in degrees.
+        ang_axis: Calibrated angular axis of the detector, in degrees.
+        normalize: Normalization mode, as for :class:`SpectrometerIRF`.
+    """
+
+    spect_stddev: float
+    ang_stddev: float
+    ang_axis: np.ndarray
+    normalize: int
+
+
+def add_ATS_IRF(irf: AngularIRF, lamAxisE, modlE, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Applies a 2D Gaussian smoothing to angular Thomson scattering data to account for the instrument response function (IRF) of the diagnostic.
-    This function convolves the synthetic spectra with Gaussian kernels along both the wavelength and angular axes, simulating the broadening effects introduced by the instrument. The resulting spectrum is optionally normalized according to configuration parameters.
-    Args:   
-        config (dict): Configuration dictionary containing instrument and normalization parameters.
-        sas (dict): Dictionary with keys 'sa' (scattering angles in degrees) and 'weights' (normalized relative weights for each angle).
+    This function convolves the synthetic spectra with Gaussian kernels along both the wavelength and angular axes, simulating the broadening effects introduced by the instrument. The resulting spectrum is optionally normalized according to the IRF description.
+    Args:
+        irf (AngularIRF): Description of the angular detector's response.
         lamAxisE (jnp.ndarray): Array of wavelengths (in nm) at which the spectrum is computed.
         modlE (jnp.ndarray): Synthetic spectra produced by the formfactor routine, shape (n_angles, n_wavelengths).
-        amps (float): Maximum amplitude of the data, used to rescale the model to the data.
         TSins (dict): Dictionary of Thomson scattering instrument parameters and their values.
     Returns:
         lamAxisE (jnp.ndarray): Wavelength axis (in nm).
         ThryE (jnp.ndarray): Smoothed and optionally normalized synthetic spectra, shape (n_angles, n_wavelengths).
-    """    
+    """
 
-    stddev_lam = config["other"]["PhysParams"]["widIRF"]["spect_FWHM_ele"] / 2.3548
-    stddev_ang = config["other"]["PhysParams"]["widIRF"]["ang_FWHM_ele"] / 2.3548
+    stddev_lam = irf.spect_stddev
+    stddev_ang = irf.ang_stddev
     # Conceptual_origin so the convolution donsn't shift the signal
     origin_lam = (jnp.amax(lamAxisE) + jnp.amin(lamAxisE)) / 2.0
-    origin_ang = (jnp.amax(sas["angAxis"]) + jnp.amin(sas["angAxis"])) / 2.0
+    origin_ang = (jnp.amax(irf.ang_axis) + jnp.amin(irf.ang_axis)) / 2.0
     inst_func_lam = jnp.squeeze(
         (1.0 / (stddev_lam * jnp.sqrt(2.0 * jnp.pi)))
         * jnp.exp(-((lamAxisE - origin_lam) ** 2.0) / (2.0 * (stddev_lam) ** 2.0))
     )  # Gaussian
     inst_func_ang = jnp.squeeze(
         (1.0 / (stddev_ang * jnp.sqrt(2.0 * jnp.pi)))
-        * jnp.exp(-((sas["angAxis"] - origin_ang) ** 2.0) / (2.0 * (stddev_ang) ** 2.0))
+        * jnp.exp(-((irf.ang_axis - origin_ang) ** 2.0) / (2.0 * (stddev_ang) ** 2.0))
     )  # Gaussian
     # Separable 2D convolution: smooth along the angular axis (axis 0) for every
     # wavelength column, then along the wavelength axis (axis 1) for every angle row.
@@ -40,7 +103,7 @@ def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
 
     ThryE = jnp.amax(modlE, axis=1, keepdims=True) / jnp.amax(ThryE, axis=1, keepdims=True) * ThryE
 
-    if config["other"]["PhysParams"]["norm"] > 0:
+    if irf.normalize > 0:
         ThryE = jnp.where(
             lamAxisE < TSins["general"]["lam"],
             TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < TSins["general"]["lam"]])),
@@ -49,12 +112,11 @@ def add_ATS_IRF(config, sas, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
     return lamAxisE, ThryE
 
 
-def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def add_ion_IRF(irf: SpectrometerIRF, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Applies an instrumental response function (IRF) to the ion spectral model and optionally normalizes the result.
     Parameters:
-        config (dict): Configuration dictionary containing physical parameters, including the standard deviation
-            of the Gaussian IRF ('spect_stddev_ion') and normalization flag ('norm').
+        irf (SpectrometerIRF): Description of the ion spectrometer's response.
         lamAxisI (jnp.ndarray): Wavelength axis for the ion spectrum.
         modlI (jnp.ndarray): Theoretical ion spectrum model to which the IRF will be applied.
         amps (float or jnp.ndarray): Amplitude scaling factor(s) for the spectrum.
@@ -64,7 +126,7 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
         ThryI (jnp.ndarray): The processed ion spectrum after convolution with the IRF and optional normalization.
     """
 
-    stddevI = config["other"]["PhysParams"]["widIRF"]["spect_stddev_ion"]
+    stddevI = irf.spect_stddev
     if stddevI:
         originI = (jnp.amax(lamAxisI) + jnp.amin(lamAxisI)) / 2.0
         inst_funcI = jnp.squeeze(
@@ -73,15 +135,15 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
         )  # Gaussian
         ThryI = jnp.convolve(modlI, inst_funcI, "same")
         ThryI = (jnp.amax(modlI) / jnp.amax(ThryI)) * ThryI
-        ThryI = jnp.average(ThryI.reshape(1024, -1), axis=1)
+        ThryI = jnp.average(ThryI.reshape(irf.n_spectral_pixels, -1), axis=1)
         #print(f"modlI max {jnp.max(modlI)}")
         #print(f"ThryI max {jnp.max(ThryI)}")
         #print(f"amps max {jnp.max(amps)}")
 
-        if config["other"]["PhysParams"]["norm"] == 0:
-            lamAxisI = jnp.average(lamAxisI.reshape(1024, -1), axis=1)
+        if irf.normalize == 0:
+            lamAxisI = jnp.average(lamAxisI.reshape(irf.n_spectral_pixels, -1), axis=1)
             ThryI = TSins["general"]["amp3"] * amps * ThryI / jnp.amax(ThryI)
-            # lamAxisE = jnp.average(lamAxisE.reshape(1024, -1), axis=1)
+            # lamAxisE = jnp.average(lamAxisE.reshape(irf.n_spectral_pixels, -1), axis=1)
     else:
         ThryI = modlI
 
@@ -89,14 +151,14 @@ def add_ion_IRF(config, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.
     return lamAxisI, ThryI
 
 
-def add_electron_IRF(config, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def add_electron_IRF(irf: SpectrometerIRF, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Applies an instrumental response function (IRF) to an electron model spectrum and normalizes the result.
-    This function convolves the input electron model spectrum (`modlE`) with a Gaussian IRF defined by the configuration,
-    normalizes the convolved spectrum according to the provided configuration and signal parameters, and optionally
-    averages and rescales the output based on normalization settings.
+    This function convolves the input electron model spectrum (`modlE`) with a Gaussian IRF defined by the IRF
+    description, normalizes the convolved spectrum according to that description and the signal parameters, and
+    optionally averages and rescales the output based on normalization settings.
     Args:
-        config (dict): Configuration dictionary containing physical parameters, including the IRF width and normalization settings.
+        irf (SpectrometerIRF): Description of the electron spectrometer's response.
         lamAxisE (jnp.ndarray): Wavelength axis for the electron spectrum.
         modlE (jnp.ndarray): Model electron spectrum to which the IRF will be applied.
         amps (float or jnp.ndarray): Amplitude scaling factor(s) for the output spectrum.
@@ -107,7 +169,7 @@ def add_electron_IRF(config, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
         Tuple[jnp.ndarray, jnp.ndarray]: Tuple containing the (possibly averaged) wavelength axis and the processed, normalized electron spectrum.
     """
 
-    stddevE = config["other"]["PhysParams"]["widIRF"]["spect_stddev_ele"]
+    stddevE = irf.spect_stddev
     # Conceptual_origin so the convolution doesn't shift the signal
     originE = (jnp.amax(lamAxisE) + jnp.amin(lamAxisE)) / 2.0
     inst_funcE = jnp.squeeze(
@@ -116,16 +178,16 @@ def add_electron_IRF(config, lamAxisE, modlE, amps, TSins) -> Tuple[jnp.ndarray,
     ThryE = jnp.convolve(modlE, inst_funcE, "same")
     ThryE = (jnp.amax(modlE) / jnp.amax(ThryE)) * ThryE
 
-    if config["other"]["PhysParams"]["norm"] > 0:
+    if irf.normalize > 0:
         ThryE = jnp.where(
             lamAxisE < TSins["general"]["lam"],
             TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < TSins["general"]["lam"]])),
             TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > TSins["general"]["lam"]])),
         )
 
-    ThryE = jnp.average(ThryE.reshape(1024, -1), axis=1)
-    if config["other"]["PhysParams"]["norm"] == 0:
-        lamAxisE = jnp.average(lamAxisE.reshape(1024, -1), axis=1)
+    ThryE = jnp.average(ThryE.reshape(irf.n_spectral_pixels, -1), axis=1)
+    if irf.normalize == 0:
+        lamAxisE = jnp.average(lamAxisE.reshape(irf.n_spectral_pixels, -1), axis=1)
         ThryE = amps * ThryE / jnp.amax(ThryE)
         ThryE = jnp.where(
             lamAxisE < TSins["general"]["lam"], TSins["general"]["amp1"] * ThryE, TSins["general"]["amp2"] * ThryE
