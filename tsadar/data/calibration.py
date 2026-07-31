@@ -3,7 +3,7 @@ import numpy as np
 import scipy.io as sio
 import os
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
 def sa_lookup(beam):

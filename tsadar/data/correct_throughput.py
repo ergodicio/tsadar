@@ -7,7 +7,7 @@ from os.path import join
 import os
 import pandas as pd
 
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
 def correctThroughput(data, tstype, axisy, shotNum):
