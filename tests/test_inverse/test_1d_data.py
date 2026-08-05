@@ -1,5 +1,6 @@
 import time
 import multiprocessing as mp
+import pytest
 import yaml
 import mlflow
 from flatten_dict import flatten, unflatten
@@ -14,9 +15,11 @@ from tsadar.inverse import fitter
 from tsadar.utils import misc
 
 
-def test_data():
+@pytest.mark.parametrize("method", ["l-bfgs-b", "lsq"])
+def test_data(method):
     # Test #3: Data test, compare fit to a preknown fit result
     # currently just runs one line of shot 101675 for the electron, should be expanded in the future
+    # Parametrized over the optimizer: L-BFGS-B and Levenberg-Marquardt must reach the same fit.
 
     with open("tests/configs/time_test_defaults.yaml", "r") as fi:
         defaults = yaml.safe_load(fi)
@@ -27,6 +30,7 @@ def test_data():
     defaults = flatten(defaults)
     defaults.update(flatten(inputs))
     config = unflatten(defaults)
+    config["optimizer"]["method"] = method
 
     # config["parameters"]["Te"]["val"] = 0.5
     # config["parameters"]["ne"]["val"] = 0.2  # 0.25

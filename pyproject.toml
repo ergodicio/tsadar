@@ -26,6 +26,7 @@ dependencies = [
     "boto3",
     "flatten-dict",
     "optax",
+    "optimistix",
     "tqdm",
     "jaxopt>=0.6.0",
     "xarray",
