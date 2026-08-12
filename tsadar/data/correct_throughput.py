@@ -1,6 +1,5 @@
 import xlrd
 import numpy as np
-from numpy.matlib import repmat
 import scipy.interpolate as sp
 import scipy.io as sio
 from os.path import join
@@ -80,7 +79,7 @@ def correctThroughput(data, tstype, axisy, shotNum):
         vq1 = speccalshift(axisy)
 
     # Note that C has NaN in it.
-    C = np.transpose(repmat(vq1, 1024, 1))  # expand my wavelength corrections vector into a matrix
+    C = np.transpose(np.tile(vq1, (1024, 1)))  # expand my wavelength corrections vector into a matrix
     C[np.isnan(C)] = 0
     cdata = data * C
     # Correct each wavelength/Row of the matrix

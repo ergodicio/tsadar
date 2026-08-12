@@ -96,7 +96,7 @@ def get_lineouts(
         BackgroundPixel = LineoutPixelE + 100
     elif config["data"]["background"]["type"].casefold() == "shot":
         BackgroundPixel = 900
-    elif config["data"]["background"]["type"].casefold() == "fit":
+    elif config["data"]["background"]["type"].casefold() in ["fit", "brem", "bremsstrahlung"]:
         BackgroundPixel = config["data"]["background"]["slice"]
     else:
         BackgroundPixel = []
@@ -137,7 +137,7 @@ def get_lineouts(
 
     # Find background signal combining information from a background shot and background lineout
     [noiseE, noiseI] = get_lineout_bg(
-        config, elecData, ionData, BGele, BGion, LineoutTSE_smooth, BackgroundPixel, LineoutPixelE, LineoutPixelI
+        config, elecData, ionData, BGele, BGion, LineoutTSE_smooth, BackgroundPixel, LineoutPixelE, LineoutPixelI, axisyE, axisyI,
     )
 
     # Find data amplitudes
