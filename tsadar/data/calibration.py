@@ -213,7 +213,7 @@ def sa_lookup(beam):
     return sa
 
 
-def get_calibrations(shotNum, tstype, t0, CCDsize):
+def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
     """
     Contains and loads the appropriate instrument calibrations based off the shot number and type of Thomson scattering
     performed. The calibrations loaded are the spectral dispersion, offset for the spectral axis, spectral instrument
@@ -402,7 +402,18 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magE = 5.35  # (ps / px) this is just a rough guess
 
         else:
-            raise ValueError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number in tsadar/utils/data_handling/calibration.py")
+            try:
+                EPWDisp = detector_specs["EPWDispersion"]
+                IAWDisp = detector_specs["IAWDispersion"]
+                EPWoff = detector_specs["EPWoffset"]
+                IAWoff = detector_specs["IAWoffset"]
+                stddev["spect_stddev_ion"] = detector_specs["widIRF"]["spect_stddev_ion"]
+                stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
+                magI = 5.23  # (ps / px) this is just a rough guess
+                magE = 5.35  # (ps / px) this is just a rough guess
+                raise Warning(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
+            except KeyError:
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
 
     # IAWtime = 0  # temporal offset between EPW ross and IAW ross (varies shot to shot, can potentially add a fix based off the fiducials)
 
@@ -576,7 +587,18 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             IAWtcc = 526.4255994117018
 
         else:
-            raise ValueError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number in tsadar/utils/data_handling/calibration.py")
+            try:
+                EPWDisp = detector_specs["EPWDispersion"]
+                IAWDisp = detector_specs["IAWDispersion"]
+                EPWoff = detector_specs["EPWoffset"]
+                IAWoff = detector_specs["IAWoffset"]
+                stddev["spect_stddev_ion"] = detector_specs["widIRF"]["spect_stddev_ion"]
+                stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
+                magI = 5.23  # (ps / px) this is just a rough guess
+                magE = 5.35  # (ps / px) this is just a rough guess
+                raise Warning(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
+            except KeyError:
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
 
         # IAWtime = 0  # means nothing here just kept to allow one code to be used for both
 

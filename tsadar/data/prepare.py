@@ -131,7 +131,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
     # extract ARTS section
     if (config["data"]["lineouts"]["type"] == "range") & (config["other"]["extraoptions"]["spectype"] == "angular"):
         config["other"]["extraoptions"]["spectype"] = "angular_full"
-        # config["other"]["PhysParams"]["amps"] = np.array([np.amax(elecData), 1])
+        # config["other"]["detector_specs"]["amps"] = np.array([np.amax(elecData), 1])
         sa["angAxis"] = axisxE
 
         # down sample image to resolution units by summation
@@ -195,7 +195,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
     if config["data"]["launch_data_visualizer"]:
         launch_data_visualizer(elecData, ionData, all_data, all_axes, config)
 
-    config["other"]["PhysParams"]["widIRF"] = stddev
+    config["other"]["detector_specs"]["widIRF"] = stddev
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
     config["other"]["lamrangI"] = [axisyI[0], axisyI[-1]]
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])

@@ -104,7 +104,7 @@ data:
 other:
     extraoptions:
         spectype: angular
-    PhysParams:
+    detector_specs:
         widIRF:
             spect_stddev_ion: 0.015
             spect_stddev_ele: 0.1

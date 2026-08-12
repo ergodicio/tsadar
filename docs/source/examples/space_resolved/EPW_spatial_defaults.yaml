@@ -85,7 +85,7 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
-  PhysParams:
+  detector_specs:
     norm: 0
     widIRF:
       spect_stddev_ele: 1.3

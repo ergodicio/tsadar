@@ -87,7 +87,7 @@ other:
   CCDsize:
   - 1024
   - 1024
-  PhysParams:
+  detector_specs:
     background:
     - 0
     - 0
