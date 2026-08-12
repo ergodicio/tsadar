@@ -46,7 +46,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
 
     # Calibrate axes
     [axisxE, axisxI, axisyE, axisyI, magE, stddev] = get_calibrations(
-        shotNum, config["other"]["extraoptions"]["spectype"], t0, config["other"]["CCDsize"]
+        shotNum, config["other"]["extraoptions"]["spectype"], t0, config["other"]["CCDsize"], config["other"]["detector_specs"],
     )
     all_axes = {"epw_x": axisxE, "epw_y": axisyE, "iaw_x": axisxI, "iaw_y": axisyI, "x_label": xlab}
 
