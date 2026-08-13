@@ -12,12 +12,19 @@ from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
 from .loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from .loops import one_d_loop
+from .loops import one_d_loop, unbatch_fitted_params
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
 def recalculate_with_chosen_weights(
-    config: Dict, sa, sample_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
+    config: Dict,
+    sa,
+    sample_indices,
+    all_data: Dict,
+    loss_fn: LossFunction,
+    calc_sigma: bool,
+    fitted_weights: Dict,
+    num_params: int,
 ):
     """
     Gets parameters and the result of the full forward pass i.e. fits
@@ -29,6 +36,7 @@ def recalculate_with_chosen_weights(
         all_data: Dict- contains the electron data, ion data, and their respective amplitudes
         loss_fn: Instance of the LossFunction class
         fitted_weights: Dict- best values of the parameters returned by the minimizer
+        num_params: int- number of active fitted parameters, used to size the sigmas array
 
     Returns:
 
@@ -37,20 +45,6 @@ def recalculate_with_chosen_weights(
     losses = np.zeros_like(sample_indices, dtype=np.float64)
     sample_indices.sort()
     batch_indices = np.reshape(sample_indices, (-1, config["optimizer"]["batch_size"]))
-
-    # turn list of dictionaries into dictionary of lists
-    all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
-
-    for _fw in fitted_weights:
-        batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
-        for k in batch_fitted_params.keys():
-            for k2 in batch_fitted_params[k].keys():
-                all_params[k][k2].append(batch_fitted_params[k][k2])
-
-    # concatenate all the lists in the dictionary
-    for k in all_params.keys():
-        for k2 in all_params[k].keys():
-            all_params[k][k2] = np.concatenate(all_params[k][k2])
 
     fits = {
         "ele": {
@@ -148,7 +142,7 @@ def recalculate_with_chosen_weights(
         fits["ele"]["total_spec"][inds] = ThryE
         fits["ion"]["total_spec"][inds] = ThryI
 
-    return losses, sqdevs, num_params, fits, sigmas, all_params
+    return losses, sqdevs, fits, sigmas
 
 
 def get_sigmas(hess: Dict, batch_size: int) -> Dict:
@@ -217,11 +211,14 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
     return sigmas
 
 
-def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
+def postprocess(
+    config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights, all_params=None, num_params=None
+):
     t1 = time.time()
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights)
+        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights, num_params)
+        all_params, num_params = unbatch_fitted_params(config, fitted_weights)
     else:
         init_losses = []
 
@@ -236,7 +233,8 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
 
         else:
             t1, final_params = process_data(
-                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td
+                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td,
+                all_params, num_params
             )
 
         # Written last, so it describes the finished tree rather than a
@@ -251,9 +249,9 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     return final_params
 
 
-def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights):
-    losses_init, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, sa, batch_indices, all_data, loss_fn, False, fitted_weights
+def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights, num_params):
+    losses_init, sqdevs, fits, sigmas = recalculate_with_chosen_weights(
+        config, sa, batch_indices, all_data, loss_fn, False, fitted_weights, num_params
     )
 
     # refit bad fits
@@ -336,9 +334,9 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
     return losses_init
 
 
-def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, t1, td):
-    losses, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, t1, td, all_params, num_params):
+    losses, sqdevs, fits, sigmas = recalculate_with_chosen_weights(
+        config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights, num_params
     )
 
     reduced_points = 1.0  # (used_points - num_params)*config["optimizer"]["batch_size"]

@@ -1,4 +1,5 @@
 from functools import partial
+from collections import defaultdict
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from optax import tree_utils as otu
 import equinox as eqx
@@ -233,6 +234,32 @@ def one_d_loop(
                     #     previous_weights, _ = ravel_pytree(best_weights)
 
     return all_weights, overall_loss, loss_fn
+
+
+def unbatch_fitted_params(config: Dict, fitted_weights: List) -> Tuple[Dict, int]:
+    """
+    Flattens the per-batch fitted-weight objects returned by `one_d_loop` into a single dict of
+    concatenated parameter arrays.
+
+    Args:
+        config (Dict): Configuration dictionary containing the parameter settings.
+        fitted_weights (List): List of per-batch fitted weight objects, each exposing `get_fitted_params`.
+    Returns:
+        Tuple[Dict, int]: The unbatched parameters and the number of active fitted parameters.
+    """
+    all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
+    num_params = 0
+    for _fw in fitted_weights:
+        batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
+        for k in batch_fitted_params.keys():
+            for k2 in batch_fitted_params[k].keys():
+                all_params[k][k2].append(batch_fitted_params[k][k2])
+
+    for k in all_params.keys():
+        for k2 in all_params[k].keys():
+            all_params[k][k2] = np.concatenate(all_params[k][k2])
+
+    return all_params, num_params
 
 
 def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None, previous_epoch=None):
