@@ -6,13 +6,12 @@ import time, tempfile, mlflow, os, copy
 
 import numpy as np
 import jax
-from equinox import filter_jit
 
 from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
 from .loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from .loops import one_d_loop, unbatch_fitted_params
+from .loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
@@ -60,49 +59,28 @@ def recalculate_with_chosen_weights(
     }
     sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
 
-    if config["data"]["load_ele_spec"]:
-        sigmas = np.zeros((all_data["e_data"].shape[0], num_params))
-        fits["ele"]["spec_comps"] = np.ones(
-            [
-                all_data["e_data"].shape[0],
-                max(
-                    config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
-                    config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
-                ),
-                all_data["e_data"].shape[1] * config["other"]["points_per_pixel"],
-                len(sa["sa"]),
-            ]
-        )
-    else:
-        fits["ele"]["spec_comps"] = np.zeros(all_data["e_data"].shape)
-    if config["data"]["load_ion_spec"]:
-        sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
-        fits["ion"]["spec_comps"] = np.ones(
-            [
-                all_data["i_data"].shape[0],
-                max(
-                    config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
-                    config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
-                ),
-                all_data["i_data"].shape[1] * config["other"]["points_per_pixel"],
-                len(sa["sa"]),
-            ]
-        )
-    else:
-        fits["ion"]["spec_comps"] = np.zeros(all_data["i_data"].shape)
+    for species, data_key in (("ele", "e_data"), ("ion", "i_data")):
+        if config["data"][f"load_{species}_spec"]:
+            sigmas = np.zeros((all_data[data_key].shape[0], num_params))
+            fits[species]["spec_comps"] = np.ones(
+                [
+                    all_data[data_key].shape[0],
+                    max(
+                        config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
+                        config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
+                    ),
+                    all_data[data_key].shape[1] * config["other"]["points_per_pixel"],
+                    len(sa["sa"]),
+                ]
+            )
+        else:
+            fits[species]["spec_comps"] = np.zeros(all_data[data_key].shape)
 
     background_subtract = config["data"]["background"]["bg_subtract"]
     for i_batch, inds in enumerate(batch_indices):
-        batch = {
-                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
-                "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
-                "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
-                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
-            }
+        batch = build_batch(all_data, inds, background_subtract)
 
-        loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
+        loss, sqds, ThryE, ThryI, _ = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
         if config["plotting"]["detailed_breakdown"]:
             ts_diag = ThomsonScatteringDiagnostic(config, sa)
@@ -120,11 +98,10 @@ def recalculate_with_chosen_weights(
             fits["ion"]["detailed_axis"] = lamAxisI_raw[0]
 
         if calc_sigma:
-            hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
             try:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
-            except:
-                print("Error calculating Hessian, no hessian based uncertainties have been calculated")
+            except Exception as e:
+                print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
                 calc_sigma = False
 
         losses[inds] = loss
@@ -132,9 +109,6 @@ def recalculate_with_chosen_weights(
         sqdevs["ele"][inds] = sqds["ele"]
         sqdevs["ion"][inds] = sqds["ion"]
 
-        if config["optimizer"]["loss_method"] =='covar':
-            sqdevs["ele"][inds] = sqds["ele"]
-            sqdevs["ion"][inds] = sqds["ion"]
         if calc_sigma:
             sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
             # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
@@ -167,7 +141,6 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
         for species in hess.keys()
         for key in hess[species].keys()
     }
-    # sizes = {key: hess[key][key].shape[1] for key in keys}
     actual_num_params = sum([v for k, v in sizes.items()])
     sigmas = np.zeros((batch_size, actual_num_params))
 
@@ -183,30 +156,8 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
                         k2 += 1
                 k1 += 1
 
-        # xc = 0
-        # for k1, param in enumerate(keys):
-        #     yc = 0
-        #     for k2, param2 in enumerate(keys):
-        #         if i > 0:
-        #             temp[k1, k2] = np.squeeze(hess[param][param2])[i, i]
-        #         else:
-        #             temp[xc : xc + sizes[param], yc : yc + sizes[param2]] = hess[param][param2][0, :, 0, :]
-        #
-        #         yc += sizes[param2]
-        #     xc += sizes[param]
-
-        # print(temp)
         inv = np.linalg.inv(temp)
-        # print(inv)
-
         sigmas[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
-        # for k1, param in enumerate(keys):
-        #     sigmas[i, xc : xc + sizes[param]] = np.diag(
-        #         np.sign(inv[xc : xc + sizes[param], xc : xc + sizes[param]])
-        #         * np.sqrt(np.abs(inv[xc : xc + sizes[param], xc : xc + sizes[param]]))
-        #     )
-        # print(sigmas[i, k1])
-        # change sigmas into a dictionary?
 
     return sigmas
 
@@ -272,13 +223,6 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         temp_cfg = copy.deepcopy(config)
         temp_cfg["optimizer"]["batch_size"] = 1
 
-        def func(x):
-            # i, true_batch_size
-            if hasattr(x, "__len__"):
-                return {"val": x[(i - 1) % true_batch_size]}
-            else:
-                return {"val": x}
-
         def extract(x):
             # i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
             if isinstance(x, list) or len(np.shape(x)) > 0:
@@ -303,8 +247,7 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         )
         prev_weights = prev_weights.get_unnormed_params()
         prev_weights = jax.tree.map(lambda x: {"val": x}, prev_weights)
-        prev_weights["electron"]["fe"] = {"m": prev_weights["electron"]["m"]}
-        del prev_weights["electron"]["m"]
+        prev_weights["electron"]["fe"] = {"params": {"m": prev_weights["electron"].pop("m")}}
 
         temp_params = flatten(temp_cfg["parameters"])
         temp_params.update(flatten(prev_weights))
@@ -313,18 +256,10 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
 
         inds = np.array([i])
-        batch = {
-            "e_data": all_data["e_data"][inds],
-            "e_amps": all_data["e_amps"][inds],
-            "i_data": all_data["i_data"][inds],
-            "i_amps": all_data["i_amps"][inds],
-            "noise_e": all_data["noiseE"][inds],
-            "noise_i": all_data["noiseI"][inds],
-        }
+        batch = build_batch(all_data, inds, config["data"]["background"]["bg_subtract"])
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
 
         if loss < losses_init[i]:
-            del fitted_weights[(i - 1) // true_batch_size]["electron"]["m"]
             fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
                 insert,
                 fitted_weights[(i - 1) // true_batch_size],
@@ -370,41 +305,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
             all_params[k][k2].append(batch_fitted_params[k][k2])
 
    # Prepare batch data
-    start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
-    # batch = {
-    #     "e_data": all_data["e_data"][start:end, :],
-    #     "e_amps": all_data["e_amps"][start:end, :],
-    #     "i_data": all_data["i_data"],
-    #     "i_amps": all_data["i_amps"],
-    #     "noise_e": all_data["noiseE"][start:end, :],
-    #     "noise_i": all_data["noiseI"][start:end, :],
-    # }
-    batch1 = {
-        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "i_data": all_data["i_data"],
-        "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-    }
-    if isinstance(config["data"]["shotnum"], list):
-        batch2 = {
-            "e_data": all_data["e_data_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "e_amps": all_data["e_amps_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "noise_e": all_data["noiseE_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        }
-        batch = {"b1": batch1, "b2": batch2}
-    else:
-        batch = batch1
+    batch = build_angular_batch(config, all_data)
 
     # Calculate losses and fits
     losses, sqdevs, fits_ele, _, params = loss_fn.array_loss(fitted_weights, batch)

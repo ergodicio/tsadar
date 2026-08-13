@@ -21,6 +21,62 @@ import optimistix as optx
 from typing import Dict, List, Tuple
 
 
+def build_batch(all_data: Dict, inds, background_subtract: bool) -> Dict:
+    """
+    Slices a batch of lineouts out of `all_data`, optionally subtracting the background noise from the data
+    (leaving the model to add it back in) instead of passing the noise through as a separate fit term.
+
+    Args:
+        all_data (Dict): Dictionary containing all input data arrays required for fitting.
+        inds: Indices (or index array) selecting which lineouts to include in the batch.
+        background_subtract (bool): Whether to subtract noise from the data here rather than fit it separately.
+    Returns:
+        Dict: Batch dictionary with e_data/i_data, amplitudes, and noise terms for the selected indices.
+    """
+    return {
+        "e_data": all_data["e_data"][inds] - all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
+        "e_amps": all_data["e_amps"][inds],
+        "i_data": all_data["i_data"][inds] - all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
+        "i_amps": all_data["i_amps"][inds],
+        "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
+        "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
+    }
+
+
+def build_angular_batch(config: Dict, all_data: Dict) -> Dict:
+    """
+    Builds the angular-data batch (or dict of two batches, for multiplexed/rotated shots) sliced to the
+    configured lineout start:end range. Assumes any unit conversion of the lineout start/end (e.g. by
+    ang_res_unit) has already been applied to `config` by the caller.
+
+    Args:
+        config (Dict): Configuration dictionary containing the lineout start/end and shot settings.
+        all_data (Dict): Dictionary containing all input data arrays required for fitting.
+    Returns:
+        Dict: `batch1` directly for a single shot, or {"b1": batch1, "b2": batch2} for rotated multi-shot data.
+    """
+    start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
+    batch1 = {
+        "e_data": all_data["e_data"][start:end, :],
+        "e_amps": all_data["e_amps"][start:end, :],
+        "i_data": all_data["i_data"],
+        "i_amps": all_data["i_amps"],
+        "noise_e": all_data["noiseE"][start:end, :],
+        "noise_i": all_data["noiseI"][start:end, :],
+    }
+    if isinstance(config["data"]["shotnum"], list):
+        batch2 = {
+            "e_data": all_data["e_data_rot"][start:end, :],
+            "e_amps": all_data["e_amps_rot"][start:end, :],
+            "noise_e": all_data["noiseE_rot"][start:end, :],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][start:end, :],
+        }
+        return {"b1": batch1, "b2": batch2}
+    return batch1
+
+
 def _1d_scipy_loop_(
     config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict
 ) -> Tuple[float, Dict]:
@@ -201,14 +257,7 @@ def one_d_loop(
         for i_batch in tbatch:
             previous_batch = previous_weights[i_batch] if previous_weights is not None else previous_batch
             inds = batch_indices[i_batch]
-            batch = {
-                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
-                "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
-                "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
-                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
-            }
+            batch = build_batch(all_data, inds, background_subtract)
 
             if config["optimizer"]["method"] == "l-bfgs-b":  # Stochastic Gradient Descent
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
@@ -376,32 +425,8 @@ def multirun_angular_optax(
     config["optimizer"]["batch_size"] = 1
     config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
     config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
-    batch1 = {
-        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "i_data": all_data["i_data"],
-        "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-    }
-    if isinstance(config["data"]["shotnum"], list):
-        batch2 = {
-            "e_data": all_data["e_data_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "e_amps": all_data["e_amps_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "noise_e": all_data["noiseE_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        }
-        actual_data = {"b1": batch1, "b2": batch2}
-    else:
-        actual_data = batch1
+    actual_data = build_angular_batch(config, all_data)
+    batch1 = actual_data["b1"] if isinstance(config["data"]["shotnum"], list) else actual_data
 
     previous_weights = None
     total_epochs = 0

@@ -6,6 +6,7 @@ import yaml
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules.ts_params import ThomsonParams
 from .fitter import _validate_inputs_, load_data_for_fitting
+from .loops import build_batch
 from ..data.calibration import get_calibrations
 from .loss_function import LossFunction
 
@@ -188,14 +189,7 @@ def forward_pass(config):
         else:
             sas['sa'] = sas['sa']
             sas['weights'] = sas['weights']
-    batch = {
-                "e_data": all_data["e_data"][0]-all_data["noiseE"][0] if background_subtract else all_data["e_data"][0],
-                "e_amps": all_data["e_amps"][0],
-                "i_data": all_data["i_data"][0]-all_data["noiseI"][0] if background_subtract else all_data["i_data"][0],
-                "i_amps": all_data["i_amps"][0],
-                "noise_e": all_data["noiseE"][0] if not background_subtract else 0.0,
-                "noise_i": all_data["noiseI"][0] if not background_subtract else 0.0,
-            }
+    batch = build_batch(all_data, np.array([0]), background_subtract)
 
     fig = make_subplots(rows=2, cols=2, specs=[[{"secondary_y": False}, {"secondary_y": False}], [{"secondary_y": True}, {"secondary_y": True}]],
                         subplot_titles=("Electron Spectrum", "Ion Spectrum", "Electron Chisq",  "Ion Chisq"))

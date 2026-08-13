@@ -1,14 +1,55 @@
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
+import os
+import tempfile
 import time
 import numpy as np
 import pandas as pd
+import equinox as eqx
 
 import mlflow
 
 from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
+from tsadar.utils.plotting import plotters
 
 from ..data import prepare
 from . import postprocess
+
+
+def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
+    """
+    Persists the raw fit results to mlflow independently of postprocess, so they survive even if
+    postprocess is skipped (config["other"]["run_postprocess"] = False) or fails partway through.
+
+    Saves two things:
+        - fitted_weights: the live equinox pytree, via eqx.tree_serialise_leaves. This saves only the
+          array leaves (not the lambda-valued activation functions), so restoring it later requires
+          rebuilding a matching "skeleton" ThomsonParams tree from the same config and calling
+          eqx.tree_deserialise_leaves on it - this is the standard equinox checkpointing pattern and is
+          robust to being loaded by a different process/session, unlike pickling the object directly.
+        - all_params: the flattened per-lineout fitted values, as the same CSV artifacts
+          plotters.get_final_params produces during normal postprocessing.
+
+    Args:
+        config (Dict): Configuration dictionary built from the input deck.
+        all_axes (Dict): Calibrated axes and axis labels, needed by plotters.get_final_params.
+        fitted_weights: The fitted weights returned by the minimizer (list of ThomsonParams for 1D fits,
+            a single ThomsonParams for angular fits).
+        all_params (Optional[Dict]): Unbatched fitted parameters from unbatch_fitted_params, or None
+            (angular fits don't compute this at the fitter level).
+    Returns:
+        The dict returned by plotters.get_final_params, or None if all_params wasn't available.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "csv"), exist_ok=True)
+        eqx.tree_serialise_leaves(os.path.join(td, "fitted_weights.eqx"), fitted_weights)
+
+        final_params = None
+        if all_params is not None:
+            final_params = plotters.get_final_params(config, all_params, all_axes, td)
+
+        mlflow.log_artifacts(td)
+
+    return final_params
 
 
 def _validate_inputs_(config: Dict) -> Dict:
@@ -139,12 +180,24 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
 
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
-    mlflow.set_tag("status", "postprocessing")
-    print("postprocessing")
 
-    final_params = postprocess.postprocess(
-        config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights, all_params, num_params
-    )
+    saved_final_params = _save_fit_artifacts(config, all_axes, fitted_weights, all_params)
+
+    if config["other"].get("run_postprocess", True):
+        mlflow.set_tag("status", "postprocessing")
+        print("postprocessing")
+
+        final_params = postprocess.postprocess(
+            config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights, all_params, num_params
+        )
+    else:
+        if saved_final_params is None:
+            raise NotImplementedError(
+                "run_postprocess=False is currently only supported for non-angular fits, since all_params "
+                "(and therefore final_params) is only computed at the fitter level for the 1D path."
+            )
+        final_params = saved_final_params
+        mlflow.set_tag("status", "done fitting (postprocess skipped)")
 
     return final_params, float(overall_loss)
 
