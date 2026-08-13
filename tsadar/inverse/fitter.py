@@ -5,7 +5,7 @@ import pandas as pd
 
 import mlflow
 
-from tsadar.inverse.loops import multirun_angular_optax, one_d_loop
+from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
 
 from ..data import prepare
 from . import postprocess
@@ -132,15 +132,19 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
         fitted_weights, overall_loss, loss_fn = multirun_angular_optax(config, all_data, sa)
+        all_params, num_params = None, None
     else:
         fitted_weights, overall_loss, loss_fn = one_d_loop(config, all_data, sa, sample_indices, num_batches)
+        all_params, num_params = unbatch_fitted_params(config, fitted_weights)
 
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
     mlflow.set_tag("status", "postprocessing")
     print("postprocessing")
 
-    final_params = postprocess.postprocess(config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights)
+    final_params = postprocess.postprocess(
+        config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights, all_params, num_params
+    )
 
     return final_params, float(overall_loss)
 
