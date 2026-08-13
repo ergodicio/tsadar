@@ -9,12 +9,6 @@ from scipy.signal import convolve2d as conv2
 from .load_ts_data import loadData
 from .correct_throughput import correctThroughput
 
-
-def is_bremsstrahlung_bg_type(bg_type: str) -> bool:
-    """Matches 'bremsstrahlung' and shortened aliases such as 'brem' or 'bremstrahlung'."""
-    return bg_type.casefold().startswith("brem")
-
-
 def get_shot_bg(config, shotNum, axisyE, elecData):
     """
     Computes the background electron and ion spectra for a given shot based on data from another shot.
@@ -165,7 +159,8 @@ def get_lineout_bg(
         # if not fit use a pixel lineout with smoothing
         elif config["data"]["background"]["type"].casefold() in ["brem","bremsstrahlung"]:
             # fit a bremsstrahlung model to the edges of the lineout
-            brem = lambda x, a, c, Z, Te, ne: 10**8 *Z * ne**2 / Te**0.5 / x**2* np.exp(4.1357*10**-15 *2.99792*10**10 / (x * Te)) * a + c
+            brem = lambda x, a, c, Z, Te, ne: 10**8 *Z * ne**2 / Te**0.5 / x**2* np.exp(-1.24 / (x * Te)) * a + c
+            
             LineoutBGE = []
             for i, _ in enumerate(config["data"]["lineouts"]["val"]):
                 [pvec, _] = spopt.curve_fit(brem,axisyE[bgfitx], LineoutTSE_smooth[i][bgfitx], [config["data"]["background"]["bg_alg_params"][0],config["data"]["background"]["bg_alg_params"][1], config['parameters']['ion-1']['Z']['val'], config['parameters']['electron']['Te']['val'], config['parameters']['electron']['ne']['val']])
