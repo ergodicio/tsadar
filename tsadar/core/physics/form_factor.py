@@ -16,6 +16,16 @@ from ...utils.vector_tools import vsub, vdot, vdiv
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
+# Angles in the tabulated projection used by the 2D form factor (see
+# FormFactor._build_sinogram). Single source of truth: the config layer defers to this
+# rather than repeating the number.
+DEFAULT_N_BETA = 1024
+
+# Angles rotated per batch when building the sinogram. Bounds peak memory, which scales as
+# BETA_BATCH_SIZE * nvx**2; sized for the nvx=128 of the shipped 2D decks. Shipped configs
+# range nvx from 32 to 320, so the top end is ~6x this footprint.
+BETA_BATCH_SIZE = 32
+
 
 def zprimeMaxw(xi):
     """
@@ -89,15 +99,21 @@ class FormFactor:
                 angle (float): Rotation angle in radians.
                 reshape (bool): Whether to reshape the output.
                 jnp.ndarray: Rotated/interpolated 2D array.
-        scan_calc_chi_vals(carry, xs):
-            Calculates susceptibility values at a given point in the distribution function using scan.
-                carry (tuple): (velocity grid, 2D distribution function).
-                xs (tuple): (angle, xie_mag_at, klde_mag_at).
-                tuple: Updated carry and (fe_vphi, chiEI, chiERrat).
-        calc_chi_vals(vx, DF, inputs):
-            Calculates susceptibility values at a given point in the distribution function.
+        project(vx, DF, beta):
+            Projects the 2D distribution function onto the direction beta (its Radon transform).
                 vx (jnp.ndarray): Velocity grid.
                 DF (jnp.ndarray): 2D distribution function.
+                beta (float): Angle in radians.
+                jnp.ndarray: 1D projected distribution function.
+        scan_calc_chi_vals(carry, xs):
+            Calculates susceptibility values at a given point in the distribution function using scan.
+                carry (tuple): (velocity grid, sinogram as returned by _build_sinogram).
+                xs (tuple): (angle, xie_mag_at, klde_mag_at).
+                tuple: Updated carry and (fe_vphi, chiEI, chiERrat).
+        calc_chi_vals(vx, sinogram, inputs):
+            Calculates susceptibility values at a given point in the distribution function.
+                vx (jnp.ndarray): Velocity grid.
+                sinogram (tuple): Tabulated projection, or the 2D distribution function when n_beta is 0.
                 inputs (tuple): (angle, xie_mag_at, klde_mag_at).
                 tuple: (fe_vphi, chiEI, chiERrat).
         _calc_all_chi_vals_(vx, DF, beta, xie_mag, klde_mag):
@@ -121,7 +137,16 @@ class FormFactor:
                 lams (jnp.ndarray): Wavelength axis.
     """
     def __init__(
-        self, lambda_range, npts, lam_shift, scattering_angles, num_grad_points, ud_ang, va_ang, calc_gain, n_beta=1024
+        self,
+        lambda_range,
+        npts,
+        lam_shift,
+        scattering_angles,
+        num_grad_points,
+        ud_ang,
+        va_ang,
+        calc_gain,
+        n_beta=DEFAULT_N_BETA,
     ):
 
         # basic quantities
@@ -152,6 +177,13 @@ class FormFactor:
         # value selects the exact per-point rotation instead, which is what the
         # tabulation is validated against.
         self.n_beta = int(n_beta) if n_beta else 0
+        if 0 < self.n_beta < 4:
+            # The Catmull-Rom stencil is 4 wide, so a shorter grid wraps onto itself and
+            # returns quietly wrong numbers rather than failing.
+            raise ValueError(
+                f"n_beta must be 0 (exact rotation) or at least 4, got {self.n_beta}. "
+                "Values in 1-3 are too short for the interpolation stencil."
+            )
 
         #option to include calculation of SBS and SRS gain
         self.calc_gain = calc_gain
@@ -438,7 +470,7 @@ class FormFactor:
         # `jmap` rather than `vmap` so peak memory stays bounded by the batch, not by
         # n_beta: each rotation materializes an intermediate of len(vx)**2 before it is
         # collapsed to a row of `proj`.
-        proj = jmap(partial(self.project, vx, DF), xs=betas, batch_size=32)
+        proj = jmap(partial(self.project, vx, DF), xs=betas, batch_size=BETA_BATCH_SIZE)
         dproj = vmap(lambda p: jnp.gradient(p, vx[1] - vx[0]))(proj)
         return proj, dproj
 
@@ -453,10 +485,12 @@ class FormFactor:
 
         Catmull-Rom rather than linear specifically because this is differentiated. A
         linear interpolant has a piecewise-*constant* derivative in the angle, so while
-        its values converge at O(h**2) its gradient converges only at O(h) -- measured at
-        ~4% error against an exact rotation for `d/dDF` at n_beta=1024, which is far too
-        coarse to fit against. Catmull-Rom is C1 and drops that to ~1e-4 at the same
-        `n_beta`, for one extra pair of gathers.
+        its values converge at O(h**2) its gradient converges only at O(h): measured
+        against an exact rotation at n_beta=1024, `d/dDF` came out ~4e-2 in relative L2,
+        far too coarse to fit against. Catmull-Rom is C1 and brings that to ~7e-3 in
+        relative L2 on the same EDF, for one extra pair of gathers. (The descent
+        *direction* is much better than either figure -- 1 - cos ~ 3e-5 for the cubic --
+        but L2 is the honest number to quote for the magnitude.)
 
         Args:
 
