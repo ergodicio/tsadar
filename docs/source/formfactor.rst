@@ -9,3 +9,5 @@ This is the module that handles the loss function, gradient calculation, hessian
 
 .. autofunction:: tsadar.core.physics.form_factor.zprimeMaxw
 
+.. autofunction:: tsadar.core.physics.interpolation.interp_uniform
+
