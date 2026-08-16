@@ -109,6 +109,11 @@ class FitModel:
             else config["parameters"]["general"]["Va"]["angle"]
         )
 
+        # Angular resolution of the tabulated projection used by the 2D form factor. Set
+        # to 0 to fall back to an exact rotation at every evaluation point, which is far
+        # slower but is what the tabulation is validated against.
+        n_beta = config["other"].get("n_beta", 1024)
+
         if 'include_gains' in config["other"] and config["other"]["include_gains"]:
             calc_gain = {'calc': config["other"]["include_gains"], 'Ipump': config["other"]["Ipump_14"], 'beam_diam_um': config["other"]["beam_diam_um"]}
         else:
@@ -123,6 +128,7 @@ class FitModel:
             va_ang=va_angle,
             ud_ang=ud_angle,
             calc_gain=calc_gain,
+            n_beta=n_beta,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -133,6 +139,7 @@ class FitModel:
             va_ang=va_angle,
             ud_ang=ud_angle,
             calc_gain=calc_gain,
+            n_beta=n_beta,
         )
 
     def __call__(self, all_params: Dict):
