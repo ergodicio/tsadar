@@ -82,7 +82,7 @@ other:
     expandedions: False
     extraoptions:
         spectype: None
-    PhysParams:
+    detector_specs:
         background: [0, 0]
         norm: 0
     iawoff: 0

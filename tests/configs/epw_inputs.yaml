@@ -116,7 +116,7 @@ feature_detector:
 other:
     extraoptions:
         spectype: temporal
-    PhysParams:
+    detector_specs:
         widIRF:
             spect_stddev_ion: 0.015
             spect_stddev_ele: 0.1

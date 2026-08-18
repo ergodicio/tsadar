@@ -81,7 +81,7 @@ other:
     extraoptions:
         spectype: 1d
         absolute_timing: false
-    PhysParams:
+    detector_specs:
         background: [0, 0]
         norm: 0
         widIRF: 

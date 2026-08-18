@@ -72,7 +72,7 @@ other:
   - 1024
   - 1024
   NumBinInRng: 0
-  PhysParams:
+  detector_specs:
     background:
     - 0
     - 0
@@ -92,6 +92,12 @@ other:
   - 528
   iawoff: 0
   lam_res_unit: 5
+  # Number of angles at which the 2D EDF's projection is tabulated. Higher is more
+  # accurate and costs one extra rotation of the EDF each. Against an exact rotation at
+  # every evaluation point (which is what 0 selects), 1024 sits ~1e-6 in the spectrum and
+  # ~1e-2 in relative L2 on the gradient w.r.t. the EDF -- the gradient is the binding
+  # constraint, so raise this if a 2D fit struggles to converge.
+  n_beta: 1024
   points_per_pixel: 1
   refit: true
   refit_thresh: 0.25

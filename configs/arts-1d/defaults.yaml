@@ -73,7 +73,7 @@ other:
   - 1024
   - 1024
   NumBinInRng: 0
-  PhysParams:
+  detector_specs:
     background:
     - 0
     - 0
