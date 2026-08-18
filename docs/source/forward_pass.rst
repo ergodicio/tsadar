@@ -15,7 +15,7 @@ Other
 
     - ``spectype`` the type of spectrum to be computed. This field is self determined from the data when fitting. For a forward pass somthing has to be specified but it deos not effect the spectrum. Options are ``temporal`` or  ``imaging`` In this context they produce the same spectrum.
 
-    - ``PhysParams`` the subfields define instrumental properties
+    - ``detector_specs`` the subfields define instrumental properties
 
         - ``widIRF`` the subfields define the instrumental response functions, when fitting data it is determined from the calibration files but when running in forward mode these must be supplied. The subfields are:
 

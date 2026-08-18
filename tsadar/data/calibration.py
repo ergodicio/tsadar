@@ -213,7 +213,7 @@ def sa_lookup(beam):
     return sa
 
 
-def get_calibrations(shotNum, tstype, t0, CCDsize):
+def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
     """
     Contains and loads the appropriate instrument calibrations based off the shot number and type of Thomson scattering
     performed. The calibrations loaded are the spectral dispersion, offset for the spectral axis, spectral instrument
@@ -402,17 +402,18 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             magE = 5.35  # (ps / px) this is just a rough guess
 
         else:
-            # needs to be updated with the calibrations from 7-26-22
-            EPWDisp = 0.4104
-            IAWDisp = 0.00678
-            EPWoff = 319.3
-            IAWoff = 522.90
-            stddev["spect_stddev_ion"] = 0.02262  # spectral IAW IRF for 8 / 26 / 21(grating was masked)
-            stddev["spect_stddev_ele"] = 1.4294  # spectral EPW IRF for 200um pinhole used on 8 / 26 / 21
-
-            # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)
-            magI = 5  # (ps / px) this is just a rough guess
-            magE = 5  # (ps / px) this is just a rough guess
+            try:
+                EPWDisp = detector_specs["EPWDispersion"]
+                IAWDisp = detector_specs["IAWDispersion"]
+                EPWoff = detector_specs["EPWoffset"]
+                IAWoff = detector_specs["IAWoffset"]
+                stddev["spect_stddev_ion"] = detector_specs["widIRF"]["spect_stddev_ion"]
+                stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
+                magI = 5.23  # (ps / px) this is just a rough guess
+                magE = 5.35  # (ps / px) this is just a rough guess
+                raise Warning(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
+            except KeyError:
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
 
     # IAWtime = 0  # temporal offset between EPW ross and IAW ross (varies shot to shot, can potentially add a fix based off the fiducials)
 
@@ -527,8 +528,8 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
         elif 107620 <= shotNum <= 107633:
             # refractive teloscope used on 3/9/23
             EPWDisp = 0.27594
-            IAWDisp = 0.005701
-            EPWoff = 388.256  # 390.256 worked for 106317
+            IAWDisp = 0.00437
+            EPWoff = 398.256  # 390.256 worked for 106317
             IAWoff = 524.345
 
             stddev["spect_stddev_ion"] = 0.028  # needs to be checked
@@ -540,6 +541,21 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             EPWtcc = 1024 - 503  # 562;
             IAWtcc = 1024 - 568  # 578  # 469;
             
+        elif 109967 <= shotNum <= 109974:
+            EPWDisp = 0.276
+            IAWDisp = 0.00437
+            EPWoff = 381.528  # needs to be checked
+            IAWoff = 524.299
+
+            stddev["spect_stddev_ion"] = 0.014  # needs to be checked
+            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
+
+            magI = 2.89  # um / px times strech factor accounting for tilt in view
+            magE = 5.13 # um / px times strech factor accounting for tilt in view
+
+            EPWtcc = 528  # 562;
+            IAWtcc = 475  # 469;
+
         elif 117830 <= shotNum <= 117839:
             EPWDisp = 0.276
             IAWDisp = 0.00437
@@ -571,20 +587,18 @@ def get_calibrations(shotNum, tstype, t0, CCDsize):
             IAWtcc = 526.4255994117018
 
         else:
-            # needs to be updated with the calibrations from 7-26-22
-            EPWDisp = 0.27093
-            IAWDisp = 0.00437
-            EPWoff = 396.256  # needs to be checked
-            IAWoff = 524.275
-
-            stddev["spect_stddev_ion"] = 0.028  # needs to be checked
-            stddev["spect_stddev_ele"] = 1.4365  # needs to be checked
-
-            magI = 2.89 * 1.079  # um / px times strech factor accounting for tilt in view
-            magE = 5.13 * 1.079  # um / px times strech factor accounting for tilt in view
-
-            EPWtcc = 1024 - 516  # 562;
-            IAWtcc = 1024 - 450  # 469;
+            try:
+                EPWDisp = detector_specs["EPWDispersion"]
+                IAWDisp = detector_specs["IAWDispersion"]
+                EPWoff = detector_specs["EPWoffset"]
+                IAWoff = detector_specs["IAWoffset"]
+                stddev["spect_stddev_ion"] = detector_specs["widIRF"]["spect_stddev_ion"]
+                stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
+                magI = 5.23  # (ps / px) this is just a rough guess
+                magE = 5.35  # (ps / px) this is just a rough guess
+                raise Warning(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
+            except KeyError:
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
 
         # IAWtime = 0  # means nothing here just kept to allow one code to be used for both
 

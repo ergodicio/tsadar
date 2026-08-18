@@ -44,8 +44,8 @@ def _irfs_from_config(cfg, scattering_angles):
         never used is never described.
     """
 
-    widths = cfg["other"]["PhysParams"]["widIRF"]
-    normalize = cfg["other"]["PhysParams"]["norm"]
+    widths = cfg["other"]["detector_specs"]["widIRF"]
+    normalize = cfg["other"]["detector_specs"]["norm"]
     spectype = cfg["other"]["extraoptions"]["spectype"]
 
     # The IRF-convolved spectrum is computed on a fine grid of `npts` points and then

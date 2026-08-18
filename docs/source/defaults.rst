@@ -298,7 +298,7 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``expandedions`` is a boolean determining if a non-linear wavelength grid will be used allowing IAW and EPW spectra to be resolved simultaneously *currently deprecated*.
 
-- ``PhysParams`` is a dictionary that is assigned within the code and stores detector information. Values modified within this dictionary will only apply to forward mode.
+- ``detector_specs`` is a dictionary that is assigned within the code and stores detector information. Values modified within this dictionary will only apply to forward mode.
 
 - ``iawoff`` is a boolean determining if the iaw will be suppressed in plotting of the EPW feature
 
