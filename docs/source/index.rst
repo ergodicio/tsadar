@@ -22,6 +22,7 @@ Table of Contents
    Getting Started Tutorial<getting_started>
    Example Gallery<examples>
    Inputs<inputs>
+   Fit Artifacts<artifacts>
    Defaults<defaults>
    Background Algorithms<bg_algorithms>
    Forward<forward_pass>

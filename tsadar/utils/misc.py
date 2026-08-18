@@ -180,3 +180,136 @@ def download_file(fname, artifact_uri, destination_path):
             return None
 
     return dest_file_path
+
+
+#: Tag namespace for tsadar's canonical, queryable run metadata. Everything under
+#: this prefix is a *tag* rather than a param so that downstream readers (the
+#: Thomson analysis browser in ergodicio/tsadar-app) can filter with MLflow
+#: ``search_runs`` filter strings without paging through the hundreds of
+#: flattened config params that :func:`log_mlflow` writes.
+TAG_NAMESPACE = "tsadar"
+
+#: MLflow caps tag values at 5000 characters. Stay well under it: these are meant
+#: to be read in a table cell, not parsed.
+MAX_TAG_LEN = 500
+
+#: The ``status`` tag's terminal values. The intermediate values ("preprocessing",
+#: "minimizing", "postprocessing", "plotting", "done plotting") are written by
+#: :mod:`tsadar.inverse.fitter` and :mod:`tsadar.inverse.postprocess` as the fit
+#: progresses; these three bracket them. A run whose ``status`` is not terminal
+#: and whose MLflow lifecycle status is not RUNNING died without unwinding.
+STATUS_RUNNING = "running"
+STATUS_COMPLETED = "completed"
+STATUS_FAILED = "failed"
+TERMINAL_STATUSES = (STATUS_COMPLETED, STATUS_FAILED)
+
+
+def _truncate(value: str) -> str:
+    """Clips a tag value to :data:`MAX_TAG_LEN`, marking that it was clipped."""
+
+    text = str(value)
+    if len(text) <= MAX_TAG_LEN:
+        return text
+
+    return text[: MAX_TAG_LEN - 3] + "..."
+
+
+def get_version() -> str:
+    """
+    Returns the installed tsadar version, or "unknown" when the package metadata
+    is unavailable (e.g. running from a source tree that was never installed).
+    """
+
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("tsadar")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _data_kind(config) -> str:
+    """
+    Which spectra a run loads: "epw", "iaw", "both", or "none".
+
+    Derived from the ``load_ele_spec`` / ``load_ion_spec`` switches rather than
+    from the filenames, since those are what the fit actually branches on.
+    """
+
+    data = (config.get("data") or {}) if isinstance(config, dict) else {}
+    ele = bool(data.get("load_ele_spec", False))
+    ion = bool(data.get("load_ion_spec", False))
+
+    if ele and ion:
+        return "both"
+    elif ele:
+        return "epw"
+    elif ion:
+        return "iaw"
+    else:
+        return "none"
+
+
+def _shotnum(config) -> str:
+    """
+    The shot number as a tag value. ``data.shotnum`` may be a list (a multi-shot
+    fit, see ``fitter.load_data_for_fitting``), in which case the shots are
+    comma-joined so a filter on a single shot can still match with ``LIKE``.
+    """
+
+    shotnum = (config.get("data") or {}).get("shotnum") if isinstance(config, dict) else None
+    if shotnum is None:
+        return ""
+    if isinstance(shotnum, (list, tuple)):
+        return ",".join(str(s) for s in shotnum)
+
+    return str(shotnum)
+
+
+def canonical_tags(config, mode: str = "fit") -> dict:
+    """
+    Builds the canonical tag set describing a run: the handful of fields worth
+    filtering a run table on. See ergodicio/tsadar#115.
+
+    Every lookup is defensive because this runs on configs from three different
+    entry points (NERSC decks, app-submitted decks, forward-only decks) which do
+    not all carry the same keys. A field that cannot be determined is omitted
+    rather than tagged with a placeholder, so an absent tag means "unknown"
+    instead of "known to be empty".
+
+    Args:
+        config: configuration dictionary
+        mode: the run mode -- "fit", "forward", "series" or "interactive"
+
+    Returns:
+        tags: dict of tag name to string value, ready for ``mlflow.set_tags``
+    """
+
+    tags = {
+        f"{TAG_NAMESPACE}.version": get_version(),
+        f"{TAG_NAMESPACE}.mode": str(mode).casefold(),
+        f"{TAG_NAMESPACE}.data": _data_kind(config),
+    }
+
+    shotnum = _shotnum(config)
+    if shotnum:
+        tags[f"{TAG_NAMESPACE}.shotnum"] = shotnum
+
+    username = (config.get("other") or {}).get("username") if isinstance(config, dict) else None
+    if username:
+        tags[f"{TAG_NAMESPACE}.user"] = str(username)
+
+    return {k: _truncate(v) for k, v in tags.items()}
+
+
+def format_error(exc: BaseException) -> str:
+    """
+    Renders an exception as a short, single-line tag value: the exception type
+    plus its message. The full traceback stays in the job log -- this exists so a
+    run table can show *why* a run is failed without opening it.
+    """
+
+    message = " ".join(str(exc).split())
+    rendered = f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+    return _truncate(rendered)
