@@ -12,6 +12,7 @@ from jax.lax import scan, map as jmap
 from jax import checkpoint
 
 from . import ratintn
+from .interpolation import interp_uniform
 from ...utils.vector_tools import vsub, vdot, vdiv
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
@@ -80,6 +81,8 @@ class FormFactor:
         h (float): Step size for velocity grid.
         xi1, xi2 (jnp.ndarray): Grids for velocity integration.
         Zpi (jnp.ndarray): Precomputed plasma dispersion function values.
+        chiERratprim_op (jnp.ndarray): Precomputed constant matrix for the 1D dispersion relation
+            integral, applied to the distribution function derivative on each forward pass.
         lam_shift (float): Wavelength shift.
         scattering_angles (dict): Scattering angles.
         num_grad_points (int): Number of gradient points.
@@ -166,6 +169,11 @@ class FormFactor:
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
         self.Zpi = jnp.array(zprimeMaxw(self.xi2))
+
+        # `ratintn` is exactly linear in its first argument and, in the 1D path, the other two are
+        # built from the fixed grids above. The quadrature is therefore a constant matrix applied to
+        # `ratdf`, which is the only thing that varies across evaluations. Build it once.
+        self.chiERratprim_op = ratintn.ratintn_operator(self.xi1[None, :] - self.xi2[:, None], self.xi1)
         self.lam_shift = lam_shift
         self.scattering_angles = scattering_angles
         self.num_grad_points = num_grad_points
@@ -286,8 +294,8 @@ class FormFactor:
 
         # num_ion_pts = jnp.shape(xii)
         # chiI = jnp.zeros(num_ion_pts)
-        ZpiR = jnp.interp(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
-        ZpiI = jnp.interp(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
+        ZpiR = interp_uniform(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
+        ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
         #chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
         chiI = -0.5 / (kldi**2) * (ZpiR + 1j * ZpiI) 
 
@@ -311,13 +319,11 @@ class FormFactor:
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
         # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
-        chiERratprim = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
-            ratdf, self.xi1[None, :] - self.xi2[:, None], self.xi1
-        )
+        chiERratprim = self.chiERratprim_op @ ratdf
         # chiERratprim2 = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
         #     ratdf, self.xi1[None, :] - xi2[:, None], self.xi1
         # )
-        chiERrat = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim[:, 0]), xie.shape)
+        chiERrat = jnp.reshape(interp_uniform(xie.flatten(), self.xi2, chiERratprim), xie.shape)
         chiERrat = -1.0 / (klde**2) * chiERrat
 
         chiE = chiERrat + chiEI
@@ -616,9 +622,9 @@ class FormFactor:
             df = jnp.gradient(fe_1D_k, vx[1] - vx[0])
             # find the location of xie in axis array
             # add the value of fe to the fe container
-            fe_vphi = jnp.interp(xie_mag_at, vx, fe_1D_k)
+            fe_vphi = interp_uniform(xie_mag_at, vx, fe_1D_k)
 
-        dfe = jnp.interp(xie_mag_at, vx, df)
+        dfe = interp_uniform(xie_mag_at, vx, df)
 
         # Chi is really chi evaluated at the points xie
         # so the imaginary part is
@@ -794,8 +800,8 @@ class FormFactor:
         xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k_mag)[..., jnp.newaxis])
 
         # probably should be generalized to an arbitrary distribtuion function but for now just assuming maxwellian
-        ZpiR = jnp.interp(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
-        ZpiI = jnp.interp(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
+        ZpiR = interp_uniform(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
+        ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
         chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + jnp.sqrt(-1 + 0j) * ZpiI), 3)
 
         # electron susceptibility

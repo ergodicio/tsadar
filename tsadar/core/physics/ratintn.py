@@ -23,6 +23,48 @@ def ratintn(f: jnp.ndarray, g: jnp.ndarray, z: jnp.ndarray) -> jnp.ndarray:
     return out
 
 
+def ratintn_operator(g: jnp.ndarray, z: jnp.ndarray) -> jnp.ndarray:
+    """
+    Assemble the constant matrix M for which `M @ f == ratintn(f, g, z)` for any real 1D `f`.
+
+    `ratintn` is exactly linear in `f`: `fdif`, `fav` are linear stencils, `tmp = fav*gdif -
+    gav*fdif` is linear, `rf` and `rfn` are linear, and `jnp.where` / `jnp.real` preserve linearity
+    over the reals. So whenever `g` and `z` are fixed across calls, the whole quadrature collapses
+    to a single matrix multiply and the (expensive) complex logs need only be evaluated once.
+
+    Args:
+        g (jnp.ndarray): Denominator samples, shape [..., N]. Leading axes are carried through as
+            batch axes, giving one row of M per batch element.
+        z (jnp.ndarray): 1D array of the variable of integration, shape [N].
+
+    Returns:
+        jnp.ndarray: M, of shape `g.shape[:-1] + (N,)`.
+    """
+
+    gdif = g[..., 1:-1] - g[..., 0:-2]
+    gav = 0.5 * (g[..., 1:-1] + g[..., 0:-2])
+    zdif = z[1:-1] - z[0:-2]
+
+    # same branch selection and guarded denominator as `ratcen`
+    use_rf = jnp.abs(gdif) < 1.0e-4 * jnp.abs(gav)
+    gav_safe = jnp.where(use_rf, gav, 1.0)
+    log_ratio = jnp.real(jnp.log((gav + (0.5 + 0j) * gdif) / (gav - 0.5 * gdif)))
+
+    # `ratcen(f, g) == p * fav + q * fdif`, obtained by collecting the fav/fdif terms of rf and rfn
+    p = jnp.where(use_rf, 1.0 / gav_safe + gdif**2 / (12.0 * gav_safe**3), log_ratio / gdif)
+    q = jnp.where(use_rf, -gdif / (12.0 * gav_safe**2), 1.0 / gdif - gav * log_ratio / gdif**2)
+
+    # fav and fdif are two-point stencils, so interval j contributes to grid points j and j+1
+    lower = (0.5 * p - q) * zdif
+    upper = (0.5 * p + q) * zdif
+
+    M = jnp.zeros(jnp.shape(g), dtype=lower.dtype)
+    M = M.at[..., 0:-2].add(lower)
+    M = M.at[..., 1:-1].add(upper)
+
+    return M
+
+
 def ratcen(f: jnp.ndarray, g: jnp.ndarray) -> jnp.ndarray:
     """
     Return "rationally centered" f / g such that int_s(1) ^ s(0) ds f(s) / g(s) = sum(ratcen(f, g) * s(dif)) when
