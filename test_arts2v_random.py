@@ -17,7 +17,7 @@ from flatten_dict import flatten, unflatten
 from tsadar.utils import misc
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
-from tsadar.utils.data_handling.calibration import get_scattering_angles, get_calibrations
+from tsadar.data.calibration import get_scattering_angles, get_calibrations
 
 
 def _dump_ts_params(td: str, dist_type: str, ts_params: ThomsonParams, prefix: str = ""):

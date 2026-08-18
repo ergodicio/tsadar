@@ -10,9 +10,11 @@ import mlflow
 import numpy as np
 import time
 import pickle
+from jax import numpy as jnp
 from jax.flatten_util import ravel_pytree
 from tqdm import trange
 import optax
+import optimistix as optx
 
 
 from typing import Dict, List, Tuple
@@ -53,6 +55,54 @@ def _1d_scipy_loop_(
 
     best_loss = res["fun"]
     best_weights = eqx.combine(loss_fn.unravel_weights(res["x"]), static_params)
+
+    return best_loss, best_weights
+
+
+def _1d_lm_loop_(
+    config: Dict, loss_fn: LossFunction, previous_weights, batch: Dict
+) -> Tuple[float, Dict]:
+    """
+    Runs a 1D optimization loop using Levenberg-Marquardt least squares (optimistix).
+
+    LM minimises ``sum(loss_fn.residuals(...)**2)``, which equals the l2 training loss, by
+    exploiting the residual/Jacobian structure. On the 1D inverse problem it typically needs
+    far fewer iterations than L-BFGS for the same fit. Requires ``loss_method == "l2"``.
+
+    Args:
+        config (Dict): Configuration dictionary containing optimizer and parameter settings.
+        loss_fn (LossFunction): Loss function object exposing a ``residuals`` method.
+        previous_weights: Weights to initialize from, or None to build fresh parameters.
+        batch (Dict): Batch of data to be used in the loss function.
+    Returns:
+        Tuple[float, Dict]: The best loss value (sum of squared residuals) and the optimized weights.
+    """
+    if config["optimizer"]["loss_method"] != "l2":
+        raise ValueError("optimizer method 'lsq'/'lm' requires loss_method 'l2' (least squares).")
+
+    if previous_weights is None:
+        ts_params = ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
+    else:
+        ts_params = previous_weights
+
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+
+    # loss_fn.residuals returns (residual, aux); optimistix wants just the residual vector.
+    # LM converges quadratically near the optimum, so a loose tolerance reaches the same fit in
+    # fewer iterations. Configurable via optimizer.lm_tol.
+    tol = config["optimizer"].get("lm_tol", 1e-3)
+    solver = optx.LevenbergMarquardt(rtol=tol, atol=tol)
+    sol = optx.least_squares(
+        lambda dp, args: loss_fn.residuals(dp, static_params, batch)[0],
+        solver,
+        diff_params,
+        max_steps=config["optimizer"]["num_epochs"],
+        throw=False,
+    )
+
+    best_weights = eqx.combine(sol.value, static_params)
+    residual, _ = loss_fn.residuals(sol.value, static_params, batch)
+    best_loss = float(jnp.sum(residual**2))
 
     return best_loss, best_weights
 
@@ -163,6 +213,8 @@ def one_d_loop(
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
                 loss_fn = LossFunction(config, sa, batch)
                 best_loss, best_weights = _1d_scipy_loop_(config, loss_fn, previous_batch, batch)
+            elif config["optimizer"]["method"] in ("lsq", "lm"):  # Levenberg-Marquardt least squares
+                best_loss, best_weights = _1d_lm_loop_(config, loss_fn, previous_batch, batch)
             else:
                 best_loss, best_weights = _1d_optax_loop_(config, loss_fn, previous_batch, batch, tbatch)
                 

@@ -13,7 +13,7 @@ from types import MappingProxyType
 from ..utils.plotting import plotters
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules.ts_params import ThomsonParams
-from ..utils.data_handling.calibration import get_scattering_angles, get_calibrations
+from ..data.calibration import get_scattering_angles, get_calibrations
 
 
 def forward_pass(config):

@@ -8,7 +8,7 @@ from flatten_dict import flatten, unflatten
 from .inverse import fitter
 from .forward import calc_series
 from .utils import misc
-from .forward import calc_vs_data
+from .inverse import calc_vs_data
 
 if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
@@ -133,21 +133,49 @@ def _run_(config: Dict, mode: str = "fit"):
         - The function logs the total time taken for the operation and the number of CPU cores used.
         - It also sets a status tag in MLflow to indicate completion.
 
+    Tags:
+        Before doing any work this sets the canonical tags from
+        :func:`misc.canonical_tags` (version, mode, shot number, spectra loaded,
+        submitting user) so a run is findable by ``search_runs`` filter strings
+        the moment it starts rather than only once it finishes.
+
+        ``status`` bookends the run: "running" here, then the finer-grained stage
+        values written by the fit itself ("preprocessing", "minimizing", ...),
+        then "completed" or "failed". Without the failed branch a run that raised
+        kept whichever stage it died in, which is indistinguishable from one still
+        in flight -- see ergodicio/tsadar#115.
+
     """
     misc.log_mlflow(config)
+    mlflow.set_tags(misc.canonical_tags(config, mode=mode))
+    mlflow.set_tag("status", misc.STATUS_RUNNING)
     t0 = time.time()
-    if mode.casefold() == "fit":
-        fit_results, loss = fitter.fit(config=config)
-    elif mode == "forward" or mode == "series":
-        calc_series.forward_pass(config=config)
-    elif mode == "interactive":
-        calc_vs_data.forward_pass(config=config)
-    else:
-        raise NotImplementedError(f"Mode {mode} not implemented")
+    try:
+        if mode.casefold() == "fit":
+            fit_results, loss = fitter.fit(config=config)
+        elif mode == "forward" or mode == "series":
+            calc_series.forward_pass(config=config)
+        elif mode == "interactive":
+            calc_vs_data.forward_pass(config=config)
+        else:
+            raise NotImplementedError(f"Mode {mode} not implemented")
+    except BaseException as e:
+        # BaseException rather than Exception so that a cancelled job -- a Batch
+        # timeout lands as KeyboardInterrupt/SystemExit -- is also recorded as
+        # terminal instead of being left mid-stage. Always re-raised: the caller's
+        # ``mlflow.start_run`` context still needs to mark the run FAILED.
+        try:
+            mlflow.set_tag("status", misc.STATUS_FAILED)
+            mlflow.set_tag("error", misc.format_error(e))
+        except Exception as tagging_error:
+            # An unreachable tracking server must not replace the real failure
+            # with its own -- that would bury the reason the run died.
+            print(f"WARNING: could not tag the failure: {tagging_error}")
+        raise
 
     metrics_dict = {"total_time": time.time() - t0, "num_cores": int(mp.cpu_count())}
     mlflow.log_metrics(metrics=metrics_dict)
-    mlflow.set_tag("status", "completed")
+    mlflow.set_tag("status", misc.STATUS_COMPLETED)
 
 
 def run_job(run_id: str, mode: str, nested: bool):

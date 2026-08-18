@@ -4,12 +4,12 @@ import numpy as np
 import os
 
 from .evaluate_background import get_shot_bg
-from ..data_handling.load_ts_data import loadData
+from .load_ts_data import loadData
 from .correct_throughput import correctThroughput
-from ..data_handling.calibration import get_calibrations, get_scattering_angles
+from .calibration import get_calibrations, get_scattering_angles
 from .lineouts import get_lineouts
-from ..data_handling.data_visualizer import launch_data_visualizer
-from tsadar.utils.process.feature_detector import first_guess
+from .data_visualizer import launch_data_visualizer
+from .feature_detector import first_guess
 
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:

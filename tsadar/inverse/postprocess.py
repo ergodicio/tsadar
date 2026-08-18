@@ -8,10 +8,11 @@ import numpy as np
 import jax
 from equinox import filter_jit
 
+from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
-from tsadar.inverse.loss_function import LossFunction
+from .loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from tsadar.inverse.loops import one_d_loop
+from .loops import one_d_loop
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
@@ -237,6 +238,10 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
             t1, final_params = process_data(
                 config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td
             )
+
+        # Written last, so it describes the finished tree rather than a
+        # hardcoded list of what should be in it (ergodicio/tsadar#116).
+        manifest.write_manifest(td, mode="fit")
 
         mlflow.log_artifacts(td)
     mlflow.log_metrics({"plotting time": round(time.time() - t1, 2)})

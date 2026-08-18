@@ -412,10 +412,69 @@ class LossFunction:
         else:
             return self._loss_(weights, batch)
 
+    def residuals(self, diff_weights, static_weights, batch: Dict):
+        """Least-squares residual vector for the l2 objective (with aux).
+
+        Returns ``(residual, [ThryE, params])``. The residual is the signed, whitened
+        deviation such that ``jnp.sum(residual**2)`` reproduces the l2 value of the loss
+        exactly: each in-range point is scaled by ``1/sqrt(uncert * N)`` (N = number of
+        in-range points for that feature, which folds the mean reduction into a plain sum of
+        squares), ``ion_loss_scale`` is folded into the ion residual, and the blue/red
+        averaging (factor 1/2 when both EPW sides are fit) into the electron residual.
+        Out-of-range points contribute zero. The fit-range masks use the calibrated
+        wavelength axes (independent of the fit parameters), so the per-feature counts N are
+        constant during optimization.
+
+        This is the single source of truth for the l2 objective: :meth:`__loss__` reduces it
+        with ``sum(residual**2)`` for the gradient-based optimizers, and least-squares
+        optimizers (Levenberg-Marquardt) consume the residual directly. The ``(value, aux)``
+        return follows the equinox/optimistix ``has_aux`` convention so both share one call.
+        Only for the non-multiplexed l2 case; other loss methods are not least squares.
+        Weighting is intentionally the current diagonal ``1/uncert``; a proper (e.g.
+        covariance) whitening is left for a future change.
+        """
+        weights = eqx.combine(static_weights, diff_weights)
+        ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(weights, batch)
+
+        fr = self.cfg["data"]["fit_rng"]
+        both_epw = self.cfg["data"]["fit_EPWb"] and self.cfg["data"]["fit_EPWr"]
+        epw_factor = 2.0 if both_epw else 1.0
+        parts = []
+
+        if self.cfg["data"]["fit_IAW"]:
+            mask = ((lamAxisI > fr["iaw_min"]) & (lamAxisI < fr["iaw_cf_min"])) | (
+                (lamAxisI > fr["iaw_cf_max"]) & (lamAxisI < fr["iaw_max"])
+            )
+            scale = jnp.sqrt(self.cfg["data"]["ion_loss_scale"] / (jnp.abs(self.i_norm) * jnp.sum(mask)))
+            parts.append(jnp.where(mask, (batch["i_data"] - ThryI) * scale, 0.0).ravel())
+
+        if self.cfg["data"]["fit_EPWb"]:
+            mask = (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"])
+            scale = 1.0 / jnp.sqrt(jnp.abs(self.e_norm) * jnp.sum(mask) * epw_factor)
+            parts.append(jnp.where(mask, (batch["e_data"] - ThryE) * scale, 0.0).ravel())
+
+        if self.cfg["data"]["fit_EPWr"]:
+            mask = (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"])
+            scale = 1.0 / jnp.sqrt(jnp.abs(self.e_norm) * jnp.sum(mask) * epw_factor)
+            parts.append(jnp.where(mask, (batch["e_data"] - ThryE) * scale, 0.0).ravel())
+
+        return jnp.concatenate(parts), [ThryE, weights()]
+
     def __loss__(self, diff_weights, static_weights, batch: Dict):
         """
         Output wrapper
         """
+
+        # For the standard (non-angular) l2 fit, derive the scalar loss from the residual
+        # vector so the loss and the least-squares residual are a single, consistent source.
+        # Angular fits (any shotnum) keep the existing calc_loss path: their 2D
+        # reduce_ATS_to_resunit structure is not handled by the 1D residual.
+        if (
+            self.cfg["optimizer"]["loss_method"] == "l2"
+            and "angular" not in self.cfg["other"]["extraoptions"]["spectype"]
+        ):
+            residual, aux = self.residuals(diff_weights, static_weights, batch)
+            return jnp.sum(residual**2), aux
 
         weights = eqx.combine(static_weights, diff_weights)
         total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(

@@ -5,9 +5,9 @@ import yaml
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules.ts_params import ThomsonParams
-from ..inverse.fitter import _validate_inputs_, load_data_for_fitting
-from ..utils.data_handling.calibration import get_calibrations
-from ..inverse.loss_function import LossFunction
+from .fitter import _validate_inputs_, load_data_for_fitting
+from ..data.calibration import get_calibrations
+from .loss_function import LossFunction
 
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
