@@ -298,7 +298,11 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``expandedions`` is a boolean determining if a non-linear wavelength grid will be used allowing IAW and EPW spectra to be resolved simultaneously *currently deprecated*.
 
-- ``detector_specs`` is a dictionary that is assigned within the code and stores detector information. Values modified within this dictionary will only apply to forward mode.
+- ``detector_specs`` is a dictionary that is assigned within the code and stores detector information. It also serves as the fallback calibration source in ``tsadar.data.calibration`` whenever a shot number isn't in the hardcoded calibration table there -- in that case a warning is raised and the values below are used instead of a shot-specific calibration:
+
+    - ``EPWDispersion``, ``IAWDispersion``, ``EPWoffset``, ``IAWoffset`` are the fallback spectral dispersion and offset values (see :ref:`Getting Started <getting started>` for how these are normally determined per-shot).
+
+    - ``EPWtcc`` and ``IAWtcc`` are the fallback target-chamber-center pixel offsets, only required for imaging-type data; if a shot with unknown calibration and ``spectype: imaging`` is analyzed and these are not set, a clear error is raised rather than guessing a value, since a wrong TCC offset would silently miscalibrate the spatial axis.
 
 - ``iawoff`` is a boolean determining if the iaw will be suppressed in plotting of the EPW feature
 
