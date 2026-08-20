@@ -1,6 +1,8 @@
+"""Dewarps EPW streak-camera images using a precomputed pixel-displacement map, correcting for the sweep
+optics' geometric distortion."""
 import numpy as np
 import matplotlib.pyplot as plt
-import math, os
+import os
 from os.path import join, exists
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
@@ -31,45 +33,45 @@ def perform_warp_correction(warpedData, instrument="EPW", sweepSpeed=5, flatFiel
             warp1x = np.load(join(BASE_FILES_PATH, "files", "epwtestDW5img1x.npy"))
             warp1y = np.load(join(BASE_FILES_PATH, "files", "epwtestDW5img1y.npy"))
             print("no specific data avaiable for this sweep speed - using 5ns dewarp")
+    else:
+        raise NotImplementedError(f"perform_warp_correction currently only supports instrument='EPW', got {instrument!r}")
 
     warp1r = np.sqrt(warp1x**2 + warp1y**2)
 
     print("dewarping epw")
-    depimg = np.zeros(np.shape(warpedData))
-    lenarrray = np.zeros(np.shape(warpedData))
-    lenarrrayx = np.zeros(np.shape(warpedData))
-    lenarrrayy = np.zeros(np.shape(warpedData))
+    ny, nx = warpedData.shape
+    depimg = np.zeros((ny, nx))
 
-    for i in range(len(warpedData)):
-        for j in range(len(warpedData[0])):
-            rawpoint = np.array([j, i])
-            # transpoint=np.array([j+warp1y[i,j],i+warp1x[i,j]])
-            transpoint = np.array([j + warp1y[j, i], i + warp1x[j, i]])
+    # I, J mirror the original nested "for i ... for j ..." loop: I is the source column
+    # index (0..ny-1, used as the "i" of warpedData[j, i]), J is the source row index
+    # (0..nx-1, used as its "j"). Kept as separate names to match the original [j, i]
+    # indexing convention rather than the more natural [row, col].
+    I, J = np.meshgrid(np.arange(ny), np.arange(nx), indexing="ij")
 
-            txpix = transpoint[1]
-            typix = transpoint[0]
-            valold = warpedData[j, i]
+    valold = warpedData[J, I]
+    txpix = I + warp1x[J, I]
+    typix = J + warp1y[J, I]
 
-            diff = np.sqrt(np.sum((transpoint - rawpoint) ** 2))
-            diffy = transpoint[0] - rawpoint[0]
-            diffx = transpoint[1] - rawpoint[1]
-            xl = math.floor(txpix)
-            xh = math.ceil(txpix)
-            yl = math.floor(typix)
-            yh = math.ceil(typix)
-            xlf = 1.0 - (txpix - xl)
-            ylf = 1.0 - (typix - yl)
-            if yl > 0 and xl > 0:
-                try:
-                    depimg[yl, xl] = depimg[yl, xl] + valold * xlf * ylf
-                    depimg[yl, xh] = depimg[yl, xh] + valold * (1 - xlf) * ylf
-                    depimg[yh, xl] = depimg[yh, xl] + valold * xlf * (1 - ylf)
-                    depimg[yh, xh] = depimg[yh, xh] + valold * (1 - xlf) * (1 - ylf)
-                except:
-                    offstr = "off"
-            lenarrray[j, i] = diff
-            lenarrrayx[j, i] = diffx
-            lenarrrayy[j, i] = diffy
+    xl = np.floor(txpix).astype(int)
+    xh = np.ceil(txpix).astype(int)
+    yl = np.floor(typix).astype(int)
+    yh = np.ceil(typix).astype(int)
+    xlf = 1.0 - (txpix - xl)
+    ylf = 1.0 - (typix - yl)
+
+    base_mask = (yl > 0) & (xl > 0)
+
+    def _scatter(yidx, xidx, weight):
+        # Each of the 4 bilinear-splat terms is bounds-checked independently, unlike the
+        # original's single try/except around all 4 writes (where one out-of-bounds term
+        # silently dropped the remaining terms for that pixel too).
+        valid = base_mask & (yidx >= 0) & (yidx < ny) & (xidx >= 0) & (xidx < nx)
+        np.add.at(depimg, (yidx[valid], xidx[valid]), (valold * weight)[valid])
+
+    _scatter(yl, xl, xlf * ylf)
+    _scatter(yl, xh, (1 - xlf) * ylf)
+    _scatter(yh, xl, xlf * (1 - ylf))
+    _scatter(yh, xh, (1 - xlf) * (1 - ylf))
 
     # %%%%%%%%%%%%%%%%%
     # fig, ax = plt.subplots(1, 3, figsize=(16, 4))

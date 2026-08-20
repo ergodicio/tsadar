@@ -1,3 +1,5 @@
+"""ThomsonScatteringDiagnostic: wraps FitModel with instrument-response effects (spectrometer/angular IRFs)
+to turn a theoretical Thomson spectrum into the synthetic-detector-space spectrum comparable to real data."""
 from jax import numpy as jnp, vmap
 from scipy.signal import find_peaks
 

@@ -1,3 +1,5 @@
+"""Converts the configured lineout locations into pixel indices and extracts/background-subtracts the
+corresponding electron and ion lineouts from the raw data."""
 from typing import Dict
 
 from collections import defaultdict

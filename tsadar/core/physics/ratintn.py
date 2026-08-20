@@ -1,3 +1,6 @@
+"""Rational (piecewise-linear) integration of f/g over z, used by FormFactor to evaluate the real part of
+the electron susceptibility's principal-value integral near its pole with better accuracy than a naive
+quadrature."""
 from jax import custom_jvp, numpy as jnp
 
 

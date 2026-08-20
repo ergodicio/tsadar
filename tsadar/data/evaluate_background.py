@@ -1,3 +1,6 @@
+"""Computes the background used for fitting/subtraction: per-shot background frames (get_shot_bg) or a
+per-lineout background estimate (get_lineout_bg), via the shot/pixel/fit algorithms selected in
+config["data"]["background"]."""
 from typing import Tuple
 
 import numpy as np
@@ -8,7 +11,6 @@ from scipy.signal import convolve2d as conv2
 
 from .load_ts_data import loadData
 from .correct_throughput import correctThroughput
-
 
 def get_shot_bg(config, shotNum, axisyE, elecData):
     """

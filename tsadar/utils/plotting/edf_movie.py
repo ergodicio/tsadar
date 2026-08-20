@@ -1,3 +1,5 @@
+"""Standalone script: animates the evolution of the fitted electron distribution function across
+optimization iterations from a saved state_weights.txt, optionally saving it as a gif."""
 import pickle
 import numpy as np
 from matplotlib import pyplot as plt
@@ -8,9 +10,13 @@ import matplotlib.animation as animation
 #!aws s3 cp s3://public-ergodic-continuum/298/41dc3862aaa34b85972ff60786529206/artifacts/state_weights.txt ./retrived_run.txt
 
 save_gif=True
-#read file
-f= open('C:\\Users\\amild\\PycharmProjects\\inverse-thomson-scattering\\state_weights(3).txt', 'rb')
-data = pickle.load(f)
+
+# Path to a state_weights.txt produced by a fit run with optimizer.save_state enabled
+# (see tsadar/inverse/loops.py). Edit this to point at the run you want to animate.
+STATE_WEIGHTS_PATH = "state_weights.txt"
+
+with open(STATE_WEIGHTS_PATH, "rb") as f:
+    data = pickle.load(f)
 
 length = len(data.keys())
 save_points = np.empty(length)
@@ -41,7 +47,7 @@ ax[0].set_title('ln(EDF) vs iteration')
 ax[1].set_title('EDF vs iteration')
 
 def update(frame):
-    # for each frame, update the data stored on each artist.
+    """FuncAnimation callback: updates the log(EDF)/EDF images and time label for the given frame index."""
     im1.set_array(np.log(fe[:,:,frame]))
     im2.set_array(fe[:,:,frame])
     time_text.set_text(f'time = {frame} / {length}')

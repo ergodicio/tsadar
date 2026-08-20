@@ -1,3 +1,5 @@
+"""run_for_app: the top-level entry point used by run_tsadar.py -- loads config, merges defaults/inputs,
+and dispatches to fitting, forward-pass, or interactive-forward-pass mode."""
 import time, os
 from typing import Dict, Tuple
 
