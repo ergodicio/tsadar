@@ -1,4 +1,7 @@
+"""The per-batch optimization loops that drive fitting: batch construction, the 1D (scipy/optax) and
+angular (optax) training loops, and unbatching the resulting per-batch fitted parameters."""
 from functools import partial
+from collections import defaultdict
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from optax import tree_utils as otu
 import equinox as eqx
@@ -8,7 +11,6 @@ from tsadar.core.modules.distribution_functions.base import DLM1V
 
 import mlflow
 import numpy as np
-import time
 import pickle
 from jax import numpy as jnp
 from jax.flatten_util import ravel_pytree
@@ -18,6 +20,62 @@ import optimistix as optx
 
 
 from typing import Dict, List, Tuple
+
+
+def build_batch(all_data: Dict, inds, background_subtract: bool) -> Dict:
+    """
+    Slices a batch of lineouts out of `all_data`, optionally subtracting the background noise from the data
+    (leaving the model to add it back in) instead of passing the noise through as a separate fit term.
+
+    Args:
+        all_data (Dict): Dictionary containing all input data arrays required for fitting.
+        inds: Indices (or index array) selecting which lineouts to include in the batch.
+        background_subtract (bool): Whether to subtract noise from the data here rather than fit it separately.
+    Returns:
+        Dict: Batch dictionary with e_data/i_data, amplitudes, and noise terms for the selected indices.
+    """
+    return {
+        "e_data": all_data["e_data"][inds] - all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
+        "e_amps": all_data["e_amps"][inds],
+        "i_data": all_data["i_data"][inds] - all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
+        "i_amps": all_data["i_amps"][inds],
+        "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
+        "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
+    }
+
+
+def build_angular_batch(config: Dict, all_data: Dict) -> Dict:
+    """
+    Builds the angular-data batch (or dict of two batches, for multiplexed/rotated shots) sliced to the
+    configured lineout start:end range. Assumes any unit conversion of the lineout start/end (e.g. by
+    ang_res_unit) has already been applied to `config` by the caller.
+
+    Args:
+        config (Dict): Configuration dictionary containing the lineout start/end and shot settings.
+        all_data (Dict): Dictionary containing all input data arrays required for fitting.
+    Returns:
+        Dict: `batch1` directly for a single shot, or {"b1": batch1, "b2": batch2} for rotated multi-shot data.
+    """
+    start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
+    batch1 = {
+        "e_data": all_data["e_data"][start:end, :],
+        "e_amps": all_data["e_amps"][start:end, :],
+        "i_data": all_data["i_data"],
+        "i_amps": all_data["i_amps"],
+        "noise_e": all_data["noiseE"][start:end, :],
+        "noise_i": all_data["noiseI"][start:end, :],
+    }
+    if isinstance(config["data"]["shotnum"], list):
+        batch2 = {
+            "e_data": all_data["e_data_rot"][start:end, :],
+            "e_amps": all_data["e_amps_rot"][start:end, :],
+            "noise_e": all_data["noiseE_rot"][start:end, :],
+            "i_data": all_data["i_data"],
+            "i_amps": all_data["i_amps"],
+            "noise_i": all_data["noiseI"][start:end, :],
+        }
+        return {"b1": batch1, "b2": batch2}
+    return batch1
 
 
 def _1d_scipy_loop_(
@@ -200,14 +258,7 @@ def one_d_loop(
         for i_batch in tbatch:
             previous_batch = previous_weights[i_batch] if previous_weights is not None else previous_batch
             inds = batch_indices[i_batch]
-            batch = {
-                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
-                "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
-                "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
-                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
-            }
+            batch = build_batch(all_data, inds, background_subtract)
 
             if config["optimizer"]["method"] == "l-bfgs-b":  # Stochastic Gradient Descent
                 # not sure why this is needed but something needs to be reset, either the weights or the bounds
@@ -235,93 +286,31 @@ def one_d_loop(
     return all_weights, overall_loss, loss_fn
 
 
-def angular_optax(config, sa, loss_fn, actual_data, previous_weights=None, previous_epoch=None):
+def unbatch_fitted_params(config: Dict, fitted_weights: List) -> Tuple[Dict, int]:
     """
-    This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
-    Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
-    This function sets up and runs a fitting routine using the Optax optimization library, applying the specified minimizer to fit model parameters to experimental data. It handles data batching, optimizer initialization, training loop with early stopping, and logging of metrics and optimizer state.
-        
-    Args:    
-        config (dict): Configuration dictionary built from the input decks, specifying optimizer, data, and parameter settings.
-        all_data (dict): Dictionary containing datasets, amplitudes, and backgrounds as constructed by the prepare.py code.
-        sa (dict): Dictionary of the scattering angles and their relative weights.
+    Flattens the per-batch fitted-weight objects returned by `one_d_loop` into a single dict of
+    concatenated parameter arrays.
+
+    Args:
+        config (Dict): Configuration dictionary containing the parameter settings.
+        fitted_weights (List): List of per-batch fitted weight objects, each exposing `get_fitted_params`.
     Returns:
-        best_weights (dict): Best parameter weights as returned by the minimizer.
-        best_loss (float): Best value of the fit metric found by the minimizer.
-        ts_instance (LossFunction): Instance of the LossFunction object used for minimization.
-    Notes:
-        - Supports early stopping based on loss improvement or degradation.
-        - Logs training metrics and optimizer state using mlflow.
-        - Handles both single and multiple shot number data configurations for rotated repeats of data.
-
+        Tuple[Dict, int]: The unbatched parameters and the number of active fitted parameters.
     """
+    all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
+    num_params = 0
+    for _fw in fitted_weights:
+        batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
+        for k in batch_fitted_params.keys():
+            for k2 in batch_fitted_params[k].keys():
+                all_params[k][k2].append(batch_fitted_params[k][k2])
 
-    minimizer = getattr(optax, config["optimizer"]["method"])
-    schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate_init"], np.round(0.75*config["optimizer"]["num_epochs"]), alpha = config["optimizer"]["learning_rate_final"]/config["optimizer"]["learning_rate_init"])
-    solver = minimizer(schedule)
-    #solver = minimizer(config["optimizer"]["learning_rate"])
+    for k in all_params.keys():
+        for k2 in all_params[k].keys():
+            all_params[k][k2] = np.concatenate(all_params[k][k2])
 
-    if previous_weights is None:  # if prev, then use that, if not then use flattened weights
-        ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-    else:
-        ts_params = previous_weights
-    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
-    opt_state = solver.init(diff_params)
-    # weights = loss_fn.pytree_weights["active"]
-    # opt_state = solver.init(weights)
+    return all_params, num_params
 
- # start train loop
-    state_weights = {}
-    t1 = time.time()
-    best_weights = {}
-    epoch_loss = 0.0
-    best_loss = 100.0
-    num_g_wait = 0
-    num_b_wait = 0
-    for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
-        updates, opt_state = solver.update(grad, opt_state)
-        diff_params = eqx.apply_updates(diff_params, updates)
-        
-        epoch_loss = val
-        if epoch_loss < best_loss:
-            print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.00000001:
-                num_g_wait += 1
-                if num_g_wait > 500:
-                    print("Minimizer exited due to change in loss < 1e-8")
-                    exit_cond = "Change in loss < 1e-8"
-                    break
-            else:
-                num_b_wait = 0
-                num_g_wait = 0
-            best_loss = epoch_loss
-            best_weights = eqx.combine(diff_params, static_params)
-                
-        elif epoch_loss > best_loss:
-            num_b_wait += 1
-            if num_b_wait > 500:
-                print("Minimizer exited due to increase in loss")
-                exit_cond = "Increase in loss"
-                break
-        
-        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
-        
-        if config["optimizer"]["save_state"]:
-            if (previous_epoch+i_epoch) % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[previous_epoch + i_epoch] = best_weights.get_unnormed_params()
-
-        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, previous_epoch + i_epoch)
-
-    if i_epoch == config["optimizer"]["num_epochs"] - 1:
-        print("Minimizer exited due to reaching max epochs")
-        exit_cond = "Reached epoch limit"
-        
-    with open("state_weights.txt", "wb") as file:
-        file.write(pickle.dumps(state_weights))
-
-    mlflow.log_artifact("state_weights.txt")
-    return best_weights, best_loss, previous_epoch + i_epoch, loss_fn, exit_cond
 
 def multirun_angular_optax(
     config: Dict, all_data: Dict, sa: Tuple,
@@ -349,32 +338,8 @@ def multirun_angular_optax(
     config["optimizer"]["batch_size"] = 1
     config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
     config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
-    batch1 = {
-        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "i_data": all_data["i_data"],
-        "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-    }
-    if isinstance(config["data"]["shotnum"], list):
-        batch2 = {
-            "e_data": all_data["e_data_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "e_amps": all_data["e_amps_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "noise_e": all_data["noiseE_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        }
-        actual_data = {"b1": batch1, "b2": batch2}
-    else:
-        actual_data = batch1
+    actual_data = build_angular_batch(config, all_data)
+    batch1 = actual_data["b1"] if isinstance(config["data"]["shotnum"], list) else actual_data
 
     previous_weights = None
     total_epochs = 0
@@ -464,7 +429,6 @@ def angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights=No
 
     # start train loop
     state_weights = {}
-    t1 = time.time()
     best_weights = {}
     epoch_loss = 0.0
     best_loss = 100.0
@@ -509,13 +473,32 @@ def angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights=No
         print("Minimizer exited due to reaching max epochs")
         exit_cond = "Reached epoch limit"
         
-    with open("state_weights.txt", "wb") as file:
-        file.write(pickle.dumps(state_weights))
+    if config["optimizer"]["save_state"]:
+        with open("state_weights.txt", "wb") as file:
+            file.write(pickle.dumps(state_weights))
 
-    mlflow.log_artifact("state_weights.txt")
+        mlflow.log_artifact("state_weights.txt")
     return best_weights, best_loss, previous_epoch + i_epoch, loss_fn, exit_cond
 
 def label(diff_params, cfg_params):
+    """
+    Builds the partition-label pytree used by angular_multiple_optax's optax.partition solver: a pytree
+    with the same structure as diff_params where every leaf is labeled "macro" or "dist", selecting which
+    of the two sub-optimizers (param_method for "macro", method for "dist") is applied to that leaf.
+
+    By default every leaf is "macro". If the electron distribution function is active, its leaves are
+    relabeled "dist" via get_distribution_filter_spec -- except normed_m (the DLM shape parameter, present
+    for DLM-type distributions), which stays "macro" alongside the other scalar plasma parameters rather
+    than being treated as part of the distribution function.
+
+    Args:
+        diff_params: the differentiable parameter pytree (matching the structure to be labeled).
+        cfg_params (Dict): config["parameters"], used to check whether the electron distribution function
+            is active.
+
+    Returns:
+        A pytree matching diff_params' structure, with each leaf replaced by the string "macro" or "dist".
+    """
     from jax import tree_util as jtu
     from tsadar.core.modules.distribution_functions.base import get_distribution_filter_spec
     label_spec = jtu.tree_map(lambda _: "macro", diff_params)

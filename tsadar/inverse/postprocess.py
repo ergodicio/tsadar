@@ -1,3 +1,5 @@
+"""postprocess: recomputes final fits/losses/uncertainties after fitting completes, optionally refits
+individually poor-fit lineouts, and produces the resulting plots and saved parameter values."""
 from typing import Dict
 from collections import defaultdict
 from flatten_dict import flatten, unflatten
@@ -6,18 +8,24 @@ import time, tempfile, mlflow, os, copy
 
 import numpy as np
 import jax
-from equinox import filter_jit
 
 from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
 from .loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from .loops import one_d_loop
+from .loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
 def recalculate_with_chosen_weights(
-    config: Dict, sa, sample_indices, all_data: Dict, loss_fn: LossFunction, calc_sigma: bool, fitted_weights: Dict
+    config: Dict,
+    sa,
+    sample_indices,
+    all_data: Dict,
+    loss_fn: LossFunction,
+    calc_sigma: bool,
+    fitted_weights: Dict,
+    num_params: int,
 ):
     """
     Gets parameters and the result of the full forward pass i.e. fits
@@ -29,6 +37,7 @@ def recalculate_with_chosen_weights(
         all_data: Dict- contains the electron data, ion data, and their respective amplitudes
         loss_fn: Instance of the LossFunction class
         fitted_weights: Dict- best values of the parameters returned by the minimizer
+        num_params: int- number of active fitted parameters, used to size the sigmas array
 
     Returns:
 
@@ -37,20 +46,6 @@ def recalculate_with_chosen_weights(
     losses = np.zeros_like(sample_indices, dtype=np.float64)
     sample_indices.sort()
     batch_indices = np.reshape(sample_indices, (-1, config["optimizer"]["batch_size"]))
-
-    # turn list of dictionaries into dictionary of lists
-    all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
-
-    for _fw in fitted_weights:
-        batch_fitted_params, num_params = _fw.get_fitted_params(config["parameters"])
-        for k in batch_fitted_params.keys():
-            for k2 in batch_fitted_params[k].keys():
-                all_params[k][k2].append(batch_fitted_params[k][k2])
-
-    # concatenate all the lists in the dictionary
-    for k in all_params.keys():
-        for k2 in all_params[k].keys():
-            all_params[k][k2] = np.concatenate(all_params[k][k2])
 
     fits = {
         "ele": {
@@ -66,52 +61,32 @@ def recalculate_with_chosen_weights(
     }
     sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
 
-    if config["data"]["load_ele_spec"]:
-        sigmas = np.zeros((all_data["e_data"].shape[0], num_params))
-        fits["ele"]["spec_comps"] = np.ones(
-            [
-                all_data["e_data"].shape[0],
-                max(
-                    config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
-                    config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
-                ),
-                all_data["e_data"].shape[1] * config["other"]["points_per_pixel"],
-                len(sa["sa"]),
-            ]
-        )
-    else:
-        fits["ele"]["spec_comps"] = np.zeros(all_data["e_data"].shape)
-    if config["data"]["load_ion_spec"]:
-        sigmas = np.zeros((all_data["i_data"].shape[0], num_params))
-        fits["ion"]["spec_comps"] = np.ones(
-            [
-                all_data["i_data"].shape[0],
-                max(
-                    config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
-                    config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
-                ),
-                all_data["i_data"].shape[1] * config["other"]["points_per_pixel"],
-                len(sa["sa"]),
-            ]
-        )
-    else:
-        fits["ion"]["spec_comps"] = np.zeros(all_data["i_data"].shape)
+    for species, data_key in (("ele", "e_data"), ("ion", "i_data")):
+        if config["data"][f"load_{species}_spec"]:
+            sigmas = np.zeros((all_data[data_key].shape[0], num_params))
+            fits[species]["spec_comps"] = np.ones(
+                [
+                    all_data[data_key].shape[0],
+                    max(
+                        config["parameters"]["general"]["Te_gradient"]["num_grad_points"],
+                        config["parameters"]["general"]["ne_gradient"]["num_grad_points"],
+                    ),
+                    all_data[data_key].shape[1] * config["other"]["points_per_pixel"],
+                    len(sa["sa"]),
+                ]
+            )
+        else:
+            fits[species]["spec_comps"] = np.zeros(all_data[data_key].shape)
 
     background_subtract = config["data"]["background"]["bg_subtract"]
+    if config["plotting"]["detailed_breakdown"]:
+        ts_diag = ThomsonScatteringDiagnostic(config, sa)
     for i_batch, inds in enumerate(batch_indices):
-        batch = {
-                "e_data": all_data["e_data"][inds]-all_data["noiseE"][inds] if background_subtract else all_data["e_data"][inds],
-                "e_amps": all_data["e_amps"][inds],
-                "i_data": all_data["i_data"][inds]-all_data["noiseI"][inds] if background_subtract else all_data["i_data"][inds],
-                "i_amps": all_data["i_amps"][inds],
-                "noise_e": all_data["noiseE"][inds] if not background_subtract else 0.0,
-                "noise_i": all_data["noiseI"][inds] if not background_subtract else 0.0,
-            }
+        batch = build_batch(all_data, inds, background_subtract)
 
-        loss, sqds, ThryE, ThryI, params = loss_fn.array_loss(fitted_weights[i_batch], batch)
+        loss, sqds, ThryE, ThryI, _ = loss_fn.array_loss(fitted_weights[i_batch], batch)
 
         if config["plotting"]["detailed_breakdown"]:
-            ts_diag = ThomsonScatteringDiagnostic(config, sa)
             # ThryE, ThryI, modlE, modlI, eIRF, iIRF, lamAxisE, lamAxisI = filter_jit(ts_diag.sprectrum_breakdown)(fitted_weights[i_batch], batch)
             ThryE, ThryI, modlE, modlI, eIRF, iIRF, _, _, lamAxisE_raw, lamAxisI_raw = ts_diag.spectrum_breakdown(
                 fitted_weights[i_batch], batch
@@ -126,11 +101,10 @@ def recalculate_with_chosen_weights(
             fits["ion"]["detailed_axis"] = lamAxisI_raw[0]
 
         if calc_sigma:
-            hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
             try:
                 hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
-            except:
-                print("Error calculating Hessian, no hessian based uncertainties have been calculated")
+            except Exception as e:
+                print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
                 calc_sigma = False
 
         losses[inds] = loss
@@ -138,9 +112,6 @@ def recalculate_with_chosen_weights(
         sqdevs["ele"][inds] = sqds["ele"]
         sqdevs["ion"][inds] = sqds["ion"]
 
-        if config["optimizer"]["loss_method"] =='covar':
-            sqdevs["ele"][inds] = sqds["ele"]
-            sqdevs["ion"][inds] = sqds["ion"]
         if calc_sigma:
             sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
             # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
@@ -148,7 +119,7 @@ def recalculate_with_chosen_weights(
         fits["ele"]["total_spec"][inds] = ThryE
         fits["ion"]["total_spec"][inds] = ThryI
 
-    return losses, sqdevs, num_params, fits, sigmas, all_params
+    return losses, sqdevs, fits, sigmas
 
 
 def get_sigmas(hess: Dict, batch_size: int) -> Dict:
@@ -173,7 +144,6 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
         for species in hess.keys()
         for key in hess[species].keys()
     }
-    # sizes = {key: hess[key][key].shape[1] for key in keys}
     actual_num_params = sum([v for k, v in sizes.items()])
     sigmas = np.zeros((batch_size, actual_num_params))
 
@@ -189,39 +159,42 @@ def get_sigmas(hess: Dict, batch_size: int) -> Dict:
                         k2 += 1
                 k1 += 1
 
-        # xc = 0
-        # for k1, param in enumerate(keys):
-        #     yc = 0
-        #     for k2, param2 in enumerate(keys):
-        #         if i > 0:
-        #             temp[k1, k2] = np.squeeze(hess[param][param2])[i, i]
-        #         else:
-        #             temp[xc : xc + sizes[param], yc : yc + sizes[param2]] = hess[param][param2][0, :, 0, :]
-        #
-        #         yc += sizes[param2]
-        #     xc += sizes[param]
-
-        # print(temp)
         inv = np.linalg.inv(temp)
-        # print(inv)
-
         sigmas[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
-        # for k1, param in enumerate(keys):
-        #     sigmas[i, xc : xc + sizes[param]] = np.diag(
-        #         np.sign(inv[xc : xc + sizes[param], xc : xc + sizes[param]])
-        #         * np.sqrt(np.abs(inv[xc : xc + sizes[param], xc : xc + sizes[param]]))
-        #     )
-        # print(sigmas[i, k1])
-        # change sigmas into a dictionary?
 
     return sigmas
 
 
-def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights):
+def postprocess(
+    config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn, sa, fitted_weights, all_params=None, num_params=None
+):
+    """
+    Top-level postprocessing entry point, run after a fit completes. For non-angular fits with refitting
+    enabled, first refits any lineout whose loss exceeds the configured threshold (see refit_bad_fits) and
+    re-unbatches the (possibly updated) fitted weights. Then dispatches to process_angular_data or
+    process_data depending on spectype, logs timing/status to mlflow, and returns the final parameters.
+
+    Args:
+        config: Dict- configuration dictionary built from input deck
+        sample_indices: indices of the lineouts that were fit
+        all_data: Dict- contains the electron data, ion data, and their respective amplitudes
+        all_axes: Dict- calibrated axes and axes labels
+        loss_fn: Instance of the LossFunction class used for fitting
+        sa: scattering angles and their relative weights
+        fitted_weights: best-fit parameter object(s) returned by the minimizer
+        all_params: Dict, optional- unbatched fitted parameters; required unless refitting is enabled
+            (in which case it is recomputed here) or the angular path is used (which builds its own)
+        num_params: int, optional- number of active fitted parameters; same caveats as all_params
+
+    Returns:
+        final_params: Dict- the final fitted parameters and distribution function data, as returned by
+        process_data/process_angular_data
+    """
     t1 = time.time()
 
     if config["other"]["extraoptions"]["spectype"] != "angular_full" and config["other"]["refit"]:
-        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights)
+        init_losses = refit_bad_fits(config, sa, sample_indices, all_data, loss_fn, fitted_weights, num_params)
+        all_params, num_params = unbatch_fitted_params(config, fitted_weights)
     else:
         init_losses = []
 
@@ -236,7 +209,8 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
 
         else:
             t1, final_params = process_data(
-                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td
+                config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td,
+                all_params, num_params
             )
 
         # Written last, so it describes the finished tree rather than a
@@ -251,9 +225,28 @@ def postprocess(config, sample_indices, all_data: Dict, all_axes: Dict, loss_fn,
     return final_params
 
 
-def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights):
-    losses_init, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, sa, batch_indices, all_data, loss_fn, False, fitted_weights
+def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights, num_params):
+    """
+    Refits individual lineouts whose loss exceeds config["other"]["refit_thresh"], one lineout at a time
+    (batch_size=1), using the previous lineout's fitted weights as the initial guess. If the refit improves
+    on the original loss, the corresponding entry in fitted_weights is updated in place; lineout 0 is never
+    refit since there is no preceding lineout to initialize from.
+
+    Args:
+        config: Dict- configuration dictionary built from input deck
+        sa: scattering angles and their relative weights
+        batch_indices: np.ndarray- indices specifying how the data was split into batches during fitting
+        all_data: Dict- contains the electron data, ion data, and their respective amplitudes
+        loss_fn: Instance of the LossFunction class used for fitting
+        fitted_weights: List- per-batch fitted weight objects; mutated in place for any lineout that is
+            successfully refit
+        num_params: int- number of active fitted parameters, used to size the sigmas array
+
+    Returns:
+        losses_init: np.ndarray- the per-lineout losses computed before any refitting was applied
+    """
+    losses_init, sqdevs, fits, sigmas = recalculate_with_chosen_weights(
+        config, sa, batch_indices, all_data, loss_fn, False, fitted_weights, num_params
     )
 
     # refit bad fits
@@ -273,13 +266,6 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
 
         temp_cfg = copy.deepcopy(config)
         temp_cfg["optimizer"]["batch_size"] = 1
-
-        def func(x):
-            # i, true_batch_size
-            if hasattr(x, "__len__"):
-                return {"val": x[(i - 1) % true_batch_size]}
-            else:
-                return {"val": x}
 
         def extract(x):
             # i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
@@ -305,8 +291,7 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
         )
         prev_weights = prev_weights.get_unnormed_params()
         prev_weights = jax.tree.map(lambda x: {"val": x}, prev_weights)
-        prev_weights["electron"]["fe"] = {"m": prev_weights["electron"]["m"]}
-        del prev_weights["electron"]["m"]
+        prev_weights["electron"]["fe"] = {"params": {"m": prev_weights["electron"].pop("m")}}
 
         temp_params = flatten(temp_cfg["parameters"])
         temp_params.update(flatten(prev_weights))
@@ -315,18 +300,10 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
         new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
 
         inds = np.array([i])
-        batch = {
-            "e_data": all_data["e_data"][inds],
-            "e_amps": all_data["e_amps"][inds],
-            "i_data": all_data["i_data"][inds],
-            "i_amps": all_data["i_amps"][inds],
-            "noise_e": all_data["noiseE"][inds],
-            "noise_i": all_data["noiseI"][inds],
-        }
+        batch = build_batch(all_data, inds, config["data"]["background"]["bg_subtract"])
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
 
         if loss < losses_init[i]:
-            del fitted_weights[(i - 1) // true_batch_size]["electron"]["m"]
             fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
                 insert,
                 fitted_weights[(i - 1) // true_batch_size],
@@ -336,9 +313,34 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights)
     return losses_init
 
 
-def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, t1, td):
-    losses, sqdevs, num_params, fits, sigmas, all_params = recalculate_with_chosen_weights(
-        config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights
+def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, losses_init, t1, td, all_params, num_params):
+    """
+    Non-angular postprocessing path: recomputes losses, fits, and (if enabled) parameter uncertainties for
+    the final fitted weights, then produces the loss-histogram, data-vs-fit, best/worst-lineout comparison
+    (detailed or simple, depending on config["plotting"]["detailed_breakdown"]), and final-parameter plots,
+    saving them all to td.
+
+    Args:
+        config: Dict- configuration dictionary built from input deck
+        sample_indices: indices of the lineouts that were fit
+        all_data: Dict- contains the electron data, ion data, and their respective amplitudes
+        all_axes: Dict- calibrated axes and axes labels
+        loss_fn: Instance of the LossFunction class used for fitting
+        fitted_weights: best-fit parameter object(s) returned by the minimizer
+        sa: scattering angles and their relative weights
+        losses_init: np.ndarray- initial (pre-refit) losses, or an empty list if refitting was not performed
+        t1: float- timestamp used to measure and log the postprocessing duration
+        td: str- temporary directory that will be uploaded to mlflow
+        all_params: Dict- unbatched fitted parameters, as returned by unbatch_fitted_params
+        num_params: int- number of active fitted parameters, used to size the sigmas array
+
+    Returns:
+        tuple:
+            t1 (float): updated timestamp, taken after recomputing losses/fits, for timing the plotting step
+            final_params (Dict): the final fitted parameters and distribution function data
+    """
+    losses, sqdevs, fits, sigmas = recalculate_with_chosen_weights(
+        config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights, num_params
     )
 
     reduced_points = 1.0  # (used_points - num_params)*config["optimizer"]["batch_size"]
@@ -364,6 +366,27 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
 
 
 def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fitted_weights, sa, t1, td):
+    """
+    Angular postprocessing path: extracts the fitted parameters from the single fitted_weights object,
+    builds the angular data batch, computes losses/fits (and, if enabled, parameter uncertainties), and
+    produces the angular-specific data-vs-fit, lineout, and distribution-function plots, saving them to td.
+
+    Args:
+        config: Dict- configuration dictionary built from input deck
+        batch_indices: indices of the lineouts that were fit
+        all_data: Dict- contains the electron data, ion data, and their respective amplitudes
+        all_axes: Dict- calibrated axes and axes labels
+        loss_fn: Instance of the LossFunction class used for fitting
+        fitted_weights: the single fitted-weight object returned by the angular minimizer
+        sa: scattering angles and their relative weights
+        t1: float- timestamp used to measure and log the postprocessing duration
+        td: str- temporary directory that will be uploaded to mlflow
+
+    Returns:
+        tuple:
+            t1 (float): updated timestamp, taken after recomputing losses/fits, for timing the plotting step
+            final_params (Dict): the final fitted parameters and distribution function data
+    """
     # Prepare parameter containers
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
     batch_fitted_params, num_params = fitted_weights.get_fitted_params(config["parameters"])
@@ -372,41 +395,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
             all_params[k][k2].append(batch_fitted_params[k][k2])
 
    # Prepare batch data
-    start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
-    # batch = {
-    #     "e_data": all_data["e_data"][start:end, :],
-    #     "e_amps": all_data["e_amps"][start:end, :],
-    #     "i_data": all_data["i_data"],
-    #     "i_amps": all_data["i_amps"],
-    #     "noise_e": all_data["noiseE"][start:end, :],
-    #     "noise_i": all_data["noiseI"][start:end, :],
-    # }
-    batch1 = {
-        "e_data": all_data["e_data"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "e_amps": all_data["e_amps"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "i_data": all_data["i_data"],
-        "i_amps": all_data["i_amps"],
-        "noise_e": all_data["noiseE"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-    }
-    if isinstance(config["data"]["shotnum"], list):
-        batch2 = {
-            "e_data": all_data["e_data_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "e_amps": all_data["e_amps_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "noise_e": all_data["noiseE_rot"][
-                config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :
-            ],
-            "i_data": all_data["i_data"],
-            "i_amps": all_data["i_amps"],
-            "noise_i": all_data["noiseI"][config["data"]["lineouts"]["start"] : config["data"]["lineouts"]["end"], :],
-        }
-        batch = {"b1": batch1, "b2": batch2}
-    else:
-        batch = batch1
+    batch = build_angular_batch(config, all_data)
 
     # Calculate losses and fits
     losses, sqdevs, fits_ele, _, params = loss_fn.array_loss(fitted_weights, batch)
