@@ -14,7 +14,7 @@ mlflow:
   experiment: tsadar-test
   run: arts2d
 other:
-  PhysParams:
+  detector_specs:
     widIRF:
       ang_FWHM_ele: 1.0
       spect_FWHM_ele: 0.9
