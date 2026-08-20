@@ -1,5 +1,5 @@
-from cmath import rect
-
+"""Launches a plot of the raw (pre-lineout) EPW/IAW data with markers for the configured lineout and fit
+range boundaries, for visually checking lineout/range selection before fitting."""
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
@@ -84,6 +84,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             ax.set_ylabel("Wavelength (nm)")
             fig.colorbar(cb)
             fig.savefig(os.path.join(td, "plots", "ion_fit_ranges.png"), bbox_inches="tight")
+            plt.close(fig)
 
         if config["data"]["load_ele_spec"]:
             X, Y = np.meshgrid(all_axes["epw_x"], all_axes["epw_y"])
@@ -125,6 +126,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             ax.set_ylabel("Wavelength (nm)")
             fig.colorbar(jc)
             fig.savefig(os.path.join(td, "plots", "electron_fit_ranges.png"), bbox_inches="tight")
+            plt.close(fig)
 
         
         # Plot temporal comparison of electron and ion spectra if both are loaded to check timing alignment
@@ -135,10 +137,12 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             plt.xlabel(all_axes["x_label"])
             plt.ylabel("Integrated counts (a.u.)")
             plt.legend()
-            
+            fig.savefig(os.path.join(td, "plots", "temporal_comparison.png"), bbox_inches="tight")
+            plt.close(fig)
+
 
         # Plot lineout of the data with its background to check background subtraction
-        if config["data"]["background"]["type"].casefold() in ["fit", "pixel"]:
+        if config["data"]["background"]["report_background"]:
             #create a figure with 6 subplots, 3 for the electron lineouts and 3 for the ion lineouts, with the lineouts and the backgrounds plotted together
             num_lineouts = len(all_data["e_data"]) if all_data["e_data"].size > 0 else len(all_data["i_data"])
             lineout_indices = [0, num_lineouts // 2, num_lineouts - 1]
@@ -166,4 +170,5 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
                     ax[1][idx].set_ylabel("Counts (a.u.)")
                     ax[1][idx].legend()
             fig.savefig(os.path.join(td, "plots", "lineouts_with_background.png"), bbox_inches="tight")
+            plt.close(fig)
         mlflow.log_artifacts(td)
