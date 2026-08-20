@@ -1,3 +1,6 @@
+"""Spherical-harmonic representation of the electron distribution function, for 2D EDFs expanded in
+velocity-space harmonics (f00 isotropic component plus higher-order anisotropic terms) rather than
+represented as an arbitrary numerical grid."""
 from typing import Dict, Callable
 from collections import defaultdict
 from functools import partial
@@ -258,6 +261,7 @@ class SphericalHarmonics(DistributionFunction2V):
         return {"flm": flm_dict}
 
     def get_unnormed_m(self):
+        """Returns the unnormalized (physical) super-Gaussian shape parameter "m" for the f00 component."""
         return self.act_fun(self.normed_m) * self.m_scale + self.m_shift
 
     def get_f00(self):

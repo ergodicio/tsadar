@@ -1,3 +1,6 @@
+"""1D and 2D electron distribution function (EDF) representations: arbitrary numerical EDFs (Arbitrary1V/
+Arbitrary2V) and shape-parameterized super-Gaussian EDFs (DLM1V/DLM2V), used by ThomsonParams to build the
+electron velocity distribution that the forward model integrates over."""
 import os
 from typing import Dict, Callable, Union
 from functools import partial
@@ -220,6 +223,18 @@ class Arbitrary1V(DistributionFunction1V):
         #self.smooth = partial(smooth1d, window_size=dist_cfg["nvx"] // 4)
 
     def init_dlm(self, m):
+        """
+        Builds the initial value for self.fval: a normalized super-Gaussian distribution with shape
+        parameter m over self.vx, stored in the sqrt(-log10(.)) representation that __call__ inverts
+        (fval**2 -> 10**(-fval) -> renormalize). This keeps the stored/optimized representation smooth and
+        strictly positive rather than optimizing the (possibly very small) distribution values directly.
+
+        Args:
+            m: shape parameter of the super-Gaussian (m=2 recovers a Maxwellian).
+
+        Returns:
+            Array: the initial fval, in the sqrt(-log10(.)) representation.
+        """
         # vth_x = 1.0  # jnp.sqrt(2.0)
         # alpha = jnp.sqrt(3.0 * gamma(3.0 / m) / 2.0 / gamma(5.0 / m))
         # cst = m / (4.0 * jnp.pi * alpha**3.0 * gamma(3.0 / m))
@@ -234,6 +249,7 @@ class Arbitrary1V(DistributionFunction1V):
         return jnp.sqrt(fdlm)
 
     def get_unnormed_params(self):
+        """Returns the current (unnormalized) distribution function values, under key "f"."""
         return {"f": self()}
 
     def __call__(self):
@@ -314,6 +330,7 @@ class DLM1V(DistributionFunction1V):
         self.interpolate_f_in_m = vmap(jnp.interp, in_axes=(None, None, 0), out_axes=0)
 
     def get_unnormed_params(self):
+        """Returns the unnormalized (physical) super-Gaussian shape parameter, under key "m"."""
         return {"m": self.act_fun(self.normed_m) * self.m_scale + self.m_shift}
 
     def __call__(self):
@@ -544,7 +561,9 @@ class Arbitrary2V(DistributionFunction2V):
             fdlm = -jnp.log10(fdlm)
 
         return jnp.sqrt(fdlm)
+
     def get_unnormed_params(self):
+        """Returns the current (unnormalized) distribution function values, under key "f"."""
         return {"f": self()}
 
     def __call__(self):
@@ -705,6 +724,8 @@ def calc_moment(f,v,m):
         moment_val = trapz(v**m *f, v[1]-v[0])
     elif len(jnp.shape(f))==2:
         moment_val = trapz(trapz((v[0]**2 + v[1]**2)**(m/2) *f, v[0][0][1]-v[0][0][0]), v[1][1][0]-v[1][0][0])
+    else:
+        raise ValueError(f"calc_moment only supports 1D or 2D distribution functions, got shape {jnp.shape(f)}")
 
     return moment_val
 

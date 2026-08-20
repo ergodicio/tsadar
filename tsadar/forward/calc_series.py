@@ -1,3 +1,5 @@
+"""forward_pass: runs the forward model over a series of plasma conditions (a parameter swept across a list
+of values in the input deck) and saves/plots the resulting spectra, without any fitting."""
 from time import time
 import os
 import tempfile
@@ -107,9 +109,12 @@ def forward_pass(config):
     lamAxisI = [None] * serieslen
 
     t_start = time()
+    # Only the swept "val" fields differ between decks; everything ThomsonScatteringDiagnostic
+    # reads at construction time (npts, instrument specs, spectype) is the same across the
+    # series, so it only needs to be built once.
+    ts_diag = ThomsonScatteringDiagnostic(decks[0], scattering_angles=sas)
     for i in range(serieslen):
         ts_params = ThomsonParams(decks[i]["parameters"], num_params=1, batch=not is_angular)
-        ts_diag = ThomsonScatteringDiagnostic(decks[i], scattering_angles=sas)
 
         # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)
@@ -119,10 +124,6 @@ def forward_pass(config):
     ThryI = np.array(ThryI)
     lamAxisE = np.array(lamAxisE)
     lamAxisI = np.array(lamAxisI)
-
-    # physical_params = ts_params()
-    # fe_val = physical_params["electron"]["fe"][0]
-    # velocity = physical_params["electron"]["v"][0]
 
     with tempfile.TemporaryDirectory() as td:
         os.makedirs(os.path.join(td, "plots"), exist_ok=True)
@@ -159,7 +160,10 @@ def forward_pass(config):
             final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
             if config["parameters"]["electron"]["fe"]["dim"] == 2:
-                plotters.plot_dist(config, "electron", {"fe": fe_val, "v": velocity}, np.zeros_like(fe_val), td)
+                physical_params = ts_params()
+                fe_val = physical_params["electron"]["fe"][0]
+                velocity = physical_params["electron"]["v"][0]
+                plotters.plot_dist(config, {"fe": np.squeeze(fe_val), "v": velocity}, np.zeros_like(fe_val), td)
 
             fig, ax = plt.subplots(1, 2, figsize=(12, 6), tight_layout=True, sharex=False)
             if config["data"]["load_ele_spec"]:
@@ -209,6 +213,7 @@ def forward_pass(config):
                     ion_data = xr.Dataset({k: xr.DataArray(v, coords=coords_ion) for k, v in ion_dat.items()})         
                 ion_data.to_netcdf(os.path.join(td, "binary", "ion_data.nc"))
             fig.savefig(os.path.join(td, "plots", "simulated_data"), bbox_inches="tight")
+            plt.close(fig)
         mlflow.log_artifacts(td)
         metrics_dict = {"spectrum_calc_time": spectime}
         mlflow.log_metrics(metrics=metrics_dict)

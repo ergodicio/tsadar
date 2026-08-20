@@ -1,3 +1,5 @@
+"""prepare_data: the top-level data-loading pipeline for a shot -- loads raw data, applies throughput and
+background corrections, extracts lineouts, and returns the batch of data ready for fitting."""
 from typing import Dict
 
 import numpy as np

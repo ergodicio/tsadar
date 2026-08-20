@@ -1,5 +1,7 @@
+"""LossFunction: computes the forward-model spectra, the fit error/loss between them and the data, and the
+gradients/Hessian used by the optimizers in loops.py."""
 import copy
-from typing import Dict
+from typing import Callable, Dict
 
 import jax
 from jax import numpy as jnp
@@ -124,6 +126,11 @@ class LossFunction:
 
         self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
 
+        # Set by _1d_scipy_loop_ (loops.py) before use, via ravel_pytree(diff_params) -- the unraveling
+        # function matching that particular fit's parameter pytree structure. Declared here so it's a
+        # known attribute rather than one only ever assigned from outside the class.
+        self.unravel_weights: Callable = None  # type: ignore[assignment]
+
         self._loss_ = filter_jit(self.__loss__)
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
         ## this will be replaced with jacobian params jacobian inverse
@@ -189,6 +196,18 @@ class LossFunction:
             return self._vg_func_(diff_weights, static_weights, batch)
 
     def h_loss_wrt_params(self, weights, batch):
+        """
+        Computes the Hessian of the loss with respect to the (active) fitted parameters, using the
+        JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__. Used by postprocessing to
+        derive parameter uncertainties from the curvature of the loss (see postprocess.get_sigmas).
+
+        Args:
+            weights: the parameter values to evaluate the Hessian at (typically the best-fit weights).
+            batch (Dict): batch of data to evaluate the loss against.
+
+        Returns:
+            The Hessian of the loss with respect to weights, in the same nested structure as weights.
+        """
         return self._h_func_(weights, batch)
 
     def _loss_for_hess_fn_(self, weights, batch):
@@ -241,78 +260,66 @@ class LossFunction:
         sqdev = {"ele": jnp.zeros(e_data.shape), "ion": jnp.zeros(i_data.shape)}
 
         if self.cfg["data"]["fit_IAW"]:
-            _error_ = self.loss_functionals(i_data, ThryI, uncert[0], method=self.cfg["optimizer"]["loss_method"])
-            _error_ = jnp.where(
-                (
-                    (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_min"])
-                    & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_cf_min"])
-                )
-                | (
-                    (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
-                    & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
-                ),
-                _error_,
-                jnp.nan,
+            mask = (
+                (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_min"])
+                & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_cf_min"])
+            ) | (
+                (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
+                & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
             )
-
-            if self.cfg["optimizer"]["loss_method"] == "covar":
-                k = self.calculate_covariance_matrix(i_data)  # This function needs to be defined to compute the covariance matrix based on the data
-                norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
-                print(norm)
-                _error_ = jnp.nan_to_num(_error_)
-                x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
-                i_error += jnp.sum(jnp.vecdot(_error_, x))/norm
-            else:
-                i_error += reduce_func(_error_)
-            sqdev["ion"] = jnp.nan_to_num(_error_)
+            # covar_source is i_data here (not ThryI) -- matches the original per-branch behavior below.
+            error, sqd = self._feature_error_(i_data, ThryI, uncert[0], mask, i_data, reduce_func)
+            i_error += error
+            sqdev["ion"] = sqd
 
         if self.cfg["data"]["fit_EPWb"]:
-            _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
-            _error_ = jnp.where(
-                (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"])
-                & (lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"]),
-                _error_,
-                jnp.nan,
+            mask = (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"]) & (
+                lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"]
             )
-
-            if self.cfg["optimizer"]["loss_method"] == "covar":
-                k = self.calculate_covariance_matrix(ThryE)  # This function needs to be defined to compute the covariance matrix based on the data
-                norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
-                print(norm)
-                _error_ = jnp.nan_to_num(_error_)
-                x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
-                print(x)
-                e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
-                print(e_error)
-            else:
-                e_error += reduce_func(_error_)
-            sqdev["ele"] = jnp.nan_to_num(_error_)
+            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func)
+            e_error += error
+            sqdev["ele"] = sqd
 
         if self.cfg["data"]["fit_EPWr"]:
-            _error_ = self.loss_functionals(e_data, ThryE, uncert[1], method=self.cfg["optimizer"]["loss_method"])
-            _error_ = jnp.where(
-                (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"])
-                & (lamAxisE < self.cfg["data"]["fit_rng"]["red_max"]),
-                _error_,
-                jnp.nan,
+            mask = (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"]) & (
+                lamAxisE < self.cfg["data"]["fit_rng"]["red_max"]
             )
+            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func)
+            e_error += error
 
-            if self.cfg["optimizer"]["loss_method"] == "covar":
-                k = self.calculate_covariance_matrix(ThryE)  # This function needs to be defined to compute the covariance matrix based on the data
-                norm = jnp.sum(jnp.isfinite(_error_))-self.num_free_params
-                print(norm)
-                _error_ = jnp.nan_to_num(_error_)
-                x=jnp.linalg.solve(k,_error_[...,None]).squeeze(-1)
-                e_error += jnp.sum(jnp.vecdot(_error_, x))/norm
-            else:
-                e_error += reduce_func(_error_)
-            
             if self.cfg["data"]["fit_EPWb"]:
                 # the set e_error to the true mean if both sides are fit
                 e_error *= 1.0 / 2.0
-            sqdev["ele"] += jnp.nan_to_num(_error_)
+            sqdev["ele"] += sqd
 
         return i_error, e_error, sqdev
+
+    def _feature_error_(self, data, thry, uncert, mask, covar_source, reduce_func):
+        """
+        Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
+        functional, masks to the feature's fit range, and reduces either via reduce_func or, for
+        loss_method=="covar", via the covariance-weighted quadratic form. covar_source is the array
+        calculate_covariance_matrix is built from -- i_data for the ion branch, ThryE for both electron
+        branches, matching each branch's original behavior.
+
+        Returns:
+            tuple: (error, sqdev) where sqdev is nan_to_num(masked _error_), matching what calc_ei_error
+            stored for each branch before this was factored out.
+        """
+        _error_ = self.loss_functionals(data, thry, uncert, method=self.cfg["optimizer"]["loss_method"])
+        _error_ = jnp.where(mask, _error_, jnp.nan)
+
+        if self.cfg["optimizer"]["loss_method"] == "covar":
+            k = self.calculate_covariance_matrix(covar_source)
+            norm = jnp.sum(jnp.isfinite(_error_)) - self.num_free_params
+            print(norm)
+            _error_ = jnp.nan_to_num(_error_)
+            x = jnp.linalg.solve(k, _error_[..., None]).squeeze(-1)
+            error = jnp.sum(jnp.vecdot(_error_, x)) / norm
+        else:
+            error = reduce_func(_error_)
+
+        return error, jnp.nan_to_num(_error_)
 
     def calc_loss(self, ts_params, batch: Dict, denom, reduce_func):
         """
@@ -337,7 +344,6 @@ class LossFunction:
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch["b1"])
             
             ts_params_rot = eqx.tree_at(lambda tree: tree.electron.dist_rot, ts_params, self.cfg["data"]["shot_rot"])
-            ThryE_rot, _, _, _ = self.ts_diag(ts_params_rot, batch["b2"])
 
             if denom == []:
                 #50 is added to prevent divide by zero errors but should be updated to be more rigorous, this is roughly consistent with the noise
@@ -406,7 +412,7 @@ class LossFunction:
 
         """
         if self.cfg["optimizer"]["method"] == "l-bfgs-b":
-            pytree_weights = self.unravel_pytree(weights)
+            pytree_weights = self.unravel_weights(weights)
             value, _ = self._loss_(pytree_weights, batch)
             return value
         else:
@@ -528,6 +534,8 @@ class LossFunction:
         elif method == "covar":
             _error_ = d - t
             #here the rest of the math is done in the calc_ei_error function because the fit ranges must be applied before the matrix multiplication
+        else:
+            raise ValueError(f"Unknown loss method: {method!r}")
         return _error_
 
     def penalties(self, weights):
@@ -688,19 +696,31 @@ class LossFunction:
             # print(temperature_loss)
         return density_loss, temperature_loss, momentum_loss
     
-    def calculate_covariance_matrix(self,data):
-        # function to calculate the covariance matrix based on the theoretical values following
-        # the method describe in George's RSI
+    def calculate_covariance_matrix(self, data):
+        """
+        Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following the
+        method described in George's RSI. For each lineout, the shot-noise standard deviation is estimated
+        from `data` (self.G/self.F2 are device-specific gain/noise-factor constants set in __init__ when
+        loss_method=="covar"), placed on the diagonal, convolved with the CCD spread function self.g, and a
+        constant readout-noise term (self.n * self.sig_rn**2) is added on the diagonal.
 
+        Args:
+            data: array of shape (num_lineouts, num_pixels) used to estimate the shot noise. Note this is
+                computed from the signal itself, not the forward model, per the comment below -- a known
+                simplification, not yet the model-based noise estimate the method calls for.
+
+        Returns:
+            k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
+            each lineout.
+        """
         # Calculate noise (here it is done with the signal but it should be done with the model)
         sig_s = jnp.sqrt(data * self.G * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])
         #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
-        k_noise = jnp.zeros((jnp.shape(data)[0], jnp.shape(eye)[0], jnp.shape(eye)[1]))
-        for i in range(jnp.shape(data)[0]):
-            slice_noise=jax.scipy.signal.convolve2d(eye * sig_s[i]**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
-            k_noise=k_noise.at[i,:,:].set(slice_noise)
-        #k_noise = jax.scipy.signal.convolve2d(eye * sig_s**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
-        
+        def _slice_noise(sig_s_i):
+            return jax.scipy.signal.convolve2d(eye * sig_s_i**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
+
+        k_noise = jax.vmap(_slice_noise)(sig_s)
+
         return k_noise

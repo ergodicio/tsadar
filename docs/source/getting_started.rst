@@ -302,6 +302,44 @@ There are three run "modes".
    python run_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode interactive
 
 
+Re-running postprocessing
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you only want to redo the plots and saved parameter values from a fit that already completed -- for example after changing a plotting option, or if postprocessing was skipped or interrupted -- you don't need to re-run the fit. ``run_postprocessor.py`` replays :func:`postprocess() <tsadar.inverse.postprocess.postprocess>` against the saved config and fitted weights from a previous run, without re-optimizing. It logs its output to a new MLFlow run (tagged with the source run's id for traceability) rather than modifying the original run.
+
+A ``fitted_weights.eqx`` artifact is saved automatically for every fit run, so this works for any fit made with a reasonably current version of the code; only fits that predate this feature lack it and cannot be replayed this way.
+
+Point it at either a local copy of a run's artifact folder (containing ``defaults.yaml``, ``inputs.yaml``, and ``fitted_weights.eqx``):
+
+.. code-block:: bash
+
+   python run_postprocessor.py --dir <path>/<to>/<run>/<artifacts>
+
+or directly at an MLFlow run, by its run id or a run URL:
+
+.. code-block:: bash
+
+   python run_postprocessor.py --run <run_id_or_url>
+
+
+Running on a cluster
+^^^^^^^^^^^^^^^^^^^^^^
+
+``queue_tsadar.py`` submits a fit or forward pass as a batch job to a Slurm cluster (e.g. NERSC), rather than running it in your current shell. It creates the MLFlow run and uploads the input deck up front, then queues a job that resumes that same run via ``run_tsadar.py --run_id``, so the run is visible in MLFlow as soon as it's queued rather than only once the job starts.
+
+.. code-block:: bash
+
+   python queue_tsadar.py --cfg <path>/<to>/<inputs>/<folder> --mode <fit|forward>
+
+This expects a Slurm job template to be filled in and submitted with ``sbatch``, selected by the top-level ``machine`` field of ``inputs.yaml`` (``cpu`` or ``gpu``):
+
+.. code-block:: yaml
+    :caption: Inputs.yaml
+
+    machine: gpu
+
+Before running, the environment variables ``CPU_BASE_JOB_FILE`` and/or ``GPU_BASE_JOB_FILE`` must point at a Slurm job script template for the corresponding machine type (``nersc-cpu.sh`` and ``nersc-gpu.sh`` at the repository root are examples of such templates), and ``BASE_TEMPDIR`` should be set to a scratch directory the compute nodes can write to. The run command is appended to the end of the template before it is submitted.
+
 
 Output visualization
 ^^^^^^^^^^^^^^^^^^^^^^
