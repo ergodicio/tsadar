@@ -14,7 +14,7 @@ from flatten_dict import flatten, unflatten
 from .core.modules.ts_params import ThomsonParams
 from .inverse import postprocess
 from .inverse.fitter import _validate_inputs_, load_data_for_fitting
-from .inverse.loops import advance_refinement_shape, apply_ang_res_unit, unbatch_fitted_params
+from .inverse.loops import advance_refinement_shape, apply_ang_res_unit, build_angular_batch, unbatch_fitted_params
 from .inverse.loss_function import LossFunction
 from .utils import misc
 
@@ -96,11 +96,14 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
 
         is_angular = "angular" in config["other"]["extraoptions"]["spectype"]
         if is_angular:
-            # Both mutations mirror side effects multirun_angular_optax applies to config during the
-            # original fit, which the freshly-loaded config here never went through: the lineout
-            # start/end conversion (needed so the batch built from all_data below matches the range
-            # actually fit) and, if multiple minimizations ran, replaying the nvx/window-length growth
-            # (needed so the ThomsonParams skeleton has the same shape as the saved checkpoint).
+            # All three mutations mirror side effects multirun_angular_optax applies to config during
+            # the original fit, which the freshly-loaded config here never went through: forcing
+            # batch_size to 1 (angular fits are always run unbatched, and get_sigmas below indexes a
+            # hessian shaped for batch_size=1), the lineout start/end conversion (needed so the batch
+            # built from all_data below matches the range actually fit), and, if multiple minimizations
+            # ran, replaying the nvx/window-length growth (needed so the ThomsonParams skeleton has the
+            # same shape as the saved checkpoint).
+            config["optimizer"]["batch_size"] = 1
             apply_ang_res_unit(config)
             for _ in range(config["optimizer"]["num_mins"] - 1):
                 advance_refinement_shape(config)
@@ -118,11 +121,19 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
         else:
             all_params, num_params = unbatch_fitted_params(config, fitted_weights)
 
-        sample = {k: v[: config["optimizer"]["batch_size"]] for k, v in all_data.items()}
-        sample = {
-            "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
-            "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
-        } | sample
+        if is_angular:
+            # Matches the batch multirun_angular_optax normalizes against (the lineout-range slice),
+            # not the first batch_size raw rows -- using the latter would compute different i_norm/e_norm
+            # than the original fit whenever the raw data's first rows differ from the fitted range.
+            sample = build_angular_batch(config, all_data)
+            if isinstance(config["data"]["shotnum"], list):
+                sample = sample["b1"]
+        else:
+            sample = {k: v[: config["optimizer"]["batch_size"]] for k, v in all_data.items()}
+            sample = {
+                "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
+                "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
+            } | sample
         loss_fn = LossFunction(config, sa, sample)
 
         final_params = postprocess.postprocess(
@@ -164,11 +175,11 @@ def run_postprocess_remote(run_id_or_url: str) -> Dict:
     with tempfile.TemporaryDirectory() as td:
         try:
             mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
-            config_fnames = ["config.yaml"]
+            remaining_fnames = ["fitted_weights.eqx"]
         except Exception:
-            config_fnames = ["defaults.yaml", "inputs.yaml"]
+            remaining_fnames = ["defaults.yaml", "inputs.yaml", "fitted_weights.eqx"]
 
-        for fname in config_fnames + ["fitted_weights.eqx"]:
+        for fname in remaining_fnames:
             try:
                 mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=fname, dst_path=td)
             except Exception as e:
