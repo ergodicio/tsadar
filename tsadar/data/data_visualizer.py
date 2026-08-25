@@ -72,7 +72,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             ax.add_patch(Rectangle((x_start, y_cf_min), x_end - x_start, y_cf_max - y_cf_min, facecolor="black", alpha=0.35))
             ax.add_patch(Rectangle((x_start, y_max), x_end - x_start, y_hi - y_max, facecolor="black", alpha=0.35))
             # plot line indicating background lineout location if background lineout is not taken from a background shot
-            if "pixel" in config["data"]["background"]:
+            if len(np.atleast_1d(config["data"]["background"]["pixel"])) > 0:
                 (bgline,) = ax.plot(
                     [all_axes["iaw_x"][config["data"]["background"]["pixel"]], all_axes["iaw_x"][config["data"]["background"]["pixel"]]],
                     [all_axes["iaw_y"][0], all_axes["iaw_y"][-1]],
@@ -114,7 +114,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             ax.add_patch(Rectangle((x_start, y_blue_max), x_end - x_start, y_red_min - y_blue_max, facecolor="black", alpha=0.35))
             ax.add_patch(Rectangle((x_start, y_red_max), x_end - x_start, y_hi - y_red_max, facecolor="black", alpha=0.35))
             # plot line indicating background lineout location if background lineout is not taken from a background shot
-            if "pixel" in config["data"]["background"]:
+            if len(np.atleast_1d(config["data"]["background"]["pixel"])) > 0:
                 (bgline,) = ax.plot(
                     [all_axes["epw_x"][config["data"]["background"]["pixel"]], all_axes["epw_x"][config["data"]["background"]["pixel"]]],
                     [all_axes["epw_y"][0], all_axes["epw_y"][-1]],
@@ -141,8 +141,13 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             plt.close(fig)
 
 
-        # Plot lineout of the data with its background to check background subtraction
-        if config["data"]["background"]["report_background"]:
+        # Plot lineout of the data with its background to check background subtraction. Not meaningful for
+        # brem_model, whose background is evaluated dynamically inside the forward model rather than
+        # precomputed here (noiseE/noiseI are just zero placeholders in that mode).
+        if (
+            config["data"]["background"]["report_background"]
+            and config["data"]["background"]["type"].casefold() != "brem_model"
+        ):
             #create a figure with 6 subplots, 3 for the electron lineouts and 3 for the ion lineouts, with the lineouts and the backgrounds plotted together
             num_lineouts = len(all_data["e_data"]) if all_data["e_data"].size > 0 else len(all_data["i_data"])
             lineout_indices = [0, num_lineouts // 2, num_lineouts - 1]

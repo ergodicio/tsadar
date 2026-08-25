@@ -139,7 +139,8 @@ def get_lineouts(
 
     # Find background signal combining information from a background shot and background lineout
     [noiseE, noiseI] = get_lineout_bg(
-        config, elecData, ionData, BGele, BGion, LineoutTSE_smooth, BackgroundPixel, LineoutPixelE, LineoutPixelI
+        config, elecData, ionData, BGele, BGion, LineoutTSE_smooth, BackgroundPixel, LineoutPixelE, LineoutPixelI,
+        axisyE, axisyI,
     )
 
     # Find data amplitudes

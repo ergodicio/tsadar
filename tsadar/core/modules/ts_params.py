@@ -420,6 +420,8 @@ class GeneralParams(eqx.Module):
     normed_ne_gradient: Array
     normed_Te_gradient: Array
     normed_ud: Array
+    normed_brem_amp: Array
+    normed_brem_c: Array
     lam_scale: float
     lam_shift: float
     amp1_scale: float
@@ -433,40 +435,58 @@ class GeneralParams(eqx.Module):
     Te_gradient_scale: float
     Te_gradient_shift: float
     ud_scale: float
-    ud_shift: float   
+    ud_shift: float
+    brem_amp_scale: float
+    brem_amp_shift: float
+    brem_c_scale: float
+    brem_c_shift: float
     act_funs: Dict[str, Callable]
+
+    # brem_amp/brem_c (the forward-model bremsstrahlung background's scale and offset, see
+    # tsadar.core.physics.bremsstrahlung) are optional: most decks don't use the brem_model background
+    # type, so they default to an inactive, zero-valued no-op rather than requiring every input deck in the
+    # repo to define them.
+    _OPTIONAL_DEFAULTS = {
+        "brem_amp": {"active": False, "lb": 0.0, "ub": 1.0, "val": 0.0},
+        "brem_c": {"active": False, "lb": 0.0, "ub": 1.0, "val": 0.0},
+    }
 
     def __init__(self, cfg, batch_size: int, batch=True, activate=False):
         super().__init__()
 
+        params = ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud", "brem_amp", "brem_c"]
+
+        def param_cfg(param):
+            return cfg.get(param, self._OPTIONAL_DEFAULTS.get(param))
+
         # this is all a bit ugly but we use setattr instead of = to be able to use the for loop
         self.act_funs, inv_act_funs = {}, {}
-        for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud"]:   
-            self.act_funs[param], inv_act_funs[param] = get_act_and_inv_act(cfg[param], activate)
-            setattr(self, param + "_scale", cfg[param]["ub"] - cfg[param]["lb"])
-            setattr(self, param + "_shift", cfg[param]["lb"])
+        for param in params:
+            self.act_funs[param], inv_act_funs[param] = get_act_and_inv_act(param_cfg(param), activate)
+            setattr(self, param + "_scale", param_cfg(param)["ub"] - param_cfg(param)["lb"])
+            setattr(self, param + "_shift", param_cfg(param)["lb"])
 
         # this is where the linear and nonlinear transformations are applied i.e.
         # the rescaling and the activation function
         if batch:
-            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud"]:   
+            for param in params:
                 setattr(
                     self,
                     "normed_" + param,
                     inv_act_funs[param](
                         jnp.full(
                             batch_size,
-                            (cfg[param]["val"] - getattr(self, param + "_shift")) / getattr(self, param + "_scale"),
+                            (param_cfg(param)["val"] - getattr(self, param + "_shift")) / getattr(self, param + "_scale"),
                         )
                     ),
                 )
         else:
-            for param in ["lam", "amp1", "amp2", "amp3", "ne_gradient", "Te_gradient", "ud"]:   
+            for param in params:
                 setattr(
                     self,
                     "normed_" + param,
                     inv_act_funs[param](
-                        (cfg[param]["val"] - getattr(self, param + "_shift")) / getattr(self, param + "_scale")
+                        (param_cfg(param)["val"] - getattr(self, param + "_shift")) / getattr(self, param + "_scale")
                     ),
                 )
 
@@ -502,6 +522,8 @@ class GeneralParams(eqx.Module):
             self.act_funs["Te_gradient"](self.normed_Te_gradient) * self.Te_gradient_scale + self.Te_gradient_shift
         )
         unnormed_ud = self.act_funs["ud"](self.normed_ud) * self.ud_scale + self.ud_shift
+        unnormed_brem_amp = self.act_funs["brem_amp"](self.normed_brem_amp) * self.brem_amp_scale + self.brem_amp_shift
+        unnormed_brem_c = self.act_funs["brem_c"](self.normed_brem_c) * self.brem_c_scale + self.brem_c_shift
 
         return {
             "lam": unnormed_lam,
@@ -510,7 +532,9 @@ class GeneralParams(eqx.Module):
             "amp3": unnormed_amp3,
             "ne_gradient": unnormed_ne_gradient,
             "Te_gradient": unnormed_Te_gradient,
-            "ud": unnormed_ud,  
+            "ud": unnormed_ud,
+            "brem_amp": unnormed_brem_amp,
+            "brem_c": unnormed_brem_c,
         }
 
 
@@ -689,7 +713,7 @@ class ThomsonParams(eqx.Module):
                         fitted_params[k][k2]['fvxvy']=temp_out['electron']['fe']
                         fitted_params[k][k2]['v']=temp_out['electron']['v']
                     pass
-                elif k2 != "m" and param_cfg[k][k2]["active"]:
+                elif k2 != "m" and param_cfg[k].get(k2, {}).get("active", False):
                     fitted_params[k][k2] = param_dict[k][k2]
                     num_params += 1
 

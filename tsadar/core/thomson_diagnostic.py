@@ -8,6 +8,27 @@ from .instrument import irf
 from .instrument import AngularIRF, SpectrometerIRF
 from .modules.ts_params import ThomsonParams
 from .physics.generate_spectra import FitModel
+from .physics.bremsstrahlung import brem_spectrum
+
+
+def _add_brem_background(ThryE, lamAxisE, physical_params):
+    """
+    Adds the forward-model bremsstrahlung background (see tsadar.core.physics.bremsstrahlung) to ThryE,
+    evaluated at the current fit iteration's Z/Te/ne rather than a statically pre-fit background.
+
+    Z/Te/ne/brem_amp/brem_c are per-lineout scalars (shape [] unbatched or [batch] batched) while ThryE and
+    lamAxisE carry a trailing wavelength axis on top of that, so each scalar is reshaped with the same
+    number of trailing singleton dims as lamAxisE has beyond it, letting the two broadcast together.
+    """
+    Z = physical_params["ion-1"]["Z"]
+    Te = physical_params["electron"]["Te"]
+    ne = physical_params["electron"]["ne"]
+    amp = physical_params["general"]["brem_amp"]
+    c = physical_params["general"]["brem_c"]
+
+    extra_dims = jnp.ndim(lamAxisE) - jnp.ndim(Te)
+    reshape = lambda p: jnp.reshape(p, jnp.shape(p) + (1,) * extra_dims)
+    return ThryE + brem_spectrum(lamAxisE, reshape(Z), reshape(Te), reshape(ne), reshape(amp), reshape(c))
 
 
 def _bin_average(arr, step, axis):
@@ -217,6 +238,11 @@ class ThomsonScatteringDiagnostic:
         )
         if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
             ThryE, lamAxisE = self.reduce_ATS_to_resunit(ThryE, lamAxisE, physical_params, batch)
+        elif (
+            self.cfg["data"]["load_ele_spec"]
+            and self.cfg["data"]["background"]["type"].casefold() == "brem_model"
+        ):
+            ThryE = _add_brem_background(ThryE, lamAxisE, physical_params)
 
         ThryE = ThryE + batch["noise_e"]
         ThryI = ThryI + batch["noise_i"]
@@ -284,6 +310,11 @@ class ThomsonScatteringDiagnostic:
 
         if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
             modlE, lamAxisE = self.reduce_ATS_to_resunit(ThryE, lamAxisE, physical_params, batch)
+        elif (
+            self.cfg["data"]["load_ele_spec"]
+            and self.cfg["data"]["background"]["type"].casefold() == "brem_model"
+        ):
+            modlE = _add_brem_background(modlE, lamAxisE, physical_params)
 
         modlE = modlE + batch["noise_e"]
         modlI = modlI + batch["noise_i"]
