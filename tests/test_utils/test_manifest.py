@@ -210,6 +210,7 @@ def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
     import mlflow
 
     from tsadar.inverse import postprocess
+    from tsadar.inverse.postprocess import laplace
 
     def fake_process_data(
         config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td, all_params, num_params
@@ -218,7 +219,10 @@ def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
 
         return t1, {}
 
-    monkeypatch.setattr(postprocess, "process_data", fake_process_data)
+    # postprocess.postprocess (re-exported from .laplace) resolves `process_data` by bare-name lookup
+    # in laplace's own module globals, not the postprocess package's -- so the patch target has to be
+    # the laplace submodule, not the package attribute of the same name.
+    monkeypatch.setattr(laplace, "process_data", fake_process_data)
 
     mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
     client = mlflow.tracking.MlflowClient()

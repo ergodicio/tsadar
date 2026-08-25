@@ -43,6 +43,8 @@ class LossFunction:
             Computes the loss value and gradient with respect to weights for optimization.
         h_loss_wrt_params(weights, batch):
             Computes the Hessian of the loss with respect to parameters.
+        neg_log_likelihood(weights, batch, per_lineout):
+            Poisson-like -2*log-likelihood shared by the Hessian/Laplace uncertainty and the MCMC sampler.
         _loss_for_hess_fn_(weights, batch):
             Loss function used for Hessian computation.
         calc_ei_error(batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func):
@@ -210,22 +212,47 @@ class LossFunction:
         """
         return self._h_func_(weights, batch)
 
-    def _loss_for_hess_fn_(self, weights, batch):
-        # this function is not being used? if so it has syntax issues
-        # params = params | self.static_params
-        # params = self.ts_diag.get_plasma_parameters(weights)
+    def neg_log_likelihood(self, weights, batch: Dict, per_lineout: bool = False):
+        """
+        -2*log-likelihood under a Poisson-like noise model (Var ~= |data|), matching the convention
+        postprocess.get_sigmas' Hessian-based uncertainty already uses. Factored out of
+        _loss_for_hess_fn_ so the Hessian/Laplace uncertainty and the MCMC sampler
+        (inverse/postprocess/mcmc.py) derive uncertainty from one shared, consistent likelihood.
+
+        Args:
+            weights: full ThomsonParams (or diff+static already combined) to evaluate at.
+            batch (Dict): batch of data, as built by loops.build_batch.
+            per_lineout: if True, sums only over the wavelength/pixel axis and returns shape
+                (batch_size,) -- one value per lineout, needed for independent per-lineout MH
+                accept/reject. If False (default), reduces to a single scalar for the whole batch, as
+                _loss_for_hess_fn_ has always returned. Not supported for loss_method="covar", whose
+                error reduction is not per-lineout separable; per_lineout=True raises in that case.
+
+        Note: uses jnp.nansum rather than a plain sum, since calc_ei_error masks out-of-fit-range
+        points to nan (see calc_ei_error/_feature_error_) -- summing those directly would propagate nan
+        into every lineout's value.
+        """
+        if per_lineout and self.cfg["optimizer"]["loss_method"] == "covar":
+            raise NotImplementedError(
+                "neg_log_likelihood(per_lineout=True) is not supported for loss_method='covar': its "
+                "error reduction is a single covariance-weighted quadratic form, not separable per lineout."
+            )
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(weights, batch)
-        i_error, e_error, _, _ = self.calc_ei_error(
+        reduce_func = (lambda x: jnp.nansum(x, axis=-1)) if per_lineout else jnp.nansum
+        i_error, e_error, _ = self.calc_ei_error(
             batch,
             ThryI,
             lamAxisI,
             ThryE,
             lamAxisE,
             uncert=[jnp.abs(batch["i_data"]) + 1e-10, jnp.abs(batch["e_data"]) + 1e-10],
-            reduce_func=jnp.sum,
+            reduce_func=reduce_func,
         )
 
         return i_error + e_error
+
+    def _loss_for_hess_fn_(self, weights, batch):
+        return self.neg_log_likelihood(weights, batch, per_lineout=False)
 
     def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean):
         """
