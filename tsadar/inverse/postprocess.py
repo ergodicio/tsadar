@@ -258,8 +258,6 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
     mlflow.log_metrics({"number of fits": len(batch_indices.flatten())})
     mlflow.log_metrics({"number of refits": int(np.sum(red_losses_init > config["other"]["refit_thresh"]))})
 
-    sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
-
     for i in batch_indices.flatten()[red_losses_init > config["other"]["refit_thresh"]]:
         if i == 0:
             continue
@@ -297,7 +295,7 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         temp_params.update(flatten(prev_weights))
         temp_cfg["parameters"] = unflatten(temp_params)
         # temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights
-        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, sample_indices, 1)
+        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, np.array([i]), 1)
 
         inds = np.array([i])
         batch = build_batch(all_data, inds, config["data"]["background"]["bg_subtract"])

@@ -312,6 +312,54 @@ def unbatch_fitted_params(config: Dict, fitted_weights: List) -> Tuple[Dict, int
     return all_params, num_params
 
 
+def apply_ang_res_unit(config: Dict) -> None:
+    """
+    Converts the configured lineout start/end (in raw pixel units) to ang_res_unit-binned pixel units,
+    matching the resolution reduction prepare_data applies to angular data before batching. Mutates
+    config in place, and is not idempotent -- calling it twice on the same config divides twice.
+
+    Factored out of multirun_angular_optax so that anything reconstructing the batch a saved angular
+    checkpoint was fit against (e.g. postprocess_runner, which starts from a freshly-loaded config that
+    never went through multirun_angular_optax) applies the exact same conversion.
+
+    Args:
+        config (Dict): Configuration dictionary; config["data"]["lineouts"]["start"]/["end"] are read and
+            overwritten, using config["other"]["ang_res_unit"].
+    """
+    config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
+    config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
+
+
+def advance_refinement_shape(config: Dict) -> None:
+    """
+    Mutates config["parameters"]["electron"]["fe"]["nvx"] and (for 'arbitrary' distributions) its
+    smoothing window length in place, to the shape multirun_angular_optax's next minimization pass would
+    use -- one step of the same nvx *= refine_factor, window.len = window.len * refine_factor + 1
+    progression applied between minimizations there.
+
+    Only the shape update is factored out here (not the accompanying vx/fval interpolation, which needs
+    the previous pass's actual fitted array data): reconstructing a ThomsonParams skeleton to deserialize
+    a saved checkpoint into only needs the final shape, not the intermediate numeric values, so
+    postprocess_runner calls this config["optimizer"]["num_mins"] - 1 times to reach that shape without
+    re-running the fit.
+
+    Args:
+        config (Dict): Configuration dictionary; config["parameters"]["electron"]["fe"] is mutated using
+            config["optimizer"]["refine_factor"]. Only supports dim == 1, matching multirun_angular_optax.
+
+    Raises:
+        ValueError: if the electron distribution function is not 1D, since refinement (there and here) is
+            only defined for 1D EDFs.
+    """
+    if config["parameters"]["electron"]["fe"]["dim"] != 1:
+        raise ValueError("Multiple minimizations are only enabled for 1D edfs")
+
+    fe_config = config["parameters"]["electron"]["fe"]
+    refine_factor = config["optimizer"]["refine_factor"]
+    fe_config["nvx"] = fe_config["nvx"] * refine_factor
+    fe_config["params"]["window"]["len"] = fe_config["params"]["window"]["len"] * refine_factor + 1
+
+
 def multirun_angular_optax(
     config: Dict, all_data: Dict, sa: Tuple,
 ) -> Tuple[List, float, LossFunction]:
@@ -336,8 +384,7 @@ def multirun_angular_optax(
 
     """
     config["optimizer"]["batch_size"] = 1
-    config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / config["other"]["ang_res_unit"])
-    config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / config["other"]["ang_res_unit"])
+    apply_ang_res_unit(config)
     actual_data = build_angular_batch(config, all_data)
     batch1 = actual_data["b1"] if isinstance(config["data"]["shotnum"], list) else actual_data
 
@@ -353,40 +400,36 @@ def multirun_angular_optax(
         mlflow.log_metrics({"min loss": float(overall_loss)}, step=i_min)
         best_loss = min(best_loss, overall_loss)
         if i_min < config["optimizer"]["num_mins"]-1:
-            if config["parameters"]["electron"]["fe"]["dim"] == 1:
-                config["parameters"]["electron"]["fe"]["nvx"]= config["parameters"]["electron"]["fe"]["nvx"]*config["optimizer"]["refine_factor"]
-                config["parameters"]["electron"]["fe"]["params"]["window"]["len"]= config["parameters"]["electron"]["fe"]["params"]["window"]["len"]*config["optimizer"]["refine_factor"]+1
-                #currently may only work for 1D arbitrary
-    
-                new_vx = np.linspace(
-                        previous_weights.electron.distribution_functions.vx[0],
-                        previous_weights.electron.distribution_functions.vx[-1],
-                        config["parameters"]["electron"]["fe"]["nvx"],
-                    )
-                if config["parameters"]["electron"]["fe"]["type"] == 'arbitrary':
-                    fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
-                    refined_fe = np.interp(new_vx,
-                        previous_weights.electron.distribution_functions.vx,
-                        previous_weights.electron.distribution_functions.fval,
-                    )
-                    refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
-    
-                    getleaf = lambda t: t.electron.distribution_functions.fval
-                    previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
+            advance_refinement_shape(config)
+            #currently may only work for 1D arbitrary
 
-                elif config["parameters"]["electron"]["fe"]["type"] == 'dlm':
-                    distconfigs = config["parameters"]["electron"]["fe"]
-                    cur_m = previous_weights.electron.distribution_functions.get_unnormed_params()
-                    distconfigs["params"]["m"]["val"] = cur_m['m']
-                    #previous_weights.electron.distribution_functions.__init__(distconfigs,True)
-                    new_edf = DLM1V(distconfigs, True)
-                    getleaf = lambda t: t.electron.distribution_functions
-                    previous_weights = eqx.tree_at(getleaf, previous_weights, new_edf)
-                    
-                getleaf = lambda t: t.electron.distribution_functions.vx
-                previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
-            else:
-                raise ValueError("Multiple minimizations are only enabled for 1D edfs")
+            new_vx = np.linspace(
+                    previous_weights.electron.distribution_functions.vx[0],
+                    previous_weights.electron.distribution_functions.vx[-1],
+                    config["parameters"]["electron"]["fe"]["nvx"],
+                )
+            if config["parameters"]["electron"]["fe"]["type"] == 'arbitrary':
+                fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
+                refined_fe = np.interp(new_vx,
+                    previous_weights.electron.distribution_functions.vx,
+                    previous_weights.electron.distribution_functions.fval,
+                )
+                refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
+
+                getleaf = lambda t: t.electron.distribution_functions.fval
+                previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
+
+            elif config["parameters"]["electron"]["fe"]["type"] == 'dlm':
+                distconfigs = config["parameters"]["electron"]["fe"]
+                cur_m = previous_weights.electron.distribution_functions.get_unnormed_params()
+                distconfigs["params"]["m"]["val"] = cur_m['m']
+                #previous_weights.electron.distribution_functions.__init__(distconfigs,True)
+                new_edf = DLM1V(distconfigs, True)
+                getleaf = lambda t: t.electron.distribution_functions
+                previous_weights = eqx.tree_at(getleaf, previous_weights, new_edf)
+
+            getleaf = lambda t: t.electron.distribution_functions.vx
+            previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
 
     return previous_weights, overall_loss, loss_fn
 

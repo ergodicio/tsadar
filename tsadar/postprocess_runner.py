@@ -14,7 +14,7 @@ from flatten_dict import flatten, unflatten
 from .core.modules.ts_params import ThomsonParams
 from .inverse import postprocess
 from .inverse.fitter import _validate_inputs_, load_data_for_fitting
-from .inverse.loops import unbatch_fitted_params
+from .inverse.loops import advance_refinement_shape, apply_ang_res_unit, unbatch_fitted_params
 from .inverse.loss_function import LossFunction
 from .utils import misc
 
@@ -43,6 +43,17 @@ def _extract_run_id(run_id_or_url: str) -> str:
 
 
 def _load_merged_config(dir_path: str) -> Dict:
+    """
+    Loads the config a fit used, from whichever artifact layout it was saved with: a single config.yaml
+    (written by app-originated runs via runner.run_for_app, which never logs defaults.yaml/inputs.yaml) or
+    the separate defaults.yaml/inputs.yaml pair (written by runner.load_and_make_folders, used by the
+    CLI/cluster entry points).
+    """
+    config_path = os.path.join(dir_path, "config.yaml")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as fi:
+            return yaml.safe_load(fi)
+
     all_configs = {}
     for k in ["defaults", "inputs"]:
         with open(os.path.join(dir_path, f"{k}.yaml"), "r") as fi:
@@ -85,6 +96,14 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
 
         is_angular = "angular" in config["other"]["extraoptions"]["spectype"]
         if is_angular:
+            # Both mutations mirror side effects multirun_angular_optax applies to config during the
+            # original fit, which the freshly-loaded config here never went through: the lineout
+            # start/end conversion (needed so the batch built from all_data below matches the range
+            # actually fit) and, if multiple minimizations ran, replaying the nvx/window-length growth
+            # (needed so the ThomsonParams skeleton has the same shape as the saved checkpoint).
+            apply_ang_res_unit(config)
+            for _ in range(config["optimizer"]["num_mins"] - 1):
+                advance_refinement_shape(config)
             skeleton = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
         else:
             num_batches = len(sample_indices) // config["optimizer"]["batch_size"] or 1
@@ -115,8 +134,9 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
 
 def run_postprocess_local(dir_path: str) -> Dict:
     """
-    Runs postprocess on a fit whose artifacts (defaults.yaml, inputs.yaml, fitted_weights.eqx) already
-    sit in a local directory - e.g. a copy of an mlflow run's artifact folder.
+    Runs postprocess on a fit whose artifacts already sit in a local directory - e.g. a copy of an mlflow
+    run's artifact folder. Accepts either config layout _load_merged_config understands: a single
+    config.yaml, or defaults.yaml + inputs.yaml. Either way, fitted_weights.eqx must also be present.
     """
     config = _load_merged_config(dir_path)
     fitted_weights_path = os.path.join(dir_path, "fitted_weights.eqx")
@@ -133,11 +153,22 @@ def run_postprocess_remote(run_id_or_url: str) -> Dict:
     Runs postprocess on a fit tracked by mlflow, identified by a bare run id or a run URL (e.g. from
     https://continuum.ergodic.io/experiments/...). Only reads the source run's artifacts - the results of
     this replay are logged to a new run, so the source run's record is left untouched.
+
+    Supports both config artifact layouts: a single config.yaml (app-originated runs, via
+    runner.run_for_app) or defaults.yaml + inputs.yaml (CLI/cluster runs, via runner.load_and_make_folders).
+    Which one a given run has is only known by trying, since app runs never log defaults.yaml/inputs.yaml
+    at all - config.yaml is tried first and, only if that's absent, falls back to the defaults/inputs pair.
     """
     run_id = _extract_run_id(run_id_or_url)
 
     with tempfile.TemporaryDirectory() as td:
-        for fname in ["defaults.yaml", "inputs.yaml", "fitted_weights.eqx"]:
+        try:
+            mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
+            config_fnames = ["config.yaml"]
+        except Exception:
+            config_fnames = ["defaults.yaml", "inputs.yaml"]
+
+        for fname in config_fnames + ["fitted_weights.eqx"]:
             try:
                 mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=fname, dst_path=td)
             except Exception as e:
