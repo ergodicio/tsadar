@@ -575,8 +575,9 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
                 stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
                 magI = 5.23  # (ps / px) this is just a rough guess
                 magE = 5.35  # (ps / px) this is just a rough guess
-                EPWtcc = detector_specs["EPWtcc"]
-                IAWtcc = detector_specs["IAWtcc"]
+                if tstype == "imaging":
+                    EPWtcc = detector_specs["EPWtcc"]
+                    IAWtcc = detector_specs["IAWtcc"]
                 warnings.warn(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
             except KeyError:
                 raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
