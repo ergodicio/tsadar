@@ -35,6 +35,24 @@ def log_mlflow(cfg, which="params", step=0):
         log_func(flattened_dict)
 
 
+def merge_defaults_and_inputs(defaults, inputs):
+    """
+    Merges a defaults config with an inputs config that overrides it. Both are flattened to dotted-path
+    keys first so a leaf-level override in inputs replaces just that leaf rather than clobbering the
+    whole containing dict.
+
+    Args:
+        defaults: base configuration dictionary
+        inputs: configuration dictionary whose values take precedence over defaults
+
+    Returns:
+        The merged configuration dictionary.
+    """
+    flat = flatten_dict.flatten(defaults)
+    flat.update(flatten_dict.flatten(inputs))
+    return flatten_dict.unflatten(flat)
+
+
 def update(base_dict, new_dict):
     """
     Combines 2 dictionaries overwriting common fields

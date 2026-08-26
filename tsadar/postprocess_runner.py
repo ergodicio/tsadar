@@ -9,12 +9,18 @@ import equinox as eqx
 import mlflow
 import numpy as np
 import yaml
-from flatten_dict import flatten, unflatten
+from mlflow.exceptions import MlflowException
 
 from .core.modules.ts_params import ThomsonParams
 from .inverse import postprocess
 from .inverse.fitter import _validate_inputs_, load_data_for_fitting
-from .inverse.loops import advance_refinement_shape, apply_ang_res_unit, build_angular_batch, unbatch_fitted_params
+from .inverse.loops import (
+    advance_refinement_shape,
+    apply_ang_res_unit,
+    build_angular_batch,
+    build_batch,
+    unbatch_fitted_params,
+)
 from .inverse.loss_function import LossFunction
 from .utils import misc
 
@@ -58,9 +64,7 @@ def _load_merged_config(dir_path: str) -> Dict:
     for k in ["defaults", "inputs"]:
         with open(os.path.join(dir_path, f"{k}.yaml"), "r") as fi:
             all_configs[k] = yaml.safe_load(fi)
-    defaults = flatten(all_configs["defaults"])
-    defaults.update(flatten(all_configs["inputs"]))
-    return unflatten(defaults)
+    return misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
 
 
 def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None) -> Dict:
@@ -129,11 +133,9 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
             if isinstance(config["data"]["shotnum"], list):
                 sample = sample["b1"]
         else:
-            sample = {k: v[: config["optimizer"]["batch_size"]] for k, v in all_data.items()}
-            sample = {
-                "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
-                "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
-            } | sample
+            sample = build_batch(
+                all_data, np.arange(config["optimizer"]["batch_size"]), config["data"]["background"]["bg_subtract"]
+            )
         loss_fn = LossFunction(config, sa, sample)
 
         final_params = postprocess.postprocess(
@@ -176,7 +178,7 @@ def run_postprocess_remote(run_id_or_url: str) -> Dict:
         try:
             mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
             remaining_fnames = ["fitted_weights.eqx"]
-        except Exception:
+        except MlflowException:
             remaining_fnames = ["defaults.yaml", "inputs.yaml", "fitted_weights.eqx"]
 
         for fname in remaining_fnames:

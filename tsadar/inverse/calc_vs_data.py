@@ -2,7 +2,6 @@
 letting the user tweak the config and regenerate the plot without running a full fit."""
 import os
 import numpy as np
-from flatten_dict import flatten, unflatten
 import yaml
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
@@ -11,6 +10,7 @@ from .fitter import _validate_inputs_, load_data_for_fitting
 from .loops import build_batch
 from ..data.calibration import get_calibrations
 from .loss_function import LossFunction
+from ..utils import misc
 
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -247,9 +247,7 @@ def forward_pass(config):
             for k in ["defaults", "inputs"]:
                 with open(f"{os.path.join(basedir, k)}.yaml", "r") as fi:
                     all_configs[k] = yaml.safe_load(fi)
-            defaults = flatten(all_configs["defaults"])
-            defaults.update(flatten(all_configs["inputs"]))
-            config = unflatten(defaults)
+            config = misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
             ThryE, ThryI, lamAxisE, lamAxisI = gen_and_plot_theory(ts_diag, loss_fn, batch, config, fig)
             fig.show()
         else:
