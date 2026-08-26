@@ -120,6 +120,7 @@ def plot_final_params(config, all_params, sigmas_ds, td):
                     os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
                     bbox_inches="tight",
                 )
+                plt.close(fig)
     return
 
 
@@ -170,6 +171,7 @@ def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     ax[1].set_title("$L^2$ Norm of the Error")
     ax[1].grid()
     fig.savefig(os.path.join(td, "plots", "error_hist.png"), bbox_inches="tight")
+    plt.close(fig)
 
     losses_ds = pandas.DataFrame(
         {
@@ -344,6 +346,7 @@ def plot_dist(config, final_params, sigma_fe, td):
 
     # no rolling sigma bc we use a smoothing kernel
     fig.savefig(os.path.join(td, "plots", "fe_final.png"), bbox_inches="tight")
+    plt.close(fig)
     return
 
 
@@ -588,6 +591,7 @@ def plot_2D_data_vs_fit(
     ax[1].set_ylabel(ylabel)
     fig.colorbar(pc)
     fig.savefig(os.path.join(td, "plots", name), bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td):
