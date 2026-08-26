@@ -1,18 +1,35 @@
+"""forward_pass: an interactive tool for comparing a single forward-modeled spectrum against measured data,
+letting the user tweak the config and regenerate the plot without running a full fit."""
 import os
 import numpy as np
-from flatten_dict import flatten, unflatten
 import yaml
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules.ts_params import ThomsonParams
 from .fitter import _validate_inputs_, load_data_for_fitting
+from .loops import build_batch
 from ..data.calibration import get_calibrations
 from .loss_function import LossFunction
+from ..utils import misc
 
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 def plot_measured_data(fig, all_data, all_axes, config):
+    """
+    Adds the measured EPW and/or IAW data as traces to an existing plotly figure and labels the spectrum
+    and chi-sq subplot axes. Used by the interactive forward_pass tool to seed the figure before the
+    simulated theory curves (see gen_and_plot_theory) are added on top.
+
+    Args:
+        fig: plotly Figure with a 2x2 subplot grid (spectrum plots in row 1, chi-sq/loss plots in row 2)
+        all_data: Dict- measured data, expects "e_data"/"i_data" (a batch dict, as built by build_batch)
+        all_axes: Dict- calibrated axes, expects "epw_y" and "iaw_y" wavelength axes
+        config: Dict- configuration dictionary built from input deck
+
+    Returns:
+
+    """
     if config["data"]["load_ele_spec"]:
         fig.add_trace(
             go.Scatter(
@@ -49,7 +66,24 @@ def plot_measured_data(fig, all_data, all_axes, config):
         fig.update_yaxes(title_text="Minimization Loss", row=2, col=2, secondary_y=True)
 
 def gen_and_plot_theory(ts_diag, loss_fn, batch, config, fig):
-    
+    """
+    Runs a single forward pass from the current config, plots the resulting theoretical EPW/IAW spectra
+    on fig alongside the measured data, and adds two error-curve traces for comparison: a noise-based
+    chi-sq (using the same denominator convention as the physical uncertainty) and the actual
+    minimization-loss error (using the amplitude-based denominator used during real fitting). Used by the
+    interactive forward_pass tool to visualize how a given set of parameters compares to the data.
+
+    Args:
+        ts_diag: ThomsonScatteringDiagnostic- diagnostic instance used to generate the theoretical spectra
+        loss_fn: LossFunction- instance whose calc_ei_error is used to compute both error curves
+        batch: Dict- single-lineout data batch (as built by build_batch) to compare the theory against
+        config: Dict- configuration dictionary built from input deck; parameter values are read from here
+        fig: plotly Figure to add the theory and error traces to
+
+    Returns:
+        tuple: (ThryE, ThryI, lamAxisE, lamAxisI) - the theoretical spectra and wavelength axes generated
+        for this forward pass
+    """
     ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False)
     ThryE, ThryI, lamAxisE, lamAxisI = ts_diag(ts_params, batch)
 
@@ -188,14 +222,7 @@ def forward_pass(config):
         else:
             sas['sa'] = sas['sa']
             sas['weights'] = sas['weights']
-    batch = {
-                "e_data": all_data["e_data"][0]-all_data["noiseE"][0] if background_subtract else all_data["e_data"][0],
-                "e_amps": all_data["e_amps"][0],
-                "i_data": all_data["i_data"][0]-all_data["noiseI"][0] if background_subtract else all_data["i_data"][0],
-                "i_amps": all_data["i_amps"][0],
-                "noise_e": all_data["noiseE"][0] if not background_subtract else 0.0,
-                "noise_i": all_data["noiseI"][0] if not background_subtract else 0.0,
-            }
+    batch = build_batch(all_data, np.array([0]), background_subtract)
 
     fig = make_subplots(rows=2, cols=2, specs=[[{"secondary_y": False}, {"secondary_y": False}], [{"secondary_y": True}, {"secondary_y": True}]],
                         subplot_titles=("Electron Spectrum", "Ion Spectrum", "Electron Chisq",  "Ion Chisq"))
@@ -220,9 +247,7 @@ def forward_pass(config):
             for k in ["defaults", "inputs"]:
                 with open(f"{os.path.join(basedir, k)}.yaml", "r") as fi:
                     all_configs[k] = yaml.safe_load(fi)
-            defaults = flatten(all_configs["defaults"])
-            defaults.update(flatten(all_configs["inputs"]))
-            config = unflatten(defaults)
+            config = misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
             ThryE, ThryI, lamAxisE, lamAxisI = gen_and_plot_theory(ts_diag, loss_fn, batch, config, fig)
             fig.show()
         else:

@@ -3,7 +3,6 @@ from typing import Dict, Tuple
 
 import mlflow, tempfile, yaml
 import multiprocessing as mp
-from flatten_dict import flatten, unflatten
 
 from .inverse import fitter
 from .forward import calc_series
@@ -68,9 +67,7 @@ def run(cfg_path: str, mode: str) -> str:
 
     """
     run_id, all_configs = load_and_make_folders(cfg_path)
-    defaults = flatten(all_configs["defaults"])
-    defaults.update(flatten(all_configs["inputs"]))
-    config = unflatten(defaults)
+    config = misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
     with mlflow.start_run(run_id=run_id, log_system_metrics=True) as mlflow_run:
         _run_(config, mode=mode)
 
@@ -206,8 +203,6 @@ def run_job(run_id: str, mode: str, nested: bool):
                 dest_file_path = misc.download_file(f"{k}.yaml", run.info.artifact_uri, temp_path)
                 with open(f"{os.path.join(temp_path, k)}.yaml", "r") as fi:
                     all_configs[k] = yaml.safe_load(fi)
-            defaults = flatten(all_configs["defaults"])
-            defaults.update(flatten(all_configs["inputs"]))
-            config = unflatten(defaults)
+            config = misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
 
         _run_(config, mode)

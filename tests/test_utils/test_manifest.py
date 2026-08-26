@@ -211,7 +211,9 @@ def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
 
     from tsadar.inverse import postprocess
 
-    def fake_process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td):
+    def fake_process_data(
+        config, sample_indices, all_data, all_axes, loss_fn, fitted_weights, sa, init_losses, t1, td, all_params, num_params
+    ):
         spectrogram().to_netcdf(os.path.join(td, "binary", "ele_fit_and_data.nc"))
 
         return t1, {}
@@ -220,7 +222,7 @@ def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
 
     mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
     client = mlflow.tracking.MlflowClient()
-    client.create_experiment("manifest-tests", artifact_location=str(tmp_path / "artifacts"))
+    client.create_experiment("manifest-tests", artifact_location=(tmp_path / "artifacts").as_uri())
     mlflow.set_experiment("manifest-tests")
 
     config = {"other": {"extraoptions": {"spectype": "temporal"}, "refit": False}}

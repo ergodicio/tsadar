@@ -1,3 +1,12 @@
+mlruns/
+__pycache__/
+*/__pycache__/*
+*/*/__pycache__/*
+*/*/*/__pycache__/*
+*/*/*/*/__pycache__/*
+.vscode/
+*.pyc
+docs/build/html/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

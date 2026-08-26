@@ -1,14 +1,57 @@
-from typing import Dict, Tuple
+"""fit: the main entry point for running an inverse Thomson scattering fit -- loads data, dispatches to the
+1D or angular optimization loop, saves the fit results, and (unless deferred) runs postprocessing."""
+from typing import Dict, Optional, Tuple
+import os
+import tempfile
 import time
 import numpy as np
 import pandas as pd
+import equinox as eqx
 
 import mlflow
 
-from tsadar.inverse.loops import multirun_angular_optax, one_d_loop
+from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
+from tsadar.utils.plotting import plotters
 
 from ..data import prepare
 from . import postprocess
+
+
+def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
+    """
+    Persists the raw fit results to mlflow independently of postprocess, so they survive even if
+    postprocess is skipped (config["other"]["run_postprocess"] = False) or fails partway through.
+
+    Saves two things:
+        - fitted_weights: the live equinox pytree, via eqx.tree_serialise_leaves. This saves only the
+          array leaves (not the lambda-valued activation functions), so restoring it later requires
+          rebuilding a matching "skeleton" ThomsonParams tree from the same config and calling
+          eqx.tree_deserialise_leaves on it - this is the standard equinox checkpointing pattern and is
+          robust to being loaded by a different process/session, unlike pickling the object directly.
+        - all_params: the flattened per-lineout fitted values, as the same CSV artifacts
+          plotters.get_final_params produces during normal postprocessing.
+
+    Args:
+        config (Dict): Configuration dictionary built from the input deck.
+        all_axes (Dict): Calibrated axes and axis labels, needed by plotters.get_final_params.
+        fitted_weights: The fitted weights returned by the minimizer (list of ThomsonParams for 1D fits,
+            a single ThomsonParams for angular fits).
+        all_params (Optional[Dict]): Unbatched fitted parameters from unbatch_fitted_params, or None
+            (angular fits don't compute this at the fitter level).
+    Returns:
+        The dict returned by plotters.get_final_params, or None if all_params wasn't available.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "csv"), exist_ok=True)
+        eqx.tree_serialise_leaves(os.path.join(td, "fitted_weights.eqx"), fitted_weights)
+
+        final_params = None
+        if all_params is not None:
+            final_params = plotters.get_final_params(config, all_params, all_axes, td)
+
+        mlflow.log_artifacts(td)
+
+    return final_params
 
 
 def _validate_inputs_(config: Dict) -> Dict:
@@ -33,6 +76,11 @@ def _validate_inputs_(config: Dict) -> Dict:
             - Ion fitting range is contained within the plotting range.
 
     """
+
+    if config["optimizer"]["num_epochs"] < 1:
+        raise ValueError(
+            f"optimizer:num_epochs must be at least 1, got {config['optimizer']['num_epochs']}"
+        )
 
     # check boundries for linouts and fit ranges to ensure they are ordered properly
     if config["data"]["lineouts"]["start"] == config["data"]["lineouts"]["end"]:
@@ -61,6 +109,11 @@ def _validate_inputs_(config: Dict) -> Dict:
         raise ValueError("Ion fitting range is not contained within the plotting range, please check your inputs")
     
     # check the distirbution function options are compatible
+    if config["parameters"]["electron"]["fe"]["dim"] not in (1, 2):
+        raise ValueError(
+            f"Electron distribution function dim {config['parameters']['electron']['fe']['dim']} is not supported, "
+            "please choose 1 or 2"
+        )
     if config["parameters"]["electron"]["fe"]["dim"] == 1:
         if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary"]:
             raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary")
@@ -132,20 +185,54 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
 
     if "angular" in config["other"]["extraoptions"]["spectype"]:
         fitted_weights, overall_loss, loss_fn = multirun_angular_optax(config, all_data, sa)
+        all_params, num_params = None, None
     else:
         fitted_weights, overall_loss, loss_fn = one_d_loop(config, all_data, sa, sample_indices, num_batches)
+        all_params, num_params = unbatch_fitted_params(config, fitted_weights)
 
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
-    mlflow.set_tag("status", "postprocessing")
-    print("postprocessing")
 
-    final_params = postprocess.postprocess(config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights)
+    saved_final_params = _save_fit_artifacts(config, all_axes, fitted_weights, all_params)
+
+    if config["other"].get("run_postprocess", True):
+        mlflow.set_tag("status", "postprocessing")
+        print("postprocessing")
+
+        final_params = postprocess.postprocess(
+            config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights, all_params, num_params
+        )
+    else:
+        if saved_final_params is None:
+            raise NotImplementedError(
+                "run_postprocess=False is currently only supported for non-angular fits, since all_params "
+                "(and therefore final_params) is only computed at the fitter level for the 1D path."
+            )
+        final_params = saved_final_params
+        mlflow.set_tag("status", "done fitting (postprocess skipped)")
 
     return final_params, float(overall_loss)
 
 
 def load_data_for_fitting(config):
+    """
+    Loads and prepares the data needed for fitting. For a single shot number, this is a thin wrapper around
+    prepare.prepare_data. For multiplexed/rotated data (config["data"]["shotnum"] given as a two-element
+    list), both shots are loaded and the second shot's electron data, amplitudes, and noise are merged into
+    all_data under "_rot"-suffixed keys for the rotated-EDF multiplex fitting path; only "angular_full"
+    spectype supports this.
+
+    Args:
+        config (Dict): Configuration dictionary built from the input deck. config["other"]["CCDsize"] may be
+            read/reset here since prepare.prepare_data can mutate it as a side effect.
+
+    Returns:
+        tuple: (all_data, sa, all_axes) - the loaded data dictionary (with "_rot" keys added for
+        multiplexed data), the scattering angles/weights, and the calibrated axes.
+
+    Raises:
+        NotImplementedError: if multiplexed shot data is requested for a spectype other than "angular_full".
+    """
     if isinstance(config["data"]["shotnum"], list):
         startCCDsize = config["other"]["CCDsize"]
         all_data, sa, all_axes = prepare.prepare_data(config, config["data"]["shotnum"][0])

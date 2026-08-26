@@ -26,7 +26,7 @@ def tracking(tmp_path):
 
     mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
     client = mlflow.tracking.MlflowClient()
-    client.create_experiment("tag-tests", artifact_location=str(tmp_path / "artifacts"))
+    client.create_experiment("tag-tests", artifact_location=(tmp_path / "artifacts").as_uri())
     mlflow.set_experiment("tag-tests")
     yield client
     mlflow.set_tracking_uri(None)
