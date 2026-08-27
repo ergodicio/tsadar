@@ -18,7 +18,7 @@ tree that was actually produced:
 
    {
      "schema_version": 1,
-     "tsadar_version": "0.1.1",
+     "tsadar_version": "0.3.0",
      "mode": "fit",
      "kind": "one_d",
      "files": [
