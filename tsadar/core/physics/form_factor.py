@@ -1,9 +1,12 @@
+"""The FormFactor class: calculates the collisionless Thomson scattering structure factor / spectral
+density function S(k, omega) for a given plasma condition, scattering geometry, and electron distribution
+function, in both 1D (calc_chi_vals-based) and 2D (calc_in_2D) forms."""
 from jax import numpy as jnp, vmap, device_put, device_count, devices
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
 import scipy.interpolate as sp
-from functools import partial
+from functools import partial, lru_cache
 
 import os
 import numpy as np
@@ -28,21 +31,27 @@ DEFAULT_N_BETA = 1024
 BETA_BATCH_SIZE = 32
 
 
+@lru_cache(maxsize=1)
+def _load_zprime_tables():
+    rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
+    idWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "idWT.txt")))
+    return rdWT, idWT
+
+
 def zprimeMaxw(xi):
     """
     Calculates the derivative of the plasma dispersion function (Z-prime) for an array of normalized phase velocities (xi)
     using a combination of tabulated values and asymptotic approximations.
     For values of xi between -10 and 10, the function uses interpolated data from precomputed tables. For values outside
     this range, it applies the asymptotic approximation as described in Eqn. 5.2.10 of the Thomson scattering reference.
-    Args:    
+    Args:
         xi (np.ndarray): Array of normalized phase velocities (must be in ascending order).
     Returns:
         Zp (np.ndarray): 2D array where the first row contains the real components and the second row contains the imaginary
         components of Z-prime evaluated at each value of xi.
     """
 
-    rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
-    idWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "idWT.txt")))
+    rdWT, idWT = _load_zprime_tables()
 
     ai = xi < -10
     bi = xi > 10
@@ -320,22 +329,13 @@ class FormFactor:
 
         # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
         chiERratprim = self.chiERratprim_op @ ratdf
-        # chiERratprim2 = vmap(ratintn.ratintn, in_axes=(None, 0, None))(
-        #     ratdf, self.xi1[None, :] - xi2[:, None], self.xi1
-        # )
         chiERrat = jnp.reshape(interp_uniform(xie.flatten(), self.xi2, chiERratprim), xie.shape)
         chiERrat = -1.0 / (klde**2) * chiERrat
 
         chiE = chiERrat + chiEI
         chiI = jnp.sum(chiI, 3) # Sum over ion species to get total ion susceptibility
-        chiI = chiI[..., jnp.newaxis]  
+        chiI = chiI[..., jnp.newaxis]
         epsilon = 1.0 + chiE + chiI
-
-        # chiERrat2 = jnp.reshape(jnp.interp(xie.flatten(), self.xi2, chiERratprim2[:, 0]), xie.shape)
-        # chiERrat2 = -1.0 / (klde**2) * chiERrat2
-
-        # chiE2 = chiERrat2 + chiEI
-        # epsilon2 = 1.0 + chiE2 + chiI
 
         # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = fract * Z**2 / Zbar / vTi
@@ -345,22 +345,17 @@ class FormFactor:
         )
 
         ele_comp = (jnp.abs(1.0 + chiI)) ** 2.0 * fe_vphi / vTe
-        # ele_compE = fe_vphi / vTe # commented because unused
 
         SKW_ion_omg = 1.0 / k * ion_comp / ((jnp.abs(epsilon)) ** 2)
 
-        SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)  
-        SKW_ion_omg = SKW_ion_omg[..., jnp.newaxis] 
+        SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)
+        SKW_ion_omg = SKW_ion_omg[..., jnp.newaxis]
         SKW_ele_omg = 1.0 / k * (ele_comp) / ((jnp.abs(epsilon)) ** 2)
-        # SKW_ele_omgE = 2 * jnp.pi * 1.0 / klde * (ele_compE) / ((jnp.abs(1 + (chiE))) ** 2) * vTe / omgpe # commented because unused
-
 
         PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne
         # PsOmg = jnp.squeeze(PsOmg, axis=-1)
-        # PsOmgE = (SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * jnp.transpose(ne) # commented because unused
         lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
-        # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = jnp.squeeze(PsLam, axis=-1)
 
         if self.calc_gain['calc']:
@@ -687,7 +682,26 @@ class FormFactor:
         return fe_vphi, chiEI, chiERrat
 
     def parallel_calc_all_chi_vals(self, x, DF, beta, xie_mag, klde_mag):
+        """
+        Multi-device counterpart to _calc_all_chi_vals_: flattens beta/xie_mag/klde_mag, distributes them
+        across devices via self.sharding (device_put), then delegates to _calc_all_chi_vals_ to compute the
+        susceptibility values in parallel before reshaping the results back to the input shape.
 
+        Args:
+
+            x: normalized velocity grid
+            DF: 2D array, distribution function
+            beta: angle of the k-vector from the x-axis
+            xie_mag: magnitude of the normalized velocity points where the calculations need to be performed
+            klde_mag: magnitude of the wavevector times debye length where the calculations need to be performed
+
+        Returns:
+
+            fe_vphi: projected distribution function
+            chiEI: imaginary part of the electron susceptibility
+            chiERrat: real part of the electron susceptibility
+
+        """
         f_beta = beta.reshape(-1)
         f_xie_mag = xie_mag.reshape(-1)
         f_klde_mag = klde_mag.reshape(-1)
@@ -835,14 +849,10 @@ class FormFactor:
 
         SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)
         SKW_ele_omg = 1.0 / k_mag * (ele_comp) / ((jnp.abs(epsilon)) ** 2)
-        # SKW_ele_omgE = 2 * jnp.pi * 1.0 / klde * (ele_compE) / ((jnp.abs(1 + (chiE))) ** 2) * vTe / omgpe # commented because unused
 
         PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne[:, None, None]
-        # PsOmgE = (SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * jnp.transpose(ne) # commented because unused
         lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
-        # PsLamE = PsOmgE * 2 * jnp.pi * C / lams**2 # commented because unused
         formfactor = PsLam
-        # formfactorE = PsLamE # commented because unused
 
         return formfactor, lams

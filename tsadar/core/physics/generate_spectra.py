@@ -1,3 +1,5 @@
+"""FitModel: wraps FormFactor to add finite-aperture/finite-volume instrument effects and produce the
+electron (EPW) and ion (IAW) Thomson scattering spectra used for fitting and forward passes."""
 from typing import Dict
 
 from .form_factor import DEFAULT_N_BETA, FormFactor
@@ -18,7 +20,7 @@ class FitModel:
 
         __call__(all_params: Dict):
 
-            Calculates Thomson spectra corrected for finite aperture and optionally including plasma gradients, based on the current parameter dictionary.
+            Calculates Thomson spectra corrected for finite aperture and optionally including plasma gradients, based on the current parameter dictionary. Does not compute or return the raw (pre-angle-averaged) theoretical spectra.
 
                 all_params (Dict): Dictionary of current values for all active and static parameters.
                 modlE: Electron plasma wave spectrum (array or int 0 if not loaded).
@@ -26,26 +28,10 @@ class FitModel:
                 lamAxisE: Wavelength axis for electron plasma wave (array or empty list if not loaded).
                 lamAxisI: Wavelength axis for ion acoustic wave (array or empty list if not loaded).
 
-        ion_spectrum(all_params: Dict):
-
-            Calculates the ion acoustic wave spectrum, applying finite aperture and angular weighting.
-                
-                all_params (Dict): Parameter dictionary.
-                lamAxisI: Wavelength axis for ion acoustic wave.
-                modlI: Ion acoustic wave spectrum.
-        
-        electron_spectrum(all_params: Dict):
-            
-            Calculates the electron plasma wave spectrum, applying finite aperture, angular weighting, and optional filtering.
-                
-                all_params (Dict): Parameter dictionary.
-                lamAxisE: Wavelength axis for electron plasma wave.
-                modlE: Electron plasma wave spectrum.
-        
         detailed_spectrum(all_params: Dict):
-            
-            Calculates both the total spectrum and all its components for postprocessing.
-                
+
+            Calculates both the total spectrum and all its components for postprocessing, including the raw (pre-angle-averaged) theoretical spectra ThryE/ThryI.
+
                 all_params (Dict): Parameter dictionary.
                 modlE: Electron plasma wave spectrum.
                 modlI: Ion acoustic wave spectrum.
@@ -53,24 +39,10 @@ class FitModel:
                 ThryI: Detailed ion spectrum components.
                 lamAxisE: Wavelength axis for electron plasma wave.
                 lamAxisI: Wavelength axis for ion acoustic wave.
-        
-        ion_spectrum_detailed(all_params: Dict):
-            
-            Calculates the detailed ion acoustic wave spectrum and its components.
-                
-                all_params (Dict): Parameter dictionary.
-                lamAxisI: Wavelength axis for ion acoustic wave.
-                modlI: Ion acoustic wave spectrum.
-                ThryI: Detailed ion spectrum components.
-        
-        electron_spectrum_detailed(all_params: Dict):
-            
-            Calculates the detailed electron plasma wave spectrum and its components, with optional filtering.
-                
-                all_params (Dict): Parameter dictionary.
-                lamAxisE: Wavelength axis for electron plasma wave.
-                modlE: Electron plasma wave spectrum.
-                ThryE: Detailed electron spectrum components.
+
+        __call__ and detailed_spectrum share their implementation via the private _ion_spectrum_core/
+        _electron_spectrum_core methods, which take a want_thry flag controlling whether the raw theoretical
+        spectrum (and, for electrons, its extra filtering step) is computed and returned.
 
     """
 
@@ -165,98 +137,10 @@ class FitModel:
             
         """
 
-        lamAxisI, modlI = self.ion_spectrum(all_params)
-        lamAxisE, modlE = self.electron_spectrum(all_params)
+        lamAxisI, modlI, _ = self._ion_spectrum_core(all_params, want_thry=False)
+        lamAxisE, modlE, _ = self._electron_spectrum_core(all_params, want_thry=False)
 
         return modlE, modlI, lamAxisE, lamAxisI
-
-    def ion_spectrum(self, all_params):
-        """
-        Computes the ion spectrum based on the provided parameters and configuration.
-        Parameters:
-            all_params (dict): Dictionary containing all necessary parameters for spectrum calculation.
-        Returns:
-            tuple:
-                lamAxisI (jnp.ndarray): Wavelength axis for the ion spectrum, rescaled to nanometers.
-                modlI (jnp.ndarray or int): Computed ion spectrum model. Returns 0 if loading ion spectrum is disabled.
-        Notes:
-            - If 'load_ion_spec' is enabled in the configuration, the function computes the ion spectrum using the
-              appropriate dimensionality (1D or 2D) as specified in the configuration.
-            - The wavelength axis is squeezed to remove extra dimensions and rescaled by 1e7 (hardcoded).
-            - The spectrum is averaged and weighted by the scattering angles.
-            - If 'load_ion_spec' is disabled, returns zeros for both outputs.
-        """
-        if self.config["data"]["load_ion_spec"]:
-
-            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
-                ThryI, lamAxisI = self.ion_form_factor(all_params)
-            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
-                ThryI, lamAxisI = self.ion_form_factor.calc_in_2D(all_params)
-
-            # remove extra dimensions and rescale to nm
-            lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
-            ThryI = jnp.mean(ThryI, axis=0)
-            modlI = jnp.sum(ThryI * self.scattering_angles["weights"][0], axis=1)
-        else:
-            modlI = 0
-            lamAxisI = jnp.zeros(1)
-        return lamAxisI, modlI
-
-    def electron_spectrum(self, all_params):
-        """
-        Computes the electron spectrum based on the provided parameters and configuration.
-        This method also applies optional filters or modifications such as
-        suppressing the ion feature or applying an IAW (ion-acoustic wave) filter.
-        
-        Parameters:
-            
-            all_params (dict): Dictionary containing all relevant parameters for spectrum generation,including general and electron-specific settings.
-        
-        Returns:
-            
-            tuple:
-                
-                lamAxisE (jnp.ndarray or list): The wavelength axis for the electron spectrum, rescaled to nanometers.
-                modlE (jnp.ndarray or int): The processed electron spectrum model. Returns 0 if spectrum loading is disabled.
-
-        """
-        if self.config["data"]["load_ele_spec"]:
-            if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
-                ThryE, lamAxisE = self.electron_form_factor(all_params)
-            elif self.config["parameters"]["electron"]["fe"]["dim"] == 2:
-                ThryE, lamAxisE = self.electron_form_factor.calc_in_2D(all_params)
-
-            # remove extra dimensions and rescale to nm
-            lamAxisE = jnp.squeeze(lamAxisE) * 1e7  # TODO hardcoded
-
-            ThryE = jnp.mean(ThryE, axis=0)
-            if self.config["other"]["extraoptions"]["spectype"] == "angular_full":
-                modlE = jnp.matmul(self.scattering_angles["weights"], ThryE.transpose())
-            else:
-                modlE = jnp.sum(ThryE * self.scattering_angles["weights"][0], axis=1)
-
-            lam = all_params["general"]["lam"]
-            if self.config["other"]["iawoff"] and (
-                self.config["other"]["lamrangE"][0] < lam < self.config["other"]["lamrangE"][1]
-            ):
-                # set the ion feature to 0 #should be switched to a range about lam
-                lamlocb = jnp.argmin(jnp.abs(lamAxisE - lam - 3.0))
-                lamlocr = jnp.argmin(jnp.abs(lamAxisE - lam + 3.0))
-                modlE = jnp.concatenate(
-                    [modlE[:lamlocb], jnp.zeros(lamlocr - lamlocb), modlE[lamlocr:]]
-                )  # TODO hardcoded
-
-            if self.config["other"]["iawfilter"][0]:
-                filterb = self.config["other"]["iawfilter"][3] - self.config["other"]["iawfilter"][2] / 2
-                filterr = self.config["other"]["iawfilter"][3] + self.config["other"]["iawfilter"][2] / 2
-
-                if self.config["other"]["lamrangE"][0] < filterr and self.config["other"]["lamrangE"][1] > filterb:
-                    indices = (filterb < lamAxisE) & (filterr > lamAxisE)
-                    modlE = jnp.where(indices, modlE * 10 ** (-self.config["other"]["iawfilter"][1]), modlE)
-        else:
-            modlE = 0
-            lamAxisE = []
-        return lamAxisE, modlE
 
     def detailed_spectrum(self, all_params: Dict):
         """
@@ -276,32 +160,17 @@ class FitModel:
         
         """
 
-        lamAxisI, modlI, ThryI = self.ion_spectrum_detailed(all_params)
-        lamAxisE, modlE, ThryE = self.electron_spectrum_detailed(all_params)
+        lamAxisI, modlI, ThryI = self._ion_spectrum_core(all_params, want_thry=True)
+        lamAxisE, modlE, ThryE = self._electron_spectrum_core(all_params, want_thry=True)
 
         return modlE, modlI, ThryE, ThryI, lamAxisE, lamAxisI
-    def ion_spectrum_detailed(self, all_params):
+
+    def _ion_spectrum_core(self, all_params, want_thry):
         """
-        Computes the detailed ion spectrum based on the provided parameters and configuration.
-        This method calculates the ion spectrum using either 1D or 2D form factors, depending on the configuration.
-        If the 'load_ion_spec' option is enabled, it computes the theoretical ion spectrum and corresponding wavelength axis.
-        The results are processed by removing extra dimensions, rescaling the wavelength axis to nanometers, and averaging
-        over the theoretical spectrum. If the option is disabled, it returns zeros.
-        
-        Args:
-            
-            all_params (dict): Dictionary containing all necessary parameters for spectrum calculation.
-        
-        Returns:
-            
-            tuple:
-                
-                lamAxisI (jnp.ndarray): Wavelength axis for the ion spectrum (in nanometers).
-                modlI (jnp.ndarray or int): Processed ion spectrum model or 0 if not loaded.
-                ThryI (jnp.ndarray or int): Theoretical ion spectrum or 0 if not loaded.
-        
+        Shared implementation behind ion_spectrum and ion_spectrum_detailed. want_thry controls whether the raw
+        (pre-angle-averaged) ThryI is kept and returned; ion_spectrum passes False so callers that only need
+        (lamAxisI, modlI) don't retain the larger intermediate array.
         """
-        
         if self.config["data"]["load_ion_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryI, lamAxisI = self.ion_form_factor(all_params)
@@ -312,38 +181,20 @@ class FitModel:
             lamAxisI = jnp.squeeze(lamAxisI) * 1e7  # TODO hardcoded
             modlI = jnp.mean(ThryI, axis=0)
             modlI = jnp.sum(modlI * self.scattering_angles["weights"][0], axis=1)
+            raw_thry = ThryI if want_thry else 0
         else:
             modlI = 0
-            ThryI = 0
+            raw_thry = 0
             lamAxisI = jnp.zeros(1)
-        return lamAxisI, modlI, ThryI
+        return lamAxisI, modlI, raw_thry
 
-    def electron_spectrum_detailed(self, all_params):
+    def _electron_spectrum_core(self, all_params, want_thry):
         """
-        Computes the detailed electron spectrum based on the provided parameters and configuration. This method generates the electron spectrum using either 1D or 2D electron form factors, applies various configuration-based modifications (such as angular weighting, ion feature suppression, and filtering), and returns the processed wavelength axis, the modeled electron spectrum, and the theoretical electron form factor.
-        
-        Parameters:
-            
-            all_params (dict): Dictionary containing all relevant parameters for spectrum generation,including general and electron-specific settings.
-        
-        Returns:
-            
-            tuple:
-                
-                lamAxisE (array-like): The wavelength axis (in nm) for the electron spectrum.
-                modlE (array-like or int): The processed/model electron spectrum. Returns 0 if not loaded.
-                ThryE (array-like or int): The theoretical electron form factor. Returns 0 if not loaded.
-        
-        Notes:
-            
-            - The method behavior is controlled by the configuration dictionary (`self.config`), which determines
-              whether to load the electron spectrum, the dimensionality of the electron form factor, and various
-              spectrum modifications (e.g., angular weighting, ion feature suppression, filtering).
-            - Some operations are hardcoded (e.g., wavelength offsets for ion feature suppression).
-            - If the spectrum is not loaded (`load_ele_spec` is False), returns zeros and an empty wavelength axis.
-        
+        Shared implementation behind electron_spectrum and electron_spectrum_detailed. want_thry controls whether
+        the raw (pre-angle-averaged) ThryE is filtered and returned. That filtering step is extra work needed only
+        for the detailed/postprocessing output, so electron_spectrum passes False to skip it entirely rather than
+        computing and discarding it on every forward pass.
         """
-        
         if self.config["data"]["load_ele_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryE, lamAxisE_orig = self.electron_form_factor(all_params)
@@ -351,7 +202,7 @@ class FitModel:
                 ThryE, lamAxisE_orig = self.electron_form_factor.calc_in_2D(all_params)
 
             # remove extra dimensions and rescale to nm
-            lamAxisE_orig *= 1e7 
+            lamAxisE_orig *= 1e7
             lamAxisE = jnp.squeeze(lamAxisE_orig)  # TODO hardcoded
 
             modlE = jnp.mean(ThryE, axis=0)
@@ -379,10 +230,13 @@ class FitModel:
                     indices = (filterb < lamAxisE) & (filterr > lamAxisE)
                     modlE = jnp.where(indices, modlE * 10 ** (-self.config["other"]["iawfilter"][1]), modlE)
 
-                    indices = (filterb < lamAxisE_orig) & (filterr > lamAxisE_orig)
-                    ThryE = jnp.where(indices, ThryE * 10 ** (-9), ThryE)
+                    if want_thry:
+                        indices = (filterb < lamAxisE_orig) & (filterr > lamAxisE_orig)
+                        ThryE = jnp.where(indices, ThryE * 10 ** (-9), ThryE)
+
+            raw_thry = ThryE if want_thry else 0
         else:
             modlE = 0
-            ThryE = 0
+            raw_thry = 0
             lamAxisE = []
-        return lamAxisE, modlE, ThryE
+        return lamAxisE, modlE, raw_thry

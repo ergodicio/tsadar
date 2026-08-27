@@ -1,3 +1,6 @@
+"""ThomsonParams and its per-species building blocks (ElectronParams, IonParams, GeneralParams): normalize,
+activate, and denormalize the plasma parameters being fit, and assemble them into the parameter dictionary
+the forward model consumes."""
 from typing import List, Dict, Union, Callable
 from collections import defaultdict
 
@@ -315,6 +318,10 @@ class IonParams(eqx.Module):
             self.fract = float(self.inv_act_funs["fract"](cfg["fract"]["val"]))
 
     def get_unnormed_params(self):
+        """
+        Returns the unnormalized (physical) ion parameters. Equivalent to calling the instance directly;
+        see __call__ for the returned fields.
+        """
         return self()
 
     def __call__(self):
@@ -464,6 +471,10 @@ class GeneralParams(eqx.Module):
                 )
 
     def get_unnormed_params(self):
+        """
+        Returns the unnormalized (physical) general parameters. Equivalent to calling the instance
+        directly; see __call__ for the returned fields.
+        """
         return self()
 
     def __call__(self):

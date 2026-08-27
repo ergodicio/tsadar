@@ -1,4 +1,6 @@
-import os, mlflow, flatten_dict, boto3, botocore, shutil, time, tempfile
+"""Miscellaneous helpers: logging config/metrics to mlflow, merging config dicts, and S3/local file
+transfer utilities used by the runners."""
+import os, mlflow, flatten_dict, boto3, botocore, botocore.exceptions, shutil, time, tempfile
 from urllib.parse import urlparse
 from functools import partial
 
@@ -25,7 +27,7 @@ def log_mlflow(cfg, which="params", step=0):
         raise ValueError("which must be either 'params' or 'metrics'")
 
     if num_entries > 100:
-        num_batches = num_entries % 100
+        num_batches = -(-num_entries // 100)  # ceiling division
         fl_list = list(flattened_dict.items())
         for i in range(num_batches):
             end_ind = min((i + 1) * 100, num_entries)

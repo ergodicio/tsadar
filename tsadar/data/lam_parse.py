@@ -1,3 +1,5 @@
+"""Builds the wavelength and frequency grids the forward model is evaluated on, given a wavelength range,
+probe wavelength, and point count."""
 from jax import numpy as jnp
 
 
