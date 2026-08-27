@@ -1,3 +1,5 @@
+"""lineout_plot: shared data-vs-fit-plus-residual plotting helper used by plotters.model_v_actual for the
+"simple" (non-detailed-breakdown) best/worst-lineout comparison plots."""
 import matplotlib.pyplot as plt
 import numpy as np
 import os

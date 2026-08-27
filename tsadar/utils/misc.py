@@ -1,4 +1,6 @@
-import os, mlflow, flatten_dict, boto3, botocore, shutil, time, tempfile
+"""Miscellaneous helpers: logging config/metrics to mlflow, merging config dicts, and S3/local file
+transfer utilities used by the runners."""
+import os, mlflow, flatten_dict, boto3, botocore, botocore.exceptions, shutil, time, tempfile
 from urllib.parse import urlparse
 from functools import partial
 
@@ -25,7 +27,7 @@ def log_mlflow(cfg, which="params", step=0):
         raise ValueError("which must be either 'params' or 'metrics'")
 
     if num_entries > 100:
-        num_batches = num_entries % 100
+        num_batches = -(-num_entries // 100)  # ceiling division
         fl_list = list(flattened_dict.items())
         for i in range(num_batches):
             end_ind = min((i + 1) * 100, num_entries)
@@ -33,6 +35,24 @@ def log_mlflow(cfg, which="params", step=0):
             log_func(trunc_dict)
     else:
         log_func(flattened_dict)
+
+
+def merge_defaults_and_inputs(defaults, inputs):
+    """
+    Merges a defaults config with an inputs config that overrides it. Both are flattened to dotted-path
+    keys first so a leaf-level override in inputs replaces just that leaf rather than clobbering the
+    whole containing dict.
+
+    Args:
+        defaults: base configuration dictionary
+        inputs: configuration dictionary whose values take precedence over defaults
+
+    Returns:
+        The merged configuration dictionary.
+    """
+    flat = flatten_dict.flatten(defaults)
+    flat.update(flatten_dict.flatten(inputs))
+    return flatten_dict.unflatten(flat)
 
 
 def update(base_dict, new_dict):

@@ -7,6 +7,7 @@ data:
   background:
     slice: 900
     type: pixel
+    report_background: False
   bgscaleE: 0.0
   bgscaleI: 0.1
   bgshotmult: 1

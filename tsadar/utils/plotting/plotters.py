@@ -1,4 +1,8 @@
+"""Postprocessing plot library: final-parameter tables/plots, loss histograms, data-vs-fit and best/worst
+lineout comparisons (simple and detailed), and the angular-data plotting functions."""
 import matplotlib as mpl
+import matplotlib.cm
+import matplotlib.colors
 import mlflow, os, pandas
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,6 +10,32 @@ import xarray as xr
 from matplotlib.colors import ListedColormap
 
 from tsadar.utils.plotting.lineout_plot import lineout_plot
+
+
+def white_transition_cmap(base_cmap_name, transition_len=20):
+    """
+    Builds a version of the named colormap with its first `transition_len` entries replaced by a linear
+    transition from white to the color at that boundary index, so low/zero values render as white instead
+    of the base colormap's own low-end color.
+
+    Args:
+        base_cmap_name: name of a matplotlib colormap (e.g. "gist_ncar") to look up via mpl.colormaps.
+        transition_len: number of entries (out of 256) to replace with the white-to-color transition.
+
+    Returns:
+        matplotlib.colors.ListedColormap
+    """
+    base = mpl.colormaps[base_cmap_name]
+    colors = base(np.linspace(0, 1, 256))
+
+    lower = np.ones((transition_len, 4))
+    # - modify the first three columns (RGB):
+    #   range linearly between white (1,1,1) and the color at the transition boundary
+    for i in range(3):
+        lower[:, i] = np.linspace(1, colors[transition_len, i], lower.shape[0])
+
+    colors[:transition_len, :] = lower
+    return ListedColormap(colors)
 
 
 def get_final_params(config, best_weights, all_axes, td):
@@ -120,6 +150,7 @@ def plot_final_params(config, all_params, sigmas_ds, td):
                     os.path.join(td, "plots", "learned_" + param + "_" + species + ".png"),
                     bbox_inches="tight",
                 )
+                plt.close(fig)
     return
 
 
@@ -170,6 +201,7 @@ def plot_loss_hist(config, losses_init, losses, reduced_points, td):
     ax[1].set_title("$L^2$ Norm of the Error")
     ax[1].grid()
     fig.savefig(os.path.join(td, "plots", "error_hist.png"), bbox_inches="tight")
+    plt.close(fig)
 
     losses_ds = pandas.DataFrame(
         {
@@ -344,6 +376,7 @@ def plot_dist(config, final_params, sigma_fe, td):
 
     # no rolling sigma bc we use a smoothing kernel
     fig.savefig(os.path.join(td, "plots", "fe_final.png"), bbox_inches="tight")
+    plt.close(fig)
     return
 
 
@@ -548,18 +581,7 @@ def plot_2D_data_vs_fit(
     Returns:
 
     """
-    gist_ncar =  mpl.colormaps['gist_ncar']
-    newcolors = gist_ncar(np.linspace(0, 1, 256))
-
-    r=20
-    lower = np.ones((r,4))
-    # - modify the first three columns (RGB):
-    #   range linearly between white (1,1,1) and the first color of the upper colormap
-    for i in range(3):
-        lower[:,i] = np.linspace(1, newcolors[r,i], lower.shape[0])
-
-    newcolors[:r, :] = lower
-    newcmp = ListedColormap(newcolors)
+    newcmp = white_transition_cmap("gist_ncar", transition_len=20)
 
     # Check if data is all zeros
     data_all_zeros = np.all(data == 0)
@@ -588,6 +610,7 @@ def plot_2D_data_vs_fit(
     ax[1].set_ylabel(ylabel)
     fig.colorbar(pc)
     fig.savefig(os.path.join(td, "plots", name), bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedata, td):
@@ -736,6 +759,78 @@ def model_v_actual(config, all_data, all_axes, fits, losses, red_losses, sqdevs,
             "best",
         )
 
+def _plot_lineout_comparison(config, all_data, all_axes, fits, sqdevs, idx, titlestr, filename, subfolder, td):
+    """
+    Shared by detailed_lineouts' "worst" and "best" loops: builds one comparison figure (data vs fit, per-component
+    breakdown, and residual, for electron and/or ion features) for a single lineout index and saves it under
+    td/subfolder.
+    """
+    fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
+
+    if config["data"]["load_ele_spec"]:
+        s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
+        e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
+        ax[0][0].plot(
+            all_axes["epw_y"][s_ind:e_ind], np.squeeze(all_data["e_data"][idx][s_ind:e_ind]), label="Data"
+        )
+        ax[0][0].plot(all_axes["epw_y"], np.squeeze(fits["ele"]["total_spec"][idx]), label="Total Fit")
+        ax[0][0].plot(all_axes["epw_y"], np.squeeze(fits["ele"]["noise"][idx]), label="Background")
+        ax[0][0].plot(
+            fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][idx, 0, :, 0]), label="First Grad/ Angle"
+        )
+        ax[0][0].plot(
+            fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][idx, -1, :, 0]), label="Last Grad"
+        )
+        ax[0][0].plot(
+            fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][idx, 0, :, -1]), label="Last angle"
+        )
+        ax[0][0].plot(all_axes["epw_y"], np.squeeze(fits["ele"]["IRF"][idx]), label="IRF")
+
+        ax[0][0].set_title(titlestr, fontsize=14)
+        ax[0][0].set_ylabel("Amp (arb. units)")
+        ax[0][0].legend(loc='upper right', bbox_to_anchor=(1.05, 1.05), fontsize=12)
+        ax[0][0].grid()
+        ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
+        ax[0][0].set_ylim(
+            [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+             None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
+
+        ax[1][0].plot(all_axes["epw_y"], np.squeeze(sqdevs["ele"][idx]), label="Residual")
+        ax[1][0].set_xlabel("Wavelength (nm)")
+        ax[1][0].set_ylabel(r"$\chi_i^2$")
+
+    if config["data"]["load_ion_spec"]:
+        ax[0][1].plot(all_axes["iaw_y"], np.squeeze(all_data["i_data"][idx]), label="Data")
+        ax[0][1].plot(all_axes["iaw_y"], np.squeeze(fits["ion"]["total_spec"][idx]), label="Total Fit")
+        ax[0][1].plot(all_axes["iaw_y"], np.squeeze(fits["ion"]["noise"][idx]), label="Background")
+        ax[0][1].plot(
+            fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][idx, 0, :, 0]), label="First Grad/ Angle"
+        )
+        ax[0][1].plot(
+            fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][idx, -1, :, 0]), label="Last Grad"
+        )
+        ax[0][1].plot(
+            fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][idx, 0, :, -1]), label="Last angle"
+        )
+        ax[0][1].plot(all_axes["iaw_y"], np.squeeze(fits["ion"]["IRF"][idx]), label="IRF")
+
+        ax[0][1].set_title(titlestr, fontsize=14)
+        ax[0][1].set_ylabel("Amp (arb. units)")
+        ax[0][1].legend(loc='upper right', bbox_to_anchor=(1.05, 1.05), fontsize=12)
+        ax[0][1].grid()
+        ax[0][1].set_xlim([config["plotting"]["ion_window_start"], config["plotting"]["ion_window_end"]])
+        ax[0][1].set_ylim(
+            [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
+             None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
+
+        ax[1][1].plot(all_axes["iaw_y"], np.squeeze(sqdevs["ion"][idx]), label="Residual")
+        ax[1][1].set_xlabel("Wavelength (nm)")
+        ax[1][1].set_ylabel(r"$\chi_i^2$")
+
+    fig.savefig(os.path.join(td, subfolder, filename), bbox_inches="tight")
+    plt.close(fig)
+
+
 def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqdevs, td):
     """
     TODO
@@ -762,200 +857,21 @@ def detailed_lineouts(config, all_data, all_axes, fits, losses, red_losses, sqde
     loss_inds = losses.flatten().argsort()[::-1]
 
     for i in range(num_plots):
+        idx = loss_inds[i]
         titlestr = (
             r"|Error|$^2$"
-            + f" = {losses[loss_inds[i]]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[i]]]}"
+            + f" = {losses[idx]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][idx]]}"
         )
-        filename = f"loss={losses[loss_inds[i]]:.2e}-reduced_loss={red_losses[loss_inds[i]]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[i]]}.png"
+        filename = f"loss={losses[idx]:.2e}-reduced_loss={red_losses[idx]:.2e}-lineout={config['data']['lineouts']['pixelI'][idx]}.png"
+        _plot_lineout_comparison(config, all_data, all_axes, fits, sqdevs, idx, titlestr, filename, "worst", td)
 
-        # if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
-        #     num_col = 2
-        # else:
-        #     num_col = 1
-        
-        fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
-    
-        if config["data"]["load_ele_spec"]:
-            s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
-            e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
-            ax[0][0].plot(
-                all_axes["epw_y"][s_ind:e_ind], np.squeeze(all_data["e_data"][loss_inds[i]][s_ind:e_ind]), label="Data"
-            )
-            ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(fits["ele"]["total_spec"][loss_inds[i]]), label="Total Fit"
-            )
-            ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(fits["ele"]["noise"][loss_inds[i]]), label="Background"
-            )
-            ax[0][0].plot(
-                fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][loss_inds[i],0,:,0]), label="First Grad/ Angle"
-            )
-            ax[0][0].plot(
-                fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][loss_inds[i],-1,:,0]), label="Last Grad"
-            )
-            ax[0][0].plot(
-                fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][loss_inds[i],0,:,-1]), label="Last angle"
-            )
-            ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(fits["ele"]["IRF"][loss_inds[i]]), label="IRF"
-            )
-
-            ax[0][0].set_title(titlestr, fontsize=14)
-            ax[0][0].set_ylabel("Amp (arb. units)")
-            ax[0][0].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
-            ax[0][0].grid()
-            ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
-            #ax[0][0].autoscale()
-            ax[0][0].set_ylim(
-                [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-                None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
-
-            ax[1][0].plot(
-                all_axes["epw_y"], np.squeeze(sqdevs["ele"][loss_inds[i]]), label="Residual"
-            )
-            ax[1][0].set_xlabel("Wavelength (nm)")
-            ax[1][0].set_ylabel(r"$\chi_i^2$")
-        
-        
-        if config["data"]["load_ion_spec"]:
-            #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
-            #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(all_data["i_data"][loss_inds[i]]), label="Data"
-            )
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(fits["ion"]["total_spec"][loss_inds[i]]), label="Total Fit"
-            )
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(fits["ion"]["noise"][loss_inds[i]]), label="Background"
-            )
-            ax[0][1].plot(
-                fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][loss_inds[i],0,:,0]), label="First Grad/ Angle"
-            )
-            ax[0][1].plot(
-                fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][loss_inds[i],-1,:,0]), label="Last Grad"
-            )
-            ax[0][1].plot(
-                fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][loss_inds[i],0,:,-1]), label="Last angle"
-            )
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(fits["ion"]["IRF"][loss_inds[i]]), label="IRF"
-            )
-
-            ax[0][1].set_title(titlestr, fontsize=14)
-            ax[0][1].set_ylabel("Amp (arb. units)")
-            ax[0][1].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
-            ax[0][1].grid()
-            ax[0][1].set_xlim([config["plotting"]["ion_window_start"], config["plotting"]["ion_window_end"]])
-            ax[0][0].set_ylim(
-                [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-                None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
-
-            ax[1][1].plot(
-                all_axes["iaw_y"], np.squeeze(sqdevs["ion"][loss_inds[i]]), label="Residual"
-            )
-            ax[1][1].set_xlabel("Wavelength (nm)")
-            ax[1][1].set_ylabel(r"$\chi_i^2$")
-
-        fig.savefig(os.path.join(td, "worst", filename), bbox_inches="tight")
-        plt.close(fig)
-
+        idx = loss_inds[-1 - i]
         titlestr = (
             r"|Error|$^2$"
-            + f" = {losses[loss_inds[-1-i]]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][loss_inds[-1-i]]]}"
+            + f" = {losses[idx]:.2e}, line out # {all_axes['iaw_x'][config['data']['lineouts']['pixelI'][idx]]}"
         )
-        filename = f"loss={losses[loss_inds[-1-i]]:.2e}-reduced_loss={red_losses[loss_inds[-1-i]]:.2e}-lineout={config['data']['lineouts']['pixelI'][loss_inds[-1-i]]}.png"
-
-        # if config["data"]["load_ele_spec"] and config["data"]["load_ion_spec"]:
-        #     num_col = 2
-        # else:
-        #     num_col = 1
-
-        fig, ax = plt.subplots(2, 2, figsize=(12, 8), squeeze=False, tight_layout=True, sharex='col')
-    
-        if config["data"]["load_ele_spec"]:
-            s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
-            e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
-            ax[0][0].plot(
-                all_axes["epw_y"][s_ind:e_ind], np.squeeze(all_data["e_data"][loss_inds[-1-i]][s_ind:e_ind]), label="Data"
-            )
-            ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(fits["ele"]["total_spec"][loss_inds[-1-i]]), label="Total Fit"
-            )
-            ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(fits["ele"]["noise"][loss_inds[-1-i]]), label="Background"
-            )
-            ax[0][0].plot(
-                fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][loss_inds[-1-i],0,:,0]), label="First Grad/ Angle"
-            )
-            ax[0][0].plot(
-                fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][loss_inds[-1-i],-1,:,0]), label="Last Grad"
-            )
-            ax[0][0].plot(
-                fits["ele"]["detailed_axis"], np.squeeze(fits["ele"]["spec_comps"][loss_inds[-1-i],0,:,-1]), label="Last angle"
-            )
-            ax[0][0].plot(
-                all_axes["epw_y"], np.squeeze(fits["ele"]["IRF"][loss_inds[-1-i]]), label="IRF"
-            )
-
-            ax[0][0].set_title(titlestr, fontsize=14)
-            ax[0][0].set_ylabel("Amp (arb. units)")
-            ax[0][0].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
-            ax[0][0].grid()
-            ax[0][0].set_xlim([config["plotting"]["ele_window_start"], config["plotting"]["ele_window_end"]])
-            ax[0][0].set_ylim(
-                [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-                None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
-            #ax[0][0].autoscale()
-            ax[1][0].plot(
-                all_axes["epw_y"], np.squeeze(sqdevs["ele"][loss_inds[-1-i]]), label="Residual"
-            )
-            ax[1][0].set_xlabel("Wavelength (nm)")
-            ax[1][0].set_ylabel(r"$\chi_i^2$")
-        
-        
-        if config["data"]["load_ion_spec"]:
-            #s_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_start"]))
-            #e_ind = np.argmin(np.abs(all_axes["epw_y"] - config["plotting"]["ele_window_end"]))
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(all_data["i_data"][loss_inds[-1-i]]), label="Data"
-            )
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(fits["ion"]["total_spec"][loss_inds[-1-i]]), label="Total Fit"
-            )
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(fits["ion"]["noise"][loss_inds[-1-i]]), label="Background"
-            )
-            ax[0][1].plot(
-                fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][loss_inds[-1-i],0,:,0]), label="First Grad/ Angle"
-            )
-            ax[0][1].plot(
-                fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][loss_inds[-1-i],-1,:,0]), label="Last Grad"
-            )
-            ax[0][1].plot(
-                fits["ion"]["detailed_axis"], np.squeeze(fits["ion"]["spec_comps"][loss_inds[-1-i],0,:,-1]), label="Last angle"
-            )
-            ax[0][1].plot(
-                all_axes["iaw_y"], np.squeeze(fits["ion"]["IRF"][loss_inds[-1-i]]), label="IRF"
-            )
-
-            ax[0][1].set_title(titlestr, fontsize=14)
-            ax[0][1].set_ylabel("Amp (arb. units)")
-            ax[0][1].legend(loc = 'upper right', bbox_to_anchor = (1.05, 1.05), fontsize=12)
-            ax[0][1].grid()
-            ax[0][1].set_xlim([config["plotting"]["ion_window_start"], config["plotting"]["ion_window_end"]])
-            ax[0][1].set_ylim(
-                [None if config["plotting"]["data_cbar_l"] == "data" else config["plotting"]["data_cbar_l"],
-                None if config["plotting"]["data_cbar_u"] == "data" else config["plotting"]["data_cbar_u"]])
-
-            ax[1][1].plot(
-                all_axes["iaw_y"], np.squeeze(sqdevs["ion"][loss_inds[-1-i]]), label="Residual"
-            )
-            ax[1][1].set_xlabel("Wavelength (nm)")
-            ax[1][1].set_ylabel(r"$\chi_i^2$")
-
-        fig.savefig(os.path.join(td, "best", filename), bbox_inches="tight")
-        plt.close(fig)
+        filename = f"loss={losses[idx]:.2e}-reduced_loss={red_losses[idx]:.2e}-lineout={config['data']['lineouts']['pixelI'][idx]}.png"
+        _plot_lineout_comparison(config, all_data, all_axes, fits, sqdevs, idx, titlestr, filename, "best", td)
 
 
 def TScmap():

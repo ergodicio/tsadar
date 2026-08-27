@@ -1,3 +1,5 @@
+"""Loads raw Thomson scattering data (electron/ion streak or CCD images) from HDF files for a given shot,
+including dewarping, fiducial-based absolute timing, and axis rotation/flipping per spectype."""
 from os.path import join
 from os import listdir
 import os
@@ -66,7 +68,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         if "epw" in fl.casefold():
             hdfnameE = join(folder, fl)
             if "ccd" in fl.casefold():
-                xlab = "Radius (\mum)"
+                xlab = "Radius (\N{MICRO SIGN}m)"
                 specType = "imaging"
             else:
                 xlab = "Time (ps)"
@@ -74,7 +76,7 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
         if "iaw" in fl.casefold():
             hdfnameI = join(folder, fl)
             if "ccd" in fl.casefold():
-                xlab = "Radius (\mum)"
+                xlab = "Radius (\N{MICRO SIGN}m)"
                 specType = "imaging"
             else:
                 xlab = "Time (ps)"

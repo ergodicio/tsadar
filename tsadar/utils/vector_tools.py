@@ -1,3 +1,5 @@
+"""Small vector/array helpers (component-wise add/sub/dot/div on tuples, dimension expansion, 2D rotation)
+used across the physics and distribution-function code."""
 from jax import numpy as jnp
 
 

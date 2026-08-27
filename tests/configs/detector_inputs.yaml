@@ -18,6 +18,7 @@ data:
     - 170
     slice: 900
     type: fit
+    report_background: false
   bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
