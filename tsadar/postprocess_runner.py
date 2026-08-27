@@ -1,45 +1,28 @@
 """Standalone postprocessor entry point: reruns postprocess() on an already-completed fit's saved results,
-loaded either from a local run directory or a remote MLflow run (by id or URL), without redoing the fit.
-
-_reconstruct_fit_state is factored out so mcmc_postprocess_runner.py can reuse the exact same
-"reconstruct config/data/skeleton, deserialize fitted_weights.eqx, rebuild LossFunction" logic for the
-alternate MCMC uncertainty postprocessor, without duplicating it.
-"""
+loaded either from a local run directory or a remote MLflow run (by id or URL), without redoing the fit."""
 import os
 import re
 import tempfile
-from dataclasses import dataclass
 from typing import Dict, Optional
 
 import equinox as eqx
 import mlflow
 import numpy as np
 import yaml
-from flatten_dict import flatten, unflatten
+from mlflow.exceptions import MlflowException
 
 from .core.modules.ts_params import ThomsonParams
 from .inverse import postprocess
 from .inverse.fitter import _validate_inputs_, load_data_for_fitting
-from .inverse.loops import advance_refinement_shape, apply_ang_res_unit, unbatch_fitted_params
+from .inverse.loops import (
+    advance_refinement_shape,
+    apply_ang_res_unit,
+    build_angular_batch,
+    build_batch,
+    unbatch_fitted_params,
+)
 from .inverse.loss_function import LossFunction
 from .utils import misc
-
-
-@dataclass
-class _FitState:
-    """Everything a postprocessor (Laplace or MCMC) needs to replay against a saved fit, without
-    re-fitting. See _reconstruct_fit_state."""
-
-    config: Dict
-    all_data: Dict
-    sa: object
-    all_axes: Dict
-    sample_indices: np.ndarray
-    is_angular: bool
-    fitted_weights: object
-    all_params: Optional[Dict]
-    num_params: Optional[int]
-    loss_fn: LossFunction
 
 # mlflow's UI route for a specific run: .../experiments/<experiment_id>/runs/<run_id>
 _RUN_URL_RE = re.compile(r"experiments/([0-9]+)/runs/([0-9a-f]{32})")
@@ -81,76 +64,7 @@ def _load_merged_config(dir_path: str) -> Dict:
     for k in ["defaults", "inputs"]:
         with open(os.path.join(dir_path, f"{k}.yaml"), "r") as fi:
             all_configs[k] = yaml.safe_load(fi)
-    defaults = flatten(all_configs["defaults"])
-    defaults.update(flatten(all_configs["inputs"]))
-    return unflatten(defaults)
-
-
-def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> _FitState:
-    """
-    Reconstructs everything a postprocessor needs to replay against a saved fit -- config validation,
-    data reload, a ThomsonParams "skeleton" matching the saved checkpoint's shape, deserializing
-    fitted_weights.eqx into it, and rebuilding a LossFunction -- without re-fitting.
-
-    Must be called from inside an active mlflow run: load_data_for_fitting can trigger
-    mlflow.log_artifacts calls (e.g. the data visualizer), and mlflow's fluent API implicitly opens its
-    own run for those if none is already active, which would collide with a run started by the caller
-    right after this returns.
-
-    Args:
-        config (Dict): The exact (merged) config the original fit used.
-        fitted_weights_path (str): Local path to a fitted_weights.eqx saved by fitter._save_fit_artifacts.
-
-    Returns:
-        _FitState: everything postprocess.postprocess (or an alternate postprocessor) needs.
-    """
-    config = _validate_inputs_(config)
-    all_data, sa, all_axes = load_data_for_fitting(config)
-    sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
-
-    is_angular = "angular" in config["other"]["extraoptions"]["spectype"]
-    if is_angular:
-        # Both mutations mirror side effects multirun_angular_optax applies to config during the
-        # original fit, which the freshly-loaded config here never went through: the lineout
-        # start/end conversion (needed so the batch built from all_data below matches the range
-        # actually fit) and, if multiple minimizations ran, replaying the nvx/window-length growth
-        # (needed so the ThomsonParams skeleton has the same shape as the saved checkpoint).
-        apply_ang_res_unit(config)
-        for _ in range(config["optimizer"]["num_mins"] - 1):
-            advance_refinement_shape(config)
-        skeleton = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
-    else:
-        num_batches = len(sample_indices) // config["optimizer"]["batch_size"] or 1
-        skeleton = [
-            ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
-            for _ in range(num_batches)
-        ]
-    fitted_weights = eqx.tree_deserialise_leaves(fitted_weights_path, skeleton)
-
-    if is_angular:
-        all_params, num_params = None, None
-    else:
-        all_params, num_params = unbatch_fitted_params(config, fitted_weights)
-
-    sample = {k: v[: config["optimizer"]["batch_size"]] for k, v in all_data.items()}
-    sample = {
-        "noise_e": all_data["noiseE"][: config["optimizer"]["batch_size"]],
-        "noise_i": all_data["noiseI"][: config["optimizer"]["batch_size"]],
-    } | sample
-    loss_fn = LossFunction(config, sa, sample)
-
-    return _FitState(
-        config=config,
-        all_data=all_data,
-        sa=sa,
-        all_axes=all_axes,
-        sample_indices=sample_indices,
-        is_angular=is_angular,
-        fitted_weights=fitted_weights,
-        all_params=all_params,
-        num_params=num_params,
-        loss_fn=loss_fn,
-    )
+    return misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
 
 
 def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None) -> Dict:
@@ -172,22 +86,60 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
         mlflow.set_experiment(mlflow_cfg["experiment"])
     run_name = f"{mlflow_cfg['run']} (postprocess)" if "run" in mlflow_cfg else None
 
+    # Everything below must run inside the new run's context, not before it: load_data_for_fitting can
+    # trigger mlflow.log_artifacts calls (e.g. the data visualizer), and mlflow's fluent API implicitly
+    # opens its own run for those if none is already active - which would then collide with start_run below.
     with mlflow.start_run(run_name=run_name):
         if source_run_id is not None:
             mlflow.set_tag("source_run_id", source_run_id)
         misc.log_mlflow(config)
 
-        state = _reconstruct_fit_state(config, fitted_weights_path)
+        config = _validate_inputs_(config)
+        all_data, sa, all_axes = load_data_for_fitting(config)
+        sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
+
+        is_angular = "angular" in config["other"]["extraoptions"]["spectype"]
+        if is_angular:
+            # All three mutations mirror side effects multirun_angular_optax applies to config during
+            # the original fit, which the freshly-loaded config here never went through: forcing
+            # batch_size to 1 (angular fits are always run unbatched, and get_sigmas below indexes a
+            # hessian shaped for batch_size=1), the lineout start/end conversion (needed so the batch
+            # built from all_data below matches the range actually fit), and, if multiple minimizations
+            # ran, replaying the nvx/window-length growth (needed so the ThomsonParams skeleton has the
+            # same shape as the saved checkpoint).
+            config["optimizer"]["batch_size"] = 1
+            apply_ang_res_unit(config)
+            for _ in range(config["optimizer"]["num_mins"] - 1):
+                advance_refinement_shape(config)
+            skeleton = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+        else:
+            num_batches = len(sample_indices) // config["optimizer"]["batch_size"] or 1
+            skeleton = [
+                ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
+                for _ in range(num_batches)
+            ]
+        fitted_weights = eqx.tree_deserialise_leaves(fitted_weights_path, skeleton)
+
+        if is_angular:
+            all_params, num_params = None, None
+        else:
+            all_params, num_params = unbatch_fitted_params(config, fitted_weights)
+
+        if is_angular:
+            # Matches the batch multirun_angular_optax normalizes against (the lineout-range slice),
+            # not the first batch_size raw rows -- using the latter would compute different i_norm/e_norm
+            # than the original fit whenever the raw data's first rows differ from the fitted range.
+            sample = build_angular_batch(config, all_data)
+            if isinstance(config["data"]["shotnum"], list):
+                sample = sample["b1"]
+        else:
+            sample = build_batch(
+                all_data, np.arange(config["optimizer"]["batch_size"]), config["data"]["background"]["bg_subtract"]
+            )
+        loss_fn = LossFunction(config, sa, sample)
+
         final_params = postprocess.postprocess(
-            state.config,
-            state.sample_indices,
-            state.all_data,
-            state.all_axes,
-            state.loss_fn,
-            state.sa,
-            state.fitted_weights,
-            state.all_params,
-            state.num_params,
+            config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights, all_params, num_params
         )
 
     return final_params
@@ -225,11 +177,11 @@ def run_postprocess_remote(run_id_or_url: str) -> Dict:
     with tempfile.TemporaryDirectory() as td:
         try:
             mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
-            config_fnames = ["config.yaml"]
-        except Exception:
-            config_fnames = ["defaults.yaml", "inputs.yaml"]
+            remaining_fnames = ["fitted_weights.eqx"]
+        except MlflowException:
+            remaining_fnames = ["defaults.yaml", "inputs.yaml", "fitted_weights.eqx"]
 
-        for fname in config_fnames + ["fitted_weights.eqx"]:
+        for fname in remaining_fnames:
             try:
                 mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=fname, dst_path=td)
             except Exception as e:

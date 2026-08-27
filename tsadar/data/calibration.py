@@ -232,9 +232,12 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
             EPWDisp = 0.2129
             EPWoff = 439.8
         else:
-            # needs to be updated with the calibrations from 7-26-22
-            EPWDisp = 0.2129
-            EPWoff = 439.8
+            try:
+                EPWDisp = detector_specs["EPWDispersion"]
+                EPWoff = detector_specs["EPWoffset"]
+                warnings.warn(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/data/calibration.py")
+            except (KeyError, TypeError):
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/data/calibration.py")
 
         IAWDisp = 1  # dummy since ARTS does not measure ion spectra
         IAWoff = 1  # dummy
@@ -390,9 +393,9 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
                 stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
                 magI = 5.23  # (ps / px) this is just a rough guess
                 magE = 5.35  # (ps / px) this is just a rough guess
-                warnings.warn(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
-            except KeyError:
-                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
+                warnings.warn(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/data/calibration.py")
+            except (KeyError, TypeError):
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/data/calibration.py")
 
     # IAWtime = 0  # temporal offset between EPW ross and IAW ross (varies shot to shot, can potentially add a fix based off the fiducials)
 
@@ -575,11 +578,12 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
                 stddev["spect_stddev_ele"] = detector_specs["widIRF"]["spect_stddev_ele"]
                 magI = 5.23  # (ps / px) this is just a rough guess
                 magE = 5.35  # (ps / px) this is just a rough guess
-                EPWtcc = detector_specs["EPWtcc"]
-                IAWtcc = detector_specs["IAWtcc"]
-                warnings.warn(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/utils/data/calibration.py")
-            except KeyError:
-                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/utils/data/calibration.py")
+                if tstype == "imaging":
+                    EPWtcc = detector_specs["EPWtcc"]
+                    IAWtcc = detector_specs["IAWtcc"]
+                warnings.warn(f"No calibration available for shot {shotNum}, using values from detector_specs in the default deck. Please add a new entry for this shot number in tsadar/data/calibration.py")
+            except (KeyError, TypeError):
+                raise KeyError(f"No calibration available for shot {shotNum}, please add a new entry for this shot number to the default deck or tsadar/data/calibration.py")
 
         # IAWtime = 0  # means nothing here just kept to allow one code to be used for both
 

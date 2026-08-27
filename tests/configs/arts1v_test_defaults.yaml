@@ -142,6 +142,7 @@ data:
         type:
             pixel
         slice: 900
+        report_background: False
 
 
     

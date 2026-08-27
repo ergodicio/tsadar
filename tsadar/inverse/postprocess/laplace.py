@@ -13,7 +13,7 @@ from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
 from ..loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from ..loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
+from .loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
@@ -60,6 +60,7 @@ def recalculate_with_chosen_weights(
         },
     }
     sqdevs = {"ion": np.zeros(all_data["i_data"].shape), "ele": np.zeros(all_data["e_data"].shape)}
+    sigmas = None
 
     for species, data_key in (("ele", "e_data"), ("ion", "i_data")):
         if config["data"][f"load_{species}_spec"]:
@@ -289,7 +290,12 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         )
         prev_weights = prev_weights.get_unnormed_params()
         prev_weights = jax.tree.map(lambda x: {"val": x}, prev_weights)
-        prev_weights["electron"]["fe"] = {"params": {"m": prev_weights["electron"].pop("m")}}
+        if config["parameters"]["electron"]["fe"]["type"].casefold() == "dlm":
+            prev_weights["electron"]["fe"] = {"params": {"m": prev_weights["electron"].pop("m")}}
+        else:
+            # Arbitrary1V always rebuilds fval from params.init_m and has no config-driven override
+            # for "f" (get_unnormed_params()'s key here), so there's nothing to carry over for it.
+            prev_weights["electron"].pop("f", None)
 
         temp_params = flatten(temp_cfg["parameters"])
         temp_params.update(flatten(prev_weights))
