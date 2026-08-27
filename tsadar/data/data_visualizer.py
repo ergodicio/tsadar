@@ -142,6 +142,10 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
 
 
         # Plot lineout of the data with its background to check background subtraction
+        if "report_background" not in config["data"]["background"]:
+            raise KeyError(
+                "config['data']['background'] is missing 'report_background'; add it (True/False) to your deck"
+            )
         if config["data"]["background"]["report_background"]:
             #create a figure with 6 subplots, 3 for the electron lineouts and 3 for the ion lineouts, with the lineouts and the backgrounds plotted together
             num_lineouts = len(all_data["e_data"]) if all_data["e_data"].size > 0 else len(all_data["i_data"])
