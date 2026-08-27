@@ -147,6 +147,7 @@ data:
         type:
             pixel
         slice: 900
+        report_background: False
 feature_detector:
   estimate_lineouts_iaw: false
   estimate_lineouts_epw: false
