@@ -60,10 +60,18 @@ def draw_calibration_realizations(
 ) -> List[Tuple[Dict, Dict]]:
     """
     Returns a list of K (config_k, all_data_k) pairs, K = config["other"]["calibration_uncertainty"]["num_draws"].
+    K is also the number of independent MCMC chains mcmc_postprocess.py will run and pool -- calibration
+    perturbation is one (optional, sigma-gated) source of variation between those chains; starting-point
+    dispersion (config["other"]["mcmc"]["init_dispersion_factor"]) is another, independent one. Chains
+    can differ by either, both, or (with every *_sigma at 0.0 and no dispersion) neither but their own MH
+    random-walk noise -- see mcmc.py's module docstring.
 
     Collapses to exactly [(config, all_data)] -- the identical objects, no copy, no RNG draw -- whenever
-    num_draws <= 1 or every configured *_sigma is 0.0. This is the required backward-compatible,
-    zero-overhead path: a deck that never configured calibration uncertainty behaves exactly as before.
+    num_draws <= 1. When num_draws > 1 but every configured *_sigma is 0.0, there is nothing to actually
+    perturb, so the same (config, all_data) pair is repeated num_draws times (again no copy/RNG draw) --
+    K still comes out to num_draws, it just isn't the calibration that varies between those chains. A
+    deck that never configured calibration uncertainty at all (num_draws left at its <=1 default) behaves
+    exactly as before either way.
 
     Otherwise draws K independent realizations from Normal(nominal, sigma) for each configured quantity
     and builds K (config_k, all_data_k) pairs:
@@ -92,8 +100,13 @@ def draw_calibration_realizations(
     sigmas = _sigmas(config)
     num_draws = int(_calibration_cfg(config).get("num_draws", 1))
 
-    if num_draws <= 1 or not any(sigma > 0.0 for sigma in sigmas.values()):
+    if num_draws <= 1:
         return [(config, all_data)]
+    if not any(sigma > 0.0 for sigma in sigmas.values()):
+        # Nothing to perturb, but the caller still wants num_draws independent chains (e.g. purely for
+        # dispersed-start / R-hat purposes) -- reuse the same (unperturbed) config/data object num_draws
+        # times; no RNG draw or deepcopy needed since nothing is actually changing between them.
+        return [(config, all_data)] * num_draws
 
     nominal_epw_disp, nominal_epw_off = _nominal_dispersion_offset(np.asarray(all_axes["epw_y"]))
     nominal_iaw_disp, nominal_iaw_off = _nominal_dispersion_offset(np.asarray(all_axes["iaw_y"]))

@@ -22,6 +22,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import random as jr
+from tqdm import trange
 
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.inverse.loss_function import LossFunction
@@ -35,6 +36,12 @@ _DEFAULTS = {
     "adapt_gamma": 0.6,
     "init_step_scale": 0.1,
     "use_laplace_seed": True,
+    # Multiplier on the (Laplace-seeded or flat init_step_scale) per-lineout/per-parameter step scale,
+    # used to perturb each chain's own starting point before burn-in begins (see run_mcmc_for_batch).
+    # 0.0 (default) means every chain starts at the exact best fit, matching pre-multi-chain behavior
+    # exactly. Set > 0 when running several chains (config["other"]["calibration_uncertainty"]
+    # ["num_draws"] > 1) purely for dispersed starts / a meaningful R-hat -- see mcmc.rst.
+    "init_dispersion_factor": 0.0,
     "seed": 0,
     "save_samples": True,
     # postprocess.laplace.get_sigmas' Hessian is taken w.r.t. the *entire* ts_params pytree, not just the
@@ -155,11 +162,12 @@ def _seed_step_scale_default(diff_params, fallback_scale: float):
     """Pure heuristic proposal-scale seed: a flat `fallback_scale` per leaf/lineout, in the
     unconstrained/logit space diff_params already lives in. No dependency on the Hessian/Laplace
     machinery -- always available, always succeeds. Used whenever use_laplace_seed is False, or when
-    _seed_step_scale_from_laplace fails or produces a non-finite/non-positive scale."""
+    _seed_step_scale_from_laplace fails structurally (see its docstring for the per-entry fallback it
+    already applies for individually-degenerate lineouts/parameters)."""
     return jax.tree_util.tree_map(lambda leaf: jnp.full(leaf.shape, fallback_scale), diff_params)
 
 
-def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params):
+def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params, fallback_scale: float):
     """Seeds initial per-lineout, per-leaf proposal scale from a Laplace/Hessian covariance, scaled by
     the standard Roberts-Rosenthal 2.38/sqrt(d) optimal-scaling factor (d = number of active scalar
     leaves). Off-diagonal (cross-parameter) terms are ignored -- only each leaf's own second derivative
@@ -175,9 +183,16 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
     handful of scalar parameters actually active, which is what run_mcmc_for_batch's fe-active guard
     guarantees are the only leaves present here.
 
-    Raises ValueError (not caught here -- the caller decides whether to fall back) if the Hessian is
-    degenerate: non-positive curvature, or a non-finite/non-positive resulting scale, for any
-    leaf/lineout.
+    Wherever the Hessian is degenerate for a given leaf/lineout (non-positive curvature, or a resulting
+    scale that's non-finite or non-positive), that entry is individually replaced by fallback_scale via
+    jnp.where -- deliberately per-entry rather than an all-or-nothing raise/except: this runs under
+    run_mcmc_for_fit_batches' eqx.filter_vmap in production, where every value here is a batching tracer,
+    so a Python-level bool()/raise on a data-dependent validity check would raise
+    TracerBoolConversionError regardless of whether the Hessian was actually degenerate (this was, in
+    fact, silently swallowing every real Laplace-seeded scale in production and falling back to a flat
+    fallback_scale for every lineout -- see git history/PR discussion for the regression this fixed).
+    Structural checks below (row/column counts) stay as ordinary raises since they depend only on pytree
+    shape, which is identical across every vmap lane.
     """
 
     def _nll_of_diff(dp):
@@ -207,20 +222,35 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
             raise ValueError(f"Unexpected Hessian row structure: found {len(row_leaves)} entries, expected {n}")
         h_ii = jnp.diagonal(row_leaves[i])  # (batch_size, batch_size) -> (batch_size,); cross-lineout terms are ~0
         var = jnp.where(h_ii > 0, 1.0 / h_ii, jnp.nan)
-        scale_leaves.append(rr_factor * jnp.sqrt(var))
-
-    if not all(bool(jnp.all(jnp.isfinite(s))) and bool(jnp.all(s > 0)) for s in scale_leaves):
-        raise ValueError("Laplace-seeded step scale is non-finite or non-positive for at least one lineout/parameter")
+        scale = rr_factor * jnp.sqrt(var)
+        valid = jnp.isfinite(scale) & (scale > 0)
+        scale_leaves.append(jnp.where(valid, scale, fallback_scale))
 
     return jax.tree_util.tree_unflatten(treedef, scale_leaves)
 
 
 def run_mcmc_for_batch(
-    config: Dict, loss_fn: LossFunction, ts_params: ThomsonParams, batch: Dict, key: jax.Array
+    config: Dict,
+    loss_fn: LossFunction,
+    ts_params: ThomsonParams,
+    batch: Dict,
+    key: jax.Array,
+    progress_desc: str = "MCMC",
 ) -> Tuple[object, object, Dict]:
     """
     Runs one Metropolis-Hastings chain, vectorized across the lineouts in `batch`, seeded at
     `ts_params` (that batch's best-fit weights).
+
+    Reports a tqdm step counter (burn-in windows, then sampling windows) as it runs. This function is
+    normally invoked through run_mcmc_for_fit_batches' eqx.filter_vmap, so the per-step values (e.g.
+    accept rate) are batching tracers that cannot be concretized into the bar's text here without
+    breaking the vmap trace -- only a step/window count is shown; the real numeric acceptance rate is
+    reported one level up, per calibration draw, once run_mcmc_for_fit_batches' vmapped call has actually
+    returned concrete arrays (see run_mcmc_pooled).
+
+    Args:
+        progress_desc: prefix for the progress bar's label (e.g. which calibration draw this chain
+            belongs to), so nested draws are distinguishable in the terminal.
 
     Returns:
         samples: a diff_params-shaped pytree; each leaf has shape (num_kept, batch_size, ...), where
@@ -242,17 +272,32 @@ def run_mcmc_for_batch(
     step_scale = None
     if mcmc_cfg["use_laplace_seed"]:
         try:
-            step_scale = _seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params)
+            step_scale = _seed_step_scale_from_laplace(
+                loss_fn, static_params, batch, diff_params, mcmc_cfg["init_step_scale"]
+            )
         except Exception:
             step_scale = None
     if step_scale is None:
         step_scale = _seed_step_scale_default(diff_params, mcmc_cfg["init_step_scale"])
+
+    # Nudges this chain's own starting point away from the shared best fit, so that when several
+    # independent chains are pooled (config["other"]["calibration_uncertainty"]["num_draws"] > 1) they
+    # don't all begin at literally the same point -- see run_mcmc_pooled's R-hat computation, which needs
+    # genuinely independent chains to be meaningful.
+    init_dispersion_factor = float(mcmc_cfg.get("init_dispersion_factor", 0.0))
+    if init_dispersion_factor > 0:
+        key, disperse_key = jr.split(key)
+        dispersed_scale = jax.tree_util.tree_map(lambda s: init_dispersion_factor * s, step_scale)
+        diff_params = _propose(disperse_key, diff_params, dispersed_scale)
 
     log_post = _log_posterior(loss_fn, diff_params, static_params, batch)
 
     key, burn_key = jr.split(key)
     adapt_every = max(int(mcmc_cfg["adapt_every"]), 1)
     n_windows = max(int(mcmc_cfg["burn_in"]) // adapt_every, 0) if mcmc_cfg["burn_in"] > 0 else 0
+    n_sample_steps = max(int(mcmc_cfg["num_steps"]) - int(mcmc_cfg["burn_in"]), 1)
+
+    pbar = trange(n_windows * adapt_every + n_sample_steps, desc=f"{progress_desc} burn-in", unit="step", leave=False)
     for window_index in range(n_windows):
         burn_key, window_key = jr.split(burn_key)
         diff_params, log_post, accept_count, _ = _run_window(
@@ -260,17 +305,36 @@ def run_mcmc_for_batch(
         )
         accept_rate = accept_count / adapt_every
         step_scale = _adapt_step_scale(step_scale, accept_rate, mcmc_cfg["target_accept"], window_index, mcmc_cfg["adapt_gamma"])
+        pbar.update(adapt_every)
 
-    n_sample_steps = max(int(mcmc_cfg["num_steps"]) - int(mcmc_cfg["burn_in"]), 1)
+    # Chunked into adapt_every-sized windows (same as burn-in) purely so the bar keeps moving through the
+    # sampling phase -- usually the bulk of the run -- rather than blocking silently on one opaque
+    # multi-thousand-step scan. step_scale is fixed by now, so chunking changes nothing but the RNG split
+    # pattern (still a valid MH chain, just not bit-for-bit identical to an unchunked run at the same seed).
+    sample_chunk = min(adapt_every, n_sample_steps)
     key, sample_key = jr.split(key)
-    diff_params, log_post, accept_count, samples = _run_window(
-        sample_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, n_sample_steps, collect=True
-    )
+    total_accept_count = None
+    remaining = n_sample_steps
+    collected_chunks = []
+    pbar.set_description(f"{progress_desc} sampling")
+    while remaining > 0:
+        sample_key, chunk_key = jr.split(sample_key)
+        steps_this_chunk = min(sample_chunk, remaining)
+        diff_params, log_post, accept_count, chunk_samples = _run_window(
+            chunk_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, steps_this_chunk, collect=True
+        )
+        collected_chunks.append(chunk_samples)
+        total_accept_count = accept_count if total_accept_count is None else total_accept_count + accept_count
+        remaining -= steps_this_chunk
+        pbar.update(steps_this_chunk)
+    pbar.close()
+
+    samples = jax.tree_util.tree_map(lambda *xs: jnp.concatenate(xs, axis=0), *collected_chunks)
     thin = max(int(mcmc_cfg["thin"]), 1)
     thinned_samples = jax.tree_util.tree_map(lambda x: x[::thin], samples)
 
     diagnostics = {
-        "acceptance_rate": accept_count / n_sample_steps,
+        "acceptance_rate": total_accept_count / n_sample_steps,
         "final_step_scale": step_scale,
     }
     return thinned_samples, static_params, diagnostics
@@ -296,7 +360,12 @@ def _stack_batches(batch_list: List[Dict]) -> Dict:
 
 
 def run_mcmc_for_fit_batches(
-    config: Dict, loss_fn: LossFunction, ts_params_list: List[ThomsonParams], batch_list: List[Dict], key: jax.Array
+    config: Dict,
+    loss_fn: LossFunction,
+    ts_params_list: List[ThomsonParams],
+    batch_list: List[Dict],
+    key: jax.Array,
+    progress_desc: str = "MCMC",
 ) -> Tuple[object, object, Dict]:
     """
     Runs run_mcmc_for_batch across every fit-batch of a single calibration draw. Every fit-batch shares
@@ -314,9 +383,48 @@ def run_mcmc_for_fit_batches(
     keys = jr.split(key, n_fit_batches)
 
     def _one(ts_params, batch, k):
-        return run_mcmc_for_batch(config, loss_fn, ts_params, batch, k)
+        return run_mcmc_for_batch(config, loss_fn, ts_params, batch, k, progress_desc=progress_desc)
 
     return eqx.filter_vmap(_one)(stacked_ts_params, stacked_batch, keys)
+
+
+def _gelman_rubin_r_hat(x: jnp.ndarray) -> jnp.ndarray:
+    """Classic Gelman-Rubin R-hat for x shaped (num_kept, num_chains, *extra): the ratio of the pooled
+    (between + within-chain) variance estimate to the within-chain variance, reduced over the leading two
+    axes and broadcast over any remaining ones. Close to 1 when the chains have mixed to the same
+    distribution; values well above ~1.01-1.1 indicate they have not."""
+    num_kept, num_chains = x.shape[0], x.shape[1]
+    chain_mean = x.mean(axis=0)
+    grand_mean = chain_mean.mean(axis=0, keepdims=True)
+    between = num_kept / (num_chains - 1) * jnp.sum((chain_mean - grand_mean) ** 2, axis=0)
+    within = x.var(axis=0, ddof=1).mean(axis=0)
+    var_hat = (num_kept - 1) / num_kept * within + between / num_kept
+    return jnp.sqrt(var_hat / within)
+
+
+def _max_r_hat_across_chains(per_draw_samples: List) -> object:
+    """Per-(fit-batch, lineout) worst-case (max over active parameters) Gelman-Rubin R-hat across
+    len(per_draw_samples) independent chains -- None if fewer than 2 (R-hat is meaningless for a single
+    chain). Each element of per_draw_samples is a diff_params-shaped pytree (as returned by
+    run_mcmc_for_fit_batches), leaves shaped (num_fit_batches, num_kept, batch_size, ...).
+
+    Reduced to one number per lineout (the worst-mixing active parameter) rather than broken out
+    per-parameter, matching acceptance_rate's granularity -- breaking it out per-parameter would need
+    re-deriving get_filter_spec's (species, key) attribute-path labeling here, which mcmc_postprocess.py
+    already does more naturally via its own active_keys/_physical_samples_for_fit_batch machinery.
+    """
+    num_chains = len(per_draw_samples)
+    if num_chains < 2:
+        return None
+    leaf_lists = [jax.tree_util.tree_leaves(s) for s in per_draw_samples]
+    if not leaf_lists[0]:
+        return None
+    per_leaf_r_hat = []
+    for leaf_idx in range(len(leaf_lists[0])):
+        stacked = jnp.stack([leaf_lists[c][leaf_idx] for c in range(num_chains)], axis=0)
+        stacked = jnp.moveaxis(stacked, 2, 0)  # (num_kept, num_chains, num_fit_batches, batch_size, ...)
+        per_leaf_r_hat.append(_gelman_rubin_r_hat(stacked))
+    return jnp.max(jnp.stack(per_leaf_r_hat, axis=0), axis=0)  # (num_fit_batches, batch_size, ...)
 
 
 def run_mcmc_pooled(
@@ -325,41 +433,58 @@ def run_mcmc_pooled(
     ts_params_list: List[ThomsonParams],
     batches_by_draw: List[List[Dict]],
     key: jax.Array,
-) -> Tuple[object, object, List[Dict]]:
+) -> Tuple[object, object, List[Dict], object]:
     """
-    Runs run_mcmc_for_fit_batches independently for each of the K calibration draws (own PRNG subkey
-    each), then pools all K draws' post-burn-in samples together along the sample axis -- the union of
-    within-chain parameter uncertainty and between-draw calibration-nuisance uncertainty. For K == 1
-    this is a no-op concatenation of a single draw's output.
+    Runs run_mcmc_for_fit_batches independently for each of the K independent chains (own PRNG subkey
+    each), then pools all K chains' post-burn-in samples together along the sample axis. K chains may
+    differ by calibration (config["other"]["calibration_uncertainty"]), by starting point
+    (config["other"]["mcmc"]["init_dispersion_factor"]), by both, or -- with neither configured -- only
+    by their own independent MH random-walk noise from an identical start; all are legitimate independent
+    samples of the same overall posterior, so pooling them is valid regardless of which sources of
+    variation are active. For K == 1 this is a no-op concatenation of a single chain's output.
 
     Each draw's LossFunction is built from different static config (a different FormFactor/IRF per
     draw), so -- unlike the fit-batch axis within one draw -- this loop cannot be vmapped into one
     compiled graph; it stays a Python-level loop over K chains.
 
     Args:
-        loss_fns_by_draw: length-K list of LossFunction instances, one per calibration draw.
-        ts_params_list: the fit-batches' best-fit weights (shared starting point for every draw).
+        loss_fns_by_draw: length-K list of LossFunction instances, one per chain.
+        ts_params_list: the fit-batches' best-fit weights (shared starting point for every chain, before
+            any per-chain dispersion in run_mcmc_for_batch).
         batches_by_draw: length-K list, each a length-num_fit_batches list of batch dicts (one per
-            fit-batch, built against that draw's possibly-rescaled data).
-        key: PRNG key; split once per draw.
+            fit-batch, built against that chain's possibly-rescaled data).
+        key: PRNG key; split once per chain.
 
     Returns:
         pooled_samples: diff_params-shaped pytree, leaves shaped (num_fit_batches, K * num_kept, batch_size, ...).
-        static_params: as returned by run_mcmc_for_fit_batches (from draw 0; identical in structure/value
-            across draws for a fixed config).
-        diagnostics_by_draw: list of length K, each draw's diagnostics dict (with the fit-batch axis).
+        static_params: as returned by run_mcmc_for_fit_batches (from chain 0; identical in structure/value
+            across chains for a fixed config).
+        diagnostics_by_draw: list of length K, each chain's diagnostics dict (with the fit-batch axis).
+        max_r_hat: per-(fit-batch, lineout) worst-case Gelman-Rubin R-hat across the K chains, or None
+            when K < 2 (see _max_r_hat_across_chains).
     """
     keys = jr.split(key, len(loss_fns_by_draw))
+    n_draws = len(loss_fns_by_draw)
 
     per_draw_samples = []
     static_params = None
     diagnostics_by_draw = []
-    for loss_fn, batch_list, draw_key in zip(loss_fns_by_draw, batches_by_draw, keys):
-        samples, static, diagnostics = run_mcmc_for_fit_batches(config, loss_fn, ts_params_list, batch_list, draw_key)
+    for draw_index, (loss_fn, batch_list, draw_key) in enumerate(zip(loss_fns_by_draw, batches_by_draw, keys)):
+        progress_desc = f"MCMC draw {draw_index + 1}/{n_draws}" if n_draws > 1 else "MCMC"
+        samples, static, diagnostics = run_mcmc_for_fit_batches(
+            config, loss_fn, ts_params_list, batch_list, draw_key, progress_desc=progress_desc
+        )
         per_draw_samples.append(samples)
         diagnostics_by_draw.append(diagnostics)
         if static_params is None:
             static_params = static
+        # Only safe to pull a concrete number out here, once run_mcmc_for_fit_batches' vmapped call has
+        # actually returned -- doing this inside run_mcmc_for_batch itself (still mid-trace under
+        # eqx.filter_vmap there) would raise a tracer-concretization error.
+        mean_accept = float(jnp.mean(diagnostics["acceptance_rate"]))
+        print(f"{progress_desc} done: mean acceptance rate {mean_accept:.3f}")
+
+    max_r_hat = _max_r_hat_across_chains(per_draw_samples)
 
     if len(per_draw_samples) == 1:
         pooled_samples = per_draw_samples[0]
@@ -368,4 +493,4 @@ def run_mcmc_pooled(
         # the num_kept axis (axis=1) to pool across draws while keeping the fit-batch axis (axis=0) intact.
         pooled_samples = jax.tree_util.tree_map(lambda *xs: jnp.concatenate(xs, axis=1), *per_draw_samples)
 
-    return pooled_samples, static_params, diagnostics_by_draw
+    return pooled_samples, static_params, diagnostics_by_draw, max_r_hat

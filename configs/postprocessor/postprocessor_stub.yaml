@@ -1,0 +1,49 @@
+other:
+  # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
+  # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
+  # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
+  # nothing about fitting or the existing Hessian-based postprocessor.
+  mcmc:
+    num_steps: 800
+    burn_in: 300
+    thin: 5
+    adapt_every: 10
+    target_accept: 0.234
+    adapt_gamma: 0.6
+    init_step_scale: 0.001
+    use_laplace_seed: false
+    # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
+    # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
+    # default) means every chain starts at the exact best fit.
+    init_dispersion_factor: 0.0
+    seed: 0
+    save_samples: true
+    compare_to_laplace: false
+  # calibration_uncertainty.num_draws is the number of independent MCMC chains the postprocessor runs
+  # and pools -- not just "calibration draws": chains may differ by a perturbed instrument calibration
+  # (tsadar/data/calibration.py, via the *_sigma fields below), by a perturbed starting point
+  # (other.mcmc.init_dispersion_factor above), by both, or -- with neither configured -- only by their
+  # own independent MH random-walk noise from an identical start. num_draws=1 (the default) runs a
+  # single chain, matching every other config. See inverse/postprocess/mcmc_calibration.py.
+  calibration_uncertainty:
+    num_draws: 1
+    seed: 0
+    EPWDispersion_sigma: 0.0
+    IAWDispersion_sigma: 0.0
+    EPWoffset_sigma: 0.0
+    IAWoffset_sigma: 0.0
+    spect_stddev_ion_sigma: 0.0
+    spect_stddev_ele_sigma: 0.0
+    gain_sigma: 0.0
+  include_gains: false
+
+plotting:
+  data_cbar_l: 0
+  data_cbar_u: data
+  detailed_breakdown: false
+  ele_window_end: 660
+  ele_window_start: 425
+  ion_window_end: 528
+  ion_window_start: 525
+  n_sigmas: 3
+  rolling_std_width: 5

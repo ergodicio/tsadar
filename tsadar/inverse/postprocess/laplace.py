@@ -13,7 +13,7 @@ from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
 from ..loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams
-from .loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
+from ..loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 

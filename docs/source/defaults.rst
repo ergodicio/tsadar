@@ -292,6 +292,46 @@ The ``other:`` section includes options specifying the types of data that are be
 .. deprecated:: 0.2.0
     ``calc_sigmas`` is currently deprecated. Implementation of uncertainty quantification is planned for a future release but the current method of computing sigmas from the Hessian is not robust and therefore has been deprecated until a more robust method can be implemented.
 
+- ``mcmc`` is a container for options controlling the standalone MCMC uncertainty postprocessor -- see :doc:`mcmc` for what it does and how to run it. These fields are only read by that postprocessor, never by a normal fit or by ``calc_sigmas``; the whole section (or any individual field) may be omitted, in which case the defaults below are used.
+
+    - ``num_steps`` total number of Metropolis-Hastings steps in the chain, including burn-in.
+
+    - ``burn_in`` number of initial steps discarded as burn-in before the sampling phase begins.
+
+    - ``thin`` keep only every ``thin``-th post-burn-in sample, to reduce the size of the saved posterior and its autocorrelation.
+
+    - ``adapt_every`` number of steps per burn-in adaptation window; the proposal step scale is rescaled once per window based on the acceptance rate observed over that window.
+
+    - ``target_accept`` target per-lineout acceptance rate that burn-in adaptation aims for. 0.234 is the standard asymptotically-optimal rate for random-walk Metropolis.
+
+    - ``adapt_gamma`` decay exponent for the Robbins-Monro step-scale adaptation; larger values make later burn-in windows adapt more slowly, which helps the step scale settle down rather than oscillate.
+
+    - ``init_step_scale`` fallback initial proposal step scale, in the same unconstrained/logit space the optimizer fits in. Used whenever ``use_laplace_seed`` is false, or when the Laplace-based seed below fails.
+
+    - ``use_laplace_seed`` boolean; if true, seed the initial per-parameter, per-lineout proposal step scale from a Laplace/Hessian approximation at the best fit (using the Roberts-Rosenthal 2.38/:math:`\sqrt{d}` optimal-scaling factor), falling back to ``init_step_scale`` if that Hessian is degenerate.
+
+    - ``init_dispersion_factor`` multiplier on the seeded step scale, used to perturb each independent chain's own starting point before burn-in begins -- see ``calibration_uncertainty.num_draws`` below for what controls how many chains are run. ``0.0`` (the default) means every chain starts at the exact best fit, matching single-chain behavior exactly. Set this above 0 when running several chains (``num_draws`` > 1) so they don't all start from the same point -- useful on its own for a more thorough posterior exploration, and required for a meaningful R-hat when the calibration sigmas below are all left at 0.
+
+    - ``seed`` PRNG seed for the MCMC chain(s).
+
+    - ``save_samples`` boolean; if true the full thinned, pooled posterior samples are saved as an artifact (``binary/mcmc_samples.nc``) in addition to the per-lineout mean/std/covariance summary.
+
+    - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default: computing the full Hessian can attempt a very large memory allocation on fits whose electron distribution function carries a sizeable fixed interpolation table, even when ``fe`` is inactive. Enable this only once you've confirmed your config's Hessian is affordable; a failure here is caught and simply disables the comparison rather than failing the run.
+
+- ``calibration_uncertainty`` is a container for options controlling how many independent MCMC chains the standalone postprocessor runs and pools, and (optionally) how instrument-calibration uncertainty is propagated into them -- see :doc:`mcmc`. Like ``mcmc`` above, these fields are only read by the standalone MCMC postprocessor.
+
+    - ``num_draws`` the number of independent MCMC chains to run and pool into one posterior. This is the one chain-count knob: chains may differ by a perturbed calibration (the ``*_sigma`` fields below), by a perturbed starting point (``mcmc.init_dispersion_factor`` above), by both, or -- with neither configured -- only by their own independent random-walk noise from an identical start. ``num_draws: 1`` (the default) runs a single chain at the nominal calibration, matching every other config. With every ``*_sigma`` field below at its default of 0.0, ``num_draws`` chains still run (just without any calibration perturbation between them) rather than collapsing to one.
+
+    - ``seed`` PRNG seed used to draw the calibration realizations.
+
+    - ``EPWDispersion_sigma`` / ``IAWDispersion_sigma`` standard deviation of the Gaussian perturbation applied to the EPW / IAW spectral dispersion calibration for each draw.
+
+    - ``EPWoffset_sigma`` / ``IAWoffset_sigma`` standard deviation of the Gaussian perturbation applied to the EPW / IAW spectral offset calibration for each draw.
+
+    - ``spect_stddev_ion_sigma`` / ``spect_stddev_ele_sigma`` standard deviation of the Gaussian perturbation applied to the ion / electron instrument response function width for each draw. Perturbed widths are floored just above zero so the IRF convolution stays well defined.
+
+    - ``gain_sigma`` standard deviation of the Gaussian perturbation applied to the detector gain for each draw; the loaded data is rescaled to match each draw's perturbed gain.
+
 - ``extraoptions`` is a container for some additional options
 
     - ``spectype`` specifies the type of spectrum such as temporal or spatial, it is populated by the code based on the data file and does not need to be set.

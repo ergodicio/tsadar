@@ -57,6 +57,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             )
             x_start = all_axes["iaw_x"][LineoutPixelI[0]]
             x_end = all_axes["iaw_x"][LineoutPixelI[-1]]
+            x_start, x_end = min(x_start, x_end), max(x_start, x_end)  # normalize for reverse mode (start > end)
             y_min = config["data"]["fit_rng"]["iaw_min"]
             y_cf_min = config["data"]["fit_rng"]["iaw_cf_min"]
             y_cf_max = config["data"]["fit_rng"]["iaw_cf_max"]
@@ -99,6 +100,7 @@ def launch_data_visualizer(elecData, ionData, all_data, all_axes, config):
             )
             x_start = all_axes["epw_x"][LineoutPixelE[0]]
             x_end = all_axes["epw_x"][LineoutPixelE[-1]]
+            x_start, x_end = min(x_start, x_end), max(x_start, x_end)  # normalize for reverse mode (start > end)
             y_blue_min = config["data"]["fit_rng"]["blue_min"]
             y_blue_max = config["data"]["fit_rng"]["blue_max"]
             y_red_min = config["data"]["fit_rng"]["red_min"]

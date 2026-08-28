@@ -181,9 +181,15 @@ def _1d_optax_loop_(
     """
 
     minimizer = getattr(optax, config["optimizer"]["method"])
-    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
-    # solver = minimizer(schedule)
-    opt = minimizer(None if config["optimizer"]["method"]=='lbfgs' else config["optimizer"]["learning_rate_init"])
+    if config["optimizer"]["method"] == "lbfgs":
+        opt = minimizer(None)
+    else:
+        schedule = optax.schedules.cosine_decay_schedule(
+            config["optimizer"]["learning_rate_init"],
+            np.round(0.75 * config["optimizer"]["num_epochs"]),
+            alpha=config["optimizer"]["learning_rate_final"] / config["optimizer"]["learning_rate_init"],
+        )
+        opt = minimizer(schedule)
 
     #ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
     #diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))

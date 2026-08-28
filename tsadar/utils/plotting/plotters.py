@@ -1,5 +1,8 @@
 """Postprocessing plot library: final-parameter tables/plots, loss histograms, data-vs-fit and best/worst
 lineout comparisons (simple and detailed), and the angular-data plotting functions."""
+from typing import List
+
+import corner
 import matplotlib as mpl
 import matplotlib.cm
 import matplotlib.colors
@@ -453,23 +456,32 @@ def save_sigmas_params_mcmc(config, all_params, sigmas, all_axes, td):
     return save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigmas_mcmc.nc")
 
 
-def plot_mcmc_diagnostics(config, acceptance_rate, td):
+def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None):
     """
     Plots a histogram of per-lineout MCMC acceptance rates, so a user can tell at a glance whether the
     sampler's step-size adaptation actually converged (rates clustered near
-    config["other"]["mcmc"]["target_accept"], not pinned at 0 or 1) or not.
+    config["other"]["mcmc"]["target_accept"], not pinned at 0 or 1) or not. When max_r_hat is given (only
+    meaningful with >= 2 independent chains -- see mcmc.run_mcmc_pooled), adds a second panel with a
+    histogram of per-lineout worst-case Gelman-Rubin R-hat, so convergence across chains can be checked
+    at the same glance.
 
     Args:
         config: configuration dictionary created from the input decks
         acceptance_rate: array of shape (num_lineouts,), the sampling-phase acceptance rate for each
-            lineout, averaged across calibration draws.
+            lineout, averaged across independent chains.
         td: temporary directory that will be uploaded to mlflow
+        max_r_hat: optional array of shape (num_lineouts,), the worst-case (max over active parameters)
+            Gelman-Rubin R-hat for each lineout, or None (no second panel) whenever fewer than 2
+            independent chains were run. May contain NaN for lineouts with no active parameters --
+            filtered out before histogramming.
 
     Returns:
         None: the plot is saved to td/plots and logged to MLflow via the usual artifact upload.
     """
     target = config.get("other", {}).get("mcmc", {}).get("target_accept", 0.234)
-    fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+    ncols = 2 if max_r_hat is not None else 1
+    fig, axes = plt.subplots(1, ncols, figsize=(5 * ncols, 4), squeeze=False)
+    ax = axes[0][0]
     ax.hist(np.asarray(acceptance_rate), bins=30)
     ax.axvline(target, color="r", linestyle="--", label=f"target ({target:.3f})")
     ax.set_xlabel("acceptance rate")
@@ -477,6 +489,19 @@ def plot_mcmc_diagnostics(config, acceptance_rate, td):
     ax.set_title("MCMC sampling-phase acceptance rate")
     ax.legend()
     ax.grid()
+
+    if max_r_hat is not None:
+        r_hat = np.asarray(max_r_hat)
+        r_hat = r_hat[np.isfinite(r_hat)]
+        ax = axes[0][1]
+        ax.hist(r_hat, bins=30)
+        ax.axvline(1.01, color="r", linestyle="--", label="R-hat = 1.01")
+        ax.set_xlabel("max R-hat across active parameters")
+        ax.set_ylabel("number of lineouts")
+        ax.set_title("MCMC chain convergence (Gelman-Rubin)")
+        ax.legend()
+        ax.grid()
+
     fig.savefig(os.path.join(td, "plots", "mcmc_acceptance_rate.png"), bbox_inches="tight")
     plt.close(fig)
 
@@ -519,6 +544,50 @@ def plot_sigma_comparison(config, all_params, laplace_sigmas_ds, mcmc_sigmas_ds,
                     bbox_inches="tight",
                 )
                 plt.close(fig)
+
+
+def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: str) -> None:
+    """
+    Corner plot (pairwise joint posteriors below the diagonal, 1D marginal histograms on it) for one
+    lineout's MCMC-sampled parameters, via the `corner` package.
+
+    Standalone and reusable: also callable outside a live mcmc_postprocess run to regenerate a corner
+    plot for any lineout not covered by that run's default (capped, evenly-spaced) subset -- every
+    lineout's full posterior is preserved in binary/mcmc_samples.nc whenever
+    config["other"]["mcmc"]["save_samples"] is true (the default), so slice out the (num_samples,
+    n_params) block for the desired lineout from that file and pass it here.
+
+    Args:
+        samples: array of shape (num_samples, n_params), physical (denormalized) posterior draws for one
+            lineout, columns matching param_names.
+        param_names: names for each column of samples, used as axis labels.
+        lineout_value: the lineout's value (config["data"]["lineouts"]["val"] entry), used only for the
+            plot title/filename.
+        td: directory to save the plot under (td/plots/corner); if reused standalone, pass any directory
+            that already has a plots/corner subfolder or create one first.
+
+    Returns:
+        None: the plot is saved to td/plots/corner and, when called from within an active mlflow run
+            (e.g. mcmc_postprocess), logged via that run's usual artifact upload.
+    """
+    os.makedirs(os.path.join(td, "plots", "corner"), exist_ok=True)
+    samples = np.asarray(samples)
+
+    # corner.corner raises outright if any column has exactly zero dynamic range (e.g. a lineout whose
+    # chain never accepted a single proposal during the sampling phase -- see mcmc.py's acceptance-rate
+    # diagnostics for why that can happen). A degenerate/flat posterior is itself useful information to
+    # see on the plot, not a reason to lose the whole run's corner plots, so widen zero-width columns by
+    # a small epsilon instead of leaving range unset.
+    mins = samples.min(axis=0)
+    maxs = samples.max(axis=0)
+    span = maxs - mins
+    pad = np.where(span > 0, 0.0, np.where(np.abs(mins) > 0, np.abs(mins) * 1e-3, 1e-6))
+    ranges = list(zip(mins - pad, maxs + pad))
+
+    fig = corner.corner(samples, labels=param_names, show_titles=True, title_fmt=".3g", range=ranges)
+    fig.suptitle(f"lineout {lineout_value}")
+    fig.savefig(os.path.join(td, "plots", "corner", f"corner_lineout_{lineout_value}.png"), bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_data_angular(config, fits, all_data, all_axes, td):

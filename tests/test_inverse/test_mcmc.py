@@ -133,13 +133,19 @@ def test_calibration_draws_collapse_to_identity_when_unconfigured(fitted_fixture
     assert draws[0][1] is fitted_fixture["all_data"]
 
 
-def test_calibration_draws_collapse_to_identity_when_all_sigmas_zero(fitted_fixture):
+def test_calibration_draws_repeat_nominal_when_all_sigmas_zero(fitted_fixture):
+    # num_draws still drives the chain count even with nothing to perturb calibration-wise: draws
+    # collapsing to a single chain here would silently defeat init_dispersion_factor/R-hat, which only
+    # need independent chains, not independently-perturbed calibrations.
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["other"]["calibration_uncertainty"] = {"num_draws": 8, "gain_sigma": 0.0, "EPWDispersion_sigma": 0.0}
     draws = mcmc_calibration.draw_calibration_realizations(
         cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(0)
     )
-    assert len(draws) == 1
+    assert len(draws) == 8
+    for config_k, all_data_k in draws:
+        assert config_k is cfg
+        assert all_data_k is fitted_fixture["all_data"]
 
 
 def test_calibration_draws_perturb_gain_and_rescale_data(fitted_fixture):
@@ -193,7 +199,7 @@ def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
         inds = np.arange(batch_size)
         batches = [[build_batch(all_data_k, inds, cfg["data"]["background"]["bg_subtract"])] for _, all_data_k in draws]
         key = jax.random.PRNGKey(11)
-        pooled, static_params, _ = mcmc.run_mcmc_pooled(cfg_run, loss_fns, [ts_params], batches, key)
+        pooled, static_params, _, _ = mcmc.run_mcmc_pooled(cfg_run, loss_fns, [ts_params], batches, key)
         filter_spec = get_filter_spec(cfg_run["parameters"], ts_params)
         static_i = jax.tree_util.tree_map(lambda x: x[0], eqx.filter(static_params, eqx.is_array))
         static_i = eqx.combine(static_i, eqx.filter(static_params, eqx.is_array, inverse=True))
@@ -209,3 +215,74 @@ def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
     std_with_cal_uncertainty = _pooled_amp1_std(num_draws=4, gain_sigma=0.1)
 
     assert std_with_cal_uncertainty > std_no_cal_uncertainty
+
+
+def test_init_dispersion_factor_perturbs_starting_point(fitted_fixture):
+    # With very few steps (so the chain has no time to "forget" its start) and use_laplace_seed off (a
+    # fixed, deterministic step_scale), a nonzero init_dispersion_factor should visibly shift where the
+    # chain's samples land compared to an otherwise-identical zero-dispersion run at the same key.
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    base_settings = {
+        "num_steps": 5, "burn_in": 0, "thin": 1, "adapt_every": 5, "use_laplace_seed": False, "init_step_scale": 0.05,
+    }
+    key = jax.random.PRNGKey(3)
+
+    cfg["other"]["mcmc"] = {**base_settings, "init_dispersion_factor": 0.0}
+    samples_no_disp, _, _ = mcmc.run_mcmc_for_batch(
+        cfg, fitted_fixture["loss_fn"], fitted_fixture["fitted_weights"][0], fitted_fixture["batch"], key
+    )
+
+    cfg["other"]["mcmc"] = {**base_settings, "init_dispersion_factor": 5.0}
+    samples_disp, _, _ = mcmc.run_mcmc_for_batch(
+        cfg, fitted_fixture["loss_fn"], fitted_fixture["fitted_weights"][0], fitted_fixture["batch"], key
+    )
+
+    leaves_no_disp = jax.tree_util.tree_leaves(samples_no_disp)
+    leaves_disp = jax.tree_util.tree_leaves(samples_disp)
+    assert len(leaves_no_disp) == len(leaves_disp) > 0
+    assert any(not np.allclose(np.asarray(a), np.asarray(b)) for a, b in zip(leaves_no_disp, leaves_disp))
+
+
+def test_run_mcmc_pooled_reports_r_hat_with_multiple_chains(fitted_fixture):
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["other"]["mcmc"] = {
+        "num_steps": 300, "burn_in": 200, "thin": 5, "adapt_every": 20,
+        "use_laplace_seed": True, "init_dispersion_factor": 3.0,
+    }
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 3, "seed": 5}
+    ts_params = fitted_fixture["fitted_weights"][0]
+    batch_size = cfg["optimizer"]["batch_size"]
+
+    draws = mcmc_calibration.draw_calibration_realizations(
+        cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(5)
+    )
+    assert len(draws) == 3  # num_draws still drives the chain count with every *_sigma at 0.0
+
+    loss_fns = [fitted_fixture["loss_fn"] for _ in draws]  # every draw shares the identical nominal config/data
+    inds = np.arange(batch_size)
+    batches = [
+        [build_batch(fitted_fixture["all_data"], inds, cfg["data"]["background"]["bg_subtract"])] for _ in draws
+    ]
+
+    key = jax.random.PRNGKey(21)
+    _, _, _, max_r_hat = mcmc.run_mcmc_pooled(cfg, loss_fns, [ts_params], batches, key)
+
+    assert max_r_hat is not None
+    max_r_hat = np.asarray(max_r_hat)
+    assert max_r_hat.shape == (1, batch_size)  # one fit-batch
+    assert np.all(np.isfinite(max_r_hat))
+    assert np.all(max_r_hat >= 1.0 - 1e-6)
+
+
+def test_run_mcmc_pooled_r_hat_is_none_with_a_single_chain(fitted_fixture):
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["other"]["mcmc"] = {"num_steps": 100, "burn_in": 50, "thin": 2, "adapt_every": 10}
+    key = jax.random.PRNGKey(0)
+    _, _, _, max_r_hat = mcmc.run_mcmc_pooled(
+        cfg,
+        [fitted_fixture["loss_fn"]],
+        [fitted_fixture["fitted_weights"][0]],
+        [[fitted_fixture["batch"]]],
+        key,
+    )
+    assert max_r_hat is None

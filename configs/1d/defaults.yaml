@@ -6,16 +6,15 @@ data:
   load_ion_spec: false
   absolute_timing: true
   background:
-    bg_alg: rat11
+    bg_alg: brem
     bg_alg_domain:
-    - 250
+    - 230
     - 300
-    - 700
-    - 900
+    - 660
+    - 720
     bg_alg_params:
-    - -16
-    - 200000
-    - 170
+    - 0.4
+    - -100
     bg_smoothing_window: 11
     bg_subtract: true
     slice: 900
@@ -24,12 +23,12 @@ data:
   bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
-  dpixel: 2
+  dpixel: 3
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
     blue_max: 510
-    blue_min: 450
+    blue_min: 435
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 528
@@ -38,7 +37,7 @@ data:
     iaw_cf_min: 526.4
     iaw_max: 527.0
     iaw_min: 526.0
-    red_max: 625
+    red_max: 650
     red_min: 545
   ion_loss_scale: 1.0
   ion_t0_shift: 0
@@ -63,16 +62,16 @@ mlflow:
   experiment: experiment-1
   run: run-1
 optimizer:
-  batch_size: 6
+  batch_size: 4
   grad_method: AD
   hessian: false
   jit: true
-  learning_rate_final: 0.0001
+  learning_rate_final: 0.001
   learning_rate_init: 0.01
   loss_method: l2
   method: adam
   moment_loss: false
-  num_epochs: 300
+  num_epochs: 400
   num_mins: 1
   param_learning_rate: 0.01
   param_method: adam
@@ -108,11 +107,47 @@ other:
   - 528
   iawoff: 0
   lam_res_unit: 5
-  points_per_pixel: 1
+  points_per_pixel: 4
   refit: false
   refit_thresh: 0.25
   Ipump_14: 0.0
   beam_diam_um: 100
+  # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
+  # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
+  # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
+  # nothing about fitting or the existing Hessian-based postprocessor.
+  mcmc:
+    num_steps: 80
+    burn_in: 30
+    thin: 5
+    adapt_every: 10
+    target_accept: 0.234
+    adapt_gamma: 0.6
+    init_step_scale: 0.001
+    use_laplace_seed: false
+    # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
+    # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
+    # default) means every chain starts at the exact best fit.
+    init_dispersion_factor: 0.0
+    seed: 0
+    save_samples: true
+    compare_to_laplace: false
+  # calibration_uncertainty.num_draws is the number of independent MCMC chains the postprocessor runs
+  # and pools -- not just "calibration draws": chains may differ by a perturbed instrument calibration
+  # (tsadar/data/calibration.py, via the *_sigma fields below), by a perturbed starting point
+  # (other.mcmc.init_dispersion_factor above), by both, or -- with neither configured -- only by their
+  # own independent MH random-walk noise from an identical start. num_draws=1 (the default) runs a
+  # single chain, matching every other config. See inverse/postprocess/mcmc_calibration.py.
+  calibration_uncertainty:
+    num_draws: 1
+    seed: 0
+    EPWDispersion_sigma: 0.0
+    IAWDispersion_sigma: 0.0
+    EPWoffset_sigma: 0.0
+    IAWoffset_sigma: 0.0
+    spect_stddev_ion_sigma: 0.0
+    spect_stddev_ele_sigma: 0.0
+    gain_sigma: 0.0
   include_gains: false
 parameters:
   electron:
@@ -216,7 +251,7 @@ plotting:
   data_cbar_l: 0
   data_cbar_u: data
   detailed_breakdown: false
-  ele_window_end: 625
+  ele_window_end: 660
   ele_window_start: 425
   ion_window_end: 528
   ion_window_start: 525

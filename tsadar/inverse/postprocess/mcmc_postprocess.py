@@ -135,15 +135,18 @@ def mcmc_postprocess(
     loss_fns_by_draw = []
     batches_by_draw = []
     for draw_index, (config_k, all_data_k) in enumerate(draws):
-        # draw 0 always reuses the caller-supplied loss_fn unchanged (config_k is config, all_data_k is
-        # all_data, by construction whenever draw_calibration_realizations collapses to K=1) -- this is
-        # what guarantees zero extra LossFunction builds on the backward-compatible no-calibration path.
-        loss_fn_k = loss_fn if draw_index == 0 else _build_loss_fn_for_draw(config_k, sa, all_data_k, batch_size)
+        # draw 0 always reuses the caller-supplied loss_fn unchanged. Later draws also reuse it whenever
+        # config_k/all_data_k are literally the same objects as the nominal config/all_data -- true for
+        # every draw whenever draw_calibration_realizations collapses to K=1, and now also true for every
+        # draw when num_draws > 1 but every *_sigma is 0.0 (chains differing only by starting-point
+        # dispersion and/or RNG have nothing calibration-wise to rebuild a LossFunction for).
+        reuse_nominal = config_k is config and all_data_k is all_data
+        loss_fn_k = loss_fn if (draw_index == 0 or reuse_nominal) else _build_loss_fn_for_draw(config_k, sa, all_data_k, batch_size)
         loss_fns_by_draw.append(loss_fn_k)
         batches_by_draw.append([build_batch(all_data_k, inds, background_subtract) for inds in batch_indices])
 
     key = jax.random.PRNGKey(int(mcmc_cfg["seed"]))
-    pooled_diff_params, static_params, diagnostics_by_draw = mcmc.run_mcmc_pooled(
+    pooled_diff_params, static_params, diagnostics_by_draw, max_r_hat_by_batch = mcmc.run_mcmc_pooled(
         config, loss_fns_by_draw, fitted_weights, batches_by_draw, key
     )
 
@@ -157,6 +160,9 @@ def mcmc_postprocess(
         all_params_std.setdefault(species, {})[key_name] = np.full(total_lineouts, np.nan)
     covariance = np.full((total_lineouts, n_active, n_active), np.nan)
     acceptance_rate = np.full(total_lineouts, np.nan)
+    # Only meaningful with >= 2 independent chains (see mcmc.run_mcmc_pooled/_max_r_hat_across_chains);
+    # stays all-NaN (and unplotted) whenever max_r_hat_by_batch is None.
+    max_r_hat = np.full(total_lineouts, np.nan) if max_r_hat_by_batch is not None else None
     # Cached here so the (optional) sample-saving block below can reuse each fit-batch's reconstruction
     # instead of recomputing it.
     physical_by_fit_batch = []
@@ -176,6 +182,8 @@ def mcmc_postprocess(
 
         rates = np.mean([np.asarray(diag["acceptance_rate"])[b] for diag in diagnostics_by_draw], axis=0)
         acceptance_rate[inds] = rates
+        if max_r_hat is not None:
+            max_r_hat[inds] = np.asarray(max_r_hat_by_batch)[b]
 
     mcmc_sigmas = (
         np.stack([all_params_std[species][key_name] for species, key_name in active_keys], axis=1)
@@ -203,7 +211,7 @@ def mcmc_postprocess(
         final_params = plotters.get_final_params(config, all_params_mean, all_axes, td)
         mcmc_sigmas_ds = plotters.save_sigmas_params_mcmc(config, all_params_mean, mcmc_sigmas, all_axes, td)
         plotters.plot_final_params(config, all_params_mean, mcmc_sigmas_ds, td)
-        plotters.plot_mcmc_diagnostics(config, acceptance_rate, td)
+        plotters.plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=max_r_hat)
 
         laplace_sigmas_ds = None
         if laplace_sigmas is not None:
@@ -225,6 +233,23 @@ def mcmc_postprocess(
             },
         )
         covariance_ds.to_netcdf(os.path.join(td, "binary", "mcmc_covariance.nc"))
+
+        if n_active > 0:
+            # A capped, evenly-spaced subset (matching plotters.plot_ang_lineouts' convention) rather
+            # than one corner plot per lineout, since a full fit can have far more lineouts than are
+            # useful to eyeball individually. Every lineout's full posterior is still preserved in
+            # mcmc_samples.nc below (when save_samples is true, the default), so any lineout not covered
+            # here can be corner-plotted after the fact -- see plotters.plot_corner's docstring.
+            n_corner_lineouts = min(8, total_lineouts)
+            corner_targets = set(np.linspace(0, total_lineouts - 1, n_corner_lineouts, dtype=int).tolist())
+            lineout_vals = np.array(config["data"]["lineouts"]["val"])
+            for b, inds in enumerate(batch_indices):
+                stacked = physical_by_fit_batch[b]
+                for lineout_local, lineout_global in enumerate(inds):
+                    if lineout_global in corner_targets:
+                        plotters.plot_corner(
+                            stacked[:, lineout_local, :], param_names, lineout_vals[lineout_global], td
+                        )
 
         if mcmc_cfg["save_samples"] and n_active > 0:
             # Reuses each fit-batch's physical-value reconstruction (physical_by_fit_batch, computed
@@ -253,5 +278,6 @@ def mcmc_postprocess(
         "mcmc_diagnostics": {
             "acceptance_rate": acceptance_rate,
             "num_calibration_draws": len(draws),
+            "max_r_hat": max_r_hat,
         }
     }

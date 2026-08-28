@@ -1,6 +1,7 @@
 import os
 import tempfile
 
+import numpy as np
 import yaml
 import mlflow
 import xarray as xr
@@ -100,6 +101,44 @@ def test_mcmc_postprocess_writes_expected_artifacts():
             with xr.open_dataset(local_path) as ds:
                 assert ds["covariance"].shape[0] == 2  # 2 lineouts, matching _assert_sane_final_params elsewhere
                 assert ds["covariance"].shape[1] == ds["covariance"].shape[2]
+
+
+def test_run_mcmc_postprocess_local_applies_overrides():
+    # Overriding other.mcmc.save_samples to False (without touching the saved deck on disk) should
+    # change what gets written -- proving `overrides` actually drives postprocessing behavior rather
+    # than being silently ignored in favor of the run's saved config snapshot.
+    with tempfile.TemporaryDirectory() as td:
+        _fit_and_stage_artifacts(td)
+        run_mcmc_postprocess_local(td, overrides={"other": {"mcmc": {"save_samples": False}}})
+
+    run = mlflow.last_active_run()
+    client = mlflow.tracking.MlflowClient()
+    binary_files = {f.path for f in client.list_artifacts(run.info.run_id, "binary")}
+    assert "binary/mcmc_samples.nc" not in binary_files
+    assert "binary/mcmc_covariance.nc" in binary_files
+
+
+def test_run_mcmc_postprocess_local_reports_r_hat_with_multiple_chains():
+    # calibration_uncertainty.num_draws is the unified chain-count knob (see mcmc_calibration.py): with
+    # every *_sigma at its default 0.0, these 3 chains differ only by init_dispersion_factor's starting-
+    # point perturbation and their own independent MH noise, and R-hat should be computable across them.
+    with tempfile.TemporaryDirectory() as td:
+        _fit_and_stage_artifacts(td)
+        final_params = run_mcmc_postprocess_local(
+            td,
+            overrides={
+                "other": {
+                    "calibration_uncertainty": {"num_draws": 3},
+                    "mcmc": {"init_dispersion_factor": 3.0},
+                }
+            },
+        )
+
+    assert final_params["mcmc_diagnostics"]["num_calibration_draws"] == 3
+    max_r_hat = np.asarray(final_params["mcmc_diagnostics"]["max_r_hat"])
+    finite = max_r_hat[np.isfinite(max_r_hat)]
+    assert len(finite) == 2  # 2 lineouts, both with active parameters
+    assert np.all(finite >= 1.0 - 1e-6)
 
 
 def test_run_mcmc_postprocess_remote():
