@@ -11,7 +11,7 @@ from functools import partial, lru_cache
 import os
 import numpy as np
 from interpax import interp2d, interp1d
-from jax.lax import scan, map as jmap
+from jax.lax import cond, scan, stop_gradient, map as jmap
 from jax import checkpoint
 
 from . import ratintn
@@ -29,6 +29,92 @@ DEFAULT_N_BETA = 1024
 # BETA_BATCH_SIZE * nvx**2; sized for the nvx=128 of the shipped 2D decks. Shipped configs
 # range nvx from 32 to 320, so the top end is ~6x this footprint.
 BETA_BATCH_SIZE = 32
+
+
+def _charge_weighted_flow(Z, fract, flow):
+    """Return the charge-weighted ion flow, preserving a singleton species axis.
+
+    ``ud`` is defined relative to the ion fluid. For a multispecies plasma the
+    order-independent ion-fluid velocity is
+    ``sum_s(Z_s * fract_s * flow_s) / sum_s(Z_s * fract_s)``.
+
+    ``flow`` may be either an array (the 1-D path) or a tuple of arrays containing
+    Cartesian components (the 2-D path). The species axis is always the last axis.
+    """
+
+    weights = Z * fract
+    weight_sum = jnp.sum(weights, axis=-1, keepdims=True)
+
+    def average(component):
+        return jnp.sum(weights * component, axis=-1, keepdims=True) / weight_sum
+
+    if isinstance(flow, tuple):
+        return tuple(average(component) for component in flow)
+    return average(flow)
+
+
+def _electron_resonance(k, omega, electron_flow, vTe):
+    """Return ``(beta, xi, |k|)`` for the longitudinal electron response.
+
+    The projection direction is fixed by ``k`` alone. Flow enters only through the
+    signed scalar resonance coordinate, so a perpendicular flow cannot rotate the
+    Radon projection and ``xi == 0`` does not require a special angular convention.
+    """
+
+    k_mag = jnp.sqrt(vdot(k, k))
+    k_hat = vdiv(k, k_mag)
+    beta = jnp.atan2(k_hat[1], k_hat[0])
+    xi = (omega / k_mag - vdot(electron_flow, k_hat)) / vTe
+    return beta, xi, k_mag
+
+
+def _principal_value_integral(df, vx, xi):
+    """Evaluate ``PV integral df(v) / (v - xi) dv`` with a finite node limit.
+
+    ``ratintn`` is retained away from an exact grid-node pole. At a node its two
+    logarithmic endpoint contributions are individually infinite, producing ``nan``
+    before their principal-value cancellation. The symmetric limit of the same
+    quadrature avoids that undefined intermediate. Because the piecewise-linear
+    interpolant has no finite derivative at a knot for a general sampled EDF, the
+    exact-node tangent is defined as the centered slope across one velocity cell.
+    This gives the optimizer a finite, grid-scale smoothing convention that does
+    not depend on floating-point precision.
+    """
+
+    denominator = vx - xi
+    scale = jnp.maximum(1.0, jnp.max(jnp.abs(vx)))
+    pole_tol = 16 * jnp.finfo(vx.dtype).eps * scale
+    at_grid_node = jnp.min(jnp.abs(denominator)) <= pole_tol
+
+    def symmetric_limit(_):
+        spacing = jnp.abs(vx[1] - vx[0])
+        xi_fixed = stop_gradient(xi)
+
+        def evaluate(pole):
+            return jnp.squeeze(ratintn.ratintn(df, vx - pole, vx))
+
+        # Use a fixed fraction of a cell for the value limit so float32 and float64
+        # follow the same numerical convention. The O(offset**2) symmetric error is
+        # negligible compared with the underlying grid discretization.
+        value_offset = 1.0e-3 * spacing
+        value = 0.5 * (
+            evaluate(xi_fixed - value_offset) + evaluate(xi_fixed + value_offset)
+        )
+
+        # A half-cell displacement lands between neighboring knots. Replacing only
+        # the xi tangent leaves derivatives through `df` and `vx` untouched.
+        half_cell = 0.5 * spacing
+        xi_slope = (evaluate(xi_fixed + half_cell) - evaluate(xi_fixed - half_cell)) / (
+            2 * half_cell
+        )
+        return value + xi_slope * (xi - xi_fixed)
+
+    return cond(
+        at_grid_node,
+        symmetric_limit,
+        lambda _: jnp.squeeze(ratintn.ratintn(df, denominator, vx)),
+        operand=None,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -120,27 +206,27 @@ class FormFactor:
         scan_calc_chi_vals(carry, xs):
             Calculates susceptibility values at a given point in the distribution function using scan.
                 carry (tuple): (velocity grid, sinogram as returned by _build_sinogram).
-                xs (tuple): (angle, xie_mag_at, klde_mag_at).
+                xs (tuple): (angle, signed_xi_at, klde_mag_at).
                 tuple: Updated carry and (fe_vphi, chiEI, chiERrat).
         calc_chi_vals(vx, sinogram, inputs):
             Calculates susceptibility values at a given point in the distribution function.
                 vx (jnp.ndarray): Velocity grid.
                 sinogram (tuple): Tabulated projection, or the 2D distribution function when n_beta is 0.
-                inputs (tuple): (angle, xie_mag_at, klde_mag_at).
+                inputs (tuple): (angle, signed_xi_at, klde_mag_at).
                 tuple: (fe_vphi, chiEI, chiERrat).
-        _calc_all_chi_vals_(vx, DF, beta, xie_mag, klde_mag):
+        _calc_all_chi_vals_(vx, DF, beta, xi, klde_mag):
             Calculates susceptibility values for all desired points xie (batch or vectorized).
                 vx (jnp.ndarray): Velocity grid.
                 DF (jnp.ndarray): 2D distribution function.
                 beta (jnp.ndarray): Angles.
-                xie_mag (jnp.ndarray): Magnitudes of normalized velocity points.
+                xi (jnp.ndarray): Signed normalized resonance coordinates.
                 klde_mag (jnp.ndarray): Magnitudes of wavevector times Debye length.
                 tuple: (fe_vphi, chiEI, chiERrat).
-        parallel_calc_all_chi_vals(x, DF, beta, xie_mag, klde_mag):
+        parallel_calc_all_chi_vals(x, DF, beta, xi, klde_mag):
             Parallelized calculation of susceptibility values across devices.
                 x (jnp.ndarray): Velocity grid.
                 DF (jnp.ndarray): 2D distribution function.
-                beta, xie_mag, klde_mag (jnp.ndarray): Parameters for susceptibility calculation.
+                beta, xi, klde_mag (jnp.ndarray): Parameters for susceptibility calculation.
                 tuple: (fe_vphi, chiEI, chiERrat).
         calc_in_2D(params):
             Calculates the collisionless Thomson spectral density function S(k,omg) for a 2D numerical EDF.
@@ -280,8 +366,7 @@ class FormFactor:
         kL = jnp.sqrt(omgL**2 - omgpe**2) / self.C
         k = jnp.sqrt(ks**2 + kL**2 - 2 * ks * kL * jnp.cos(sarad))
 
-        kdotv = k * Va
-        omgdop = omg - kdotv
+        ion_omgdop = omg - k * Va
 
         # plasma parameters
         # electrons
@@ -292,14 +377,12 @@ class FormFactor:
         Zbar = jnp.sum(Z * fract)
         ni = fract * ne / Zbar
         omgpi = constants * Z * jnp.sqrt(ni * self.Me / Mi)
-        num_species = fract.shape[3]
-
         vTi = jnp.sqrt(Ti / Mi)  # ion thermal velocity, [1, 1, 1, ns]
         kldi = (vTi / omgpi) * k
 
         # ion susceptibilities
         # finding derivative of plasma dispersion function along xii array
-        xii = omgdop / (jnp.sqrt(2.0) * vTi * k)
+        xii = ion_omgdop / (jnp.sqrt(2.0) * vTi * k)
 
         # num_ion_pts = jnp.shape(xii)
         # chiI = jnp.zeros(num_ion_pts)
@@ -308,13 +391,13 @@ class FormFactor:
         #chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
         chiI = -0.5 / (kldi**2) * (ZpiR + 1j * ZpiI) 
 
-        # electron susceptibility
-        # calculating normilized phase velcoity(xi's) for electrons
-        udr = ud - Va[:,:,:,0]
-        udr = udr[..., jnp.newaxis]  
-        
-        omgdop = omgdop[..., [0]]
-        xie = omgdop/ (k * vTe) - udr / vTe  
+        # `ud` is relative to the charge-weighted ion fluid. Convert it to the
+        # absolute electron flow before evaluating the electron resonance. Unlike the
+        # previous ion-1 reference, this is invariant to species ordering.
+        ion_bulk_flow = _charge_weighted_flow(Z, fract, Va)
+        electron_flow = ion_bulk_flow + ud
+        electron_omgdop = omg - k * electron_flow
+        xie = electron_omgdop / (k * vTe)
 
         #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
         fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
@@ -352,7 +435,7 @@ class FormFactor:
         SKW_ion_omg = SKW_ion_omg[..., jnp.newaxis]
         SKW_ele_omg = 1.0 / k * (ele_comp) / ((jnp.abs(epsilon)) ** 2)
 
-        PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne
+        PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omg / omgL) * re**2.0 * ne
         # PsOmg = jnp.squeeze(PsOmg, axis=-1)
         lams = 2 * jnp.pi * self.C / self.omgs
         PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
@@ -428,7 +511,10 @@ class FormFactor:
 
         """
         dvx = vx[1] - vx[0]
-        return jnp.sum(checkpoint(self.rotate)(vx, DF, beta * 180 / jnp.pi, reshape=False), axis=0) * dvx
+        # ``rotate`` uses the image-rotation sign convention, whereas ``beta`` is the
+        # mathematical direction (cos(beta), sin(beta)). Negate the angle so the
+        # projected coordinate increases along that direction.
+        return jnp.sum(checkpoint(self.rotate)(vx, DF, -beta * 180 / jnp.pi, reshape=False), axis=0) * dvx
 
     def _build_sinogram(self, vx, DF):
         """
@@ -566,7 +652,7 @@ class FormFactor:
             xs: container for
 
                 element: angle in radians
-                xie_mag_at: float
+                xi_at: signed normalized resonance coordinate
                 klde_mag_at: float
 
         Returns:
@@ -593,7 +679,7 @@ class FormFactor:
             inputs: container for
 
                 element: angle in radians
-                xie_mag_at: float
+                xi_at: signed normalized resonance coordinate
                 klde_mag_at: float
 
         Returns:
@@ -603,7 +689,7 @@ class FormFactor:
             chiERrat: float, value of the real part of the electron susceptibility at the point xie
 
         """
-        element, xie_mag_at, klde_mag_at = inputs
+        element, xi_at, klde_mag_at = inputs
 
         if self.n_beta:
             proj, dproj = sinogram
@@ -611,28 +697,25 @@ class FormFactor:
             # the projection itself is only ever sampled at xie, so it is gathered at that
             # one point rather than as a whole row.
             df = self._interp_beta(element, dproj)
-            fe_vphi = self._interp_beta_v(element, vx, xie_mag_at, proj)
+            fe_vphi = self._interp_beta_v(element, vx, xi_at, proj)
         else:
             fe_1D_k = self.project(vx, sinogram, element)
             df = jnp.gradient(fe_1D_k, vx[1] - vx[0])
             # find the location of xie in axis array
             # add the value of fe to the fe container
-            fe_vphi = interp_uniform(xie_mag_at, vx, fe_1D_k)
+            fe_vphi = interp_uniform(xi_at, vx, fe_1D_k)
 
-        dfe = interp_uniform(xie_mag_at, vx, df)
+        dfe = interp_uniform(xi_at, vx, df)
 
         # Chi is really chi evaluated at the points xie
         # so the imaginary part is
-        chiEI = jnp.pi / (klde_mag_at**2) * dfe
+        chiEI = -jnp.pi / (klde_mag_at**2) * dfe
 
-        # the real part is solved with rational integration
-        # giving the value at a single point where the pole is located at xie_mag[ind]
-        chiERrat = (
-            -1.0 / (klde_mag_at**2) * ratintn.ratintn(df, vx - xie_mag_at, vx)
-        )  # this may need to be downsampled for run time
+        # The real part is the principal-value integral at the signed pole location.
+        chiERrat = -1.0 / (klde_mag_at**2) * _principal_value_integral(df, vx, xi_at)
         return fe_vphi, chiEI, chiERrat
 
-    def _calc_all_chi_vals_(self, vx, DF, beta, xie_mag, klde_mag):
+    def _calc_all_chi_vals_(self, vx, DF, beta, xi, klde_mag):
         """
         Calculate the susceptibility values for all the desired points xie
 
@@ -641,7 +724,7 @@ class FormFactor:
             x: normalized velocity grid
             beta: angle of the k-vector form the x-axis
             DF: 2D array, distribution function
-            xie_mag: magnitude of the normalized velocity points where the calculations need to be performed
+            xi: signed normalized resonance coordinates
             klde_mag: magnitude of the wavevector time debye length where the calculations need to be performed
 
         Returns:
@@ -653,7 +736,7 @@ class FormFactor:
         """
         calc_chi_vals = "batch_vmap"
 
-        flattened_inputs = (beta.flatten(), xie_mag.flatten(), klde_mag.flatten())
+        flattened_inputs = (beta.flatten(), xi.flatten(), klde_mag.flatten())
 
         # Tabulate the projection over angles once, rather than rotating the whole 2D
         # distribution function again at every one of the (many) evaluation points. When
@@ -681,9 +764,9 @@ class FormFactor:
 
         return fe_vphi, chiEI, chiERrat
 
-    def parallel_calc_all_chi_vals(self, x, DF, beta, xie_mag, klde_mag):
+    def parallel_calc_all_chi_vals(self, x, DF, beta, xi, klde_mag):
         """
-        Multi-device counterpart to _calc_all_chi_vals_: flattens beta/xie_mag/klde_mag, distributes them
+        Multi-device counterpart to _calc_all_chi_vals_: flattens beta/xi/klde_mag, distributes them
         across devices via self.sharding (device_put), then delegates to _calc_all_chi_vals_ to compute the
         susceptibility values in parallel before reshaping the results back to the input shape.
 
@@ -692,7 +775,7 @@ class FormFactor:
             x: normalized velocity grid
             DF: 2D array, distribution function
             beta: angle of the k-vector from the x-axis
-            xie_mag: magnitude of the normalized velocity points where the calculations need to be performed
+            xi: signed normalized resonance coordinates
             klde_mag: magnitude of the wavevector times debye length where the calculations need to be performed
 
         Returns:
@@ -703,14 +786,14 @@ class FormFactor:
 
         """
         f_beta = beta.reshape(-1)
-        f_xie_mag = xie_mag.reshape(-1)
+        f_xi = xi.reshape(-1)
         f_klde_mag = klde_mag.reshape(-1)
 
         flat_beta = device_put(f_beta, self.sharding)
-        flat_xie_mag = device_put(f_xie_mag, self.sharding)
+        flat_xi = device_put(f_xi, self.sharding)
         flat_klde_mag = device_put(f_klde_mag, self.sharding)
 
-        fe_vphi, chiEI, chiERrat = self._calc_all_chi_vals_(x, DF, flat_beta, flat_xie_mag, flat_klde_mag)
+        fe_vphi, chiEI, chiERrat = self._calc_all_chi_vals_(x, DF, flat_beta, flat_xi, flat_klde_mag)
 
         fe_vphi = fe_vphi.reshape(beta.shape)
         chiEI = chiEI.reshape(beta.shape)
@@ -718,141 +801,138 @@ class FormFactor:
 
         return fe_vphi, chiEI, chiERrat
 
+    def _ion_flow_angles(self, ion_species):
+        """Return per-species 2-D flow angles in the runtime species order."""
+
+        if isinstance(self.va_angle, dict):
+            missing = [species for species in ion_species if species not in self.va_angle]
+            if missing:
+                raise ValueError(f"Missing Va angle for ion species: {', '.join(missing)}")
+            return jnp.asarray([self.va_angle[species] for species in ion_species])
+
+        angles = jnp.atleast_1d(jnp.asarray(self.va_angle))
+        if angles.size == 1:
+            return jnp.broadcast_to(angles, (len(ion_species),))
+        if angles.size != len(ion_species):
+            raise ValueError(
+                f"Expected one Va angle per ion species ({len(ion_species)}), got {angles.size}"
+            )
+        return angles
+
     def calc_in_2D(self, params):
-        """
-        Calculates the collisionless Thomson spectral density function S(k,omg) for a 2D numerical EDF, capable of
-        handling multiple plasma conditions and scattering angles. Distribution functions can be arbitrary as
-        calculations of the susceptibility are done on-the-fly. Calculations are done in 4 dimension with the following
-        shape, [number of gradient-points, number of wavelength points, number of angles, number of ion-species].
+        """Calculate the collisionless Thomson spectrum for a 2-D numerical EDF.
 
-        In angular, `fe` is a Tuple, Distribution function (DF), normalized velocity (x), and angles from k_L to f1 in
-        radians
-
-        Args:
-            params: ThomsonParams object, contains all the parameters from the input deck
-
-        Returns:
-            formfactor: array of the calculated spectrum, has the shape [number of gradient-points, number of
-                wavelength points, number of angles]
-            lams: wavelength axis
+        Each ion species has its own flow vector. ``general.ud`` is the electron drift
+        relative to their charge-weighted bulk flow, so the electron lab-frame velocity
+        is ``sum(Z * fract * Va) / Zbar + ud``. The longitudinal EDF projection is fixed
+        by ``k_hat`` and is sampled at a signed resonance coordinate.
         """
 
         ne = (
             1.0e20
             * params["electron"]["ne"]
             * jnp.linspace(
-                (1 - params["general"]["ne_gradient"] / 200),
-                (1 + params["general"]["ne_gradient"] / 200),
+                1 - params["general"]["ne_gradient"] / 200,
+                1 + params["general"]["ne_gradient"] / 200,
                 self.num_grad_points,
             )
-        )
-        Te = params["electron"]["Te"] * jnp.linspace(
-            (1 - params["general"]["Te_gradient"] / 200),
-            (1 + params["general"]["Te_gradient"] / 200),
-            self.num_grad_points,
-        )
+        )[:, None, None]
+        Te = (
+            params["electron"]["Te"]
+            * jnp.linspace(
+                1 - params["general"]["Te_gradient"] / 200,
+                1 + params["general"]["Te_gradient"] / 200,
+                self.num_grad_points,
+            )
+        )[:, None, None]
         lam = params["general"]["lam"] + self.lam_shift
-        A = jnp.array([params[species]["A"] for species in params.keys() if "ion" in species])
-        Z = jnp.array([params[species]["Z"] for species in params.keys() if "ion" in species])
-        Ti = jnp.array([params[species]["Ti"] for species in params.keys() if "ion" in species])
-        fract = jnp.array([params[species]["fract"] for species in params.keys() if "ion" in species])
-        Va = params["general"]["Va"] * 1e6  # flow velocity in 1e6 cm/s
-        ud = params["general"]["ud"] * 1e6  # drift velocity in 1e6 cm/s
         fe = params["electron"]["fe"]
         vx = params["electron"]["v"]
 
-        Mi = jnp.array(A) * self.Mp  # ion mass
-        re = 2.8179e-13  # classical electron radius cm
-        Esq = self.Me * self.C**2 * re  # sq of the electron charge keV cm
+        ion_species = [species for species in params if species.startswith("ion-")]
+        A = jnp.asarray([params[species]["A"] for species in ion_species])[None, None, None, :]
+        Z = jnp.asarray([params[species]["Z"] for species in ion_species])[None, None, None, :]
+        Ti = jnp.asarray([params[species]["Ti"] for species in ion_species])[None, None, None, :]
+        fract = jnp.asarray([params[species]["fract"] for species in ion_species])[None, None, None, :]
+        Va_mag = jnp.asarray([params[species]["Va"] for species in ion_species]) * 1.0e6
+
+        va_angle = self._ion_flow_angles(ion_species) * jnp.pi / 180
+        ion_flow = (
+            (Va_mag * jnp.cos(va_angle))[None, None, None, :],
+            (Va_mag * jnp.sin(va_angle))[None, None, None, :],
+        )
+        ud_mag = params["general"]["ud"] * 1.0e6
+        ud_angle = self.ud_angle * jnp.pi / 180
+        relative_electron_flow = (ud_mag * jnp.cos(ud_angle), ud_mag * jnp.sin(ud_angle))
+
+        Mi = A * self.Mp
+        re = 2.8179e-13
+        Esq = self.Me * self.C**2 * re
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
-        sarad = self.scattering_angles["sa"] * jnp.pi / 180  # scattering angle in radians
-        sarad = jnp.reshape(sarad, [1, 1, -1])
 
-        # Va = Va * 1e6  # flow velocity in 1e6 cm/s
-        # convert Va from mag, angle to x,y
-        Va = (Va * jnp.cos(self.va_angle * jnp.pi / 180), Va * jnp.sin(self.va_angle * jnp.pi / 180))
-        # ud = ud * 1e6  # drift velocity in 1e6 cm/s
-        # convert ua from mag, angle to x,y
-        ud = (ud * jnp.cos(self.ud_angle * jnp.pi / 180), ud * jnp.sin(self.ud_angle * jnp.pi / 180))
+        # Keep the calculation axes explicit: [gradient, wavelength, angle], adding
+        # species only as the final axis for ion quantities.
+        sarad = self.scattering_angles["sa"][None, None, :] * jnp.pi / 180
+        omgL = self.omgL_num / lam
+        omgs = self.omgs[..., 0]
+        omgpe = constants * jnp.sqrt(ne)
+        omg = omgs - omgL
 
-        omgL = self.omgL_num / lam  # laser frequency Rad / s
-        # calculate k and omega vectors
-        omgpe = constants * jnp.sqrt(ne[..., jnp.newaxis, jnp.newaxis])  # plasma frequency Rad/cm
-        # omgs = omgs[jnp.newaxis, ..., jnp.newaxis]
-        omg = self.omgs - omgL
-
-        kL = (jnp.sqrt(omgL**2 - omgpe**2) / self.C, jnp.zeros_like(omgpe))  # defined to be along the x axis
-        ks_mag = jnp.sqrt(self.omgs**2 - omgpe**2) / self.C
+        kL = (jnp.sqrt(omgL**2 - omgpe**2) / self.C, jnp.zeros_like(omgpe))
+        ks_mag = jnp.sqrt(omgs**2 - omgpe**2) / self.C
         ks = (jnp.cos(sarad) * ks_mag, jnp.sin(sarad) * ks_mag)
-        k = vsub(ks, kL)  # 2D
-        k_mag = jnp.sqrt(vdot(k, k))  # 1D
+        k = vsub(ks, kL)
 
-        # kdotv = k * Va
-        omgdop = omg - vdot(k, Va)  # 1D
+        Zbar = jnp.sum(Z * fract, axis=-1, keepdims=True)
+        ion_bulk_flow = _charge_weighted_flow(Z, fract, ion_flow)
+        electron_flow = (
+            ion_bulk_flow[0][..., 0] + relative_electron_flow[0],
+            ion_bulk_flow[1][..., 0] + relative_electron_flow[1],
+        )
 
-        # plasma parameters
+        vTe = jnp.sqrt(Te / self.Me)
+        beta, xi, k_mag = _electron_resonance(k, omg, electron_flow, vTe)
+        klde_mag = (vTe / omgpe) * k_mag
 
-        # electrons
-        vTe = jnp.sqrt(Te[..., jnp.newaxis, jnp.newaxis] / self.Me)  # electron thermal velocity
-        klde_mag = (vTe / omgpe) * (k_mag[..., jnp.newaxis])  # 1D
-
-        # ions
-        Z = jnp.reshape(jnp.array(Z), [1, 1, 1, -1])
-        Mi = jnp.reshape(Mi, [1, 1, 1, -1])
-        fract = jnp.reshape(jnp.array(fract), [1, 1, 1, -1])
-        Zbar = jnp.sum(Z * fract)
-        ni = fract * ne[..., jnp.newaxis, jnp.newaxis, jnp.newaxis] / Zbar
+        # Each ion susceptibility retains its species-specific Doppler shift.
+        k_by_species = (k[0][..., None], k[1][..., None])
+        ion_omgdop = omg[..., None] - vdot(k_by_species, ion_flow)
+        ni = fract * ne[..., None] / Zbar
         omgpi = constants * Z * jnp.sqrt(ni * self.Me / Mi)
+        vTi = jnp.sqrt(Ti / Mi)
+        kldi = (vTi / omgpi) * k_mag[..., None]
+        xii = ion_omgdop / (jnp.sqrt(2.0) * vTi * k_mag[..., None])
 
-        vTi = jnp.sqrt(Ti / Mi)  # ion thermal velocity
-        kldi = (vTi / omgpi) * (k_mag[..., jnp.newaxis])
-        # kldi = vdot((vTi / omgpi), v_add_dim(k))
-
-        # ion susceptibilities
-        # finding derivative of plasma dispersion function along xii array
-        # proper handeling of multiple ion temperatures is not implemented
-        xii = 1.0 / jnp.transpose((jnp.sqrt(2.0) * vTi), [1, 0, 2, 3]) * ((omgdop / k_mag)[..., jnp.newaxis])
-
-        # probably should be generalized to an arbitrary distribtuion function but for now just assuming maxwellian
         ZpiR = interp_uniform(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
         ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
-        chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + jnp.sqrt(-1 + 0j) * ZpiI), 3)
+        chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), axis=-1)
 
-        # electron susceptibility
-        # calculating normilized phase velcoity(xi's) for electrons
-        # xie = vsub(vdiv(omgdop, vdot(k, vTe)), vdiv(ud, vTe))
-        xie = vdiv(vsub(vdot(omgdop / k_mag**2, k), ud), vTe)
-        xie_mag = jnp.sqrt(vdot(xie, xie))
-        # DF, (x, y) = fe
-        #
-        # for each vector in xie
-        # find the rotation angle beta, the heaviside changes the angles to [0, 2pi)
-        beta = jnp.arctan(xie[1] / xie[0]) + jnp.pi * (-jnp.heaviside(xie[0], 1) + 1)
-
-        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(vx, fe, beta, xie_mag, klde_mag)
-
+        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(vx, fe, beta, xi, klde_mag)
         chiE = chiERrat + 1j * chiEI
         epsilon = 1.0 + chiE + chiI
 
-        # #adds damping to mimic collisional damping and prevent divide by zero issues
-        # epsilon = epsilon - 0.1j
-
-        # This line needs to be changed if ion distribution is changed!!!
-        ion_comp_fact = jnp.transpose(fract * Z**2 / Zbar / vTi, [1, 0, 2, 3])
-        ion_comp = ion_comp_fact * (
-            (jnp.abs(chiE[..., jnp.newaxis])) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
+        ion_comp_fact = fract * Z**2 / Zbar / vTi
+        ion_comp = (
+            ion_comp_fact
+            * jnp.abs(chiE[..., None]) ** 2
+            * jnp.exp(-(xii**2))
+            / jnp.sqrt(2 * jnp.pi)
         )
+        ele_comp = jnp.abs(1.0 + chiI) ** 2 * fe_vphi / vTe
 
-        ele_comp = (jnp.abs(1.0 + chiI)) ** 2.0 * fe_vphi / vTe
+        SKW_ion_omg = jnp.sum(
+            ion_comp / k_mag[..., None] / jnp.abs(epsilon[..., None]) ** 2,
+            axis=-1,
+        )
+        SKW_ele_omg = ele_comp / k_mag / jnp.abs(epsilon) ** 2
 
-        SKW_ion_omg = 1.0 / k_mag[..., jnp.newaxis] * ion_comp / ((jnp.abs(epsilon[..., jnp.newaxis])) ** 2)
-
-        SKW_ion_omg = jnp.sum(SKW_ion_omg, 3)
-        SKW_ele_omg = 1.0 / k_mag * (ele_comp) / ((jnp.abs(epsilon)) ** 2)
-
-        PsOmg = (SKW_ion_omg + SKW_ele_omg) * (1 + 2 * omgdop / omgL) * re**2.0 * ne[:, None, None]
+        PsOmg = (
+            (SKW_ion_omg + SKW_ele_omg)
+            * (1 + 2 * omg / omgL)
+            * re**2
+            * ne
+        )
         lams = 2 * jnp.pi * self.C / self.omgs
-        PsLam = PsOmg * 2 * jnp.pi * self.C / lams**2
-        formfactor = PsLam
+        formfactor = PsOmg * 2 * jnp.pi * self.C / lams[..., 0] ** 2
 
         return formfactor, lams
