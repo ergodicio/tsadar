@@ -126,7 +126,9 @@ def _evaluate_values_and_drift_gradients(
 ):
     def one_phase(phase):
         result = integrate(5.0, phase, integration_panels, root_scan_panels)
-        gradient = jax.jacrev(
+        # The input is one scalar while the output has one entry per detector bin,
+        # so forward mode forms the complete Jacobian in one tangent evaluation.
+        gradient = jax.jacfwd(
             lambda electron_drift: integrate(
                 electron_drift,
                 phase,
@@ -170,6 +172,34 @@ def test_small_angle_unresolved_epw_values_and_gradients_converge():
         assert np.all(np.isfinite(np.asarray(results.bin_mean)))
         assert np.all(np.isfinite(np.asarray(gradient)))
     assert np.linalg.norm(gradients[-1][0]) > 0
+
+    # Retain a focused reverse-mode check representative of inference: one scalar
+    # detector loss must have the same drift derivative as contracting the full
+    # forward-mode detector Jacobian with its loss weights.
+    loss_weights = jnp.linspace(-0.5, 0.75, DETECTOR_EDGES_NM.size - 1)
+    loss_weights *= jnp.diff(DETECTOR_EDGES_NM)
+
+    def weighted_detector_loss(electron_drift):
+        return jnp.vdot(
+            loss_weights,
+            integrate(
+                electron_drift,
+                PHASES[0],
+                panel_counts[-1],
+                FINE_ROOT_SCAN_PANELS,
+            ).bin_mean,
+        )
+
+    reverse_loss_gradient = jax.jit(jax.grad(weighted_detector_loss))(5.0)
+    forward_loss_gradient = jnp.vdot(loss_weights, evaluations[-1][1][0])
+    assert np.isfinite(float(reverse_loss_gradient))
+    assert abs(float(reverse_loss_gradient)) > 0
+    np.testing.assert_allclose(
+        np.asarray(reverse_loss_gradient),
+        np.asarray(forward_loss_gradient),
+        rtol=2e-10,
+        atol=2e-12,
+    )
 
     # The corrected benchmark root lies near 474.2 nm and is roughly one thousand
     # times narrower than the 0.9-nm FWHM instrument response.
