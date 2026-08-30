@@ -8,7 +8,12 @@ import os
 from .evaluate_background import get_shot_bg
 from .load_ts_data import loadData
 from .correct_throughput import correctThroughput
-from .calibration import get_calibrations, get_scattering_angles
+from .calibration import (
+    detector_edges_from_centers,
+    get_calibrations,
+    get_scattering_angles,
+    grouped_detector_edges,
+)
 from .lineouts import get_lineouts
 from .data_visualizer import launch_data_visualizer
 from .feature_detector import first_guess
@@ -130,6 +135,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
         print(f"final {num_slices % batch_size} lineouts have been removed")
 
+    electron_wavelength_edges = None
+
     # extract ARTS section
     if (config["data"]["lineouts"]["type"] == "range") & (config["other"]["extraoptions"]["spectype"] == "angular"):
         config["other"]["extraoptions"]["spectype"] = "angular_full"
@@ -139,6 +146,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # down sample image to resolution units by summation
         ang_res_unit = config["other"]["ang_res_unit"]  # in pixels
         lam_res_unit = config["other"]["lam_res_unit"]  # in pixels
+        electron_wavelength_edges = grouped_detector_edges(axisyE, lam_res_unit)
 
         data_res_unit = np.array(
             [np.average(elecData[i : i + lam_res_unit, :], axis=0) for i in range(0, elecData.shape[0], lam_res_unit)]
@@ -198,6 +206,14 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         launch_data_visualizer(elecData, ionData, all_data, all_axes, config)
 
     config["other"]["detector_specs"]["widIRF"] = stddev
+    if config["other"]["extraoptions"]["spectype"] == "angular_full":
+        # Keep the calibrated axis exposed to plotting/loss code as bin centers, but
+        # retain the finite support of every (possibly ragged) spectral resolution
+        # unit for detector-bin quadrature.
+        if electron_wavelength_edges is None:
+            electron_wavelength_edges = detector_edges_from_centers(np.ravel(axisyE))
+        config["other"]["detector_specs"]["electron_wavelength_edges"] = electron_wavelength_edges
+        config["other"]["detector_specs"]["electron_wavelength_centers"] = np.ravel(axisyE)
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
     config["other"]["lamrangI"] = [axisyI[0], axisyI[-1]]
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])

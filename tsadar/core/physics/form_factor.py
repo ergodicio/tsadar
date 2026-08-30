@@ -257,6 +257,7 @@ class FormFactor:
         minmax = 8.2
         h1 = 1024  # 1024
         lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
+        self.lambda_axis_nm = lamAxis
         self.omgL_num = 2 * jnp.pi * 1e7 * self.C
         omgs = 2e7 * jnp.pi * self.C / lamAxis  # Scattered frequency axis(1 / sec)
         self.omgs = omgs[None, ..., None, None]  # [1, npts, 1, 1]
@@ -715,7 +716,7 @@ class FormFactor:
         chiERrat = -1.0 / (klde_mag_at**2) * _principal_value_integral(df, vx, xi_at)
         return fe_vphi, chiEI, chiERrat
 
-    def _calc_all_chi_vals_(self, vx, DF, beta, xi, klde_mag):
+    def _calc_all_chi_vals_(self, vx, DF, beta, xi, klde_mag, sinogram=None):
         """
         Calculate the susceptibility values for all the desired points xie
 
@@ -734,26 +735,36 @@ class FormFactor:
             chiERrat: real part of the electron susceptibility
 
         """
-        calc_chi_vals = "batch_vmap"
-
-        flattened_inputs = (beta.flatten(), xi.flatten(), klde_mag.flatten())
-
         # Tabulate the projection over angles once, rather than rotating the whole 2D
         # distribution function again at every one of the (many) evaluation points. When
         # `n_beta` is 0 the distribution function is passed through and each point does
         # its own exact rotation, which is the behaviour this replaced.
-        df_or_sinogram = self._build_sinogram(vx, jnp.squeeze(DF)) if self.n_beta else jnp.squeeze(DF)
+        if sinogram is None:
+            sinogram = self._build_sinogram(vx, jnp.squeeze(DF)) if self.n_beta else jnp.squeeze(DF)
+
+        return self._calc_all_chi_vals_from_sinogram(vx, sinogram, beta, xi, klde_mag)
+
+    def _calc_all_chi_vals_from_sinogram(self, vx, sinogram, beta, xi, klde_mag):
+        """Evaluate electron terms using an already prepared EDF projection.
+
+        Keeping this separate from :meth:`_calc_all_chi_vals_` lets wavelength-space
+        quadrature reuse the expensive numerical-EDF sinogram across root searches and
+        repeated batches of quadrature nodes.
+        """
+
+        calc_chi_vals = "batch_vmap"
+        flattened_inputs = (beta.flatten(), xi.flatten(), klde_mag.flatten())
 
         if calc_chi_vals == "scan":
             _, (fe_vphi, chiEI, chiERrat) = scan(
-                self.scan_calc_chi_vals, (vx, df_or_sinogram), flattened_inputs, unroll=1
+                self.scan_calc_chi_vals, (vx, sinogram), flattened_inputs, unroll=1
             )
 
         elif calc_chi_vals == "vmap":
-            fe_vphi, chiEI, chiERrat = self.vmap_calc_chi_vals(vx, df_or_sinogram, flattened_inputs)
+            fe_vphi, chiEI, chiERrat = self.vmap_calc_chi_vals(vx, sinogram, flattened_inputs)
 
         elif calc_chi_vals == "batch_vmap":
-            batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, vx, df_or_sinogram)
+            batch_vmap_calc_chi_vals = partial(self.calc_chi_vals, vx, sinogram)
             fe_vphi, chiEI, chiERrat = jmap(batch_vmap_calc_chi_vals, xs=flattened_inputs, batch_size=128)
         else:
             raise NotImplementedError
@@ -764,7 +775,7 @@ class FormFactor:
 
         return fe_vphi, chiEI, chiERrat
 
-    def parallel_calc_all_chi_vals(self, x, DF, beta, xi, klde_mag):
+    def parallel_calc_all_chi_vals(self, x, DF, beta, xi, klde_mag, sinogram=None):
         """
         Multi-device counterpart to _calc_all_chi_vals_: flattens beta/xi/klde_mag, distributes them
         across devices via self.sharding (device_put), then delegates to _calc_all_chi_vals_ to compute the
@@ -793,7 +804,14 @@ class FormFactor:
         flat_xi = device_put(f_xi, self.sharding)
         flat_klde_mag = device_put(f_klde_mag, self.sharding)
 
-        fe_vphi, chiEI, chiERrat = self._calc_all_chi_vals_(x, DF, flat_beta, flat_xi, flat_klde_mag)
+        fe_vphi, chiEI, chiERrat = self._calc_all_chi_vals_(
+            x,
+            DF,
+            flat_beta,
+            flat_xi,
+            flat_klde_mag,
+            sinogram=sinogram,
+        )
 
         fe_vphi = fe_vphi.reshape(beta.shape)
         chiEI = chiEI.reshape(beta.shape)
@@ -819,14 +837,117 @@ class FormFactor:
             )
         return angles
 
-    def calc_in_2D(self, params):
-        """Calculate the collisionless Thomson spectrum for a 2-D numerical EDF.
+    def prepare_2D_sinogram(self, params):
+        """Prepare the wavelength-independent numerical-EDF projection state.
 
-        Each ion species has its own flow vector. ``general.ud`` is the electron drift
-        relative to their charge-weighted bulk flow, so the electron lab-frame velocity
-        is ``sum(Z * fract * Va) / Zbar + ud``. The longitudinal EDF projection is fixed
-        by ``k_hat`` and is sampled at a signed resonance coordinate.
+        Building the sinogram is the expensive part of evaluating a 2-D numerical
+        distribution. Detector quadrature should call this once, then pass the returned
+        state to every :meth:`calc_2D_spectral_terms` call made for root searches and
+        quadrature nodes. When ``n_beta == 0`` the returned state is the exact 2-D EDF
+        itself, preserving the existing exact-rotation fallback.
         """
+
+        vx = params["electron"]["v"]
+        fe = jnp.squeeze(params["electron"]["fe"])
+        return self._build_sinogram(vx, fe) if self.n_beta else fe
+
+    def prepare_2D_spectral_evaluator(self, params, scattering_angles=None):
+        """Return an arbitrary-wavelength evaluator backed by one cached sinogram.
+
+        ``scattering_angles`` is an optional scalar or one-dimensional array in degrees.
+        The returned callable accepts a one-dimensional wavelength array in nm and
+        returns ``(numerator_lambda, epsilon)``; see
+        :meth:`calc_2D_spectral_terms` for the precise convention and shapes.
+        """
+
+        sinogram = self.prepare_2D_sinogram(params)
+        return partial(
+            self.calc_2D_spectral_terms,
+            params,
+            sinogram=sinogram,
+            scattering_angles=scattering_angles,
+        )
+
+    def calc_2D_spectral_terms(
+        self,
+        params,
+        wavelengths_nm,
+        sinogram=None,
+        scattering_angles=None,
+    ):
+        """Evaluate reusable 2-D spectral terms on arbitrary wavelength nodes.
+
+        Args:
+            params: Runtime plasma and numerical-EDF parameters.
+            wavelengths_nm: One-dimensional physical scattered-wavelength nodes in nm.
+            sinogram: Optional state returned by :meth:`prepare_2D_sinogram`. Supplying
+                it prevents the numerical EDF from being projected again.
+            scattering_angles: Optional scalar or one-dimensional array of scattering
+                angles in degrees. By default, uses ``self.scattering_angles["sa"]``.
+
+        Returns:
+            A tuple ``(numerator_lambda, epsilon)``. Both arrays have shape
+            ``[wavelength, gradient, angle]``. The physical wavelength-space spectrum is
+            exactly ``numerator_lambda / abs(epsilon)**2``. ``numerator_lambda`` includes
+            the electron and ion structure-factor numerators, ``1 / |k|``, the
+            laboratory-frequency factor ``1 + 2*omega/omega_L``, ``r_e**2 n_e``, and the
+            ``d omega / d lambda`` Jacobian. No dielectric denominator is included.
+        """
+
+        wavelengths_nm = jnp.asarray(wavelengths_nm)
+        if wavelengths_nm.ndim != 1:
+            raise ValueError(
+                "wavelengths_nm must be one-dimensional; use "
+                "calc_2D_spectral_terms_at_points for per-spectrum nodes"
+            )
+
+        angles = self.scattering_angles["sa"] if scattering_angles is None else scattering_angles
+        angles = jnp.atleast_1d(jnp.asarray(angles))
+        wavelength_points = jnp.broadcast_to(
+            wavelengths_nm[:, None, None],
+            (wavelengths_nm.size, self.num_grad_points, angles.size),
+        )
+        return self.calc_2D_spectral_terms_at_points(
+            params,
+            wavelength_points,
+            sinogram=sinogram,
+            scattering_angles=angles,
+        )
+
+    def calc_2D_spectral_terms_at_points(
+        self,
+        params,
+        wavelengths_nm,
+        sinogram=None,
+        scattering_angles=None,
+    ):
+        """Evaluate terms at a distinct wavelength mesh for every plasma spectrum.
+
+        ``wavelengths_nm`` has shape ``sample_shape + [gradient, angle]`` and the two
+        returned arrays have the identical shape. This is the efficient interface for
+        root-mapped quadrature, where each gradient/angle spectrum needs its own nodes.
+        For a common one-dimensional wavelength grid, prefer
+        :meth:`calc_2D_spectral_terms`.
+        """
+
+        angles = self.scattering_angles["sa"] if scattering_angles is None else scattering_angles
+        angles = jnp.atleast_1d(jnp.asarray(angles))
+        wavelengths_nm = jnp.asarray(wavelengths_nm)
+        expected_trailing_shape = (self.num_grad_points, angles.size)
+        if wavelengths_nm.ndim < 2 or wavelengths_nm.shape[-2:] != expected_trailing_shape:
+            raise ValueError(
+                "wavelengths_nm must have trailing [gradient, angle] dimensions "
+                f"{expected_trailing_shape}, got {wavelengths_nm.shape}"
+            )
+
+        sample_shape = wavelengths_nm.shape[:-2]
+        # Canonical internal axes are [gradient, flattened sample, angle]. Flattening
+        # only sample axes keeps all shapes static under jit while supporting arbitrary
+        # quadrature-node layouts.
+        wavelengths_nm_canonical = jnp.transpose(
+            wavelengths_nm.reshape((-1,) + expected_trailing_shape),
+            (1, 0, 2),
+        )
 
         ne = (
             1.0e20
@@ -870,11 +991,13 @@ class FormFactor:
         Esq = self.Me * self.C**2 * re
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
 
-        # Keep the calculation axes explicit: [gradient, wavelength, angle], adding
-        # species only as the final axis for ion quantities.
-        sarad = self.scattering_angles["sa"][None, None, :] * jnp.pi / 180
+        sarad = angles[None, None, :] * jnp.pi / 180
         omgL = self.omgL_num / lam
-        omgs = self.omgs[..., 0]
+        omgs = 2 * jnp.pi * 1.0e7 * self.C / wavelengths_nm_canonical
+        # Derive the wavelength-space Jacobian from the same frequency values as the
+        # historical path. Besides making the physical conversion explicit, this keeps
+        # configured-grid evaluation numerically identical down to roundoff.
+        lams_cm = 2 * jnp.pi * self.C / omgs
         omgpe = constants * jnp.sqrt(ne)
         omg = omgs - omgL
 
@@ -907,7 +1030,16 @@ class FormFactor:
         ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
         chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), axis=-1)
 
-        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(vx, fe, beta, xi, klde_mag)
+        if sinogram is None:
+            sinogram = self.prepare_2D_sinogram(params)
+        fe_vphi, chiEI, chiERrat = self.calc_all_chi_vals(
+            vx,
+            fe,
+            beta,
+            xi,
+            klde_mag,
+            sinogram=sinogram,
+        )
         chiE = chiERrat + 1j * chiEI
         epsilon = 1.0 + chiE + chiI
 
@@ -920,19 +1052,48 @@ class FormFactor:
         )
         ele_comp = jnp.abs(1.0 + chiI) ** 2 * fe_vphi / vTe
 
-        SKW_ion_omg = jnp.sum(
-            ion_comp / k_mag[..., None] / jnp.abs(epsilon[..., None]) ** 2,
-            axis=-1,
+        # Everything except the common dielectric denominator belongs in the reusable
+        # wavelength-space numerator. Keeping the lab-frequency factor here is important:
+        # it is part of the physical spectrum, not a detector-integration correction.
+        structure_numerator = (
+            jnp.sum(ion_comp / k_mag[..., None], axis=-1)
+            + ele_comp / k_mag
         )
-        SKW_ele_omg = ele_comp / k_mag / jnp.abs(epsilon) ** 2
-
-        PsOmg = (
-            (SKW_ion_omg + SKW_ele_omg)
+        numerator_lambda = (
+            structure_numerator
             * (1 + 2 * omg / omgL)
             * re**2
             * ne
+            * 2
+            * jnp.pi
+            * self.C
+            / lams_cm**2
+        )
+
+        output_shape = sample_shape + expected_trailing_shape
+
+        def restore_sample_axes(values):
+            return jnp.transpose(values, (1, 0, 2)).reshape(output_shape)
+
+        return restore_sample_axes(numerator_lambda), restore_sample_axes(epsilon)
+
+    def calc_in_2D(self, params):
+        """Calculate the collisionless Thomson spectrum for a 2-D numerical EDF.
+
+        This compatibility wrapper evaluates the reusable numerator and dielectric on
+        the object's configured wavelength grid, divides by ``abs(epsilon)**2``, and
+        restores the historical output shape ``[gradient, wavelength, angle]``.
+        """
+
+        sinogram = self.prepare_2D_sinogram(params)
+        numerator_lambda, epsilon = self.calc_2D_spectral_terms(
+            params,
+            self.lambda_axis_nm,
+            sinogram=sinogram,
+        )
+        formfactor = jnp.transpose(
+            numerator_lambda / jnp.abs(epsilon) ** 2,
+            (1, 0, 2),
         )
         lams = 2 * jnp.pi * self.C / self.omgs
-        formfactor = PsOmg * 2 * jnp.pi * self.C / lams[..., 0] ** 2
-
         return formfactor, lams

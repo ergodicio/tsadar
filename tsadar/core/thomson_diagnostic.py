@@ -1,5 +1,6 @@
 """ThomsonScatteringDiagnostic: wraps FitModel with instrument-response effects (spectrometer/angular IRFs)
 to turn a theoretical Thomson spectrum into the synthetic-detector-space spectrum comparable to real data."""
+import numpy as np
 from jax import numpy as jnp, vmap
 from scipy.signal import find_peaks
 
@@ -30,6 +31,50 @@ def _bin_average(arr, step, axis):
     arr = arr.reshape(n_bins, step, *arr.shape[1:])
     arr = jnp.nanmean(arr, axis=1)
     return jnp.moveaxis(arr, 0, axis)
+
+
+def _ensure_angular_detector_edges(cfg):
+    """Populate forward-only ARTS wavelength edges when no calibration supplied them.
+
+    In data-fitting mode :func:`tsadar.data.prepare.prepare_data` stores exact calibrated
+    edges before this class is constructed. Forward decks have only ``lamrangE``; its
+    endpoints retain their documented legacy meaning as the first and last wavelength
+    centers in the calculation. Before data preparation, calibration defines ``CCDsize``
+    as ``[wavelength, angle]``, so ``CCDsize[0]`` is the number of spectral bins.
+    Prepared data already carries explicit edges and returns above.
+    """
+
+    if (
+        cfg["other"]["extraoptions"]["spectype"] != "angular_full"
+        or not cfg["data"]["load_ele_spec"]
+    ):
+        return
+
+    detector_specs = cfg["other"]["detector_specs"]
+    if "electron_wavelength_edges" in detector_specs:
+        return
+
+    lower, upper = (float(value) for value in cfg["other"]["lamrangE"])
+    n_spectral_bins = int(cfg["other"]["CCDsize"][0])
+    if not lower < upper:
+        raise ValueError(f"ARTS wavelength bounds must be increasing, got [{lower}, {upper}].")
+    if n_spectral_bins < 1:
+        raise ValueError(f"ARTS must have at least one spectral detector bin, got {n_spectral_bins}.")
+    if n_spectral_bins == 1:
+        centers = np.asarray([0.5 * (lower + upper)])
+        edges = np.asarray([lower, upper])
+    else:
+        centers = np.linspace(lower, upper, n_spectral_bins)
+        spacing = np.diff(centers)
+        edges = np.concatenate(
+            (
+                centers[:1] - 0.5 * spacing[:1],
+                centers[:-1] + 0.5 * spacing,
+                centers[-1:] + 0.5 * spacing[-1:],
+            )
+        )
+    detector_specs["electron_wavelength_edges"] = edges
+    detector_specs["electron_wavelength_centers"] = centers
 
 
 def _irfs_from_config(cfg, scattering_angles):
@@ -109,6 +154,7 @@ class ThomsonScatteringDiagnostic:
         super().__init__()
         self.cfg = cfg
         self.scattering_angles = scattering_angles
+        _ensure_angular_detector_edges(cfg)
         self.model = FitModel(cfg, scattering_angles)
         self.ele_irf, self.ion_irf, self.ats_irf = _irfs_from_config(cfg, scattering_angles)
 
@@ -151,7 +197,13 @@ class ThomsonScatteringDiagnostic:
 
         if self.cfg["data"]["load_ele_spec"]:
             if self.cfg["other"]["extraoptions"]["spectype"] == "angular_full":
-                lamAxisE, ThryE = irf.add_ATS_IRF(self.ats_irf, lamAxisE, modlE, TSins)
+                lamAxisE, ThryE = irf.add_ATS_IRF(
+                    self.ats_irf,
+                    lamAxisE,
+                    modlE,
+                    TSins,
+                    apply_spectral_blur=not self.model.electron_spectrum_is_detector_binned,
+                )
             else:
                 lamAxisE, ThryE = irf.add_electron_IRF(self.ele_irf, lamAxisE, modlE, amps["e_amps"], TSins)
         else:
@@ -174,13 +226,33 @@ class ThomsonScatteringDiagnostic:
             lamAxisE: the input wavelength axis integrated over a wavelngth resolution unit and correspondingly downsized
 
         """
-        lam_step = round(ThryE.shape[1] / batch["e_data"].shape[1])
-        ang_step = round(ThryE.shape[0] / self.cfg["other"]["CCDsize"][0])
+        target_angular_bins = batch["e_data"].shape[0]
+        if ThryE.shape[0] == target_angular_bins:
+            ang_step = 1
+        else:
+            ang_step = int(self.cfg["other"]["ang_res_unit"])
+            if ang_step < 1:
+                raise ValueError("ang_res_unit must be a positive integer")
+            expected_angular_bins = -(-ThryE.shape[0] // ang_step)
+            if expected_angular_bins != target_angular_bins:
+                raise ValueError(
+                    "Cannot reduce ARTS angular pixels with the configured resolution "
+                    f"unit: {ThryE.shape[0]} raw rows grouped by {ang_step} gives "
+                    f"{expected_angular_bins}, but the data has {target_angular_bins}."
+                )
 
-        ThryE = _bin_average(ThryE, lam_step, axis=1)  # bin the wavelength axis
+        if self.model.electron_spectrum_is_detector_binned:
+            if ThryE.shape[1] != batch["e_data"].shape[1]:
+                raise ValueError(
+                    "Root-aware ARTS spectrum already has one value per detector bin, "
+                    f"but model/data have {ThryE.shape[1]}/{batch['e_data'].shape[1]} bins."
+                )
+        else:
+            lam_step = round(ThryE.shape[1] / batch["e_data"].shape[1])
+            ThryE = _bin_average(ThryE, lam_step, axis=1)
+            lamAxisE = _bin_average(lamAxisE, lam_step, axis=0)
+
         ThryE = _bin_average(ThryE, ang_step, axis=0)  # bin the angular axis
-
-        lamAxisE = _bin_average(lamAxisE, lam_step, axis=0)
         ThryE = ThryE[self.cfg["data"]["lineouts"]["start"] : self.cfg["data"]["lineouts"]["end"], :]
         ThryE = batch["e_amps"] * ThryE / jnp.amax(ThryE, axis=1, keepdims=True)
         ThryE = jnp.where(

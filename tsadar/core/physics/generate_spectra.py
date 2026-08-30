@@ -3,8 +3,10 @@ electron (EPW) and ion (IAW) Thomson scattering spectra used for fitting and for
 from typing import Dict
 
 from .form_factor import DEFAULT_N_BETA, FormFactor
+from .resonance_quadrature import integrate_detector_bins
 
-from jax import numpy as jnp
+from jax import lax, numpy as jnp
+from jax.tree_util import tree_map
 
 
 class FitModel:
@@ -63,6 +65,94 @@ class FitModel:
 
         self.config = config
         self.scattering_angles = scattering_angles
+
+        quadrature_config = config["other"].get("resonance_quadrature", {})
+        self.electron_spectrum_is_detector_binned = bool(
+            config["data"]["load_ele_spec"]
+            and config["parameters"]["electron"]["fe"]["dim"] == 2
+            and config["other"]["extraoptions"]["spectype"] == "angular_full"
+            and quadrature_config.get("enabled", True)
+        )
+        if self.electron_spectrum_is_detector_binned:
+            detector_specs = config["other"]["detector_specs"]
+            self.electron_detector_edges_nm = jnp.asarray(
+                detector_specs["electron_wavelength_edges"]
+            )
+            self.electron_detector_centers_nm = jnp.asarray(
+                detector_specs.get(
+                    "electron_wavelength_centers",
+                    0.5
+                    * (
+                        self.electron_detector_edges_nm[:-1]
+                        + self.electron_detector_edges_nm[1:]
+                    ),
+                )
+            )
+            self.electron_irf_sigma_nm = (
+                detector_specs["widIRF"]["spect_FWHM_ele"] / 2.3548
+            )
+            tail_sigma = float(quadrature_config.get("tail_sigma", 6.0))
+            self.resonance_quadrature_options = {
+                "root_scan_panels": int(
+                    quadrature_config.get("root_scan_panels", 4096)
+                ),
+                "integration_panels": int(
+                    quadrature_config.get("integration_panels", 256)
+                ),
+                "regular_order": int(quadrature_config.get("regular_order", 8)),
+                "root_order": int(quadrature_config.get("root_order", 32)),
+                "max_roots": int(quadrature_config.get("max_roots", 16)),
+                "neighbor_panels": int(quadrature_config.get("neighbor_panels", 1)),
+                "bisection_iterations": int(
+                    quadrature_config.get("bisection_iterations", 48)
+                ),
+                "tail_sigma": tail_sigma,
+                "scan_phase": float(quadrature_config.get("scan_phase", 0.0)),
+            }
+            # ``lax.map`` keeps the expensive node-by-detector response matrix bounded
+            # in memory. A small explicit batch can recover device parallelism without
+            # ever materializing every scattering geometry at once.
+            self.resonance_quadrature_map_batch_size = int(
+                quadrature_config.get("map_batch_size", 1)
+            )
+            if self.resonance_quadrature_map_batch_size < 1:
+                raise ValueError("resonance_quadrature.map_batch_size must be positive")
+
+            self.electron_notch_filter = None
+            if config["other"]["iawfilter"][0]:
+                filter_center = float(config["other"]["iawfilter"][3])
+                filter_width = float(config["other"]["iawfilter"][2])
+                if filter_width <= 0:
+                    raise ValueError("enabled iawfilter width must be positive")
+                self.electron_notch_filter = (
+                    filter_center - filter_width / 2,
+                    filter_center + filter_width / 2,
+                    10 ** (-float(config["other"]["iawfilter"][1])),
+                )
+
+                # The rectangular filter is applied to the continuous source spectrum,
+                # before the Gaussian spectral response and detector-bin integration.
+                # Preserve every discontinuity that actually lies inside the source
+                # integration domain as an exact coarse-panel boundary. Boundaries on or
+                # outside the domain do not split an integration panel and must not be
+                # passed to the quadrature kernel, which requires strict interior points.
+                source_lower = (
+                    float(self.electron_detector_edges_nm[0])
+                    - tail_sigma * self.electron_irf_sigma_nm
+                )
+                source_upper = (
+                    float(self.electron_detector_edges_nm[-1])
+                    + tail_sigma * self.electron_irf_sigma_nm
+                )
+                integration_breakpoints = tuple(
+                    boundary
+                    for boundary in self.electron_notch_filter[:2]
+                    if source_lower < boundary < source_upper
+                )
+                if integration_breakpoints:
+                    self.resonance_quadrature_options[
+                        "integration_breakpoints_nm"
+                    ] = jnp.asarray(integration_breakpoints)
 
         assert (
             config["parameters"]["general"]["Te_gradient"]["num_grad_points"]
@@ -197,6 +287,12 @@ class FitModel:
         for the detailed/postprocessing output, so electron_spectrum passes False to skip it entirely rather than
         computing and discarding it on every forward pass.
         """
+        if self.electron_spectrum_is_detector_binned:
+            lamAxisE, modlE, ThryE, _ = self.detector_integrated_electron_spectrum(
+                all_params
+            )
+            return lamAxisE, modlE, ThryE if want_thry else 0
+
         if self.config["data"]["load_ele_spec"]:
             if self.config["parameters"]["electron"]["fe"]["dim"] == 1:
                 ThryE, lamAxisE_orig = self.electron_form_factor(all_params)
@@ -242,3 +338,93 @@ class FitModel:
             raw_thry = 0
             lamAxisE = []
         return lamAxisE, modlE, raw_thry
+
+    def detector_integrated_electron_spectrum(self, all_params):
+        """Integrate the ARTS2D electron spectrum directly into detector bins.
+
+        Each gradient/scattering-angle spectrum gets an independent root search and
+        tan-mapped quadrature because its dielectric roots occur at different physical
+        wavelengths. The Gaussian spectral IRF is folded into the integral through exact
+        CDF differences, so callers must not apply a second spectral convolution or
+        wavelength reduction. An enabled rectangular ``iawfilter`` multiplies the
+        continuous source numerator, with its in-domain edges inserted as exact
+        integration breakpoints. ``iawoff`` remains a detector-bin mask.
+
+        Returns:
+            ``(wavelength_centers_nm, aperture_weighted_bin_means,
+            per_geometry_bin_means, diagnostics)``. The first model array has shape
+            ``[calibrated angle, detector bin]``; the per-geometry array has shape
+            ``[gradient, detector bin, scattering angle]``. Every diagnostic field has
+            leading ``[gradient, scattering angle]`` axes.
+        """
+
+        if not self.electron_spectrum_is_detector_binned:
+            raise ValueError(
+                "detector-integrated electron spectra require enabled ARTS2D "
+                "resonance quadrature"
+            )
+
+        form_factor = self.electron_form_factor
+        sinogram = form_factor.prepare_2D_sinogram(all_params)
+        angles = jnp.asarray(self.scattering_angles["sa"])
+        num_gradients = form_factor.num_grad_points
+        num_angles = angles.size
+        flat_indices = jnp.arange(num_gradients * num_angles, dtype=jnp.int32)
+
+        def integrate_one(flat_index):
+            gradient_index = flat_index // num_angles
+            angle_index = flat_index % num_angles
+            angle = angles[angle_index]
+
+            def terms_at(wavelengths_nm):
+                numerator, epsilon = form_factor.calc_2D_spectral_terms(
+                    all_params,
+                    wavelengths_nm,
+                    sinogram=sinogram,
+                    scattering_angles=angle,
+                )
+                if self.electron_notch_filter is not None:
+                    filter_lower, filter_upper, attenuation = self.electron_notch_filter
+                    transmission = jnp.where(
+                        (wavelengths_nm > filter_lower)
+                        & (wavelengths_nm < filter_upper),
+                        attenuation,
+                        1.0,
+                    )
+                    numerator = numerator * transmission[:, None, None]
+                return numerator[:, gradient_index, 0], epsilon[:, gradient_index, 0]
+
+            return integrate_detector_bins(
+                terms_at,
+                self.electron_detector_edges_nm,
+                self.electron_irf_sigma_nm,
+                **self.resonance_quadrature_options,
+            )
+
+        result = lax.map(
+            integrate_one,
+            flat_indices,
+            batch_size=self.resonance_quadrature_map_batch_size,
+        )
+        per_geometry = result.bin_mean.reshape(
+            num_gradients, num_angles, self.electron_detector_edges_nm.size - 1
+        )
+        # Restore FormFactor's historical raw ordering [gradient, wavelength, angle].
+        ThryE = jnp.transpose(per_geometry, (0, 2, 1))
+        gradient_average = jnp.mean(per_geometry, axis=0)
+        modlE = jnp.matmul(self.scattering_angles["weights"], gradient_average)
+        lamAxisE = self.electron_detector_centers_nm
+
+        lam = all_params["general"]["lam"]
+        if self.config["other"]["iawoff"]:
+            ion_feature = (lamAxisE > lam - 3.0) & (lamAxisE < lam + 3.0)
+            modlE = jnp.where(ion_feature[None, :], 0, modlE)
+            ThryE = jnp.where(ion_feature[None, :, None], 0, ThryE)
+
+        diagnostics = tree_map(
+            lambda value: value.reshape(
+                (num_gradients, num_angles) + value.shape[1:]
+            ),
+            result.diagnostics,
+        )
+        return lamAxisE, modlE, ThryE, diagnostics
