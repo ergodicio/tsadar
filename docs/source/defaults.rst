@@ -86,7 +86,8 @@ These parameters are found in the ``parameters:ion-1`` section of the input deck
 
 - ``fract`` is the element ratio for multispecies plasmas; the sum of ``fract`` for all species is held constant at 1. So if there are 2 ion species and the first has ``fract: 0.3`` then 30% of the ions are of that species. If the sum of the ``fract`` fields for all species is not 1 then the code will automatically rescale them to sum to 1. It is possible to fit the ``fract`` field for one or more species, but this parameter is self normalized between 0 and 1 so it does not have bounds.
 
-- ``Va`` is the species flow velocity in 10^6 cm/s 
+- ``Va`` is the species lab-frame flow velocity in 10^6 cm/s. For 2-D distributions,
+  ``angle`` gives its direction from the x-axis in degrees.
     
 .. versionadded:: 0.2.0
     Va is now associated with indivdual ions allowing for counter-streaming plasmas or other complicated flow configurations. In previous versions the flow was a general parameter that was applied to all ions.
@@ -111,7 +112,9 @@ These parameters are found in the ``parameters:general`` section of the input de
 
 - ``ne_gradient`` is the electron density spatial gradient in % of ``ne``. ``ne`` will take the form ``linspace(ne-ne*ne_gradient.val/200, ne+ne*ne_gradient.val/200, ne_gradient.num_grad_points)``. This works the same as ``Te_gradient`` but for the electron density instead of the temperature.
 
-- ``ud`` is the electron drift velocity (relative to the ions) in 10^6 cm/s
+- ``ud`` is the electron drift velocity in 10^6 cm/s relative to the charge-weighted
+  ion bulk velocity, ``sum(Z * fract * Va) / sum(Z * fract)``. For 2-D distributions,
+  ``angle`` gives the drift direction from the x-axis in degrees.
 
 MLFlow
 ^^^^^^^^

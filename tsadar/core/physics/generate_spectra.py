@@ -75,11 +75,13 @@ class FitModel:
             if config["parameters"]["electron"]["fe"]["dim"] < 2
             else config["parameters"]["general"]["ud"]["angle"]
         )
-        va_angle = (
-            None
-            if config["parameters"]["electron"]["fe"]["dim"] < 2
-            else config["parameters"]["general"]["Va"]["angle"]
-        )
+        ion_species = [species for species in config["parameters"] if species.startswith("ion-")]
+        va_angle = None
+        if config["parameters"]["electron"]["fe"]["dim"] >= 2:
+            va_angle = {
+                species: config["parameters"][species]["Va"].get("angle", 0.0)
+                for species in ion_species
+            }
 
         # Angular resolution of the tabulated projection used by the 2D form factor. Set
         # to 0 to fall back to an exact rotation at every evaluation point, which is far
