@@ -21,7 +21,7 @@ mlflow:
   experiment: inverse-thomson-scattering
   run: multiplex_arts_rot90_nosmoothtest_nonete_1
 other:
-  PhysParams:
+  detector_specs:
     widIRF:
       ang_FWHM_ele: 1.0
       spect_FWHM_ele: 0.9

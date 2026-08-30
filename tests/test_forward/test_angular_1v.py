@@ -95,7 +95,8 @@ def test_arts1d_forward_pass():
             fig2.savefig(os.path.join(td, "SpectralDifference.png"), bbox_inches="tight")
             mlflow.log_artifacts(td)
 
-        # Testing criteria was loosened , comparsions showed absolute differences <0.0006 across the spectrum. While it is unclear why this occurred the change is smaller then expected changes from resolution changes.
+        # The reference was refreshed for analytic physical-coordinate IRF
+        # centering and removal of the legacy per-row peak restoration.
         np.testing.assert_allclose(ThryE, ground_truth, atol=1e-3)
 
 

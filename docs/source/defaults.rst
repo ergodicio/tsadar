@@ -214,9 +214,9 @@ The ``data:`` section contains the specifics on which shot and what region of th
 
     - ``iaw_cf_max`` ending wavelength for a central feature in the IAW that is to be excluded from analysis in nm, must be larger than ``iaw_cf_min``
 
-    - ``forward_epw_start`` starting wavelength in nm for the EPW calculation for forward model only
-    
-    - ``forward_epw_end`` ending wavelength in nm for the EPW calculation for forward model only
+    - ``forward_epw_start`` first wavelength center in nm for the EPW calculation in forward mode. For detector-integrated ARTS2D, the outer detector edge is inferred by half-spacing extrapolation.
+
+    - ``forward_epw_end`` last wavelength center in nm for the EPW calculation in forward mode. For detector-integrated ARTS2D, the outer detector edge is inferred by half-spacing extrapolation.
     
     - ``forward_iaw_start`` starting wavelength in nm for the IAW calculation for forward model only
     
@@ -317,7 +317,9 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``gain`` CCD counts per photo-electron; the standard OMEGA ROSS has a gain of 144. Gain must be accurate for appropriate use of Poisson statistics but the gain is generaly not important for the fitting process as the data is normalized by default.
 
-- ``points_per_pixel`` number of wavelength points computed in the spectrum per pixel in the data being analyzed, for most cases 1 is sufficient but if the peaks in the data are very narrow then it may be necessary to use a value larger than 1 to ensure the peaks are well resolved in the computed spectrum, due to the scaling behaviour its not recommended to use a value larger than 10 here.
+- ``points_per_pixel`` number of wavelength points computed per detector pixel by the legacy sampled-spectrum path. ARTS2D does not use this setting to resolve a narrow resonance: it integrates the continuous spectrum directly into the calibrated detector-bin edges.
+
+- ``resonance_quadrature`` controls the ARTS2D detector-bin integration and is enabled by default. ``root_scan_panels`` (4096 by default) is the fine grid used only to bracket sign-changing zeros of the real dielectric, while ``integration_panels`` (256 by default) controls the coarser regular quadrature grid. Separating them resolves closely spaced roots without paying the fine-grid cost in the detector response matrix. ``regular_order`` and the even ``root_order`` set the Gauss--Legendre rules away from and near a root; ``neighbor_panels`` expands the root-mapped neighborhood; ``max_roots`` is the fixed root capacity (16 by default); ``bisection_iterations`` controls the differentiable root solve; and ``tail_sigma`` extends the source integration domain beyond the detector by that many spectral-IRF standard deviations. When ``iawfilter`` is enabled, every filter edge strictly inside that source domain is inserted as an exact integration breakpoint: attenuation is applied to the continuous source spectrum before Gaussian spectral blur and detector integration, including when a filter cuts through a detector bin. ``iawoff`` remains a detector-space mask. ``scan_phase`` is intended for convergence tests and must lie strictly between -1 and 1. ``map_batch_size`` trades device parallelism for peak memory across scattering geometries. A detected root overflow, zero-width resonance, invalid breakpoint, invalid detector geometry, or non-finite evaluation produces a non-finite model rather than silently returning a partial integral.
 
 - ``ang_res_unit`` is the number of pixels in an angular resolution unit for ARTS
 

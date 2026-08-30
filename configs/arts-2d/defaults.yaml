@@ -83,7 +83,7 @@ other:
   calc_sigmas: false
   crop_window: 1
   expandedions: false
-  extraoptions:
+  extraoptions: {}
   flatbg: 0
   gain: 1
   iawfilter:
@@ -99,6 +99,27 @@ other:
   # ~1e-2 in relative L2 on the gradient w.r.t. the EDF -- the gradient is the binding
   # constraint, so raise this if a 2D fit struggles to converge.
   n_beta: 1024
+  # Integrate the collisionless ARTS2D spectrum into finite detector bins before
+  # angular postprocessing. A fine fixed scan finds dielectric roots independently of
+  # the coarser integration grid; root neighborhoods use a tan mapping so resonances much
+  # narrower than a wavelength pixel retain their area and differentiable position. The
+  # spectral Gaussian IRF is included analytically through bin-edge CDF differences and
+  # must not be applied again downstream. Enabled iawfilter edges become exact source-side
+  # integration breakpoints before that IRF is applied.
+  resonance_quadrature:
+    enabled: true
+    root_scan_panels: 4096
+    integration_panels: 256
+    regular_order: 8
+    root_order: 32
+    max_roots: 16
+    neighbor_panels: 1
+    bisection_iterations: 48
+    tail_sigma: 6.0
+    scan_phase: 0.0
+    # Number of gradient/angle spectra evaluated concurrently. One bounds memory most
+    # tightly; raise cautiously on a device with enough memory.
+    map_batch_size: 1
   points_per_pixel: 1
   refit: true
   refit_thresh: 0.25

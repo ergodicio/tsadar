@@ -9,6 +9,54 @@ import os
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
+def detector_edges_from_centers(centers: np.ndarray) -> np.ndarray:
+    """Return pixel edges for a strictly increasing one-dimensional center axis.
+
+    Interior edges are the midpoints between neighboring centers. The two outer
+    edges use the adjacent half-spacing. This keeps calibrated plotting coordinates
+    (centers) distinct from the finite detector support needed by bin quadrature.
+    """
+
+    centers = np.asarray(centers)
+    if centers.ndim != 1:
+        raise ValueError(f"Detector centers must be one-dimensional, got shape {centers.shape}.")
+    if centers.size < 2:
+        raise ValueError("At least two detector centers are required to infer outer pixel edges.")
+    if not np.all(np.isfinite(centers)):
+        raise ValueError("Detector centers must all be finite.")
+
+    spacing = np.diff(centers)
+    if not np.all(spacing > 0):
+        raise ValueError("Detector centers must be strictly increasing.")
+
+    interior = centers[:-1] + 0.5 * spacing
+    return np.concatenate(
+        (
+            centers[:1] - 0.5 * spacing[:1],
+            interior,
+            centers[-1:] + 0.5 * spacing[-1:],
+        )
+    )
+
+
+def grouped_detector_edges(centers: np.ndarray, group_size: int) -> np.ndarray:
+    """Return exact outer edges after averaging consecutive detector pixels.
+
+    The last group may be shorter than ``group_size``. Selecting boundaries from
+    the original pixel-edge array, rather than re-inferring them from the averaged
+    centers, preserves that ragged group's true physical width.
+    """
+
+    if isinstance(group_size, bool) or not isinstance(group_size, (int, np.integer)) or group_size <= 0:
+        raise ValueError(f"group_size must be a positive integer, got {group_size!r}.")
+
+    centers = np.asarray(centers)
+    edges = detector_edges_from_centers(centers)
+    boundary_indices = np.arange(0, centers.size, int(group_size), dtype=int)
+    boundary_indices = np.concatenate((boundary_indices, np.array([centers.size], dtype=int)))
+    return edges[boundary_indices]
+
+
 _SCATTERING_ANGLES = {
     # beam: (sa_start_deg, sa_end_deg, weights) -- all values precalculated for OMEGA TIM6 TS
     "P9": (
