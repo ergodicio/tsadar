@@ -96,3 +96,9 @@ Append-only record of numerical-physics investigations and the decisions needed 
 
 - With MLflow's file-store compatibility flag enabled and the declared optional HDF4 dependency installed, the complete local CPU suite finished with `192 passed, 7 skipped` in `213.63` seconds. The skips are hardware-dependent tests; the eight warnings are existing SciPy `disp` option warnings.
 - `git diff --check` and Python byte-compilation passed before commit preparation.
+
+## 2026-08-31 — CORRECTION: #136 odd-grid harmonic origin
+
+- Review of PR #145 identified that the nominal origin of an odd Cartesian velocity grid can be represented by roundoff-sized nonzero coordinates. The previous `radius > 0` branch therefore assigned an arbitrary direction there; its fallback also left the `(l, m) = (1, 0)` mode nonzero at exact zero.
+- Every anisotropic (`l > 0`) projected harmonic is now defined as zero when radius is within 32 machine epsilons of the velocity-coordinate scale. This catches only the coordinate singularity, remaining far below one velocity-cell spacing in both float32 and float64.
+- An explicit 49-by-49 regression verifies zero first-order harmonics at the nominal origin and Cartesian parity on the full odd grid. The focused harmonic file completed with `7 passed`; the combined harmonic, ARTS2D consistency, spectral-term, and sinogram suite completed with `42 passed` on CPU.

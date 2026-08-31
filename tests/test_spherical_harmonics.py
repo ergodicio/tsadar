@@ -83,8 +83,9 @@ def _spectrum(model):
     return _form_factor().calc_in_2D(params)[0]
 
 
-def test_l1_real_harmonics_are_independent_cartesian_modes():
-    model = SphericalHarmonics(_distribution_config())
+@pytest.mark.parametrize("nvx", [48, 49])
+def test_l1_real_harmonics_are_independent_cartesian_modes(nvx):
+    model = SphericalHarmonics(_distribution_config(nvx=nvx))
     vx, vy = jnp.meshgrid(model.vx, model.vx)
     x_mode = model._real_harmonic(1, 0)
     y_mode = model._real_harmonic(1, 1)
@@ -100,6 +101,11 @@ def test_l1_real_harmonics_are_independent_cartesian_modes():
     np.testing.assert_allclose(jnp.sum(vy * x_mode), 0.0, atol=2e-13)
     np.testing.assert_allclose(jnp.sum(vx * y_mode), 0.0, atol=2e-13)
     np.testing.assert_allclose(jnp.sum(x_mode * y_mode), 0.0, atol=2e-13)
+
+    if nvx % 2:
+        center = nvx // 2
+        assert x_mode[center, center] == 0.0
+        assert y_mode[center, center] == 0.0
 
 
 @pytest.mark.parametrize("mode, odd_axis, even_axis", [((1, 0), 1, 0), ((1, 1), 0, 1)])

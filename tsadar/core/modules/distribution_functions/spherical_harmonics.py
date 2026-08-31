@@ -283,6 +283,8 @@ class SphericalHarmonics(DistributionFunction2V):
         ``jax.scipy.special.sph_harm_y`` requires degree before order in current
         JAX releases.  Vectorizing scalar angle pairs avoids relying on its unusual
         broadcasting rules while keeping ``degree`` and ``order`` compile-time values.
+        Every anisotropic harmonic is defined to vanish at the coordinate singularity;
+        the tolerance also catches the roundoff-sized nominal origin of odd grids.
         """
 
         values = vmap(sph_harm_y, in_axes=(None, None, 0, 0))(
@@ -292,8 +294,15 @@ class SphericalHarmonics(DistributionFunction2V):
             self.azimuth_phi.reshape(-1, order="C"),
         ).reshape(self.vr_vxvy.shape, order="C")
         if order == 0:
-            return jnp.real(values)
-        return jnp.sqrt(2.0) * (-1) ** order * jnp.real(values)
+            real_values = jnp.real(values)
+        else:
+            real_values = jnp.sqrt(2.0) * (-1) ** order * jnp.real(values)
+
+        if degree > 0:
+            coordinate_scale = jnp.maximum(jnp.max(jnp.abs(self.vx)), 1.0)
+            origin_tolerance = 32.0 * jnp.finfo(self.vr_vxvy.dtype).eps * coordinate_scale
+            real_values = jnp.where(self.vr_vxvy <= origin_tolerance, 0.0, real_values)
+        return real_values
 
     def get_unnormed_m(self):
         """Returns the unnormalized (physical) super-Gaussian shape parameter "m" for the f00 component."""
