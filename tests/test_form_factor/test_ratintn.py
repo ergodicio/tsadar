@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from scipy.special import dawsn
-from jax import config, grad, jacfwd, jacrev, jit, jvp, vmap, numpy as jnp
+from jax import config, grad, jacfwd, jacrev, jit, jvp, vjp, vmap, numpy as jnp
 
 config.update("jax_enable_x64", True)
 
@@ -65,14 +65,16 @@ def test_every_node_and_midpoint_has_finite_primal_jvp_and_vjp(dtype):
 
     values, tangents = vmap(lambda pole: jvp(pole_value, (pole,), (jnp.ones_like(pole),)))(poles)
     reverse = vmap(grad(pole_value))(poles)
-    numerator_vjps = jacrev(
-        lambda numerator: vmap(lambda pole: ratintn(numerator, z - pole, z)[0])(poles)
-    )(f)
+    _, numerator_pullback = vjp(
+        lambda numerator: vmap(lambda pole: ratintn(numerator, z - pole, z)[0])(poles),
+        f,
+    )
+    numerator_vjp = numerator_pullback(jnp.linspace(0.5, 1.5, poles.size, dtype=dtype))[0]
 
     assert jnp.all(jnp.isfinite(values))
     assert jnp.all(jnp.isfinite(tangents))
     assert jnp.all(jnp.isfinite(reverse))
-    assert jnp.all(jnp.isfinite(numerator_vjps))
+    assert jnp.all(jnp.isfinite(numerator_vjp))
 
     tolerance = 2.0e-4 if dtype == jnp.float32 else 2.0e-10
     np.testing.assert_allclose(tangents, reverse, rtol=tolerance, atol=tolerance)
@@ -175,6 +177,60 @@ def test_forward_and_reverse_modes_agree_at_singular_locations(dtype, location):
     tolerance = 3.0e-4 if dtype == jnp.float32 else 2.0e-10
     np.testing.assert_allclose(forward_g, reverse_g, rtol=tolerance, atol=tolerance)
     np.testing.assert_allclose(forward_f, reverse_f, rtol=tolerance, atol=tolerance)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize(
+    ("bounds", "shift", "branch"),
+    [
+        ((0.0, 1.0), 2.0, "exact"),
+        ((-1.0e-3, 1.0e-3), 10.0, "taylor"),
+    ],
+)
+def test_rational_fallback_has_correct_jvp_and_vjp(dtype, bounds, shift, branch):
+    """Cover both custom-JVP branches with an affine root outside the domain."""
+
+    z = jnp.linspace(*bounds, 33, dtype=dtype)
+    numerator = jnp.ones_like(z)
+    shift = jnp.asarray(shift, dtype=dtype)
+    denominator = z + shift
+
+    interval_ratio = jnp.abs(jnp.diff(denominator)) / jnp.abs(
+        0.5 * (denominator[1:] + denominator[:-1])
+    )
+    if branch == "taylor":
+        assert jnp.all(interval_ratio < 1.0e-4)
+    else:
+        assert jnp.all(interval_ratio >= 1.0e-4)
+
+    def shifted_integral(moving_shift):
+        return ratintn(numerator, z + moving_shift, z)[0]
+
+    value, forward_shift = jvp(shifted_integral, (shift,), (jnp.ones_like(shift),))
+    _, denominator_pullback = vjp(
+        lambda moving_denominator: ratintn(numerator, moving_denominator, z)[0],
+        denominator,
+    )
+    denominator_vjp = denominator_pullback(jnp.ones((), dtype=dtype))[0]
+    reverse_shift = jnp.sum(denominator_vjp)
+
+    lower, upper = bounds
+    expected_value = np.log((shift + upper) / (shift + lower))
+    expected_shift = 1.0 / (shift + upper) - 1.0 / (shift + lower)
+
+    assert jnp.all(jnp.isfinite(denominator_vjp))
+    assert denominator_vjp[0] != 0.0
+    assert denominator_vjp[-1] != 0.0
+
+    tolerance = 5.0e-4 if dtype == jnp.float32 else 2.0e-10
+    np.testing.assert_allclose(value, expected_value, rtol=tolerance, atol=tolerance * abs(expected_value))
+    np.testing.assert_allclose(
+        forward_shift,
+        expected_shift,
+        rtol=tolerance,
+        atol=tolerance * abs(expected_shift),
+    )
+    np.testing.assert_allclose(reverse_shift, forward_shift, rtol=tolerance, atol=tolerance * abs(expected_shift))
 
 
 def test_principal_value_path_is_exactly_linear_in_numerator():
