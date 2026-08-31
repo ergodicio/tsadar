@@ -16,6 +16,7 @@ leaves rather than one (batch_size,)-shaped leaf -- incompatible with this modul
 leaf-broadcast-based proposal/accept-reject without a further per-lineout destacking step, which is left
 as a documented follow-on. run_mcmc_for_batch raises NotImplementedError if "fe" is active.
 """
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Tuple
 
 import equinox as eqx
@@ -127,25 +128,57 @@ def _run_window(
     step_scale,
     n_steps: int,
     collect: bool,
+    thin: int = 1,
 ):
     """Runs n_steps of propose+accept/reject via jax.lax.scan at a fixed step_scale. When collect is
-    True, every step's diff_params is stacked and returned (for the sampling phase); when False, only
-    the final state and per-lineout accept counts are computed (for cheap burn-in windows)."""
+    False (burn-in windows), only the final state and per-lineout accept counts are computed --
+    jax.lax.scan's `None` output for every step costs nothing (no leaves to stack).
 
-    def _body(carry, key_i):
+    When collect is True (sampling), a naive "collect every step, then slice every thin-th one" scan
+    would have to hold *all* n_steps' worth of raw diff_params in memory before any thinning ever
+    happens -- for a long chain (many thousands of steps) this can be the dominant, and easily
+    OOM-triggering, memory cost of the whole sampler, even though only 1/thin of it is ever kept. So
+    when thin > 1, this instead nests an inner, uncollected jax.lax.scan of exactly `thin` steps inside
+    an outer scan that only collects the *last* state of each inner group -- the collected output is
+    already the thinned result (shape (n_steps // thin, batch_size, ...)), with no intermediate buffer
+    ever holding more than one thinned sample's worth of history at a time. Requires n_steps % thin == 0
+    (run_mcmc_for_batch's chunking guarantees this).
+    """
+
+    def _single_step(carry, key_i):
         diff_params, log_post, accept_count = carry
         k_prop, k_acc = jr.split(key_i)
         proposal = _propose(k_prop, diff_params, step_scale)
         log_post_proposal = _log_posterior(loss_fn, proposal, static_params, batch)
         diff_params, log_post, accept = _mh_accept(k_acc, diff_params, log_post, proposal, log_post_proposal)
         accept_count = accept_count + accept.astype(jnp.int32)
-        out = diff_params if collect else None
-        return (diff_params, log_post, accept_count), out
+        return (diff_params, log_post, accept_count), diff_params
 
-    keys = jr.split(key, n_steps)
     init_accept_count = jnp.zeros_like(log_post, dtype=jnp.int32)
+
+    if not collect or thin <= 1:
+        keys = jr.split(key, n_steps)
+
+        def _body(carry, key_i):
+            carry, diff_params = _single_step(carry, key_i)
+            return carry, (diff_params if collect else None)
+
+        (diff_params, log_post, accept_count), collected = jax.lax.scan(
+            _body, (diff_params, log_post, init_accept_count), keys
+        )
+        return diff_params, log_post, accept_count, collected
+
+    assert n_steps % thin == 0, f"_run_window: n_steps ({n_steps}) must be a multiple of thin ({thin})"
+    n_groups = n_steps // thin
+    group_keys = jr.split(key, n_groups)
+
+    def _group_body(carry, group_key):
+        carry, _ = jax.lax.scan(_single_step, carry, jr.split(group_key, thin))
+        diff_params, _, _ = carry
+        return carry, diff_params  # collect once per thin-sized group, not once per raw step
+
     (diff_params, log_post, accept_count), collected = jax.lax.scan(
-        _body, (diff_params, log_post, init_accept_count), keys
+        _group_body, (diff_params, log_post, init_accept_count), group_keys
     )
     return diff_params, log_post, accept_count, collected
 
@@ -236,6 +269,7 @@ def run_mcmc_for_batch(
     batch: Dict,
     key: jax.Array,
     progress_desc: str = "MCMC",
+    pbar_position: int = 0,
 ) -> Tuple[object, object, Dict]:
     """
     Runs one Metropolis-Hastings chain, vectorized across the lineouts in `batch`, seeded at
@@ -251,6 +285,9 @@ def run_mcmc_for_batch(
     Args:
         progress_desc: prefix for the progress bar's label (e.g. which calibration draw this chain
             belongs to), so nested draws are distinguishable in the terminal.
+        pbar_position: tqdm `position` (terminal line offset) for this chain's bar -- run_mcmc_pooled
+            runs draws concurrently on separate threads/devices, so each draw needs its own line to avoid
+            garbled interleaved output.
 
     Returns:
         samples: a diff_params-shaped pytree; each leaf has shape (num_kept, batch_size, ...), where
@@ -296,8 +333,24 @@ def run_mcmc_for_batch(
     adapt_every = max(int(mcmc_cfg["adapt_every"]), 1)
     n_windows = max(int(mcmc_cfg["burn_in"]) // adapt_every, 0) if mcmc_cfg["burn_in"] > 0 else 0
     n_sample_steps = max(int(mcmc_cfg["num_steps"]) - int(mcmc_cfg["burn_in"]), 1)
+    thin = max(int(mcmc_cfg["thin"]), 1)
 
-    pbar = trange(n_windows * adapt_every + n_sample_steps, desc=f"{progress_desc} burn-in", unit="step", leave=False)
+    # Sampling is grouped into thin-sized units so _run_window can collect only the thinned samples
+    # directly (see its docstring) rather than every raw step of the whole sampling phase -- for a long
+    # chain, holding every raw step in memory before thinning is easily the dominant memory cost and can
+    # OOM. Rounds n_sample_steps up to the next multiple of thin if it wasn't already (at most thin-1
+    # extra MH steps) so every chunk's step count divides evenly by thin, as _run_window requires.
+    num_kept_total = -(-n_sample_steps // thin)  # ceil division
+    groups_per_chunk = max(adapt_every // thin, 1)
+    total_raw_sample_steps = num_kept_total * thin
+
+    pbar = trange(
+        n_windows * adapt_every + total_raw_sample_steps,
+        desc=f"{progress_desc} burn-in",
+        unit="step",
+        leave=False,
+        position=pbar_position,
+    )
     for window_index in range(n_windows):
         burn_key, window_key = jr.split(burn_key)
         diff_params, log_post, accept_count, _ = _run_window(
@@ -307,34 +360,29 @@ def run_mcmc_for_batch(
         step_scale = _adapt_step_scale(step_scale, accept_rate, mcmc_cfg["target_accept"], window_index, mcmc_cfg["adapt_gamma"])
         pbar.update(adapt_every)
 
-    # Chunked into adapt_every-sized windows (same as burn-in) purely so the bar keeps moving through the
-    # sampling phase -- usually the bulk of the run -- rather than blocking silently on one opaque
-    # multi-thousand-step scan. step_scale is fixed by now, so chunking changes nothing but the RNG split
-    # pattern (still a valid MH chain, just not bit-for-bit identical to an unchunked run at the same seed).
-    sample_chunk = min(adapt_every, n_sample_steps)
+    pbar.set_description(f"{progress_desc} sampling")
     key, sample_key = jr.split(key)
     total_accept_count = None
-    remaining = n_sample_steps
+    remaining_groups = num_kept_total
     collected_chunks = []
-    pbar.set_description(f"{progress_desc} sampling")
-    while remaining > 0:
+    while remaining_groups > 0:
         sample_key, chunk_key = jr.split(sample_key)
-        steps_this_chunk = min(sample_chunk, remaining)
+        groups_this_chunk = min(groups_per_chunk, remaining_groups)
+        steps_this_chunk = groups_this_chunk * thin
         diff_params, log_post, accept_count, chunk_samples = _run_window(
-            chunk_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, steps_this_chunk, collect=True
+            chunk_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, steps_this_chunk,
+            collect=True, thin=thin,
         )
-        collected_chunks.append(chunk_samples)
+        collected_chunks.append(chunk_samples)  # already thinned: (groups_this_chunk, batch_size, ...)
         total_accept_count = accept_count if total_accept_count is None else total_accept_count + accept_count
-        remaining -= steps_this_chunk
+        remaining_groups -= groups_this_chunk
         pbar.update(steps_this_chunk)
     pbar.close()
 
-    samples = jax.tree_util.tree_map(lambda *xs: jnp.concatenate(xs, axis=0), *collected_chunks)
-    thin = max(int(mcmc_cfg["thin"]), 1)
-    thinned_samples = jax.tree_util.tree_map(lambda x: x[::thin], samples)
+    thinned_samples = jax.tree_util.tree_map(lambda *xs: jnp.concatenate(xs, axis=0), *collected_chunks)
 
     diagnostics = {
-        "acceptance_rate": total_accept_count / n_sample_steps,
+        "acceptance_rate": total_accept_count / total_raw_sample_steps,
         "final_step_scale": step_scale,
     }
     return thinned_samples, static_params, diagnostics
@@ -366,6 +414,7 @@ def run_mcmc_for_fit_batches(
     batch_list: List[Dict],
     key: jax.Array,
     progress_desc: str = "MCMC",
+    pbar_position: int = 0,
 ) -> Tuple[object, object, Dict]:
     """
     Runs run_mcmc_for_batch across every fit-batch of a single calibration draw. Every fit-batch shares
@@ -383,7 +432,9 @@ def run_mcmc_for_fit_batches(
     keys = jr.split(key, n_fit_batches)
 
     def _one(ts_params, batch, k):
-        return run_mcmc_for_batch(config, loss_fn, ts_params, batch, k, progress_desc=progress_desc)
+        return run_mcmc_for_batch(
+            config, loss_fn, ts_params, batch, k, progress_desc=progress_desc, pbar_position=pbar_position
+        )
 
     return eqx.filter_vmap(_one)(stacked_ts_params, stacked_batch, keys)
 
@@ -445,7 +496,14 @@ def run_mcmc_pooled(
 
     Each draw's LossFunction is built from different static config (a different FormFactor/IRF per
     draw), so -- unlike the fit-batch axis within one draw -- this loop cannot be vmapped into one
-    compiled graph; it stays a Python-level loop over K chains.
+    compiled graph. Draws are still independent of each other (each only reads its own loss_fn/
+    batch_list/subkey), so instead of a sequential Python loop they are dispatched to a thread pool, one
+    draw per worker thread, round-robined across jax.local_devices() via jax.default_device -- on a
+    multi-GPU host this is what actually keeps more than one GPU busy at once, since a plain for-loop here
+    would run every draw's ~100+ small burn-in/sampling dispatches (see run_mcmc_for_batch's docstring)
+    back-to-back on a single device while the rest sit idle. On a single-device host (e.g. CPU-only
+    tests) every draw round-robins onto that same one device -- equivalent to (if not quite as fast as)
+    a sequential loop; correctness doesn't depend on how many devices are actually available.
 
     Args:
         loss_fns_by_draw: length-K list of LossFunction instances, one per chain.
@@ -465,22 +523,36 @@ def run_mcmc_pooled(
     """
     keys = jr.split(key, len(loss_fns_by_draw))
     n_draws = len(loss_fns_by_draw)
+    devices = jax.local_devices()
 
-    per_draw_samples = []
-    static_params = None
-    diagnostics_by_draw = []
-    for draw_index, (loss_fn, batch_list, draw_key) in enumerate(zip(loss_fns_by_draw, batches_by_draw, keys)):
+    def _run_one_draw(draw_index, loss_fn, batch_list, draw_key):
         progress_desc = f"MCMC draw {draw_index + 1}/{n_draws}" if n_draws > 1 else "MCMC"
-        samples, static, diagnostics = run_mcmc_for_fit_batches(
-            config, loss_fn, ts_params_list, batch_list, draw_key, progress_desc=progress_desc
-        )
-        per_draw_samples.append(samples)
-        diagnostics_by_draw.append(diagnostics)
-        if static_params is None:
-            static_params = static
+        device = devices[draw_index % len(devices)]
+        # default_device is scoped to this worker thread only (JAX's config context vars don't leak
+        # across threads), so every array run_mcmc_for_fit_batches creates for this draw -- not just its
+        # loss_fn/batch/ts_params inputs -- is allocated directly on `device` rather than migrating there
+        # op-by-op.
+        with jax.default_device(device):
+            samples, static, diagnostics = run_mcmc_for_fit_batches(
+                config, loss_fn, ts_params_list, batch_list, draw_key, progress_desc=progress_desc, pbar_position=draw_index
+            )
+        return progress_desc, samples, static, diagnostics
+
+    with ThreadPoolExecutor(max_workers=max(len(devices), 1)) as pool:
+        futures = [
+            pool.submit(_run_one_draw, draw_index, loss_fn, batch_list, draw_key)
+            for draw_index, (loss_fn, batch_list, draw_key) in enumerate(zip(loss_fns_by_draw, batches_by_draw, keys))
+        ]
+        results = [f.result() for f in futures]  # preserves draw order regardless of completion order
+
+    per_draw_samples = [r[1] for r in results]
+    static_params = results[0][2] if results else None
+    diagnostics_by_draw = [r[3] for r in results]
+    for progress_desc, _, _, diagnostics in results:
         # Only safe to pull a concrete number out here, once run_mcmc_for_fit_batches' vmapped call has
         # actually returned -- doing this inside run_mcmc_for_batch itself (still mid-trace under
-        # eqx.filter_vmap there) would raise a tracer-concretization error.
+        # eqx.filter_vmap there) would raise a tracer-concretization error. Printed after every draw has
+        # finished (rather than as each one completes) so concurrent draws don't interleave their lines.
         mean_accept = float(jnp.mean(diagnostics["acceptance_rate"]))
         print(f"{progress_desc} done: mean acceptance rate {mean_accept:.3f}")
 

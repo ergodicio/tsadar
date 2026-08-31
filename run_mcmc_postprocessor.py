@@ -6,9 +6,11 @@ from jax import config
 
 config.update("jax_enable_x64", True)
 
+import mlflow
 import yaml
 
 from tsadar.mcmc_postprocess_runner import run_mcmc_postprocess_local, run_mcmc_postprocess_remote
+from tsadar.utils.misc import export_run
 
 
 if __name__ == "__main__":
@@ -37,3 +39,12 @@ if __name__ == "__main__":
         run_mcmc_postprocess_local(args.dir, overrides=overrides)
     else:
         run_mcmc_postprocess_remote(args.run, overrides=overrides)
+
+    if "MLFLOW_EXPORT" in os.environ:
+        # run_mcmc_postprocess_local/remote open and close their own new mlflow run internally without
+        # returning its id (see mcmc_postprocess_runner.run_mcmc_postprocess), so -- same as
+        # test_run_mcmc_postprocess_local_applies_overrides -- recover it via last_active_run() rather
+        # than threading a new return value through every layer.
+        run = mlflow.last_active_run()
+        if run is not None:
+            export_run(run.info.run_id)
