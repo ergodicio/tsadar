@@ -1,6 +1,7 @@
 """Regression for the unresolved small-angle ARTS2D EPW from #124/#134."""
 
 import numpy as np
+import pytest
 
 from jax import config
 
@@ -148,6 +149,7 @@ def _relative_detector_l1(actual, expected, detector_edges_nm=DETECTOR_EDGES_NM)
     )
 
 
+@pytest.mark.slow
 def test_small_angle_unresolved_epw_values_and_gradients_converge():
     """The physical unresolved line is stable to phase and 2x/4x refinement.
 
@@ -238,6 +240,7 @@ def test_small_angle_unresolved_epw_values_and_gradients_converge():
             )
 
 
+@pytest.mark.slow
 def test_full_detector_range_finds_every_physical_root_with_finite_gradients():
     """A fine root scan sees the complete small-angle dielectric topology.
 
