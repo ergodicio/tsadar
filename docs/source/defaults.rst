@@ -166,6 +166,8 @@ The ``data:`` section contains the specifics on which shot and what region of th
 
     - ``skip`` the distance between lineouts in the same units specified by ``type``.
 
+- ``bad_pixels`` is an optional list of ``[angular_row, wavelength_column]`` coordinates on the prepared ARTS resolution-unit detector grid. Listed pixels, non-finite samples, and pixels marked false in a supplied ``e_mask`` array are excluded from both gain profiling and the likelihood.
+
 - ``background`` specifies the location and algorithm for background analysis.
 
     - ``type`` there are multiple background algorithms available. This field is used to select the appropriate one. The options are ``Fit`` in order to fit a model to the background, ``Shot`` in order to subtract a background shot, and ``pixel`` to specify a location with background data to be subtracted.
@@ -244,9 +246,21 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
 - ``method`` gradient descent algorithm employed by the minimizer; this can be ``l-bfgs-b`` in which case scipy's implementation of the L-BFGS-B algorithm will be used, or almost any of the optimizers from the optax library which include ``adam``, ``sgd``, and ``rmsprop``. For a full list see the `optax documentation <https://optax.readthedocs.io/en/latest/api/optimizers.html>`_. L-BFGS-B is recommended for simpler problems as its more efficient but the optax algorithms provide more control when needed and ``adam`` is usualy a good choice for IAW data and combined fits.
 
-- ``moment_loss`` boolean, adds a penalty to maintain the moments of the EDF when fitting EDFs numerically *needs more testing*
+- ``moment_loss`` is the legacy shorthand for unit-strength density, temperature, and momentum priors. For ARTS fits it is applied to the positive physical EDF (not its internal parameterization) and is equivalent to enabling the three corresponding ``angular_objective.regularization`` weights.
 
 - ``loss_method`` metric minimized in order to match data; ``l2`` is recommended but ``l1``, ``log-cosh``, and ``poisson`` are also available
+
+- ``angular_objective`` configures the ARTS detector likelihood, gain nuisances, contamination model, and EDF priors. ARTS requires ``loss_method: l2`` because this section supplies its more specific likelihood:
+
+    - ``noise.model`` is ``poisson_read`` (the default), ``measured_variance``, or ``constant``. ``poisson_read`` uses ``(read_noise**2 + excess_noise_factor * max(data - background, 0) + background_variance_scale * abs(background)) / averaged_pixels`` with ``variance_floor``. ``averaged_pixels: auto`` uses ``ang_res_unit * lam_res_unit``, matching the averages performed while preparing ARTS data. The estimate is fixed from the observation so gain profiling remains a linear problem. ``measured_variance`` requires an ``e_variance`` detector array in the prepared batch and treats it as already calibrated on the prepared detector grid.
+
+    - ``gain.mode`` is ``none``, ``global``, ``per_row``, or ``per_row_wing``. Gains multiply the background-subtracted physical spectrum and are profiled analytically at every objective evaluation; measured maxima never enter the forward model. ``smoothness`` penalizes adjacent angular-gain differences and ``prior_strength``/``prior_mean`` provide an optional calibration prior. Both strengths are expressed relative to the mean Fisher information in the gain series, making them dimensionless. With no mean prior the overall intensity is a nuisance scale.
+
+    - ``robust.kind`` is ``gaussian``, ``huber``, or ``student_t``. Huber uses ``threshold`` in whitened-residual units; Student-t uses ``dof``. Robust modes update the profiled linear gains with ``iterations`` IRLS passes.
+
+    - ``regularization`` supplies non-negative weights for ``radial_smoothness``, ``angular_smoothness``, ``kl_to_maxwellian``, and the ``density``, ``temperature``, and two-component ``momentum`` moment priors. These act on the normalized, positive physical EDF. Their targets default to 1, 2, and [0, 0] for a Cartesian two-velocity marginal. Unknown settings and invalid one-dimensional constraints are rejected rather than ignored.
+
+  Angular postprocessing saves ``angular_objective_diagnostics.npz`` (whitened residuals, variance, valid mask, profiled gains and their Gaussian standard errors, and raw/fitted theory) and ``angular_objective_terms.json``; every term is also logged as an MLflow metric.
 
 - ``hessian`` boolean, determines if the hessian will be supplied to the minimizer (*Not recommended; Likely to be removed*)
 

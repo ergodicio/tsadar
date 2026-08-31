@@ -16,6 +16,52 @@ from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..utils.vector_tools import rotate
 
 
+_ANGULAR_OBJECTIVE_DEFAULTS = {
+    "noise": {
+        "model": "poisson_read",
+        "read_noise": 1.0,
+        "excess_noise_factor": 1.0,
+        "background_variance_scale": 1.0,
+        "variance_floor": 1.0e-6,
+        "averaged_pixels": "auto",
+    },
+    "gain": {
+        "mode": "per_row",
+        "smoothness": 0.01,
+        "prior_strength": 0.0,
+        "prior_mean": 1.0,
+        "minimum": 0.0,
+    },
+    "robust": {"kind": "gaussian", "threshold": 3.0, "iterations": 3, "dof": 4.0},
+    "regularization": {
+        "radial_smoothness": 0.0,
+        "angular_smoothness": 0.0,
+        "kl_to_maxwellian": 0.0,
+        "density": 0.0,
+        "temperature": 0.0,
+        "momentum": 0.0,
+        "density_target": 1.0,
+        "temperature_target": 2.0,
+        "momentum_target": [0.0, 0.0],
+    },
+}
+
+
+def _merge_known_options(defaults, supplied, path):
+    """Recursively merge a small objective schema, rejecting misspelled settings."""
+    supplied = {} if supplied is None else supplied
+    if not isinstance(supplied, dict):
+        raise ValueError(f"{path} must be a mapping")
+    unknown = sorted(set(supplied) - set(defaults))
+    if unknown:
+        raise ValueError(f"Unknown {path} setting(s): {', '.join(unknown)}")
+    merged = {}
+    for key, default in defaults.items():
+        value = supplied.get(key, default)
+        merged[key] = _merge_known_options(default, value, f"{path}.{key}") if isinstance(default, dict) else value
+    return merged
+
+
 class LossFunction:
     """
     LossFunction is a class responsible for managing the forward pass and loss computation for inverse Thomson scattering analysis.
@@ -86,6 +132,13 @@ class LossFunction:
         """
 
         self.cfg = cfg
+        spectype = cfg.get("other", {}).get("extraoptions", {}).get("spectype", "")
+        self.is_angular = "angular" in spectype
+        self.angular_objective = None
+        if self.is_angular:
+            self.angular_objective = self._validated_angular_objective(
+                cfg.get("optimizer", {}).get("angular_objective", {})
+            )
 
         if cfg["optimizer"]["y_norm"]:
             self.i_norm = np.amax(dummy_batch["i_amps"])
@@ -136,6 +189,85 @@ class LossFunction:
         ## this will be replaced with jacobian params jacobian inverse
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
         self.array_loss = filter_jit(self.post_loss)
+
+    def _validated_angular_objective(self, supplied):
+        """Return the complete ARTS objective config or reject unsupported choices."""
+        options = _merge_known_options(_ANGULAR_OBJECTIVE_DEFAULTS, supplied, "optimizer.angular_objective")
+        supplied_gain = supplied.get("gain", {}) if isinstance(supplied, dict) else {}
+        if options["gain"]["mode"] in {"none", "global"} and "smoothness" not in supplied_gain:
+            options["gain"]["smoothness"] = 0.0
+
+        if self.cfg["optimizer"].get("loss_method", "l2") != "l2":
+            raise ValueError(
+                "The noise-aware ARTS objective requires optimizer.loss_method: l2; "
+                "robust contamination is selected with optimizer.angular_objective.robust.kind."
+            )
+
+        noise = options["noise"]
+        if noise["model"] not in {"poisson_read", "measured_variance", "constant"}:
+            raise ValueError(
+                "optimizer.angular_objective.noise.model must be poisson_read, measured_variance, or constant"
+            )
+        for key in ("read_noise", "excess_noise_factor", "background_variance_scale", "variance_floor"):
+            if float(noise[key]) < 0.0:
+                raise ValueError(f"optimizer.angular_objective.noise.{key} must be non-negative")
+        if float(noise["variance_floor"]) <= 0.0:
+            raise ValueError("optimizer.angular_objective.noise.variance_floor must be positive")
+        if noise["averaged_pixels"] != "auto" and float(noise["averaged_pixels"]) <= 0.0:
+            raise ValueError("optimizer.angular_objective.noise.averaged_pixels must be auto or positive")
+
+        gain = options["gain"]
+        if gain["mode"] not in {"none", "global", "per_row", "per_row_wing"}:
+            raise ValueError(
+                "optimizer.angular_objective.gain.mode must be none, global, per_row, or per_row_wing"
+            )
+        for key in ("smoothness", "prior_strength", "minimum"):
+            if float(gain[key]) < 0.0:
+                raise ValueError(f"optimizer.angular_objective.gain.{key} must be non-negative")
+        if gain["mode"] == "none" and (
+            float(gain["smoothness"]) > 0.0 or float(gain["prior_strength"]) > 0.0
+        ):
+            raise ValueError("ARTS gain smoothness/prior_strength require a profiled gain mode")
+        if gain["mode"] == "global" and float(gain["smoothness"]) > 0.0:
+            raise ValueError("ARTS gain smoothness requires per_row or per_row_wing gain mode")
+
+        robust = options["robust"]
+        if robust["kind"] not in {"gaussian", "huber", "student_t"}:
+            raise ValueError("optimizer.angular_objective.robust.kind must be gaussian, huber, or student_t")
+        if float(robust["threshold"]) <= 0.0 or float(robust["dof"]) <= 0.0:
+            raise ValueError("ARTS robust threshold and degrees of freedom must be positive")
+        if int(robust["iterations"]) < 1:
+            raise ValueError("optimizer.angular_objective.robust.iterations must be at least one")
+
+        regularization = options["regularization"]
+        for key in (
+            "radial_smoothness",
+            "angular_smoothness",
+            "kl_to_maxwellian",
+            "density",
+            "temperature",
+            "momentum",
+        ):
+            if float(regularization[key]) < 0.0:
+                raise ValueError(f"optimizer.angular_objective.regularization.{key} must be non-negative")
+        momentum_target = regularization["momentum_target"]
+        if not isinstance(momentum_target, (list, tuple)) or len(momentum_target) != 2:
+            raise ValueError("optimizer.angular_objective.regularization.momentum_target must contain [vx, vy]")
+
+        # Backward compatibility is explicit: the old boolean now activates all physical
+        # moment priors instead of silently doing nothing.
+        if self.cfg["optimizer"].get("moment_loss", False):
+            for key in ("density", "temperature", "momentum"):
+                if float(regularization[key]) == 0.0:
+                    regularization[key] = 1.0
+
+        fe_config = self.cfg.get("parameters", {}).get("electron", {}).get("fe", {})
+        if fe_config.get("fe_decrease_strict", False):
+            raise ValueError(
+                "fe_decrease_strict is not supported by the noise-aware angular objective; configure the "
+                "documented physical-EDF smoothness priors instead."
+            )
+        return options
 
     def _get_normed_batch_(self, batch: Dict):
         """
@@ -211,11 +343,14 @@ class LossFunction:
         return self._h_func_(weights, batch)
 
     def _loss_for_hess_fn_(self, weights, batch):
-        # this function is not being used? if so it has syntax issues
-        # params = params | self.static_params
-        # params = self.ts_diag.get_plasma_parameters(weights)
+        if self.is_angular:
+            total_loss, _, _, _, _ = self.calc_loss(
+                weights, batch, denom=[], reduce_func=jnp.nanmean
+            )
+            return total_loss
+
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(weights, batch)
-        i_error, e_error, _, _ = self.calc_ei_error(
+        i_error, e_error, _ = self.calc_ei_error(
             batch,
             ThryI,
             lamAxisI,
@@ -321,6 +456,295 @@ class LossFunction:
 
         return error, jnp.nan_to_num(_error_)
 
+    def _angular_variance(self, batch):
+        """Detector variance fixed from measured counts, background, and read noise.
+
+        Keeping this estimate independent of the trial spectrum preserves the linear
+        variable-projection problem for the gain nuisance parameters. ``noise_e`` is the
+        measured/background-subtraction mean already added by the forward model.
+        """
+        options = self.angular_objective["noise"]
+        data = jnp.asarray(batch["e_data"])
+        background = jnp.broadcast_to(jnp.asarray(batch["noise_e"]), data.shape)
+        floor = float(options["variance_floor"])
+        averaged_pixels = options["averaged_pixels"]
+        if averaged_pixels == "auto":
+            averaged_pixels = float(self.cfg.get("other", {}).get("ang_res_unit", 1)) * float(
+                self.cfg.get("other", {}).get("lam_res_unit", 1)
+            )
+        else:
+            averaged_pixels = float(averaged_pixels)
+        if options["model"] == "measured_variance":
+            if "e_variance" not in batch:
+                raise ValueError(
+                    "noise.model=measured_variance requires an e_variance array in the angular batch"
+                )
+            variance = jnp.broadcast_to(jnp.asarray(batch["e_variance"]), data.shape)
+        elif options["model"] == "constant":
+            variance = jnp.full_like(data, float(options["read_noise"]) ** 2 / averaged_pixels)
+        else:
+            signal_counts = jnp.maximum(data - background, 0.0)
+            variance = (
+                float(options["read_noise"]) ** 2
+                + float(options["excess_noise_factor"]) * signal_counts
+                + float(options["background_variance_scale"]) * jnp.abs(background)
+            ) / averaged_pixels
+        return jnp.maximum(variance, floor)
+
+    def _angular_fit_masks(self, lam_axis, shape):
+        """Return blue, red, and combined wavelength masks broadcast over detector rows."""
+        fr = self.cfg["data"]["fit_rng"]
+        lam_axis = jnp.ravel(lam_axis)
+        blue_1d = (
+            (lam_axis > fr["blue_min"])
+            & (lam_axis < fr["blue_max"])
+            & bool(self.cfg["data"]["fit_EPWb"])
+        )
+        red_1d = (
+            (lam_axis > fr["red_min"])
+            & (lam_axis < fr["red_max"])
+            & bool(self.cfg["data"]["fit_EPWr"])
+        )
+        blue = jnp.broadcast_to(blue_1d[None, :], shape)
+        red = jnp.broadcast_to(red_1d[None, :], shape)
+        return blue, red, blue | red
+
+    def _solve_gain_series(self, information, rhs):
+        """Profile one angular gain series with Gaussian calibration priors."""
+        gain_options = self.angular_objective["gain"]
+        information = jnp.asarray(information)
+        rhs = jnp.asarray(rhs)
+        n_gains = information.shape[0]
+        populated = information > 0.0
+        info_scale = jnp.sum(information) / jnp.maximum(jnp.sum(populated), 1.0)
+        info_scale = jnp.maximum(info_scale, 1.0e-12)
+        prior_precision = float(gain_options["prior_strength"]) * info_scale
+        smooth_precision = float(gain_options["smoothness"]) * info_scale
+
+        if n_gains > 1:
+            difference = jnp.eye(n_gains - 1, n_gains, k=1) - jnp.eye(n_gains - 1, n_gains)
+            laplacian = difference.T @ difference
+        else:
+            laplacian = jnp.zeros((1, 1), dtype=information.dtype)
+        system = (
+            jnp.diag(information + prior_precision)
+            + smooth_precision * laplacian
+            + jnp.eye(n_gains) * info_scale * 1.0e-10
+        )
+        target = rhs + prior_precision * float(gain_options["prior_mean"])
+        gains = jnp.linalg.solve(system, target)
+        gains = jnp.maximum(gains, float(gain_options["minimum"]))
+        gain_standard_error = jnp.sqrt(jnp.maximum(jnp.diag(jnp.linalg.inv(system)), 0.0))
+        prior_quadratic = prior_precision * jnp.sum(
+            (gains - float(gain_options["prior_mean"])) ** 2
+        )
+        smooth_quadratic = smooth_precision * jnp.sum(jnp.diff(gains) ** 2)
+        return gains, gain_standard_error, prior_quadratic, smooth_quadratic
+
+    def _profile_angular_gains(self, signal, target, inverse_variance, valid, blue, red):
+        """Analytically profile global, row, or row/wing linear detector gains."""
+        mode = self.angular_objective["gain"]["mode"]
+        weighted = jnp.where(valid, inverse_variance, 0.0)
+        zero = jnp.asarray(0.0, dtype=signal.dtype)
+        if mode == "none":
+            return (
+                signal,
+                jnp.ones((1,), dtype=signal.dtype),
+                jnp.full((1,), jnp.nan, dtype=signal.dtype),
+                zero,
+                zero,
+            )
+
+        if mode == "global":
+            information = jnp.atleast_1d(jnp.sum(weighted * signal**2))
+            rhs = jnp.atleast_1d(jnp.sum(weighted * signal * target))
+            gains, standard_error, prior, smooth = self._solve_gain_series(information, rhs)
+            return gains[0] * signal, gains, standard_error, prior, smooth
+
+        def profile_rows(group_mask):
+            group_weight = jnp.where(group_mask, weighted, 0.0)
+            information = jnp.sum(group_weight * signal**2, axis=1)
+            rhs = jnp.sum(group_weight * signal * target, axis=1)
+            return self._solve_gain_series(information, rhs)
+
+        if mode == "per_row":
+            gains, standard_error, prior, smooth = profile_rows(valid)
+            return gains[:, None] * signal, gains, standard_error, prior, smooth
+
+        blue_gains, blue_error, blue_prior, blue_smooth = profile_rows(blue & valid)
+        red_gains, red_error, red_prior, red_smooth = profile_rows(red & valid)
+        fitted_signal = jnp.where(
+            blue,
+            blue_gains[:, None] * signal,
+            jnp.where(red, red_gains[:, None] * signal, signal),
+        )
+        gains = jnp.stack((blue_gains, red_gains), axis=1)
+        standard_error = jnp.stack((blue_error, red_error), axis=1)
+        return fitted_signal, gains, standard_error, blue_prior + red_prior, blue_smooth + red_smooth
+
+    def _robust_weights(self, residual):
+        robust = self.angular_objective["robust"]
+        absolute = jnp.abs(residual)
+        if robust["kind"] == "huber":
+            return jnp.minimum(1.0, float(robust["threshold"]) / jnp.maximum(absolute, 1.0e-12))
+        if robust["kind"] == "student_t":
+            dof = float(robust["dof"])
+            return (dof + 1.0) / (dof + residual**2)
+        return jnp.ones_like(residual)
+
+    def _robust_deviance(self, residual):
+        robust = self.angular_objective["robust"]
+        if robust["kind"] == "huber":
+            threshold = float(robust["threshold"])
+            absolute = jnp.abs(residual)
+            return jnp.where(
+                absolute <= threshold,
+                residual**2,
+                2.0 * threshold * absolute - threshold**2,
+            )
+        if robust["kind"] == "student_t":
+            dof = float(robust["dof"])
+            return (dof + 1.0) * jnp.log1p(residual**2 / dof)
+        return residual**2
+
+    def _angular_data_objective(self, batch, theory, lam_axis):
+        """Profile gains and return the noise-whitened ARTS data term and diagnostics."""
+        data = jnp.asarray(batch["e_data"])
+        background = jnp.broadcast_to(jnp.asarray(batch["noise_e"]), data.shape)
+        signal = theory - background
+        target = data - background
+        variance = self._angular_variance(batch)
+        blue, red, wavelength_mask = self._angular_fit_masks(lam_axis, data.shape)
+        supplied_mask = jnp.broadcast_to(jnp.asarray(batch.get("e_mask", True), dtype=bool), data.shape)
+        valid = (
+            wavelength_mask
+            & supplied_mask
+            & jnp.isfinite(data)
+            & jnp.isfinite(signal)
+            & jnp.isfinite(variance)
+            & (variance > 0.0)
+        )
+        inverse_variance = jnp.where(valid, 1.0 / variance, 0.0)
+
+        robust_weight = jnp.ones_like(data)
+        iterations = 1 if self.angular_objective["robust"]["kind"] == "gaussian" else int(
+            self.angular_objective["robust"]["iterations"]
+        )
+        for _ in range(iterations):
+            fitted_signal, gains, gain_standard_error, gain_prior, gain_smoothness = self._profile_angular_gains(
+                signal, target, inverse_variance * robust_weight, valid, blue, red
+            )
+            whitened = (data - (fitted_signal + background)) / jnp.sqrt(variance)
+            robust_weight = jnp.where(valid, self._robust_weights(whitened), 0.0)
+
+        valid_count = jnp.sum(valid)
+        n_valid = jnp.maximum(valid_count, 1.0)
+        deviance = jnp.where(valid, self._robust_deviance(whitened), 0.0)
+        terms = {
+            "data": jnp.sum(deviance) / n_valid,
+            "gain_prior": gain_prior / n_valid,
+            "gain_smoothness": gain_smoothness / n_valid,
+        }
+        total = terms["data"] + terms["gain_prior"] + terms["gain_smoothness"]
+        total = jnp.where(valid_count > 0, total, jnp.nan)
+        fitted_theory = fitted_signal + background
+        diagnostics = {
+            "whitened_residual": jnp.where(valid, whitened, jnp.nan),
+            "variance": variance,
+            "valid_mask": valid,
+            "profiled_gains": gains,
+            "profiled_gain_standard_error": gain_standard_error,
+            "fitted_theory": fitted_theory,
+            "raw_theory": theory,
+        }
+        return total, jnp.where(valid, whitened**2, 0.0), fitted_theory, terms, diagnostics
+
+    def _regularization_terms(self, weights):
+        """Evaluate configured priors on the positive, normalized physical EDF."""
+        if not self.is_angular:
+            return {}
+        regularization = self.angular_objective["regularization"]
+        term_names = (
+            "regularization_radial",
+            "regularization_angular",
+            "regularization_kl",
+            "regularization_density",
+            "regularization_temperature",
+            "regularization_momentum",
+        )
+        strength_names = (
+            "radial_smoothness",
+            "angular_smoothness",
+            "kl_to_maxwellian",
+            "density",
+            "temperature",
+            "momentum",
+        )
+        if not any(float(regularization[key]) > 0.0 for key in strength_names):
+            return {name: jnp.asarray(0.0) for name in term_names}
+
+        physical = weights()
+        distribution = jnp.asarray(physical["electron"]["fe"])
+        velocity = jnp.asarray(physical["electron"]["v"])
+        dv = velocity[1] - velocity[0]
+        eps = jnp.finfo(distribution.dtype).eps
+
+        if distribution.ndim == 2:
+            vx, vy = jnp.meshgrid(velocity, velocity)
+            measure = dv**2
+            density = jnp.sum(distribution) * measure
+            mean_vx = jnp.sum(distribution * vx) * measure / jnp.maximum(density, eps)
+            mean_vy = jnp.sum(distribution * vy) * measure / jnp.maximum(density, eps)
+            temperature = (
+                jnp.sum(distribution * ((vx - mean_vx) ** 2 + (vy - mean_vy) ** 2))
+                * measure
+                / jnp.maximum(density, eps)
+            )
+            grad_x = jnp.gradient(distribution, dv, axis=1)
+            grad_y = jnp.gradient(distribution, dv, axis=0)
+            radius = jnp.sqrt(vx**2 + vy**2)
+            safe_radius = jnp.where(radius > 0.0, radius, 1.0)
+            radial_derivative = (vx * grad_x + vy * grad_y) / safe_radius
+            angular_derivative = -vy * grad_x + vx * grad_y
+            norm = jnp.sum(distribution**2) * measure + eps
+            radial_roughness = jnp.sum(radial_derivative**2) * measure / norm
+            angular_roughness = jnp.sum(angular_derivative**2) * measure / norm
+            baseline = jnp.exp(-0.5 * (vx**2 + vy**2))
+            baseline = baseline / jnp.sum(baseline) / measure
+            momentum_error = (mean_vx - float(regularization["momentum_target"][0])) ** 2 + (
+                mean_vy - float(regularization["momentum_target"][1])
+            ) ** 2
+        else:
+            measure = dv
+            density = jnp.sum(distribution) * measure
+            mean_vx = jnp.sum(distribution * velocity) * measure / jnp.maximum(density, eps)
+            temperature = (
+                jnp.sum(distribution * (velocity - mean_vx) ** 2) * measure / jnp.maximum(density, eps)
+            )
+            derivative = jnp.gradient(distribution, dv)
+            norm = jnp.sum(distribution**2) * measure + eps
+            radial_roughness = jnp.sum(derivative**2) * measure / norm
+            angular_roughness = jnp.asarray(0.0, dtype=distribution.dtype)
+            baseline = jnp.exp(-0.5 * velocity**2)
+            baseline = baseline / jnp.sum(baseline) / measure
+            momentum_error = (mean_vx - float(regularization["momentum_target"][0])) ** 2
+
+        kl = jnp.sum(
+            distribution
+            * (jnp.log(jnp.maximum(distribution, eps)) - jnp.log(jnp.maximum(baseline, eps)))
+        ) * measure
+        terms = {
+            "regularization_radial": float(regularization["radial_smoothness"]) * radial_roughness,
+            "regularization_angular": float(regularization["angular_smoothness"]) * angular_roughness,
+            "regularization_kl": float(regularization["kl_to_maxwellian"]) * kl,
+            "regularization_density": float(regularization["density"])
+            * (density - float(regularization["density_target"])) ** 2,
+            "regularization_temperature": float(regularization["temperature"])
+            * (temperature - float(regularization["temperature_target"])) ** 2,
+            "regularization_momentum": float(regularization["momentum"]) * momentum_error,
+        }
+        return terms
+
     def calc_loss(self, ts_params, batch: Dict, denom, reduce_func):
         """
         Calculates the total loss for the inverse Thomson scattering model, including electron and ion errors,
@@ -350,24 +774,37 @@ class LossFunction:
                 denom = [ThryI+50.0, ThryE+50.0]
 
             ThryE_rot, _, _, _ = self.ts_diag(ts_params_rot, batch["b2"])
-            i_error1, e_error1, sqdev = self.calc_ei_error(
-                batch["b1"],
-                ThryI,
-                lamAxisI,
-                ThryE,
-                lamAxisE,
-                denom,
-                reduce_func,
-            )
-            i_error2, e_error2, sqdev = self.calc_ei_error(
-                batch["b2"],
-                ThryI,
-                lamAxisI,
-                ThryE_rot,
-                lamAxisE,
-                denom,
-                reduce_func,
-            )
+            if self.is_angular:
+                e_error1, ele_sqdev, ThryE, _, _ = self._angular_data_objective(
+                    batch["b1"], ThryE, lamAxisE
+                )
+                e_error2, _, ThryE_rot, _, _ = self._angular_data_objective(
+                    batch["b2"], ThryE_rot, lamAxisE
+                )
+                i_error1 = i_error2 = 0.0
+                sqdev = {
+                    "ele": ele_sqdev,
+                    "ion": jnp.zeros_like(batch["b1"]["i_data"]),
+                }
+            else:
+                i_error1, e_error1, sqdev = self.calc_ei_error(
+                    batch["b1"],
+                    ThryI,
+                    lamAxisI,
+                    ThryE,
+                    lamAxisE,
+                    denom,
+                    reduce_func,
+                )
+                i_error2, e_error2, sqdev = self.calc_ei_error(
+                    batch["b2"],
+                    ThryI,
+                    lamAxisI,
+                    ThryE_rot,
+                    lamAxisE,
+                    denom,
+                    reduce_func,
+                )
             i_error = i_error1 + i_error2
             e_error = e_error1 + e_error2
 
@@ -376,22 +813,27 @@ class LossFunction:
             ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(ts_params, batch)
             if denom == []:
                 denom = [ThryI, ThryE]
-            i_error, e_error, sqdev = self.calc_ei_error(
-                batch,
-                ThryI,
-                lamAxisI,
-                ThryE,
-                lamAxisE,
-                denom,
-                reduce_func,
-            )
+            if self.is_angular:
+                e_error, ele_sqdev, ThryE, _, _ = self._angular_data_objective(batch, ThryE, lamAxisE)
+                i_error = 0.0
+                sqdev = {"ele": ele_sqdev, "ion": jnp.zeros_like(batch["i_data"])}
+            else:
+                i_error, e_error, sqdev = self.calc_ei_error(
+                    batch,
+                    ThryI,
+                    lamAxisI,
+                    ThryE,
+                    lamAxisE,
+                    denom,
+                    reduce_func,
+                )
 
             normed_batch = self._get_normed_batch_(batch)
 
         normed_e_data = normed_batch["e_data"]
         ion_error = self.cfg["data"]["ion_loss_scale"] * i_error
 
-        penalty_error = 0.0  # self.penalties(weights)
+        penalty_error = sum(self._regularization_terms(ts_params).values(), jnp.asarray(0.0))
         total_loss = ion_error + e_error + penalty_error
         # jax.debug.print("e_error {total_loss}", total_loss=e_error)
 
@@ -499,6 +941,37 @@ class LossFunction:
         total_loss, sqdev, ThryE, normed_e_data, params = self.calc_loss(weights, batch, denom=[], reduce_func=nanamean)
         return total_loss, sqdev, ThryE, normed_e_data, params
 
+    def angular_diagnostics(self, weights, batch: Dict):
+        """Recompute host-persistable ARTS objective terms and whitened residual arrays."""
+        if not self.is_angular:
+            raise ValueError("angular_diagnostics is only available for angular spectra")
+
+        def evaluate_one(current_weights, current_batch, prefix=""):
+            theory, _, lam_axis, _ = self.ts_diag(current_weights, current_batch)
+            objective_total, _, _, data_terms, arrays = self._angular_data_objective(
+                current_batch, theory, lam_axis
+            )
+            named_arrays = {f"{prefix}{key}": np.asarray(value) for key, value in arrays.items()}
+            return objective_total, data_terms, named_arrays
+
+        if self.multiplex_ang:
+            total1, terms1, arrays1 = evaluate_one(weights, batch["b1"], "b1_")
+            rotated = eqx.tree_at(
+                lambda tree: tree.electron.dist_rot, weights, self.cfg["data"]["shot_rot"]
+            )
+            total2, terms2, arrays2 = evaluate_one(rotated, batch["b2"], "b2_")
+            objective_total = total1 + total2
+            terms = {key: terms1[key] + terms2[key] for key in terms1}
+            arrays = arrays1 | arrays2
+        else:
+            objective_total, terms, arrays = evaluate_one(weights, batch)
+
+        regularization_terms = self._regularization_terms(weights)
+        terms = terms | regularization_terms
+        terms["total"] = objective_total + sum(regularization_terms.values(), jnp.asarray(0.0))
+        serializable_terms = {key: float(value) for key, value in terms.items()}
+        return arrays, serializable_terms
+
     def loss_functionals(self, d, t, uncert, method="l2"):
         """
         Computes the loss between predicted and target values using various loss functionals.
@@ -554,6 +1027,9 @@ class LossFunction:
               distribution function ('fe') along the velocity axis.
         """
         
+        if self.is_angular:
+            return sum(self._regularization_terms(weights).values(), jnp.asarray(0.0))
+
         param_penalty = 0.0
         # this will need to be modified for the params instead of weights
         for species in weights.keys():
@@ -593,10 +1069,8 @@ class LossFunction:
             - Temperature loss enforces the correct second moment (temperature) of the distribution.
             - Momentum loss enforces the first moment (mean velocity) to be zero.
             - If the distribution is symmetric, normalization and temperature are doubled.
-        - For 2D velocity space:
-            - Density loss is based on the sum of the exponentiated distribution times the velocity resolution squared.
-            - Temperature loss is based on the second moment of the distribution.
-            - Momentum loss is currently set to zero (not implemented).
+        - For 2D velocity space, density, centered in-plane temperature, and both
+          momentum components are integrated directly from the positive physical EDF.
         Args:
             params (dict): Dictionary containing model parameters, specifically the electron distribution function
                            under 'params["electron"]["fe"]'.
@@ -607,93 +1081,52 @@ class LossFunction:
                 - momentum_loss (float): Loss term enforcing zero mean velocity (first moment).
         """
         
-        if self.cfg["parameters"]["electron"]["fe"]["dim"] == 1:
-            dv = (
-                self.cfg["parameters"]["electron"]["fe"]["velocity"][1]
-                - self.cfg["parameters"]["electron"]["fe"]["velocity"][0]
+        if self.cfg["parameters"]["electron"]["fe"]["dim"] == 2:
+            physical = params() if callable(params) else params
+            electron = physical["electron"]
+            distribution = jnp.asarray(electron["fe"])
+            velocity = jnp.asarray(
+                electron.get("v", self.cfg["parameters"]["electron"]["fe"]["velocity"])
             )
-            if self.cfg["parameters"]["electron"]["fe"]["symmetric"]:
-                density_loss = jnp.mean(jnp.square(1.0 - 2.0 * jnp.sum(jnp.exp(params["electron"]["fe"]) * dv, axis=1)))
-                temperature_loss = jnp.mean(
-                    jnp.square(
-                        1.0
-                        - 2.0
-                        * jnp.sum(
-                            jnp.exp(params["electron"]["fe"])
-                            * self.cfg["parameters"]["electron"]["fe"]["velocity"] ** 2.0
-                            * dv,
-                            axis=1,
-                        )
-                    )
-                )
-            else:
-                density_loss = jnp.mean(jnp.square(1.0 - jnp.sum(jnp.exp(params["electron"]["fe"]) * dv, axis=1)))
-                temperature_loss = jnp.mean(
-                    jnp.square(
-                        1.0
-                        - jnp.sum(
-                            jnp.exp(params["electron"]["fe"])
-                            * self.cfg["parameters"]["electron"]["fe"]["velocity"] ** 2.0
-                            * dv,
-                            axis=1,
-                        )
-                    )
-                )
-            momentum_loss = jnp.mean(
-                jnp.square(
-                    jnp.sum(
-                        jnp.exp(params["electron"]["fe"]) * self.cfg["parameters"]["electron"]["fe"]["velocity"] * dv,
-                        axis=1,
-                    )
-                )
+            dv = velocity[1] - velocity[0]
+            cell_area = dv**2
+            vx, vy = jnp.meshgrid(velocity, velocity)
+            density = jnp.sum(distribution) * cell_area
+            safe_density = jnp.maximum(density, jnp.finfo(distribution.dtype).eps)
+            mean_vx = jnp.sum(distribution * vx) * cell_area / safe_density
+            mean_vy = jnp.sum(distribution * vy) * cell_area / safe_density
+            thermal_second_moment = (
+                jnp.sum(distribution * ((vx - mean_vx) ** 2 + (vy - mean_vy) ** 2))
+                * cell_area
+                / safe_density
             )
-        else:
-            fedens = (
-                jnp.sum(jnp.exp(params["electron"]["fe"])) * self.cfg["parameters"]["electron"]["fe"]["v_res"] ** 2.0
-            )
-            jax.debug.print("zero moment = {fedens}", fedens=fedens)
-            density_loss = jnp.mean(jnp.square(1.0 - fedens))
+            density_loss = (density - 1.0) ** 2
+            temperature_loss = (thermal_second_moment - 2.0) ** 2
+            momentum_loss = mean_vx**2 + mean_vy**2
+            return density_loss, temperature_loss, momentum_loss
 
-            # density_loss = jnp.mean(
-            #     jnp.square(
-            #         1.0
-            #         - trapz(
-            #             trapz(
-            #                 jnp.exp(params["electron"]["fe"]), self.cfg["parameters"]["electron"]["fe"]["v_res"]
-            #             ),
-            #             self.cfg["parameters"]["electron"]["fe"]["v_res"],
-            #         )
-            #     )
-            # )
-            second_moment = (
-                jnp.sum(
-                    jnp.exp(params["electron"]["fe"])
-                    * (
-                        self.cfg["parameters"]["electron"]["fe"]["velocity"][0] ** 2
-                        + self.cfg["parameters"]["electron"]["fe"]["velocity"][1] ** 2
-                    )
-                )
-                * self.cfg["parameters"]["electron"]["fe"]["v_res"] ** 2.0
-            )
-            jax.debug.print("second moment = {fedens}", fedens=second_moment)
-            temperature_loss = jnp.mean(jnp.square(1.0 - second_moment / 2))
-            # needs to be fixed, was using a custom trapz function not the jax one
-            first_moment = second_moment = jnp.trapz(
-                jnp.trapz(
-                    jnp.exp(params["electron"]["fe"])
-                    * (
-                        self.cfg["parameters"]["electron"]["fe"]["velocity"][0] ** 2
-                        + self.cfg["parameters"]["electron"]["fe"]["velocity"][1] ** 2
-                    )
-                    ** (1 / 2),
-                    self.cfg["parameters"]["electron"]["fe"]["v_res"],
-                ),
-                self.cfg["parameters"]["electron"]["fe"]["v_res"],
-            )
-            jax.debug.print("first moment = {fedens}", fedens=first_moment)
-            # momentum_loss = jnp.mean(jnp.square(jnp.sum(jnp.exp(params["fe"]) * self.cfg["velocity"] * dv, axis=1)))
-            momentum_loss = 0.0
-            # print(temperature_loss)
+        physical = params() if callable(params) else params
+        electron = physical["electron"]
+        distribution = jnp.asarray(electron["fe"])
+        velocity = jnp.asarray(
+            electron.get("v", self.cfg["parameters"]["electron"]["fe"]["velocity"])
+        )
+        dv = velocity[1] - velocity[0]
+        symmetric_factor = 2.0 if self.cfg["parameters"]["electron"]["fe"].get("symmetric", False) else 1.0
+        density = symmetric_factor * jnp.sum(distribution, axis=-1) * dv
+        safe_density = jnp.maximum(density, jnp.finfo(distribution.dtype).eps)
+        mean_velocity = symmetric_factor * jnp.sum(distribution * velocity, axis=-1) * dv / safe_density
+        if symmetric_factor == 2.0:
+            mean_velocity = jnp.zeros_like(mean_velocity)
+        thermal_second_moment = (
+            symmetric_factor
+            * jnp.sum(distribution * (velocity - mean_velocity[..., None]) ** 2, axis=-1)
+            * dv
+            / safe_density
+        )
+        density_loss = jnp.mean((density - 1.0) ** 2)
+        temperature_loss = jnp.mean((thermal_second_moment - 1.0) ** 2)
+        momentum_loss = jnp.mean(mean_velocity**2)
         return density_loss, temperature_loss, momentum_loss
     
     def calculate_covariance_matrix(self, data):

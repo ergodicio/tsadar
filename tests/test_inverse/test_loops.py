@@ -238,3 +238,31 @@ def test_advance_refinement_shape_rejects_non_1d():
 
     with pytest.raises(ValueError):
         advance_refinement_shape(config)
+
+
+def test_build_angular_batch_combines_detector_mask_and_bad_pixel_coordinates():
+    config = {
+        "data": {
+            "lineouts": {"start": 1, "end": 3},
+            "shotnum": 1,
+            "bad_pixels": [[1, 2]],
+        }
+    }
+    detector = jnp.arange(12.0).reshape(4, 3)
+    supplied_mask = jnp.ones((4, 3), dtype=bool).at[2, 0].set(False)
+    all_data = {
+        "e_data": detector,
+        "e_amps": jnp.ones((4, 1)),
+        "noiseE": jnp.zeros((4, 3)),
+        "e_mask": supplied_mask,
+        "i_data": jnp.zeros((4, 3)),
+        "i_amps": jnp.zeros((4, 1)),
+        "noiseI": jnp.zeros((4, 3)),
+    }
+
+    batch = loops.build_angular_batch(config, all_data)
+
+    assert batch["e_mask"].shape == (2, 3)
+    assert not batch["e_mask"][0, 2]
+    assert not batch["e_mask"][1, 0]
+    assert batch["e_mask"].sum() == 4
