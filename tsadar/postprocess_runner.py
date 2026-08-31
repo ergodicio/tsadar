@@ -1,5 +1,6 @@
 """Standalone postprocessor entry point: reruns postprocess() on an already-completed fit's saved results,
 loaded either from a local run directory or a remote MLflow run (by id or URL), without redoing the fit."""
+import json
 import os
 import re
 import tempfile
@@ -58,13 +59,22 @@ def _load_merged_config(dir_path: str) -> Dict:
     config_path = os.path.join(dir_path, "config.yaml")
     if os.path.exists(config_path):
         with open(config_path, "r") as fi:
-            return yaml.safe_load(fi)
+            config = yaml.safe_load(fi)
+    else:
+        all_configs = {}
+        for k in ["defaults", "inputs"]:
+            with open(os.path.join(dir_path, f"{k}.yaml"), "r") as fi:
+                all_configs[k] = yaml.safe_load(fi)
+        config = misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
 
-    all_configs = {}
-    for k in ["defaults", "inputs"]:
-        with open(os.path.join(dir_path, f"{k}.yaml"), "r") as fi:
-            all_configs[k] = yaml.safe_load(fi)
-    return misc.merge_defaults_and_inputs(all_configs["defaults"], all_configs["inputs"])
+    metadata_path = os.path.join(dir_path, "checkpoint_metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as metadata_file:
+            metadata = json.load(metadata_file)
+        refinements = metadata.get("angular_refinements")
+        if refinements is not None:
+            config["optimizer"]["checkpoint_refinements"] = int(refinements)
+    return config
 
 
 def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None) -> Dict:
@@ -109,7 +119,10 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
             # same shape as the saved checkpoint).
             config["optimizer"]["batch_size"] = 1
             apply_ang_res_unit(config)
-            for _ in range(config["optimizer"]["num_mins"] - 1):
+            checkpoint_refinements = config["optimizer"].get(
+                "checkpoint_refinements", config["optimizer"]["num_mins"] - 1
+            )
+            for _ in range(checkpoint_refinements):
                 advance_refinement_shape(config)
             skeleton = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
         else:
@@ -189,6 +202,15 @@ def run_postprocess_remote(run_id_or_url: str) -> Dict:
                     f"Could not download {fname} from run {run_id}: {e}. If this is fitted_weights.eqx, "
                     "the run may predate that artifact, or postprocessing/saving may have been disabled for it."
                 ) from e
+
+        # Optional for backward compatibility. New angular checkpoints use this to
+        # restore a global best that came from an earlier refinement stage.
+        try:
+            mlflow.artifacts.download_artifacts(
+                run_id=run_id, artifact_path="checkpoint_metadata.json", dst_path=td
+            )
+        except Exception:
+            pass
 
         config = _load_merged_config(td)
         fitted_weights_path = os.path.join(td, "fitted_weights.eqx")

@@ -260,13 +260,23 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
 - ``num_epochs`` max number of iterations of the minimizer for each batch
 
+- ``patience`` number of consecutive steps without an improvement of at least ``min_delta`` before an Optax fit stops early. Smaller improvements are still checkpointed, so the returned loss is always the true best evaluated loss. Set to 0 to disable early stopping.
+
+- ``min_delta`` minimum loss improvement that resets ``patience``.
+
+- ``seed`` seed recorded with optimizer telemetry for reproducibility. The current Optax loops and continuation stages are deterministic and do not randomize their initial parameters.
+
+- ``validate_active_leaves`` boolean, validates before optimization that every parameter marked active in the deck exists as a finite differentiable leaf and has detector-space forward sensitivity in the fitted geometry.
+
+- ``sensitivity_tol`` lower bound for the detector-space JVP norm used by active-leaf validation. The default of zero rejects exactly insensitive parameters.
+
 - ``learning_rate`` scale factor for step sizes taken by the minimizer
 
 - ``parameter_norm`` boolean, determines if the fitted parameters will be rescaled to 0 to 1, this is always recommended as it improves the behavior of the minimizer by keeping all parameters on the same scale, but the true values of the parameters are still used for error analysis and plotting.
 
 - ``refine_factor`` factor used to rescale the EDF domain during multiple minimizations of ARTS data
 
-- ``num_mins`` how many times the minimization will be performed on ARTS data, does not effect non-ARTS data
+- ``num_mins`` number of sequential continuation/refinement stages for ARTS data; it does not affect non-ARTS data. These are not independent random restarts: each stage starts from the preceding stage's best checkpoint, and the EDF grid is refined by ``refine_factor`` between stages. The globally best evaluated checkpoint across all stages is returned.
 
 - ``save_state`` boolean, determines if the state of the minimizer will be saved at some regular period during the minimization, primarily used for understanding the behavior of the minimizer
 
