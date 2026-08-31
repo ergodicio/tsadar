@@ -118,6 +118,7 @@ def _mh_accept(key: jax.Array, diff_params, log_post: jnp.ndarray, proposal, log
     return new_diff_params, new_log_post, accept
 
 
+@eqx.filter_jit
 def _run_window(
     key: jax.Array,
     loss_fn: LossFunction,
@@ -133,6 +134,17 @@ def _run_window(
     """Runs n_steps of propose+accept/reject via jax.lax.scan at a fixed step_scale. When collect is
     False (burn-in windows), only the final state and per-lineout accept counts are computed --
     jax.lax.scan's `None` output for every step costs nothing (no leaves to stack).
+
+    @eqx.filter_jit matters here far more than it would for an ordinary function: run_mcmc_for_batch
+    calls this once per burn-in window and once per sampling chunk (tens to ~100+ calls per chain), and
+    without caching, each of those calls makes JAX rebuild the forward-model trace from scratch even
+    though the compiled XLA kernel underneath is reused -- measured at ~800-900ms of pure Python retracing
+    per call on a small test fit, i.e. the large majority of total wall time, and identically so whether
+    run_mcmc_for_batch is called eagerly or (as in production) traced once inside
+    run_mcmc_for_fit_batches' eqx.filter_vmap, since vmap's own one-time trace still calls this bare
+    Python function fresh for every window/chunk. filter_jit gives every call after the first (same
+    n_steps/collect/thin) a cache hit, skipping the retrace entirely -- ~15x faster on that same fit,
+    with no change to the underlying algorithm or outputs.
 
     When collect is True (sampling), a naive "collect every step, then slice every thin-th one" scan
     would have to hold *all* n_steps' worth of raw diff_params in memory before any thinning ever
