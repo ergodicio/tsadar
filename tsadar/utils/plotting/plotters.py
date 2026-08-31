@@ -495,7 +495,7 @@ def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None):
         r_hat = r_hat[np.isfinite(r_hat)]
         ax = axes[0][1]
         ax.hist(r_hat, bins=30)
-        ax.axvline(1.01, color="r", linestyle="--", label="R-hat = 1.01")
+        ax.axvline(1.01, color="r", linestyle="--", label="target R-hat = 1.01")
         ax.set_xlabel("max R-hat across active parameters")
         ax.set_ylabel("number of lineouts")
         ax.set_title("MCMC chain convergence (Gelman-Rubin)")

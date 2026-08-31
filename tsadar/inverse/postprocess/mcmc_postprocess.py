@@ -135,13 +135,19 @@ def mcmc_postprocess(
     loss_fns_by_draw = []
     batches_by_draw = []
     for draw_index, (config_k, all_data_k) in enumerate(draws):
-        # draw 0 always reuses the caller-supplied loss_fn unchanged. Later draws also reuse it whenever
-        # config_k/all_data_k are literally the same objects as the nominal config/all_data -- true for
-        # every draw whenever draw_calibration_realizations collapses to K=1, and now also true for every
-        # draw when num_draws > 1 but every *_sigma is 0.0 (chains differing only by starting-point
-        # dispersion and/or RNG have nothing calibration-wise to rebuild a LossFunction for).
+        # Reuses the caller-supplied nominal loss_fn only when config_k/all_data_k are literally the same
+        # objects as the nominal config/all_data -- true for every draw whenever
+        # draw_calibration_realizations collapses to K=1, and also true for every draw when num_draws > 1
+        # but every *_sigma is 0.0 (chains differing only by starting-point dispersion and/or RNG have
+        # nothing calibration-wise to rebuild a LossFunction for). draw_index == 0 is NOT special:
+        # draw_calibration_realizations draws an independent perturbation for every index including 0, so
+        # unconditionally reusing the nominal loss_fn there (as this used to do) would silently evaluate
+        # draw 0's genuinely-perturbed calibration against the wrong (nominal) LossFunction -- a no-op for
+        # gain (only a data-side rescale, self-cancelled by LossFunction's per-lineout normalization) but
+        # a real mismatch for the dispersion/offset/IRF-width fields, which get baked into FormFactor's
+        # fixed arrays (lamAxis, IRF kernels) at construction time.
         reuse_nominal = config_k is config and all_data_k is all_data
-        loss_fn_k = loss_fn if (draw_index == 0 or reuse_nominal) else _build_loss_fn_for_draw(config_k, sa, all_data_k, batch_size)
+        loss_fn_k = loss_fn if reuse_nominal else _build_loss_fn_for_draw(config_k, sa, all_data_k, batch_size)
         loss_fns_by_draw.append(loss_fn_k)
         batches_by_draw.append([build_batch(all_data_k, inds, background_subtract) for inds in batch_indices])
 
