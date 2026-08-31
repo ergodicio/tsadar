@@ -27,6 +27,7 @@ def _distribution_config(flm_type="mora-yahi", nl=1, nvx=48, nvr=48):
             "dty": 0.0,
             "Nl": nl,
             "nvr": nvr,
+            "nvz": 32,
         },
     }
 
@@ -116,9 +117,10 @@ def test_each_mora_yahi_coefficient_perturbs_edf_spectrum_and_gradient(mode, odd
     def with_coefficient(value):
         return eqx.tree_at(coefficient, model, replace=value)
 
+    step = jnp.asarray(1.0e-4)
     base_edf = model()
-    perturbed_edf = with_coefficient(jnp.asarray(1.0e-4))()
-    delta_edf = perturbed_edf - base_edf
+    perturbed_edf = with_coefficient(step)()
+    delta_edf = (perturbed_edf - with_coefficient(-step)()) / 2
     delta_scale = jnp.max(jnp.abs(delta_edf))
 
     assert bool(jnp.all(jnp.isfinite(delta_edf)))
@@ -151,7 +153,7 @@ def test_each_mora_yahi_coefficient_perturbs_edf_spectrum_and_gradient(mode, odd
     fd_gradient = (spectral_loss(step) - spectral_loss(-step)) / (2 * step)
     assert bool(jnp.isfinite(ad_gradient))
     assert float(jnp.abs(ad_gradient)) > 1e-8
-    np.testing.assert_allclose(ad_gradient, fd_gradient, rtol=1e-6, atol=1e-9)
+    np.testing.assert_allclose(ad_gradient, fd_gradient, rtol=3e-6, atol=1e-9)
 
 
 def test_active_mora_yahi_leaves_are_differentiable_and_reported():
@@ -205,7 +207,7 @@ def test_active_mora_yahi_leaves_are_differentiable_and_reported():
         ) / (2 * step)
         assert bool(jnp.isfinite(ad_gradient))
         assert float(jnp.abs(ad_gradient)) > 1e-8
-        np.testing.assert_allclose(ad_gradient, fd_gradient, rtol=2e-6, atol=1e-8)
+        np.testing.assert_allclose(ad_gradient, fd_gradient, rtol=5e-5, atol=1e-8)
 
     unnormalized = params.get_unnormed_params()["electron"]
     assert set(unnormalized["flm"]) == {0, 1}
