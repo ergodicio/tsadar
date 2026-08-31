@@ -134,3 +134,9 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - The full production-grid operator regression is pinned to CPU again. GPU CI now first asserts that JAX exposes an actual GPU, then runs a bounded 17-point regression covering exact nodes and midpoints, float32 and float64, primal evaluation, pole JVP/VJP, numerator VJP, and direct/operator equivalence. The job has an explicit 20-minute timeout.
 - The nonsingular rational fallback now has analytic constant-over-affine tests with the affine root outside the integration domain. Both the exact-log and small-difference Taylor coefficient branches check finite full-denominator VJPs and compare forward- and reverse-mode shift derivatives with the closed-form integral derivative.
 - A representative weighted numerator VJP replaced an all-output reverse Jacobian in the every-pole test, retaining coverage while avoiding one reverse pass per output. Focused local CPU validation completed with `27 passed, 4 skipped` in `60.13` seconds; the skips are the new GPU-only cases.
+
+## 2026-08-31 — DECISION: keep expensive physics regressions out of per-PR CI
+
+- The two physical unresolved-ARTS2D convergence/topology regressions are marked `slow` and excluded from normal pull-request CI. The lightweight production-plumbing test in the same file remains in the fast suite.
+- Pull requests carry an explicit checklist requiring both `pytest -m "not slow" tests/` and `pytest -m slow tests/` to have been run before submission, with ownership or a linked result recorded for the slow run. For PR #146, the pre-submission full CPU run already covered both slow regressions and completed with `176 passed, 7 skipped`.
+- Automated weekly execution on NERSC is deliberately deferred until the NERSC/GitHub Actions integration is designed and configured; no provisional scheduler or runner setup was added here.
