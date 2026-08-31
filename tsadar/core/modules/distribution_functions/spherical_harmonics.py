@@ -1,6 +1,18 @@
-"""Spherical-harmonic representation of the electron distribution function, for 2D EDFs expanded in
-velocity-space harmonics (f00 isotropic component plus higher-order anisotropic terms) rather than
-represented as an arbitrary numerical grid."""
+"""Projected spherical-harmonic representation of a two-velocity EDF.
+
+The angular functions are real (cosine) spherical harmonics evaluated after embedding
+the physical ``(vx, vy)`` plane in three dimensions as ``(X, Y, Z) = (vy, 0, vx)``.
+Consequently JAX's angles are ``theta = acos(vx / |v|)`` (polar) and ``phi`` is zero or
+pi according to the sign of ``vy`` (azimuth).  JAX uses the argument order
+``sph_harm_y(degree=l, order=m, theta, phi)``.  For ``m > 0`` we use the conventional
+real basis ``sqrt(2) * (-1)**m * Re(Y_l^m)``.  In particular, the ``(l, m) = (1, 0)``
+and ``(1, 1)`` modes are proportional to ``vx / |v|`` and ``vy / |v|`` respectively.
+
+This is a projected 3-D spherical-harmonic angular basis, not a 2-D polar Fourier
+basis.  The radial functions in this module are sampled on the two-velocity plane;
+this angular-coordinate repair does not itself define a physical 3-V-to-2-V marginal
+(that model distinction is tracked separately in issue #137).
+"""
 from typing import Dict, Callable
 from collections import defaultdict
 from functools import partial
@@ -71,20 +83,21 @@ class FLM_MY(eqx.Module):
 
     Attributes:
         vr (Array): Array of velocity values (normalized to thermal velocity).
-        dt (float): Time step or scaling factor applied to the FLM coefficient.
+        dt (Array): Trainable scaling factor applied to the FLM coefficient.
 
     References:
         Mora, P. & Yahi, H. (1982). Thermal heat-flux reduction in laser-produced plasmas.
         Phys. Rev. A 26, 2259–2261.
     """
     vr: Array
-    #log_10_LT: float
-    dt: float
+    dt: Array
 
     def __init__(self, vr: Array, dt: float):
         super().__init__()
         self.vr = vr
-        self.dt = dt
+        # Equinox treats Python scalars as static metadata.  Coefficients must be JAX
+        # array leaves so partitioning and autodiff can expose them to the optimizer.
+        self.dt = jnp.asarray(dt)
 
     def __call__(self, **kwargs):
         m_f0 = kwargs["m_f0"]
@@ -156,12 +169,11 @@ class SphericalHarmonics(DistributionFunction2V):
     distribution on a velocity grid.
     Attributes:
         vr (Array): Radial velocity grid.
-        th (Array): Angular grid (theta) in velocity space.
-        phi (Array): Angular grid (phi) in velocity space.
-        sph_harm_y (Callable): Vectorized spherical harmonics function.
+        polar_theta (Array): JAX polar angle measured from the physical ``vx`` axis.
+        azimuth_phi (Array): JAX azimuth in the embedded ``(vy, 0)`` plane.
         vr_vxvy (Array): Radial grid in (vx, vy) coordinates.
-        Nl (int): Maximum order of spherical harmonics expansion.
-        flm (Dict[str, Dict[str, Callable]]): Dictionary of spherical harmonics coefficients.
+        Nl (int): Maximum degree of the spherical-harmonic expansion.
+        flm (Dict[int, Dict[int, Callable]]): Spherical-harmonic radial coefficients.
         m_scale (float): Scaling factor for the 'm' parameter.
         m_shift (float): Shift for the 'm' parameter.
         act_fun (Callable): Activation function for 'm' parameter normalization.
@@ -183,12 +195,11 @@ class SphericalHarmonics(DistributionFunction2V):
         NotImplementedError: If an unsupported 'flm_type' or spherical harmonics index is requested.
     """
     vr: Array
-    th: Array
-    phi: Array
-    sph_harm_y: Callable
+    polar_theta: Array
+    azimuth_phi: Array
     vr_vxvy: Array
     Nl: int
-    flm: Dict[str, Dict[str, Callable]]
+    flm: Dict[int, Dict[int, Callable]]
     m_scale: float
     m_shift: float
     act_fun: Callable
@@ -203,12 +214,17 @@ class SphericalHarmonics(DistributionFunction2V):
         self.vr = jnp.linspace(dvr / 2, vmax - dvr / 2, dist_cfg["params"]["nvr"])
 
         vx, vy = jnp.meshgrid(self.vx, self.vx)
-        self.th = jnp.arctan2(vy, vx)
-        self.phi = jnp.arccos(vy / jnp.abs(vy))
+        radius = jnp.hypot(vx, vy)
+        safe_radius = jnp.where(radius > 0, radius, 1.0)
+        self.polar_theta = jnp.where(
+            radius > 0,
+            jnp.arccos(jnp.clip(vx / safe_radius, -1.0, 1.0)),
+            0.0,
+        )
+        self.azimuth_phi = jnp.where(vy < 0, jnp.pi, 0.0)
         self.vr_vxvy = jnp.sqrt(vx**2 + vy**2)
         self.Nl = dist_cfg["params"]["Nl"]
 
-        self.sph_harm_y = vmap(sph_harm_y, in_axes=(None, None, 0, 0, None))
         self.flm = defaultdict(dict)
 
         init_m = dist_cfg["params"]["init_m"]
@@ -249,16 +265,44 @@ class SphericalHarmonics(DistributionFunction2V):
         are computed using the corresponding functions in `self.flm`, with keyword arguments including the
         unnormalized moment (`m_f0`) and the zeroth order coefficient (`f00`).
         Returns:
-            dict: A dictionary with a single key "flm", whose value is a nested dictionary of spherical harmonics
-                  coefficients indexed by their order and degree.
+            dict: The physical shape parameter under ``m`` and a nested ``flm``
+                dictionary indexed first by degree and then by order.
         """
-        flm_dict = {0: {0: self.get_f00()}, 1: {}}
+        flm_dict = {l: {} for l in range(self.Nl + 1)}
+        flm_dict[0][0] = self.get_f00()
         kwargs = {"m_f0": self.get_unnormed_m(), "f00": flm_dict[0][0]}
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
                 flm_dict[i][j] = self.flm[i][j](**kwargs)
 
-        return {"flm": flm_dict}
+        return {"m": self.get_unnormed_m(), "flm": flm_dict}
+
+    def _real_harmonic(self, degree: int, order: int) -> Array:
+        """Evaluate one real projected spherical harmonic on the velocity plane.
+
+        ``jax.scipy.special.sph_harm_y`` requires degree before order in current
+        JAX releases.  Vectorizing scalar angle pairs avoids relying on its unusual
+        broadcasting rules while keeping ``degree`` and ``order`` compile-time values.
+        Every anisotropic harmonic is defined to vanish at the coordinate singularity;
+        the tolerance also catches the roundoff-sized nominal origin of odd grids.
+        """
+
+        values = vmap(sph_harm_y, in_axes=(None, None, 0, 0))(
+            jnp.asarray([degree]),
+            jnp.asarray([order]),
+            self.polar_theta.reshape(-1, order="C"),
+            self.azimuth_phi.reshape(-1, order="C"),
+        ).reshape(self.vr_vxvy.shape, order="C")
+        if order == 0:
+            real_values = jnp.real(values)
+        else:
+            real_values = jnp.sqrt(2.0) * (-1) ** order * jnp.real(values)
+
+        if degree > 0:
+            coordinate_scale = jnp.maximum(jnp.max(jnp.abs(self.vx)), 1.0)
+            origin_tolerance = 32.0 * jnp.finfo(self.vr_vxvy.dtype).eps * coordinate_scale
+            real_values = jnp.where(self.vr_vxvy <= origin_tolerance, 0.0, real_values)
+        return real_values
 
     def get_unnormed_m(self):
         """Returns the unnormalized (physical) super-Gaussian shape parameter "m" for the f00 component."""
@@ -307,10 +351,7 @@ class SphericalHarmonics(DistributionFunction2V):
                 flm = self.flm[i][j](**kwargs)
 
                 _flmvxvy = jnp.interp(self.vr_vxvy, self.vr, flm, right=1e-32)
-                _sph_harm_y = self.sph_harm_y(
-                    jnp.array([j]), jnp.array([i]), self.phi.reshape(-1, order="C"), self.th.reshape(-1, order="C"), 2
-                ).reshape(self.vr_vxvy.shape, order="C")
-                fvxvy += _flmvxvy * jnp.real(_sph_harm_y)
+                fvxvy += _flmvxvy * self._real_harmonic(i, j)
 
         fvxvy = jnp.maximum(fvxvy, 1e-32)
         fvxvy /= jnp.sum(fvxvy) * (self.vx[1] - self.vx[0]) * (self.vx[1] - self.vx[0])

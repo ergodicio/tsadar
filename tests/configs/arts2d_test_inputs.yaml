@@ -80,8 +80,8 @@ parameters:
       params:
         flm_type: mora-yahi
         init_m: 2.2
-        LTx: 22500.
-        LTy: 40000.
+        dtx: 0.0005
+        dty: 0.0005
         Nl: 1
         nvr: 64
     ne:

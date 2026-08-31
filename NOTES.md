@@ -83,3 +83,22 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - The GPU allocations came from using reverse-mode `jacrev` for one scalar input and hundreds of detector-bin outputs. This orientation repeats the reverse pass for every output and does not represent the scalar-loss gradient used by inference.
 - The regression now forms the complete scalar-to-detector Jacobian with one forward-mode `jacfwd` tangent evaluation, and independently checks a weighted scalar detector loss with reverse-mode `grad` against the forward-Jacobian contraction. This preserves elementwise tangent coverage and production-style reverse-mode coverage without the artificial quadratic memory cost.
 - The focused CPU file remained green (`3 passed`) and fell from `81.72` to `63.87` seconds; the full-range eight-root test fell from `24.46` to `12.87` seconds.
+
+## 2026-08-30 — RESULT: #136 ARTS2D harmonic coordinates and trainability
+
+- Provenance: implementation and local CPU validation started from `origin/main` at `c5360f74` with JAX 0.9.1 in the project `uv` environment.
+- The ARTS2D harmonic convention is now explicit: a real projected 3-D spherical-harmonic basis embeds the physical plane as `(X, Y, Z) = (vy, 0, vx)` and calls JAX with `(degree=l, order=m, polar theta, azimuth phi)`. The real `(1, 0)` and `(1, 1)` modes are proportional to `vx / |v|` and `vy / |v|`, respectively; this coordinate repair does not define the physical 3-V-to-2-V marginal tracked by #137.
+- Both Mora-Yahi coefficients are scalar JAX array leaves. The distribution filter exposes them and the isotropic shape parameter; the neural-network filter now exposes every weight and bias for every configured `(l, m)` through `Nl`.
+- Controlled perturbations of either first-order coefficient produced finite nonzero EDF and two-angle spectrum changes. Reverse-mode gradients of weighted spectra were finite, nonzero, and agreed with centered finite differences to `1e-6` relative tolerance.
+- The focused harmonic tests cover Cartesian parity and centroids, active-leaf gradients, `Nl=2` construction, unnormalized-state reporting, and Equinox serialization. The combined harmonic, ARTS2D consistency, spectral-term, and sinogram suite completed with `41 passed` in `67.61` seconds on CPU.
+
+## 2026-08-30 — RESULT: #136 full-suite validation
+
+- With MLflow's file-store compatibility flag enabled and the declared optional HDF4 dependency installed, the complete local CPU suite finished with `192 passed, 7 skipped` in `213.63` seconds. The skips are hardware-dependent tests; the eight warnings are existing SciPy `disp` option warnings.
+- `git diff --check` and Python byte-compilation passed before commit preparation.
+
+## 2026-08-31 — CORRECTION: #136 odd-grid harmonic origin
+
+- Review of PR #145 identified that the nominal origin of an odd Cartesian velocity grid can be represented by roundoff-sized nonzero coordinates. The previous `radius > 0` branch therefore assigned an arbitrary direction there; its fallback also left the `(l, m) = (1, 0)` mode nonzero at exact zero.
+- Every anisotropic (`l > 0`) projected harmonic is now defined as zero when radius is within 32 machine epsilons of the velocity-coordinate scale. This catches only the coordinate singularity, remaining far below one velocity-cell spacing in both float32 and float64.
+- An explicit 49-by-49 regression verifies zero first-order harmonics at the nominal origin and Cartesian parity on the full odd grid. The focused harmonic file completed with `7 passed`; the combined harmonic, ARTS2D consistency, spectral-term, and sinogram suite completed with `42 passed` on CPU.
