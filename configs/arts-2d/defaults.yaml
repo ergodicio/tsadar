@@ -76,7 +76,8 @@ optimizer:
     gain:
       mode: per_row
       smoothness: 0.01
-      prior_strength: 0.0
+      # Anchors the gain scale so active amp1/amp2 remain identifiable.
+      prior_strength: 0.01
       prior_mean: 1.0
       minimum: 0.0
     robust:
