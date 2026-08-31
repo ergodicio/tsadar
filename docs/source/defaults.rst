@@ -49,6 +49,8 @@ These parameters are found in the ``parameters:electron`` section of the input d
 
         - ``Nl`` is the maximum spherical-harmonic degree used to define the distribution function when the ``sphericalharmonic`` model is used. TSADAR uses the real cosine harmonics with JAX's ``(degree=l, order=m)`` convention and embeds physical velocity as ``(X, Y, Z) = (vy, vz, vx)``. The ``(1, 0)`` and ``(1, 1)`` modes point along ``vx`` and ``vy``; the unrepresented first-order sine mode points along the unobserved ``vz`` direction and integrates to zero for the coplanar ARTS2D observable. This is a 3-D spherical-harmonic basis, not a 2-D polar Fourier basis.
 
+        - ``init_m`` is the initial isotropic super-Gaussian shape. The ``sphericalharmonic`` model accepts the closed interval 2 through 5. It stores the normalized shape with a projected closed-interval parameterization, so the exact endpoint initializers remain differentiable toward the feasible interior instead of being represented by infinite logits.
+
         - ``dtx`` is the Knudsen number along the x direction for Spitzer-Harm type or the more general Mora-Yahi type distribution functions. This parameter set the amount of heat flux in this model. This parameter is only relevant if ``flm_type`` is set to ``mora-yahi`` and is ignored otherwise. See `Mora and Yahi (1982) <https://journals.aps.org/pra/abstract/10.1103/PhysRevA.26.2259>`_.
         
         - ``dty`` is the Knudsen number along the y direction for the Mora-Yahi type distribution functions.

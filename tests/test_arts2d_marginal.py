@@ -67,6 +67,38 @@ def test_maxwellian_3d_marginal_is_analytic_2d_maxwellian():
     np.testing.assert_allclose(marginal, analytic, rtol=5e-9, atol=7e-10)
 
 
+@pytest.mark.parametrize("shape, inward_direction", [(2.0, 1.0), (5.0, -1.0)])
+def test_endpoint_shape_initializers_have_nonzero_marginal_gradient(shape, inward_direction):
+    model = _harmonic_model(shape, nvx=48, nvr=48, nvz=48)
+    vx, vy = jnp.meshgrid(model.vx, model.vx)
+    dv = model.vx[1] - model.vx[0]
+    fourth_moment_weight = vx**4 + vy**4
+
+    def marginal_observable(normed_m):
+        changed = eqx.tree_at(lambda tree: tree.normed_m, model, replace=normed_m)
+        return jnp.sum(changed() * fourth_moment_weight) * dv**2
+
+    initial_parameter = model.normed_m
+    ad_gradient = grad(marginal_observable)(initial_parameter)
+    step = jnp.asarray(1.0e-4)
+    fd_gradient = (
+        marginal_observable(initial_parameter + step)
+        - marginal_observable(initial_parameter - step)
+    ) / (2.0 * step)
+
+    assert float(model.get_unnormed_m()) == shape
+    assert bool(jnp.isfinite(ad_gradient))
+    assert float(jnp.abs(ad_gradient)) > 1.0e-4
+    np.testing.assert_allclose(ad_gradient, fd_gradient, rtol=2e-4, atol=1e-8)
+
+    inward_model = eqx.tree_at(
+        lambda tree: tree.normed_m,
+        model,
+        replace=initial_parameter + inward_direction * step,
+    )
+    assert inward_direction * (float(inward_model.get_unnormed_m()) - shape) > 0.0
+
+
 @pytest.mark.parametrize("shape, relative_tolerance", [(3.0, 4e-6), (5.0, 5e-8)])
 def test_nonmaxwellian_3d_marginal_matches_adaptive_integration(shape, relative_tolerance):
     model = _harmonic_model(shape)

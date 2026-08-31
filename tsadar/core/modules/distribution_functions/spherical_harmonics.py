@@ -26,6 +26,12 @@ from numpy.polynomial.legendre import leggauss
 from .base import DistributionFunction2V, smooth1d
 
 
+def _clip_unit_interval(value: Array) -> Array:
+    """Project a normalized scalar into its physical closed interval."""
+
+    return jnp.clip(value, 0.0, 1.0)
+
+
 class FLM_NN(eqx.Module):
     """
     A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`. This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
@@ -247,14 +253,14 @@ class SphericalHarmonics(DistributionFunction2V):
 
         self.m_scale = 3.0
         self.m_shift = 2.0
-        self.act_fun = sigmoid
+        self.act_fun = _clip_unit_interval
         initial_fraction = (init_m - self.m_shift) / self.m_scale
         if not 0.0 <= initial_fraction <= 1.0:
             raise ValueError("init_m must lie in the closed interval [2, 5]")
-        # The exact logit preserves the requested shape, including m=2 (represented
-        # by -inf) and m=5 (+inf). Interior active values retain finite gradients.
-        initial_fraction_array = jnp.asarray(initial_fraction)
-        self.normed_m = jnp.log(initial_fraction_array / (1.0 - initial_fraction_array))
+        # Store the normalized physical fraction directly. JAX gives ``clip`` its
+        # centered boundary subgradient, so exact endpoints remain trainable toward
+        # the feasible interior rather than being frozen at an infinite logit.
+        self.normed_m = jnp.asarray(initial_fraction)
 
         self.flm[0][0] = self.get_f00()
         self.flm_type = dist_cfg["params"]["flm_type"]
@@ -299,7 +305,13 @@ class SphericalHarmonics(DistributionFunction2V):
         return {"m": self.get_unnormed_m(), "flm": flm_dict}
 
     @staticmethod
-    def _real_harmonic_at(degree: int, order: int, polar_theta: Array, azimuth_phi: Array) -> Array:
+    def _real_harmonic_at(
+        degree: int,
+        order: int,
+        polar_theta: Array,
+        azimuth_phi: Array,
+        radius: Array,
+    ) -> Array:
         """Evaluate one real spherical harmonic at broadcast-compatible angles.
 
         ``jax.scipy.special.sph_harm_y`` requires degree before order in current
@@ -309,7 +321,9 @@ class SphericalHarmonics(DistributionFunction2V):
         the tolerance also catches the roundoff-sized nominal origin of odd grids.
         """
 
-        polar_theta, azimuth_phi = jnp.broadcast_arrays(polar_theta, azimuth_phi)
+        polar_theta, azimuth_phi, radius = jnp.broadcast_arrays(
+            polar_theta, azimuth_phi, radius
+        )
         values = vmap(sph_harm_y, in_axes=(None, None, 0, 0))(
             jnp.asarray([degree]),
             jnp.asarray([order]),
@@ -322,15 +336,21 @@ class SphericalHarmonics(DistributionFunction2V):
             real_values = jnp.sqrt(2.0) * (-1) ** order * jnp.real(values)
 
         if degree > 0:
-            coordinate_scale = jnp.maximum(jnp.max(jnp.abs(self.vx)), 1.0)
-            origin_tolerance = 32.0 * jnp.finfo(self.vr_vxvy.dtype).eps * coordinate_scale
-            real_values = jnp.where(self.vr_vxvy <= origin_tolerance, 0.0, real_values)
+            coordinate_scale = jnp.maximum(jnp.max(jnp.abs(radius)), 1.0)
+            origin_tolerance = 32.0 * jnp.finfo(radius.dtype).eps * coordinate_scale
+            real_values = jnp.where(radius <= origin_tolerance, 0.0, real_values)
         return real_values
 
     def _real_harmonic(self, degree: int, order: int) -> Array:
         """Evaluate one projected real harmonic on the observed velocity plane."""
 
-        return self._real_harmonic_at(degree, order, self.polar_theta, self.azimuth_phi)
+        return self._real_harmonic_at(
+            degree,
+            order,
+            self.polar_theta,
+            self.azimuth_phi,
+            self.vr_vxvy,
+        )
 
     def get_unnormed_m(self):
         """Returns the unnormalized (physical) super-Gaussian shape parameter "m" for the f00 component."""
@@ -374,7 +394,13 @@ class SphericalHarmonics(DistributionFunction2V):
         f00_radial = self.get_f00()
         log_anisotropy = jnp.zeros_like(radius)
         kwargs = {"m_f0": self.get_unnormed_m(), "f00": f00_radial}
-        safe_f00 = jnp.maximum(f00_radial, jnp.finfo(f00_radial.dtype).tiny)
+        # The VJP of division contains the square of its denominator. Flooring at
+        # sqrt(tiny), rather than tiny, prevents that square from underflowing when
+        # high-order super-Gaussian tails have already rounded f00 to zero.
+        safe_f00 = jnp.maximum(
+            f00_radial,
+            jnp.sqrt(jnp.asarray(jnp.finfo(f00_radial.dtype).tiny)),
+        )
         for degree in range(1, self.Nl + 1):
             for order in range(degree + 1):
                 relative_radial_coefficient = self.flm[degree][order](**kwargs) / safe_f00
@@ -386,7 +412,7 @@ class SphericalHarmonics(DistributionFunction2V):
                     right=0.0,
                 ).reshape(radius.shape)
                 log_anisotropy += relative_coefficient * self._real_harmonic_at(
-                    degree, order, polar_theta, azimuth_phi
+                    degree, order, polar_theta, azimuth_phi, radius
                 )
 
         # A bounded log-density perturbation is smooth, strictly positive, linear in
