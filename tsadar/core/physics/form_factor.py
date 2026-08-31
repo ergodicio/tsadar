@@ -503,7 +503,8 @@ class FormFactor:
         Args:
 
             vx: normalized velocity grid
-            DF: 2D array, distribution function
+            DF: normalized Cartesian 2-V marginal ``integral f3 dvz``. It is not a
+                central slice of a 3-V distribution.
             beta: angle of the k-vector from the x-axis, in radians
 
         Returns:
@@ -1078,11 +1079,16 @@ class FormFactor:
         return restore_sample_axes(numerator_lambda), restore_sample_axes(epsilon)
 
     def calc_in_2D(self, params):
-        """Calculate the collisionless Thomson spectrum for a 2-D numerical EDF.
+        """Calculate the collisionless Thomson spectrum for a Cartesian 2-V marginal.
 
         This compatibility wrapper evaluates the reusable numerator and dielectric on
         the object's configured wavelength grid, divides by ``abs(epsilon)**2``, and
         restores the historical output shape ``[gradient, wavelength, angle]``.
+
+        Every ray in this interface is coplanar by construction: the geometry supplies
+        scalar scattering angles and builds two-component wavevectors. For those rays,
+        the Radon projection of ``f2 = integral f3 dvz`` is exactly the longitudinal
+        one-velocity marginal required by the susceptibility.
         """
 
         sinogram = self.prepare_2D_sinogram(params)

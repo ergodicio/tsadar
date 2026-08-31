@@ -364,8 +364,13 @@ class DLM1V(DistributionFunction1V):
 
 
 class DistributionFunction2V(eqx.Module):
-    """
-    A base class for 2D velocity distribution functions.
+    """Base class for normalized Cartesian two-velocity marginals.
+
+    Instances return dimensionless ``f2(ux, uy)`` on a square cell-centered grid,
+    where ``u = v / sqrt(Te / me)`` and ``integral f2 dux duy = 1``. The physical
+    number-density marginal is ``ne * f2 / vTe**2``. ARTS2D projects this marginal
+    only along in-plane wavevectors; it must never receive a central 3-V slice.
+
     This class initializes a velocity grid for use in distribution function calculations,
     centered around zero and spanning from -vmax to vmax, with a specified number of grid points.
     This velocity grid is symetric in both x and y directions.
@@ -413,6 +418,32 @@ class DistributionFunction2V(eqx.Module):
 
     def __call__(self, *args, **kwds):
         return super().__call__(*args, **kwds)
+
+    def get_in_plane_moments(self) -> Dict[str, Array]:
+        """Return data-resolved moments of the normalized Cartesian 2-V marginal.
+
+        The keys are dimensionless density, first moments, and the in-plane thermal
+        second moment. Velocities are in units of ``vTe = sqrt(Te / me)``. No
+        model-dependent out-of-plane moment is inferred from ARTS2D data here.
+        """
+
+        distribution = self()
+        vx, vy = jnp.meshgrid(self.vx, self.vx)
+        cell_area = (self.vx[1] - self.vx[0]) ** 2
+        density = jnp.sum(distribution) * cell_area
+        mean_vx = jnp.sum(distribution * vx) * cell_area / density
+        mean_vy = jnp.sum(distribution * vy) * cell_area / density
+        thermal_second_moment = (
+            jnp.sum(distribution * ((vx - mean_vx) ** 2 + (vy - mean_vy) ** 2))
+            * cell_area
+            / density
+        )
+        return {
+            "density": density,
+            "mean_vx": mean_vx,
+            "mean_vy": mean_vy,
+            "thermal_second_moment": thermal_second_moment,
+        }
 
 
 class Arbitrary2V(DistributionFunction2V):
@@ -504,10 +535,13 @@ class Arbitrary2V(DistributionFunction2V):
         # )
 
         # fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
-        #unified with 1D version
-        x0 = jnp.sqrt(3.0 * gamma(3.0 / m) / gamma(5.0 / m))
-        fdlm  = jnp.exp(-((jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0)/x0) ** m))
-        fdlm = fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0]) ** 2.0
+        # This is a native reduced 2-V marginal, not a normalized central slice of
+        # the 3-V super-Gaussian. Its scale keeps <vx^2 + vy^2> = 2 for every m, so
+        # Te retains the same physical meaning across shape parameterizations.
+        x0 = jnp.sqrt(2.0 * gamma(2.0 / m) / gamma(4.0 / m))
+        normalization = m / (2.0 * jnp.pi * x0**2 * gamma(2.0 / m))
+        radius = jnp.sqrt(self.vx[:, None] ** 2.0 + self.vx[None, :] ** 2.0)
+        fdlm = normalization * jnp.exp(-((radius / x0) ** m))
 
         if self.learn_log:
             fdlm = -jnp.log10(fdlm)
