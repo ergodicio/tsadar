@@ -11,7 +11,7 @@ from functools import partial, lru_cache
 import os
 import numpy as np
 from interpax import interp2d, interp1d
-from jax.lax import cond, scan, stop_gradient, map as jmap
+from jax.lax import scan, map as jmap
 from jax import checkpoint
 
 from . import ratintn
@@ -69,52 +69,13 @@ def _electron_resonance(k, omega, electron_flow, vTe):
 
 
 def _principal_value_integral(df, vx, xi):
-    """Evaluate ``PV integral df(v) / (v - xi) dv`` with a finite node limit.
+    """Evaluate ``PV integral df(v) / (v - xi) dv``.
 
-    ``ratintn`` is retained away from an exact grid-node pole. At a node its two
-    logarithmic endpoint contributions are individually infinite, producing ``nan``
-    before their principal-value cancellation. The symmetric limit of the same
-    quadrature avoids that undefined intermediate. Because the piecewise-linear
-    interpolant has no finite derivative at a knot for a general sampled EDF, the
-    exact-node tangent is defined as the centered slope across one velocity cell.
-    This gives the optimizer a finite, grid-scale smoothing convention that does
-    not depend on floating-point precision.
+    ``ratintn`` performs analytic singularity subtraction and supplies the exact
+    removable divided-difference limit when ``xi`` is a velocity node.
     """
 
-    denominator = vx - xi
-    scale = jnp.maximum(1.0, jnp.max(jnp.abs(vx)))
-    pole_tol = 16 * jnp.finfo(vx.dtype).eps * scale
-    at_grid_node = jnp.min(jnp.abs(denominator)) <= pole_tol
-
-    def symmetric_limit(_):
-        spacing = jnp.abs(vx[1] - vx[0])
-        xi_fixed = stop_gradient(xi)
-
-        def evaluate(pole):
-            return jnp.squeeze(ratintn.ratintn(df, vx - pole, vx))
-
-        # Use a fixed fraction of a cell for the value limit so float32 and float64
-        # follow the same numerical convention. The O(offset**2) symmetric error is
-        # negligible compared with the underlying grid discretization.
-        value_offset = 1.0e-3 * spacing
-        value = 0.5 * (
-            evaluate(xi_fixed - value_offset) + evaluate(xi_fixed + value_offset)
-        )
-
-        # A half-cell displacement lands between neighboring knots. Replacing only
-        # the xi tangent leaves derivatives through `df` and `vx` untouched.
-        half_cell = 0.5 * spacing
-        xi_slope = (evaluate(xi_fixed + half_cell) - evaluate(xi_fixed - half_cell)) / (
-            2 * half_cell
-        )
-        return value + xi_slope * (xi - xi_fixed)
-
-    return cond(
-        at_grid_node,
-        symmetric_limit,
-        lambda _: jnp.squeeze(ratintn.ratintn(df, denominator, vx)),
-        operand=None,
-    )
+    return jnp.squeeze(ratintn.ratintn(df, vx - xi, vx))
 
 
 @lru_cache(maxsize=1)
