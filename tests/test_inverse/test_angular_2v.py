@@ -101,8 +101,8 @@ def _perturb_params_(rng, params, dist_type: str):
         params["electron"]["fe"]["type"] = "arbitrary"
     elif dist_type == "sphericalharmonic":
         params["electron"]["fe"]["type"] = "sphericalharmonic"
-        params["electron"]["fe"]["params"]["LTx"] = 10 ** float(rng.uniform(5, 7))
-        params["electron"]["fe"]["params"]["LTy"] = 10 ** float(rng.uniform(5, 7))
+        params["electron"]["fe"]["params"]["dtx"] = float(rng.uniform(-1e-3, 1e-3))
+        params["electron"]["fe"]["params"]["dty"] = float(rng.uniform(-1e-3, 1e-3))
     else:
         raise NotImplementedError
 

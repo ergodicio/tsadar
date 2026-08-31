@@ -103,8 +103,8 @@ def _perturb_params_(rng, params, dist_type: str):
     elif dist_type == "mora-yahi":
         params["electron"]["fe"]["type"] = "sphericalharmonic"
         params["electron"]["fe"]["params"]["flm_type"] = "mora-yahi"
-        params["electron"]["fe"]["params"]["LTx"] = 10 ** float(rng.uniform(6, 8))
-        params["electron"]["fe"]["params"]["LTy"] = 10 ** float(rng.uniform(6, 8))
+        params["electron"]["fe"]["params"]["dtx"] = float(rng.uniform(-1e-3, 1e-3))
+        params["electron"]["fe"]["params"]["dty"] = float(rng.uniform(-1e-3, 1e-3))
     elif dist_type == "nn":
         params["electron"]["fe"]["type"] = "sphericalharmonic"
         params["electron"]["fe"]["params"]["flm_type"] = "nn"

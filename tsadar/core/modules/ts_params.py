@@ -587,7 +587,8 @@ class ThomsonParams(eqx.Module):
         """
         zbar = 0
         z2bar = 0
-        if "matte" in self.param_cfg['electron']['fe']['params']['m'] and self.param_cfg['electron']['fe']['params']['m']['matte']:
+        m_config = self.param_cfg["electron"]["fe"]["params"].get("m", {})
+        if m_config.get("matte", False):
             for ion_index in range(len(self.ions)):
                 zbar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]
                 z2bar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]**2

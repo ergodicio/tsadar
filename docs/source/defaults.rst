@@ -45,9 +45,9 @@ These parameters are found in the ``parameters:electron`` section of the input d
 
     - ``params`` is the container for various model specific parameters.
 
-        - ``Nl`` is the number of Legendre polynomials used to define the distribution function when the ``spherical`` model is used. This parameter is only relevant if ``type: spherical`` and is ignored otherwise.
+        - ``Nl`` is the maximum spherical-harmonic degree used to define the distribution function when the ``sphericalharmonic`` model is used. TSADAR uses the real cosine harmonics with JAX's ``(degree=l, order=m)`` convention. The physical ``(vx, vy)`` plane is embedded as ``(X, Y, Z) = (vy, 0, vx)``; therefore the ``(1, 0)`` and ``(1, 1)`` modes point along ``vx`` and ``vy``. This is a projected 3-D spherical-harmonic angular basis, not a 2-D polar Fourier basis.
 
-        - ``dtx`` is the Knudsen number along the x direction for Spitzer-Harm type or the more general Mora-Yahi type distribution functions. This parameter set the amount of heat flux in this model. This parameter is only relevant if ``flm_type`` is set to ``mora-yahi`` and is ignored otherwise. See `Mora and Yahi (2003) <https://journals.aps.org/pra/abstract/10.1103/PhysRevA.26.2259>`_. 
+        - ``dtx`` is the Knudsen number along the x direction for Spitzer-Harm type or the more general Mora-Yahi type distribution functions. This parameter set the amount of heat flux in this model. This parameter is only relevant if ``flm_type`` is set to ``mora-yahi`` and is ignored otherwise. See `Mora and Yahi (1982) <https://journals.aps.org/pra/abstract/10.1103/PhysRevA.26.2259>`_.
         
         - ``dty`` is the Knudsen number along the y direction for the Mora-Yahi type distribution functions.
 
