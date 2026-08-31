@@ -140,3 +140,8 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - The two physical unresolved-ARTS2D convergence/topology regressions are marked `slow` and excluded from normal pull-request CI. The lightweight production-plumbing test in the same file remains in the fast suite.
 - Pull requests carry an explicit checklist requiring both `pytest -m "not slow" tests/` and `pytest -m slow tests/` to have been run before submission, with ownership or a linked result recorded for the slow run. For PR #146, the pre-submission full CPU run already covered both slow regressions and completed with `176 passed, 7 skipped`.
 - Automated weekly execution on NERSC is deliberately deferred until the NERSC/GitHub Actions integration is designed and configured; no provisional scheduler or runner setup was added here.
+
+## 2026-08-31 — RESULT: hosted `gpu_runner` does not expose a usable GPU
+
+- Two fresh hosted jobs (`99621504504` and retry `99624590900`) installed JAX 0.10.2 with its CUDA 12 plugin, but both failed at the explicit device gate before pytest: `cuInit(0)` returned CUDA error 303 and JAX reported only the CPU backend. This also explains why the earlier nominal GPU suite could run for six hours rather than exercising accelerator behavior.
+- The workflow does not treat CPU fallback as GPU success. The bounded GPU regression remains checked in, but its hosted job is opt-in through `GPU_CI_ENABLED` until a working runner (planned NERSC/GitHub Actions integration) exists. GPU-sensitive pull requests carry a checklist item assigning a person or linked run to execute that regression on an actual GPU before submission.

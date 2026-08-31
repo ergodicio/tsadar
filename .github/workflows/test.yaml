@@ -23,6 +23,9 @@ jobs:
         run: pytest -m "not slow" tests/
 
   test-tsadar-gpu:
+    # The current hosted runner cannot initialize CUDA. Keep this job explicitly
+    # opt-in until the planned NERSC/GitHub Actions runner is configured.
+    if: vars.GPU_CI_ENABLED == 'true'
     runs-on: "gpu_runner"
     timeout-minutes: 20
     steps:
