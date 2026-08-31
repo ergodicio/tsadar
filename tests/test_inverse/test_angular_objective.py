@@ -30,7 +30,7 @@ def _objective(**sections):
 def test_profiled_row_gain_is_independent_of_measured_peak_and_overall_scale():
     loss = _objective(
         noise={"model": "measured_variance"},
-        gain={"mode": "per_row", "smoothness": 0.0},
+        gain={"mode": "per_row", "smoothness": 0.0, "prior_strength": 0.0},
     )
     signal = jnp.array([[1.0, 2.0, 1.5, 0.5], [0.5, 1.0, 3.0, 2.0]])
     background = jnp.full_like(signal, 0.25)
@@ -117,7 +117,7 @@ def test_profiled_objective_is_jittable_and_differentiable():
 def test_profiled_gain_uncertainty_has_calibrated_synthetic_coverage():
     loss = _objective(
         noise={"model": "measured_variance"},
-        gain={"mode": "global"},
+        gain={"mode": "global", "prior_strength": 0.0},
     )
     signal = jnp.linspace(0.5, 2.0, 20)[None, :]
     variance = jnp.full_like(signal, 0.25)
@@ -190,7 +190,7 @@ def test_configured_physical_edf_regularizers_are_reported_term_by_term():
 def test_profiled_gain_and_edf_regularization_coexist_after_area_preserving_irf():
     loss = _objective(
         noise={"model": "measured_variance"},
-        gain={"mode": "per_row", "smoothness": 0.0},
+        gain={"mode": "per_row", "smoothness": 0.0, "prior_strength": 0.0},
         regularization={"kl_to_maxwellian": 0.5},
     )
     angles = np.array([-1.0, 0.0, 1.0])
@@ -250,3 +250,57 @@ def test_unknown_or_negative_angular_regularizer_is_rejected():
         _objective(regularization={"radial_smothness": 1.0})
     with pytest.raises(ValueError, match="radial_smoothness must be non-negative"):
         _objective(regularization={"radial_smoothness": -1.0})
+
+
+def test_nonfinite_masked_detector_sample_has_finite_reverse_mode_gradient():
+    loss = _objective(
+        noise={"model": "poisson_read", "read_noise": 1.0},
+        gain={"mode": "none"},
+    )
+    theory = jnp.array([[1.0, 1.0, 2.0, 3.0]])
+    batch = {
+        "e_data": jnp.array([[1.0, jnp.nan, 2.0, 3.0]]),
+        "noise_e": jnp.zeros_like(theory),
+    }
+
+    def objective(candidate):
+        return loss._angular_data_objective(batch, candidate, jnp.arange(1.0, 5.0))[0]
+
+    value, gradient = jax.jit(jax.value_and_grad(objective))(theory)
+    assert jnp.isfinite(value)
+    assert jnp.all(jnp.isfinite(gradient))
+    assert gradient[0, 1] == pytest.approx(0.0)
+
+
+def test_smoothed_gain_profile_solves_the_lower_bounded_quadratic():
+    loss = _objective(
+        gain={
+            "mode": "per_row",
+            "smoothness": 1.0,
+            "prior_strength": 0.0,
+            "minimum": 0.0,
+        }
+    )
+
+    gains, standard_error, _, _ = jax.jit(loss._solve_gain_series)(
+        jnp.array([1.0, 1.0]), jnp.array([-3.0, 1.0])
+    )
+
+    np.testing.assert_allclose(gains, jnp.array([0.0, 0.5]), atol=1e-6)
+    assert standard_error[0] == pytest.approx(0.0)
+    assert standard_error[1] == pytest.approx(np.sqrt(0.5), rel=1e-6)
+
+
+def test_unanchored_profiled_gains_reject_active_amplitude_parameters():
+    loss = _objective()
+    loss.cfg["parameters"]["general"] = {"amp1": {"active": True}}
+
+    with pytest.raises(ValueError, match="not identifiable.*amp1"):
+        loss._validated_angular_objective(
+            {"gain": {"mode": "per_row", "prior_strength": 0.0}}
+        )
+
+    anchored = loss._validated_angular_objective(
+        {"gain": {"mode": "per_row", "prior_strength": 0.01}}
+    )
+    assert anchored["gain"]["prior_strength"] == pytest.approx(0.01)

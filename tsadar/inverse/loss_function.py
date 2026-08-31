@@ -28,7 +28,7 @@ _ANGULAR_OBJECTIVE_DEFAULTS = {
     "gain": {
         "mode": "per_row",
         "smoothness": 0.01,
-        "prior_strength": 0.0,
+        "prior_strength": 0.01,
         "prior_mean": 1.0,
         "minimum": 0.0,
     },
@@ -196,6 +196,8 @@ class LossFunction:
         supplied_gain = supplied.get("gain", {}) if isinstance(supplied, dict) else {}
         if options["gain"]["mode"] in {"none", "global"} and "smoothness" not in supplied_gain:
             options["gain"]["smoothness"] = 0.0
+        if options["gain"]["mode"] == "none" and "prior_strength" not in supplied_gain:
+            options["gain"]["prior_strength"] = 0.0
 
         if self.cfg["optimizer"].get("loss_method", "l2") != "l2":
             raise ValueError(
@@ -230,6 +232,31 @@ class LossFunction:
             raise ValueError("ARTS gain smoothness/prior_strength require a profiled gain mode")
         if gain["mode"] == "global" and float(gain["smoothness"]) > 0.0:
             raise ValueError("ARTS gain smoothness requires per_row or per_row_wing gain mode")
+        fitted_amplitudes = (
+            ("amp1", bool(self.cfg.get("data", {}).get("fit_EPWb", False))),
+            ("amp2", bool(self.cfg.get("data", {}).get("fit_EPWr", False))),
+        )
+        active_amplitudes = [
+            name
+            for name, fitted in fitted_amplitudes
+            if fitted
+            and bool(
+                self.cfg.get("parameters", {})
+                .get("general", {})
+                .get(name, {})
+                .get("active", False)
+            )
+        ]
+        if (
+            gain["mode"] != "none"
+            and float(gain["prior_strength"]) == 0.0
+            and active_amplitudes
+        ):
+            raise ValueError(
+                "Unanchored profiled ARTS gains are not identifiable with active fitted amplitude "
+                f"parameter(s) {', '.join(active_amplitudes)}; set those amplitudes inactive or "
+                "configure optimizer.angular_objective.gain.prior_strength > 0."
+            )
 
         robust = options["robust"]
         if robust["kind"] not in {"gaussian", "huber", "student_t"}:
@@ -510,7 +537,7 @@ class LossFunction:
         return blue, red, blue | red
 
     def _solve_gain_series(self, information, rhs):
-        """Profile one angular gain series with Gaussian calibration priors."""
+        """Profile one lower-bounded angular gain series with calibration priors."""
         gain_options = self.angular_objective["gain"]
         information = jnp.asarray(information)
         rhs = jnp.asarray(rhs)
@@ -522,7 +549,9 @@ class LossFunction:
         smooth_precision = float(gain_options["smoothness"]) * info_scale
 
         if n_gains > 1:
-            difference = jnp.eye(n_gains - 1, n_gains, k=1) - jnp.eye(n_gains - 1, n_gains)
+            difference = jnp.eye(n_gains - 1, n_gains, k=1) - jnp.eye(
+                n_gains - 1, n_gains
+            )
             laplacian = difference.T @ difference
         else:
             laplacian = jnp.zeros((1, 1), dtype=information.dtype)
@@ -532,16 +561,103 @@ class LossFunction:
             + jnp.eye(n_gains) * info_scale * 1.0e-10
         )
         target = rhs + prior_precision * float(gain_options["prior_mean"])
-        gains = jnp.linalg.solve(system, target)
-        gains = jnp.maximum(gains, float(gain_options["minimum"]))
-        gain_standard_error = jnp.sqrt(jnp.maximum(jnp.diag(jnp.linalg.inv(system)), 0.0))
+        minimum = jnp.asarray(float(gain_options["minimum"]), dtype=information.dtype)
+        lower = jnp.full_like(information, minimum)
+
+        def equality_solution(active):
+            """Minimize the quadratic with the selected gains fixed at the bound."""
+            free = ~active
+            fixed = jnp.where(active, lower, 0.0)
+            free_outer = free[:, None] & free[None, :]
+            constrained_system = jnp.where(free_outer, system, 0.0) + jnp.diag(
+                active.astype(system.dtype)
+            )
+            constrained_target = jnp.where(free, target - system @ fixed, lower)
+            return (
+                jnp.linalg.solve(constrained_system, constrained_target),
+                constrained_system,
+            )
+
+        # A primal active-set solve is used rather than clipping the unconstrained
+        # solution. Clipping is not the constrained minimizer when the smoothness
+        # Laplacian couples adjacent gains. The loop has static length for reverse-mode
+        # autodiff; completed solves take the no-op branch.
+        unconstrained = jnp.linalg.solve(system, target)
+        gains = jnp.maximum(unconstrained, lower)
+        active = unconstrained <= lower
+        scale = jnp.maximum(
+            1.0,
+            jnp.maximum(
+                jnp.max(jnp.abs(target)),
+                jnp.max(jnp.abs(system)) * jnp.max(jnp.abs(lower)),
+            ),
+        )
+        tolerance = 32.0 * jnp.finfo(system.dtype).eps * scale
+
+        def active_set_step(state):
+            current, working_set, _ = state
+            candidate, _ = equality_solution(working_set)
+            free = ~working_set
+            direction = candidate - current
+            violates = free & (candidate < lower - tolerance)
+            ratios = jnp.where(
+                free & (direction < -tolerance),
+                (current - lower) / jnp.maximum(-direction, tolerance),
+                jnp.inf,
+            )
+            step = jnp.minimum(1.0, jnp.min(ratios))
+            hit_index = jnp.argmin(ratios)
+
+            def add_blocking_constraint(_):
+                boundary = jnp.maximum(current + step * direction, lower)
+                return boundary, working_set.at[hit_index].set(True), jnp.asarray(False)
+
+            def accept_candidate(_):
+                feasible = jnp.maximum(candidate, lower)
+                gradient = system @ feasible - target
+                active_gradient = jnp.where(working_set, gradient, jnp.inf)
+                release_index = jnp.argmin(active_gradient)
+                release = jnp.min(active_gradient) < -tolerance
+                updated_set = jax.lax.cond(
+                    release,
+                    lambda selected: working_set.at[selected].set(False),
+                    lambda selected: working_set,
+                    release_index,
+                )
+                return feasible, updated_set, ~release
+
+            return jax.lax.cond(
+                jnp.any(violates),
+                add_blocking_constraint,
+                accept_candidate,
+                operand=None,
+            )
+
+        def active_set_iteration(_, state):
+            return jax.lax.cond(state[2], lambda value: value, active_set_step, state)
+
+        gains, active, converged = jax.lax.fori_loop(
+            0,
+            4 * n_gains + 4,
+            active_set_iteration,
+            (gains, active, jnp.asarray(False)),
+        )
+        gains = jnp.where(converged, gains, jnp.full_like(gains, jnp.nan))
+        _, conditional_system = equality_solution(active)
+        conditional_variance = jnp.maximum(
+            jnp.diag(jnp.linalg.inv(conditional_system)), 0.0
+        )
+        # Bound-active gains have no two-sided local Gaussian degree of freedom.
+        gain_standard_error = jnp.where(active, 0.0, jnp.sqrt(conditional_variance))
         prior_quadratic = prior_precision * jnp.sum(
             (gains - float(gain_options["prior_mean"])) ** 2
         )
         smooth_quadratic = smooth_precision * jnp.sum(jnp.diff(gains) ** 2)
         return gains, gain_standard_error, prior_quadratic, smooth_quadratic
 
-    def _profile_angular_gains(self, signal, target, inverse_variance, valid, blue, red):
+    def _profile_angular_gains(
+        self, signal, target, inverse_variance, valid, blue, red
+    ):
         """Analytically profile global, row, or row/wing linear detector gains."""
         mode = self.angular_objective["gain"]["mode"]
         weighted = jnp.where(valid, inverse_variance, 0.0)
@@ -558,7 +674,9 @@ class LossFunction:
         if mode == "global":
             information = jnp.atleast_1d(jnp.sum(weighted * signal**2))
             rhs = jnp.atleast_1d(jnp.sum(weighted * signal * target))
-            gains, standard_error, prior, smooth = self._solve_gain_series(information, rhs)
+            gains, standard_error, prior, smooth = self._solve_gain_series(
+                information, rhs
+            )
             return gains[0] * signal, gains, standard_error, prior, smooth
 
         def profile_rows(group_mask):
@@ -580,13 +698,21 @@ class LossFunction:
         )
         gains = jnp.stack((blue_gains, red_gains), axis=1)
         standard_error = jnp.stack((blue_error, red_error), axis=1)
-        return fitted_signal, gains, standard_error, blue_prior + red_prior, blue_smooth + red_smooth
+        return (
+            fitted_signal,
+            gains,
+            standard_error,
+            blue_prior + red_prior,
+            blue_smooth + red_smooth,
+        )
 
     def _robust_weights(self, residual):
         robust = self.angular_objective["robust"]
         absolute = jnp.abs(residual)
         if robust["kind"] == "huber":
-            return jnp.minimum(1.0, float(robust["threshold"]) / jnp.maximum(absolute, 1.0e-12))
+            return jnp.minimum(
+                1.0, float(robust["threshold"]) / jnp.maximum(absolute, 1.0e-12)
+            )
         if robust["kind"] == "student_t":
             dof = float(robust["dof"])
             return (dof + 1.0) / (dof + residual**2)
@@ -609,32 +735,55 @@ class LossFunction:
 
     def _angular_data_objective(self, batch, theory, lam_axis):
         """Profile gains and return the noise-whitened ARTS data term and diagnostics."""
-        data = jnp.asarray(batch["e_data"])
-        background = jnp.broadcast_to(jnp.asarray(batch["noise_e"]), data.shape)
-        signal = theory - background
-        target = data - background
-        variance = self._angular_variance(batch)
-        blue, red, wavelength_mask = self._angular_fit_masks(lam_axis, data.shape)
-        supplied_mask = jnp.broadcast_to(jnp.asarray(batch.get("e_mask", True), dtype=bool), data.shape)
+        raw_data = jnp.asarray(batch["e_data"])
+        raw_background = jnp.broadcast_to(jnp.asarray(batch["noise_e"]), raw_data.shape)
+        raw_signal = theory - raw_background
+        raw_target = raw_data - raw_background
+        raw_variance = self._angular_variance(batch)
+        blue, red, wavelength_mask = self._angular_fit_masks(lam_axis, raw_data.shape)
+        supplied_mask = jnp.broadcast_to(
+            jnp.asarray(batch.get("e_mask", True), dtype=bool), raw_data.shape
+        )
         valid = (
             wavelength_mask
             & supplied_mask
-            & jnp.isfinite(data)
-            & jnp.isfinite(signal)
-            & jnp.isfinite(variance)
-            & (variance > 0.0)
+            & jnp.isfinite(raw_data)
+            & jnp.isfinite(raw_background)
+            & jnp.isfinite(raw_signal)
+            & jnp.isfinite(raw_variance)
+            & (raw_variance > 0.0)
+        )
+        # Masking only after NaN arithmetic leaves a finite scalar but can still poison
+        # JAX's reverse pass through the inactive branch. Sanitize every operand before
+        # gain products, division, and robust-deviance evaluation.
+        data = jnp.where(jnp.isfinite(raw_data), raw_data, 0.0)
+        background = jnp.where(jnp.isfinite(raw_background), raw_background, 0.0)
+        signal = jnp.where(jnp.isfinite(raw_signal), raw_signal, 0.0)
+        target = jnp.where(jnp.isfinite(raw_target), raw_target, 0.0)
+        variance = jnp.where(
+            jnp.isfinite(raw_variance) & (raw_variance > 0.0),
+            raw_variance,
+            1.0,
         )
         inverse_variance = jnp.where(valid, 1.0 / variance, 0.0)
 
-        robust_weight = jnp.ones_like(data)
-        iterations = 1 if self.angular_objective["robust"]["kind"] == "gaussian" else int(
-            self.angular_objective["robust"]["iterations"]
+        robust_weight = jnp.where(valid, 1.0, 0.0)
+        iterations = (
+            1
+            if self.angular_objective["robust"]["kind"] == "gaussian"
+            else int(self.angular_objective["robust"]["iterations"])
         )
         for _ in range(iterations):
-            fitted_signal, gains, gain_standard_error, gain_prior, gain_smoothness = self._profile_angular_gains(
-                signal, target, inverse_variance * robust_weight, valid, blue, red
+            fitted_signal, gains, gain_standard_error, gain_prior, gain_smoothness = (
+                self._profile_angular_gains(
+                    signal, target, inverse_variance * robust_weight, valid, blue, red
+                )
             )
-            whitened = (data - (fitted_signal + background)) / jnp.sqrt(variance)
+            whitened = jnp.where(
+                valid,
+                (data - (fitted_signal + background)) / jnp.sqrt(variance),
+                0.0,
+            )
             robust_weight = jnp.where(valid, self._robust_weights(whitened), 0.0)
 
         valid_count = jnp.sum(valid)
@@ -650,14 +799,20 @@ class LossFunction:
         fitted_theory = fitted_signal + background
         diagnostics = {
             "whitened_residual": jnp.where(valid, whitened, jnp.nan),
-            "variance": variance,
+            "variance": raw_variance,
             "valid_mask": valid,
             "profiled_gains": gains,
             "profiled_gain_standard_error": gain_standard_error,
             "fitted_theory": fitted_theory,
             "raw_theory": theory,
         }
-        return total, jnp.where(valid, whitened**2, 0.0), fitted_theory, terms, diagnostics
+        return (
+            total,
+            jnp.where(valid, whitened**2, 0.0),
+            fitted_theory,
+            terms,
+            diagnostics,
+        )
 
     def _regularization_terms(self, weights):
         """Evaluate configured priors on the positive, normalized physical EDF."""
