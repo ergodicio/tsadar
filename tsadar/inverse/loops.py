@@ -1,9 +1,10 @@
 """The per-batch optimization loops that drive fitting: batch construction, the 1D (scipy/optax) and
 angular (optax) training loops, and unbatching the resulting per-batch fitted parameters."""
+import copy
+from dataclasses import dataclass
 from functools import partial
 from collections import defaultdict
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
-from optax import tree_utils as otu
 import equinox as eqx
 import scipy.optimize as spopt
 from tsadar.inverse.loss_function import LossFunction
@@ -12,14 +13,241 @@ from tsadar.core.modules.distribution_functions.base import DLM1V
 import mlflow
 import numpy as np
 import pickle
+import jax
 from jax import numpy as jnp
+from jax import tree_util as jtu
 from jax.flatten_util import ravel_pytree
 from tqdm import trange
 import optax
 import optimistix as optx
 
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
+
+
+class NonFiniteOptimizationError(FloatingPointError):
+    """A structured failure raised when an optimizer produces a nonfinite quantity."""
+
+    def __init__(self, quantity: str, *, step: int, stage: int):
+        self.quantity = quantity
+        self.step = step
+        self.stage = stage
+        super().__init__(f"Nonfinite {quantity} at optimizer stage {stage}, step {step}.")
+
+
+@dataclass(frozen=True)
+class OptimizationCheckpoint:
+    """An objective value and the exact parameter tree on which it was evaluated."""
+
+    loss: float
+    weights: Any
+    step: int
+    stage: int
+
+
+def _numeric_leaves(tree):
+    """Return the numeric array leaves of a possibly-None Equinox pytree."""
+    return [
+        jnp.asarray(leaf)
+        for leaf in jtu.tree_leaves(tree, is_leaf=lambda leaf: leaf is None)
+        if eqx.is_array(leaf)
+        or (np.isscalar(leaf) and not isinstance(leaf, (str, bytes, bool, type(None))))
+    ]
+
+
+def _require_finite(tree, quantity: str, *, step: int, stage: int) -> None:
+    """Fail at the first optimizer boundary where a nonfinite value appears."""
+    if any(not bool(jnp.all(jnp.isfinite(leaf))) for leaf in _numeric_leaves(tree)):
+        raise NonFiniteOptimizationError(quantity, step=step, stage=stage)
+
+
+def _gradient_norm(grad) -> float:
+    leaves = _numeric_leaves(grad)
+    if not leaves:
+        return 0.0
+    return float(jnp.sqrt(sum(jnp.sum(jnp.square(leaf)) for leaf in leaves)))
+
+
+def _stopping_options(config: Dict) -> Tuple[int, float]:
+    """Read standard patience/minimum-delta controls, retaining the old numerical defaults."""
+    patience = int(config["optimizer"].get("patience", 500))
+    min_delta = float(config["optimizer"].get("min_delta", 1e-8))
+    return patience, min_delta
+
+
+def _runtime_parameterization(ts_params) -> str:
+    distribution = ts_params.electron.distribution_functions
+    if isinstance(distribution, list) and distribution:
+        distribution = distribution[0]
+    return type(distribution).__name__
+
+
+def _log_optimizer_runtime(
+    config: Dict, ts_params, *, stage: int, partitioned: bool = False
+) -> None:
+    """Record the instantiated algorithms and EDF class rather than inferred labels."""
+    method = config["optimizer"]["method"]
+    param_method = config["optimizer"].get("param_method")
+    actual_optimizer = (
+        f"dist={method}, macro={param_method}" if partitioned else method
+    )
+    mlflow.set_tags(
+        {
+            "optimizer.actual": actual_optimizer,
+            "optimizer.edf_parameterization": _runtime_parameterization(ts_params),
+            "optimizer.stage_kind": "continuation/refinement" if partitioned else "batch",
+            "optimizer.seed": str(config["optimizer"].get("seed", 0)),
+            "optimizer.stage": str(stage),
+        }
+    )
+
+
+def _log_optimizer_step(
+    *, current_loss: float, checkpoint: OptimizationCheckpoint, learning_rate: float,
+    grad, step: int, stage: int, seed: int,
+) -> None:
+    mlflow.log_metrics(
+        {
+            "epoch loss": current_loss,
+            "optimizer.current_loss": current_loss,
+            "optimizer.best_loss": checkpoint.loss,
+            "optimizer.best_step": float(checkpoint.step),
+            "optimizer.learning_rate": learning_rate,
+            "optimizer.gradient_norm": _gradient_norm(grad),
+            "optimizer.stage": float(stage),
+            "optimizer.seed": float(seed),
+        },
+        step=step,
+    )
+
+
+def _parameter_only_config(parameters: Dict, active_species: str, active_key: str) -> Dict:
+    selected = copy.deepcopy(parameters)
+    for species, species_params in selected.items():
+        for key, param in species_params.items():
+            if isinstance(param, dict) and "active" in param:
+                param["active"] = species == active_species and key == active_key
+    return selected
+
+
+def _sensitivity_direction(active):
+    """Build a deterministic nonuniform tangent that avoids normalization null directions."""
+    if active.size == 1:
+        return jnp.ones_like(active)
+    return jnp.linspace(1.0, 2.0, active.size, dtype=active.dtype).reshape(active.shape)
+
+
+def _forward_outputs(loss_fn, weights, batch):
+    """Return detector spectra used to validate forward sensitivity in the fit geometry."""
+    data_config = loss_fn.cfg.get("data", {})
+    fit_electron = data_config.get("fit_EPWb", True) or data_config.get("fit_EPWr", True)
+    fit_ion = data_config.get("fit_IAW", True)
+    if loss_fn.multiplex_ang:
+        first = loss_fn.ts_diag(weights, batch["b1"])
+        rotated = eqx.tree_at(lambda tree: tree.electron.dist_rot, weights, loss_fn.cfg["data"]["shot_rot"])
+        second = loss_fn.ts_diag(rotated, batch["b2"])
+        outputs = []
+        if fit_electron:
+            outputs.extend((first[0], second[0]))
+        if fit_ion:
+            outputs.append(first[1])
+        return tuple(outputs)
+    result = loss_fn.ts_diag(weights, batch)
+    outputs = []
+    if fit_electron:
+        outputs.append(result[0])
+    if fit_ion:
+        outputs.append(result[1])
+    return tuple(outputs)
+
+
+def validate_active_leaves(config: Dict, ts_params, diff_params, static_params, loss_fn, batch) -> None:
+    """Validate that every active deck parameter is finite, differentiable, and observable.
+
+    Each active parameter gets its own filter specification and deterministic JVP.
+    This distinguishes an objective gradient that happens to be zero at a good fit from a
+    parameter whose detector-space forward model has no sensitivity in the fitted geometry.
+    All problems are collected into one actionable error rather than failing on the first
+    misspelled/static leaf.
+    """
+    issues = []
+    directions = []
+    sensitivity_tol = float(config["optimizer"].get("sensitivity_tol", 0.0))
+    for species, species_params in config["parameters"].items():
+        for key, param in species_params.items():
+            if not isinstance(param, dict) or not param.get("active", False):
+                continue
+
+            name = f"{species}.{key}"
+            try:
+                parameter_spec = get_filter_spec(
+                    _parameter_only_config(config["parameters"], species, key), ts_params
+                )
+                parameter_diff, _ = eqx.partition(ts_params, parameter_spec)
+            except Exception as exc:
+                issues.append(f"{name}: absent or static ({type(exc).__name__}: {exc})")
+                continue
+
+            leaves = _numeric_leaves(parameter_diff)
+            if not leaves:
+                issues.append(f"{name}: absent from the differentiable pytree")
+                continue
+            if any(not bool(jnp.all(jnp.isfinite(leaf))) for leaf in leaves):
+                issues.append(f"{name}: nonfinite initial value")
+                continue
+
+            direction = jtu.tree_map(
+                lambda active, selected: (
+                    None
+                    if active is None
+                    else _sensitivity_direction(active)
+                    if selected is not None
+                    else jnp.zeros_like(active)
+                ),
+                diff_params,
+                parameter_diff,
+                is_leaf=lambda leaf: leaf is None,
+            )
+            directions.append((name, direction))
+
+    if directions:
+        try:
+            _, linearized_forward = jax.linearize(
+                lambda params: _forward_outputs(
+                    loss_fn, eqx.combine(params, static_params), batch
+                ),
+                diff_params,
+            )
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            issues.extend(
+                f"{name}: forward-sensitivity validation failed ({detail})"
+                for name, _ in directions
+            )
+            directions = []
+
+    for name, direction in directions:
+        try:
+            tangent = linearized_forward(direction)
+            sensitivity = _gradient_norm(tangent)
+        except Exception as exc:
+            issues.append(
+                f"{name}: forward-sensitivity validation failed "
+                f"({type(exc).__name__}: {exc})"
+            )
+            continue
+        if not np.isfinite(sensitivity):
+            issues.append(f"{name}: nonfinite forward sensitivity")
+        elif sensitivity <= sensitivity_tol:
+            issues.append(
+                f"{name}: no forward sensitivity in validation geometry "
+                f"(norm={sensitivity:.3e}, tolerance={sensitivity_tol:.3e})"
+            )
+
+    if issues:
+        mlflow.set_tag("optimizer.active_leaf_validation", "failed")
+        raise ValueError("Active parameter validation failed:\n- " + "\n- ".join(issues))
+    mlflow.set_tag("optimizer.active_leaf_validation", "passed")
 
 
 def build_batch(all_data: Dict, inds, background_subtract: bool) -> Dict:
@@ -166,7 +394,7 @@ def _1d_lm_loop_(
 
 
 def _1d_optax_loop_(
-    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch
+    config: Dict, loss_fn: LossFunction, previous_weights: np.ndarray, batch: Dict, tbatch, stage: int = 0,
 ) -> Tuple[float, Dict]:
     """
     Runs a 1D optimization loop using the Adam optimizer for a specified number of epochs.
@@ -198,24 +426,88 @@ def _1d_optax_loop_(
     diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
     opt_state = opt.init(diff_params)
 
-    best_loss = 1e16
-    epoch_loss = 1e19
-    # fall back to the starting weights so a never-improving (e.g. NaN) loss
-    # still returns valid params instead of raising UnboundLocalError
-    best_weights = eqx.combine(diff_params, static_params)
+    _log_optimizer_runtime(config, ts_params, stage=stage)
+    (raw_loss, aux), grad = loss_fn.vg_loss(diff_params, static_params, batch)
+    _require_finite(raw_loss, "loss", step=0, stage=stage)
+    _require_finite(grad, "gradient", step=0, stage=stage)
+    if config["optimizer"].get("validate_active_leaves", True):
+        validate_active_leaves(config, ts_params, diff_params, static_params, loss_fn, batch)
+
+    current_loss = float(raw_loss)
+    checkpoint = OptimizationCheckpoint(
+        loss=current_loss,
+        weights=eqx.combine(diff_params, static_params),
+        step=0,
+        stage=stage,
+    )
+    patience, min_delta = _stopping_options(config)
+    wait = 0
+    patience_reference_loss = checkpoint.loss
+    learning_rate = float(config["optimizer"].get("learning_rate_init", 0.0))
+    seed = int(config["optimizer"].get("seed", 0))
+    _log_optimizer_step(
+        current_loss=current_loss,
+        checkpoint=checkpoint,
+        learning_rate=learning_rate,
+        grad=grad,
+        step=0,
+        stage=stage,
+        seed=seed,
+    )
+
     for i_epoch in range(config["optimizer"]["num_epochs"]):
-        tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {epoch_loss:.2e}")
+        tbatch.set_description(f"Epoch {i_epoch + 1}, Prev Epoch Loss {current_loss:.2e}")
+        updates, opt_state = opt.update(
+            grad,
+            opt_state,
+            diff_params,
+            value=raw_loss,
+            grad=grad,
+            value_fn=loss_fn._loss_,
+        )
+        step = i_epoch + 1
+        _require_finite(updates, "update", step=step, stage=stage)
+        candidate_params = eqx.apply_updates(diff_params, updates)
+        _require_finite(candidate_params, "parameters", step=step, stage=stage)
 
-        (epoch_loss, aux), grad = loss_fn.vg_loss(diff_params, static_params, batch)
-        #updates, opt_state = opt.update(grad, opt_state)
-        updates, opt_state = opt.update(grad, opt_state, diff_params, value = epoch_loss, grad = grad, value_fn = loss_fn._loss_)
-        diff_params = eqx.apply_updates(diff_params, updates)
+        (candidate_raw_loss, aux), candidate_grad = loss_fn.vg_loss(candidate_params, static_params, batch)
+        _require_finite(candidate_raw_loss, "loss", step=step, stage=stage)
+        _require_finite(candidate_grad, "gradient", step=step, stage=stage)
+        candidate_loss = float(candidate_raw_loss)
 
-        if epoch_loss < best_loss:
-            best_loss = epoch_loss
-            best_weights = eqx.combine(diff_params, static_params)
+        improvement = checkpoint.loss - candidate_loss
+        if improvement > 0.0:
+            checkpoint = OptimizationCheckpoint(
+                loss=candidate_loss,
+                weights=eqx.combine(candidate_params, static_params),
+                step=step,
+                stage=stage,
+            )
+        if patience_reference_loss - candidate_loss > min_delta:
+            patience_reference_loss = candidate_loss
+            wait = 0
+        else:
+            wait += 1
 
-    return best_loss, best_weights
+        _log_optimizer_step(
+            current_loss=candidate_loss,
+            checkpoint=checkpoint,
+            learning_rate=learning_rate,
+            grad=candidate_grad,
+            step=step,
+            stage=stage,
+            seed=seed,
+        )
+        diff_params, raw_loss, grad, current_loss = (
+            candidate_params,
+            candidate_raw_loss,
+            candidate_grad,
+            candidate_loss,
+        )
+        if patience > 0 and wait >= patience:
+            break
+
+    return checkpoint.loss, checkpoint.weights
 
 
 def one_d_loop(
@@ -267,7 +559,9 @@ def one_d_loop(
             elif config["optimizer"]["method"] in ("lsq", "lm"):  # Levenberg-Marquardt least squares
                 best_loss, best_weights = _1d_lm_loop_(config, loss_fn, previous_batch, batch)
             else:
-                best_loss, best_weights = _1d_optax_loop_(config, loss_fn, previous_batch, batch, tbatch)
+                best_loss, best_weights = _1d_optax_loop_(
+                    config, loss_fn, previous_batch, batch, tbatch, stage=i_batch
+                )
                 
 
             all_weights.append(best_weights)
@@ -337,11 +631,10 @@ def advance_refinement_shape(config: Dict) -> None:
     use -- one step of the same nvx *= refine_factor, window.len = window.len * refine_factor + 1
     progression applied between minimizations there.
 
-    Only the shape update is factored out here (not the accompanying vx/fval interpolation, which needs
-    the previous pass's actual fitted array data): reconstructing a ThomsonParams skeleton to deserialize
-    a saved checkpoint into only needs the final shape, not the intermediate numeric values, so
-    postprocess_runner calls this config["optimizer"]["num_mins"] - 1 times to reach that shape without
-    re-running the fit.
+    Reconstructing a ThomsonParams skeleton to deserialize a saved checkpoint only
+    needs the checkpoint's shape, not the intermediate numeric values. The standalone
+    postprocessor therefore calls this once per refinement recorded in the checkpoint
+    metadata (falling back to ``num_mins - 1`` for older runs).
 
     Args:
         config (Dict): Configuration dictionary; config["parameters"]["electron"]["fe"] is mutated using
@@ -358,6 +651,41 @@ def advance_refinement_shape(config: Dict) -> None:
     refine_factor = config["optimizer"]["refine_factor"]
     fe_config["nvx"] = fe_config["nvx"] * refine_factor
     fe_config["params"]["window"]["len"] = fe_config["params"]["window"]["len"] * refine_factor + 1
+
+
+def refine_angular_weights(config: Dict, previous_weights):
+    """Refine an angular continuation checkpoint onto the next stage's EDF grid."""
+    advance_refinement_shape(config)
+    new_vx = np.linspace(
+        previous_weights.electron.distribution_functions.vx[0],
+        previous_weights.electron.distribution_functions.vx[-1],
+        config["parameters"]["electron"]["fe"]["nvx"],
+    )
+    if config["parameters"]["electron"]["fe"]["type"] == "arbitrary":
+        old_distribution = previous_weights.electron.distribution_functions
+        fenorm = np.sum(old_distribution.fval) * (old_distribution.vx[1] - old_distribution.vx[0])
+        refined_fe = np.interp(new_vx, old_distribution.vx, old_distribution.fval)
+        refined_fe = fenorm * refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
+        previous_weights = eqx.tree_at(
+            lambda tree: tree.electron.distribution_functions.fval,
+            previous_weights,
+            refined_fe,
+        )
+    elif config["parameters"]["electron"]["fe"]["type"] == "dlm":
+        distconfigs = config["parameters"]["electron"]["fe"]
+        current_m = previous_weights.electron.distribution_functions.get_unnormed_params()
+        distconfigs["params"]["m"]["val"] = current_m["m"]
+        previous_weights = eqx.tree_at(
+            lambda tree: tree.electron.distribution_functions,
+            previous_weights,
+            DLM1V(distconfigs, True),
+        )
+
+    return eqx.tree_at(
+        lambda tree: tree.electron.distribution_functions.vx,
+        previous_weights,
+        new_vx,
+    )
 
 
 def multirun_angular_optax(
@@ -378,9 +706,11 @@ def multirun_angular_optax(
         all_weights (List): List of weights from each batch.
         overall_loss (float): Overall accumulated loss across all batches.
         loss_fn (LossFunction): The final LossFunction instance used for fitting.
-    Notes: 
-        - The function uses a progress bar to display the fitting progress for each batch.
-        - The function logs metrics to MLflow for tracking the fitting process.
+    Notes:
+        ``num_mins`` means sequential continuation/refinement stages, not independent
+        random restarts. Each stage starts from the preceding stage's best checkpoint;
+        when requested, the EDF grid is refined between stages. The true best evaluated
+        checkpoint across all stages is returned.
 
     """
     config["optimizer"]["batch_size"] = 1
@@ -390,50 +720,52 @@ def multirun_angular_optax(
 
     previous_weights = None
     total_epochs = 0
-    best_loss = 100
+    global_checkpoint = None
+    global_loss_fn = None
+    global_config = None
 
-    # Run the angular optimization loop num_mins times
+    # Run sequential continuation/refinement stages. This is deliberately not a set of
+    # independent random restarts; ``previous_weights`` seeds the next stage.
     for i_min in range(config["optimizer"]["num_mins"]):
         loss_fn = LossFunction(config, sa, batch1)
-        previous_weights, overall_loss, total_epochs, loss_fn, exit_cond = angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights, total_epochs)
+        previous_weights, overall_loss, total_epochs, loss_fn, exit_cond = angular_multiple_optax(
+            config,
+            sa,
+            loss_fn,
+            actual_data,
+            previous_weights,
+            total_epochs,
+            stage=i_min,
+        )
         mlflow.set_tag(f"exit cond {i_min}", exit_cond)
         mlflow.log_metrics({"min loss": float(overall_loss)}, step=i_min)
-        best_loss = min(best_loss, overall_loss)
+        if global_checkpoint is None or overall_loss < global_checkpoint.loss:
+            global_checkpoint = OptimizationCheckpoint(
+                loss=float(overall_loss),
+                weights=previous_weights,
+                step=total_epochs,
+                stage=i_min,
+            )
+            global_loss_fn = loss_fn
+            global_config = copy.deepcopy(config)
         if i_min < config["optimizer"]["num_mins"]-1:
-            advance_refinement_shape(config)
-            #currently may only work for 1D arbitrary
+            previous_weights = refine_angular_weights(config, previous_weights)
 
-            new_vx = np.linspace(
-                    previous_weights.electron.distribution_functions.vx[0],
-                    previous_weights.electron.distribution_functions.vx[-1],
-                    config["parameters"]["electron"]["fe"]["nvx"],
-                )
-            if config["parameters"]["electron"]["fe"]["type"] == 'arbitrary':
-                fenorm = np.sum(previous_weights.electron.distribution_functions.fval) * (previous_weights.electron.distribution_functions.vx[1] - previous_weights.electron.distribution_functions.vx[0])
-                refined_fe = np.interp(new_vx,
-                    previous_weights.electron.distribution_functions.vx,
-                    previous_weights.electron.distribution_functions.fval,
-                )
-                refined_fe = fenorm*refined_fe / np.sum(refined_fe) / (new_vx[1] - new_vx[0])
+    # Keep immediate postprocessing consistent with the returned checkpoint even when
+    # the global best came from an earlier refinement shape. Standalone restoration uses
+    # checkpoint_refinements from the companion metadata artifact written by fitter.py.
+    config.clear()
+    config.update(global_config)
+    config["optimizer"]["checkpoint_refinements"] = global_checkpoint.stage
+    _log_optimizer_runtime(
+        config, global_checkpoint.weights, stage=global_checkpoint.stage, partitioned=True
+    )
+    return global_checkpoint.weights, global_checkpoint.loss, global_loss_fn
 
-                getleaf = lambda t: t.electron.distribution_functions.fval
-                previous_weights = eqx.tree_at(getleaf, previous_weights, refined_fe)
 
-            elif config["parameters"]["electron"]["fe"]["type"] == 'dlm':
-                distconfigs = config["parameters"]["electron"]["fe"]
-                cur_m = previous_weights.electron.distribution_functions.get_unnormed_params()
-                distconfigs["params"]["m"]["val"] = cur_m['m']
-                #previous_weights.electron.distribution_functions.__init__(distconfigs,True)
-                new_edf = DLM1V(distconfigs, True)
-                getleaf = lambda t: t.electron.distribution_functions
-                previous_weights = eqx.tree_at(getleaf, previous_weights, new_edf)
-
-            getleaf = lambda t: t.electron.distribution_functions.vx
-            previous_weights = eqx.tree_at(getleaf, previous_weights, new_vx)
-
-    return previous_weights, overall_loss, loss_fn
-
-def angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights=None, previous_epoch=None):
+def angular_multiple_optax(
+    config, sa, loss_fn, actual_data, previous_weights=None, previous_epoch=0, stage=0
+):
     """
     This performs an fitting routines from the optax packages, different minimizers have different requirements for updating steps
     Performs parameter optimization using Optax minimizers for angular Thomson scattering data.
@@ -457,9 +789,16 @@ def angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights=No
     # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
     # solver = minimizer(schedule)
     # solver = minimizer(config["optimizer"]["learning_rate"])
+    if previous_epoch is None:
+        previous_epoch = 0
+
     minimizer = getattr(optax, config["optimizer"]["method"])
     param_minimizer = getattr(optax, config["optimizer"]["param_method"])
-    schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate_init"], np.round(0.75*config["optimizer"]["num_epochs"]), alpha = config["optimizer"]["learning_rate_final"]/config["optimizer"]["learning_rate_init"])
+    schedule = optax.schedules.cosine_decay_schedule(
+        config["optimizer"]["learning_rate_init"],
+        max(1, int(round(0.75 * config["optimizer"]["num_epochs"]))),
+        alpha=config["optimizer"]["learning_rate_final"] / config["optimizer"]["learning_rate_init"],
+    )
 
     if previous_weights is None:  # if prev, then use that, if not then use flattened weights
         ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
@@ -470,58 +809,106 @@ def angular_multiple_optax(config, sa, loss_fn, actual_data, previous_weights=No
     solver = optax.partition({"macro": param_minimizer(config["optimizer"]["param_learning_rate"]), "dist": minimizer(schedule)}, partial(label, cfg_params=config["parameters"]))
     opt_state = solver.init(diff_params)
 
-    # start train loop
+    _log_optimizer_runtime(config, ts_params, stage=stage, partitioned=True)
+    (raw_loss, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
+    _require_finite(raw_loss, "loss", step=previous_epoch, stage=stage)
+    _require_finite(grad, "gradient", step=previous_epoch, stage=stage)
+    if config["optimizer"].get("validate_active_leaves", True):
+        validate_active_leaves(config, ts_params, diff_params, static_params, loss_fn, actual_data)
+
+    current_loss = float(raw_loss)
+    checkpoint = OptimizationCheckpoint(
+        loss=current_loss,
+        weights=eqx.combine(diff_params, static_params),
+        step=previous_epoch,
+        stage=stage,
+    )
+    patience, min_delta = _stopping_options(config)
+    wait = 0
+    patience_reference_loss = checkpoint.loss
+    seed = int(config["optimizer"].get("seed", 0))
+    _log_optimizer_step(
+        current_loss=current_loss,
+        checkpoint=checkpoint,
+        learning_rate=float(schedule(0)),
+        grad=grad,
+        step=previous_epoch,
+        stage=stage,
+        seed=seed,
+    )
+
+    # Start the train loop from a valid, evaluated checkpoint.
     state_weights = {}
-    best_weights = {}
-    epoch_loss = 0.0
-    best_loss = 100.0
-    num_g_wait = 0
-    num_b_wait = 0
+    updates_completed = 0
+    exit_cond = "Reached epoch limit"
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
-        (val, aux), grad = loss_fn.vg_loss(diff_params, static_params, actual_data)
-        updates, opt_state = solver.update(grad, opt_state)
-        diff_params = eqx.apply_updates(diff_params, updates)
-        
-        epoch_loss = val
-        if epoch_loss < best_loss:
-            print(f"delta loss {best_loss - epoch_loss}")
-            if best_loss - epoch_loss < 0.00000001:
-                num_g_wait += 1
-                if num_g_wait > 500:
-                    print("Minimizer exited due to change in loss < 1e-8")
-                    exit_cond = "Change in loss < 1e-8"
-                    break
-            else:
-                num_b_wait = 0
-                num_g_wait = 0
-            best_loss = epoch_loss
-            best_weights = eqx.combine(diff_params, static_params)
-                
-        elif epoch_loss > best_loss:
-            num_b_wait += 1
-            if num_b_wait > 500:
-                print("Minimizer exited due to increase in loss")
-                exit_cond = "Increase in loss"
-                break
-        
-        pbar.set_description(f"Loss {epoch_loss:.2e}, Learning rate {otu.tree_get(opt_state, 'scale')}")
-        
+        updates, opt_state = solver.update(grad, opt_state, diff_params)
+        global_step = previous_epoch + i_epoch + 1
+        _require_finite(updates, "update", step=global_step, stage=stage)
+        candidate_params = eqx.apply_updates(diff_params, updates)
+        _require_finite(candidate_params, "parameters", step=global_step, stage=stage)
+
+        (candidate_raw_loss, aux), candidate_grad = loss_fn.vg_loss(
+            candidate_params, static_params, actual_data
+        )
+        _require_finite(candidate_raw_loss, "loss", step=global_step, stage=stage)
+        _require_finite(candidate_grad, "gradient", step=global_step, stage=stage)
+        candidate_loss = float(candidate_raw_loss)
+
+        improvement = checkpoint.loss - candidate_loss
+        if improvement > 0.0:
+            checkpoint = OptimizationCheckpoint(
+                loss=candidate_loss,
+                weights=eqx.combine(candidate_params, static_params),
+                step=global_step,
+                stage=stage,
+            )
+        if patience_reference_loss - candidate_loss > min_delta:
+            patience_reference_loss = candidate_loss
+            wait = 0
+        else:
+            wait += 1
+        learning_rate = float(schedule(i_epoch))
+        pbar.set_description(
+            f"Loss {candidate_loss:.2e}, Best {checkpoint.loss:.2e}, Learning rate {learning_rate:.2e}"
+        )
+
         if config["optimizer"]["save_state"]:
-            if (previous_epoch+i_epoch) % config["optimizer"]["save_state_freq"] == 0:
-                state_weights[previous_epoch + i_epoch] = best_weights.get_unnormed_params()
+            if global_step % config["optimizer"]["save_state_freq"] == 0:
+                state_weights[global_step] = checkpoint.weights.get_unnormed_params()
 
-        mlflow.log_metrics({"epoch loss": float(epoch_loss)}, previous_epoch + i_epoch)
-
-    if i_epoch == config["optimizer"]["num_epochs"] - 1:
-        print("Minimizer exited due to reaching max epochs")
-        exit_cond = "Reached epoch limit"
+        _log_optimizer_step(
+            current_loss=candidate_loss,
+            checkpoint=checkpoint,
+            learning_rate=learning_rate,
+            grad=candidate_grad,
+            step=global_step,
+            stage=stage,
+            seed=seed,
+        )
+        diff_params, raw_loss, grad, current_loss = (
+            candidate_params,
+            candidate_raw_loss,
+            candidate_grad,
+            candidate_loss,
+        )
+        updates_completed = i_epoch + 1
+        if patience > 0 and wait >= patience:
+            exit_cond = f"No improvement >= {min_delta:g} for {patience} steps"
+            break
         
     if config["optimizer"]["save_state"]:
         with open("state_weights.txt", "wb") as file:
             file.write(pickle.dumps(state_weights))
 
         mlflow.log_artifact("state_weights.txt")
-    return best_weights, best_loss, previous_epoch + i_epoch, loss_fn, exit_cond
+    return (
+        checkpoint.weights,
+        checkpoint.loss,
+        previous_epoch + updates_completed,
+        loss_fn,
+        exit_cond,
+    )
 
 def label(diff_params, cfg_params):
     """

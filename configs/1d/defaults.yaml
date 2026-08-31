@@ -74,6 +74,11 @@ optimizer:
   moment_loss: false
   num_epochs: 300
   num_mins: 1
+  patience: 500
+  min_delta: 1.0e-8
+  seed: 0
+  sensitivity_tol: 0.0
+  validate_active_leaves: true
   param_learning_rate: 0.01
   param_method: adam
   parameter_norm: true

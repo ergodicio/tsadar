@@ -61,6 +61,11 @@ optimizer:
   loss_method: l2
   num_epochs: 1000
   num_mins: 1
+  patience: 500
+  min_delta: 1.0e-8
+  seed: 0
+  sensitivity_tol: 0.0
+  validate_active_leaves: true
   parameter_norm: true
   refine_factor: 1
   save_state: true
