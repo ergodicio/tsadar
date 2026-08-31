@@ -285,6 +285,22 @@ def build_angular_batch(config: Dict, all_data: Dict) -> Dict:
         Dict: `batch1` directly for a single shot, or {"b1": batch1, "b2": batch2} for rotated multi-shot data.
     """
     start, end = config["data"]["lineouts"]["start"], config["data"]["lineouts"]["end"]
+
+    def detector_mask(data_key, explicit_key):
+        source = all_data.get(explicit_key)
+        if source is None and explicit_key == "e_mask":
+            source = all_data.get("bad_pixel_mask")
+        if source is None:
+            source = np.isfinite(np.asarray(all_data[data_key]))
+        mask = np.asarray(source, dtype=bool)[start:end, :].copy()
+        # Coordinates are on the prepared (resolution-unit) detector grid, before
+        # lineout slicing. This keeps masks reproducible and independent of fit ranges.
+        for row, column in config["data"].get("bad_pixels", []):
+            row, column = int(row), int(column)
+            if start <= row < end and 0 <= column < mask.shape[1]:
+                mask[row - start, column] = False
+        return mask
+
     batch1 = {
         "e_data": all_data["e_data"][start:end, :],
         "e_amps": all_data["e_amps"][start:end, :],
@@ -292,7 +308,10 @@ def build_angular_batch(config: Dict, all_data: Dict) -> Dict:
         "i_amps": all_data["i_amps"],
         "noise_e": all_data["noiseE"][start:end, :],
         "noise_i": all_data["noiseI"][start:end, :],
+        "e_mask": detector_mask("e_data", "e_mask"),
     }
+    if "e_variance" in all_data:
+        batch1["e_variance"] = all_data["e_variance"][start:end, :]
     if isinstance(config["data"]["shotnum"], list):
         batch2 = {
             "e_data": all_data["e_data_rot"][start:end, :],
@@ -301,7 +320,10 @@ def build_angular_batch(config: Dict, all_data: Dict) -> Dict:
             "i_data": all_data["i_data"],
             "i_amps": all_data["i_amps"],
             "noise_i": all_data["noiseI"][start:end, :],
+            "e_mask": detector_mask("e_data_rot", "e_mask_rot"),
         }
+        if "e_variance_rot" in all_data:
+            batch2["e_variance"] = all_data["e_variance_rot"][start:end, :]
         return {"b1": batch1, "b2": batch2}
     return batch1
 

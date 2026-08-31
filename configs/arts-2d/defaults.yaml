@@ -1,4 +1,7 @@
 data:
+  # Bad pixels on the prepared, resolution-unit detector grid as [angular_row,
+  # wavelength_column]. They are excluded from gain profiling and the likelihood.
+  bad_pixels: []
   fit_EPWb: true
   fit_EPWr: true
   fit_IAW: false
@@ -58,6 +61,39 @@ optimizer:
   learning_rate: 0.001
   method: rmsprop
   moment_loss: false
+  # Noise-aware ARTS2D likelihood. The Poisson/read model fixes each variance from
+  # measured signal above the supplied background so linear detector gains can be
+  # profiled analytically. Use measured_variance with an e_variance batch array when a
+  # calibrated covariance diagonal is available.
+  angular_objective:
+    noise:
+      model: poisson_read
+      read_noise: 1.0
+      excess_noise_factor: 1.0
+      background_variance_scale: 1.0
+      variance_floor: 1.0e-6
+      averaged_pixels: auto
+    gain:
+      mode: per_row
+      smoothness: 0.01
+      prior_strength: 0.0
+      prior_mean: 1.0
+      minimum: 0.0
+    robust:
+      kind: gaussian
+      threshold: 3.0
+      iterations: 3
+      dof: 4.0
+    regularization:
+      radial_smoothness: 0.0
+      angular_smoothness: 0.0
+      kl_to_maxwellian: 0.0
+      density: 0.0
+      temperature: 0.0
+      momentum: 0.0
+      density_target: 1.0
+      temperature_target: 2.0
+      momentum_target: [0.0, 0.0]
   loss_method: l2
   num_epochs: 1000
   num_mins: 1
