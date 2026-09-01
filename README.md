@@ -41,6 +41,25 @@ uv pip install -e ".[hdf]"
 
 If you skip this extra, `tsadar` still imports and runs — only the legacy HDF4 loader will raise a clear error if you try to use it.
 
+## Testing
+
+Run the pull-request suite with:
+
+```bash
+pytest tests/ -m "not slow"
+```
+
+Physics-consistency cases can be selected independently:
+
+```bash
+pytest tests/ -m "physics and not slow"
+pytest tests/ -m "physics and slow"
+```
+
+The second command runs the scheduled high-resolution reference lane. See the
+[physics-validation guide](docs/source/physics_validation.rst) for the invariant
+inventory, tolerance rationale, and contribution checklist.
+
 ### Windows note
 If cloning onto Windows you may need `git config --global core.protectNTFS false`.
 
@@ -53,5 +72,4 @@ gradient-based methods can be applied to solve this many parameter optimization 
 
 ## Citation
 1. Milder, A. L., Joglekar, A. S., Rozmus, W. & Froula, D. H. Qualitative and quantitative enhancement of parameter estimation for model-based diagnostics using automatic differentiation with an application to inertial fusion. Mach. Learn.: Sci. Technol. 5, 015026 (2024).
-
 

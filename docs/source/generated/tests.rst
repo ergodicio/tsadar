@@ -10,6 +10,7 @@ Subpackages
    tests.test_form_factor
    tests.test_forward
    tests.test_inverse
+   tests.test_physics
 
 Module contents
 ---------------

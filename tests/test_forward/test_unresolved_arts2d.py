@@ -15,6 +15,9 @@ from tsadar.core.physics.generate_spectra import FitModel
 from tsadar.core.physics.resonance_quadrature import integrate_detector_bins
 
 
+pytestmark = [pytest.mark.physics, pytest.mark.slow]
+
+
 DETECTOR_EDGES_NM = jnp.linspace(468.0, 476.0, 257)
 FULL_DETECTOR_EDGES_NM = jnp.linspace(449.0, 670.0, 222)
 IRF_SIGMA_NM = 0.9 / 2.3548
