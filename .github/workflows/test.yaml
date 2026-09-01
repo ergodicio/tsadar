@@ -20,7 +20,7 @@ jobs:
       - name: Install tsadar (CPU)
         run: uv pip install --system -e ".[test,hdf]"
       - name: Run tests
-        run: pytest tests/
+        run: pytest tests/ -m "not slow"
 
   test-tsadar-gpu:
     runs-on: "gpu_runner"
@@ -35,4 +35,4 @@ jobs:
       - name: Install tsadar (GPU)
         run: uv pip install --system -e ".[gpu,test,hdf]"
       - name: Run tests
-        run: pytest tests/
+        run: pytest tests/ -m "not slow"

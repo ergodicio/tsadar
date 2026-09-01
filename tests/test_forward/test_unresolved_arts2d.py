@@ -1,6 +1,7 @@
 """Regression for the unresolved small-angle ARTS2D EPW from #124/#134."""
 
 import numpy as np
+import pytest
 
 from jax import config
 
@@ -12,6 +13,9 @@ from jax import numpy as jnp
 from tsadar.core.physics.form_factor import FormFactor
 from tsadar.core.physics.generate_spectra import FitModel
 from tsadar.core.physics.resonance_quadrature import integrate_detector_bins
+
+
+pytestmark = [pytest.mark.physics, pytest.mark.slow]
 
 
 DETECTOR_EDGES_NM = jnp.linspace(468.0, 476.0, 257)

@@ -1,0 +1,20 @@
+name: physics reference tests
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  physics-reference-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+      - name: Install tsadar
+        run: uv pip install --system -e ".[test]"
+      - name: Run slow physics references
+        run: pytest tests/ -m "physics and slow" --durations=20
