@@ -225,10 +225,9 @@ def add_ATS_IRF(
         )
 
     if irf.normalize > 0:
-        ThryE = jnp.where(
-            lamAxisE < TSins["general"]["lam"],
-            TSins["general"]["amp1"] * (ThryE / jnp.amax(ThryE[lamAxisE < TSins["general"]["lam"]])),
-            TSins["general"]["amp2"] * (ThryE / jnp.amax(ThryE[lamAxisE > TSins["general"]["lam"]])),
+        raise ValueError(
+            "Peak normalization is not supported for angular spectra; set detector_specs.norm to 0 "
+            "and use optimizer.angular_objective.gain for calibrated amplitude nuisances."
         )
     return lamAxisE, ThryE
 

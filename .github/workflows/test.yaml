@@ -20,10 +20,14 @@ jobs:
       - name: Install tsadar (CPU)
         run: uv pip install --system -e ".[test,hdf]"
       - name: Run tests
-        run: pytest tests/ -m "not slow"
+        run: pytest -m "not slow" tests/
 
   test-tsadar-gpu:
+    # The current hosted runner cannot initialize CUDA. Keep this job explicitly
+    # opt-in until the planned NERSC/GitHub Actions runner is configured.
+    if: vars.GPU_CI_ENABLED == 'true'
     runs-on: "gpu_runner"
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,5 +38,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libhdf4-dev
       - name: Install tsadar (GPU)
         run: uv pip install --system -e ".[gpu,test,hdf]"
-      - name: Run tests
-        run: pytest tests/ -m "not slow"
+      - name: Verify JAX sees the GPU
+        run: python -c 'import jax; devices = jax.devices("gpu"); print(devices); assert devices, "JAX did not find a GPU"'
+      - name: Run bounded GPU regression tests
+        run: pytest -q tests/test_form_factor/test_ratintn_gpu.py

@@ -236,6 +236,15 @@ def test_normalized_ats_irf_keeps_constant_density_away_from_boundaries():
     np.testing.assert_allclose(np.asarray(blurred[20:-20, 30:-30]), 1.0, rtol=0, atol=1e-9)
 
 
+def test_angular_irf_rejects_peak_normalization():
+    angles = np.linspace(20.0, 30.0, 3)
+    wavelengths = jnp.linspace(500.0, 510.0, 5)
+    irf = AngularIRF(spect_stddev=0.5, ang_stddev=0.3, ang_axis=angles, normalize=1)
+
+    with pytest.raises(ValueError, match="Peak normalization is not supported for angular spectra"):
+        add_ATS_IRF(irf, wavelengths, jnp.ones((3, 5)), _instrument_params())
+
+
 @pytest.mark.parametrize("number_of_points", [20, 21, 2050])
 def test_uniform_spectral_operator_matches_exact_dense_response(number_of_points):
     wavelengths = jnp.linspace(-3.0, 4.0, number_of_points)
@@ -383,7 +392,12 @@ def test_detector_binned_arts_reduction_only_reduces_angle():
             [4.0, 8.0, 12.0],
         ]
     )
-    batch = {"e_data": np.ones((2, 3)), "e_amps": jnp.ones((2, 1))}
+    batch = {
+        "e_data": np.ones((2, 3)),
+        # Measured maxima are deliberately unrelated to the model. They must not
+        # enter the differentiable forward calculation.
+        "e_amps": jnp.asarray([[1.0e6], [1.0e-6]]),
+    }
     instrument_params = {
         "general": {"lam": 0.0, "amp1": 1.0, "amp2": 1.0}
     }
@@ -394,6 +408,10 @@ def test_detector_binned_arts_reduction_only_reduces_angle():
 
     assert reduced.shape == (2, 3)
     np.testing.assert_array_equal(np.asarray(reduced_axis), np.asarray(wavelengths))
+    np.testing.assert_allclose(
+        np.asarray(reduced),
+        np.asarray([[1.5, 3.0, 4.5], [3.5, 7.0, 10.5]]),
+    )
 
 
 def test_detector_binned_arts_reduction_keeps_a_ragged_angular_group():

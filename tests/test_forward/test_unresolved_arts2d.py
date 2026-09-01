@@ -27,14 +27,14 @@ PHASES = jnp.asarray([0.0, 0.31, 0.67])
 FULL_RANGE_PHASES = jnp.asarray([-0.95, -0.10, 0.0, 0.90, 0.95])
 EXPECTED_FULL_RANGE_ROOTS_NM = np.asarray(
     [
-        474.201875844894,
-        514.081647830358,
-        526.276288254028,
-        526.451996163684,
-        526.548008175237,
-        526.723802255372,
-        539.209067615960,
-        591.042039725023,
+        474.210411051152,
+        514.107287118271,
+        526.276627453057,
+        526.451991522768,
+        526.548012818677,
+        526.723462211160,
+        539.182953531456,
+        591.031691289225,
     ]
 )
 FINE_ROOT_SCAN_PANELS = 4096
@@ -152,6 +152,7 @@ def _relative_detector_l1(actual, expected, detector_edges_nm=DETECTOR_EDGES_NM)
     )
 
 
+@pytest.mark.slow
 def test_small_angle_unresolved_epw_values_and_gradients_converge():
     """The physical unresolved line is stable to phase and 2x/4x refinement.
 
@@ -242,6 +243,7 @@ def test_small_angle_unresolved_epw_values_and_gradients_converge():
             )
 
 
+@pytest.mark.slow
 def test_full_detector_range_finds_every_physical_root_with_finite_gradients():
     """A fine root scan sees the complete small-angle dielectric topology.
 

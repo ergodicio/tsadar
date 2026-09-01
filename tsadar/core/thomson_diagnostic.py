@@ -254,7 +254,11 @@ class ThomsonScatteringDiagnostic:
 
         ThryE = _bin_average(ThryE, ang_step, axis=0)  # bin the angular axis
         ThryE = ThryE[self.cfg["data"]["lineouts"]["start"] : self.cfg["data"]["lineouts"]["end"], :]
-        ThryE = batch["e_amps"] * ThryE / jnp.amax(ThryE, axis=1, keepdims=True)
+        # Do not normalize each row to a measured maximum here. A peak-based scale is
+        # noisy, nonsmooth when the argmax changes, and lets one resonant pixel rescale
+        # the whole trace. The inverse objective profiles explicit detector gains after
+        # the physical forward/IRF calculation; forward-only callers receive this raw
+        # detector-space spectrum.
         ThryE = jnp.where(
             lamAxisE < TSins["general"]["lam"], TSins["general"]["amp1"] * ThryE, TSins["general"]["amp2"] * ThryE
         )
@@ -360,7 +364,10 @@ class ThomsonScatteringDiagnostic:
         modlE = modlE + batch["noise_e"]
         modlI = modlI + batch["noise_i"]
 
-        if self.cfg["data"]["load_ele_spec"]:
+        if (
+            self.cfg["data"]["load_ele_spec"]
+            and self.cfg["other"]["extraoptions"]["spectype"] != "angular_full"
+        ):
             ThryE = jnp.reshape(batch["e_amps"], (-1, 1, 1, 1)) * ThryE / jnp.amax(ThryE)
             eIRF = jnp.reshape(batch["e_amps"], (-1, 1)) * eIRF / jnp.amax(eIRF)
         if self.cfg["data"]["load_ion_spec"]:
