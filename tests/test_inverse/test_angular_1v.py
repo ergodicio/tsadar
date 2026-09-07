@@ -139,7 +139,11 @@ def test_arts1d_inverse(arbitrary_distribution: bool):
             sas = get_scattering_angles(config)
 
             sas["angAxis"], _, _, _, _, _ = get_calibrations(
-                104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
+                104000,
+                config["other"]["extraoptions"]["spectype"],
+                0.0,
+                config["other"]["CCDsize"],
+                config["other"]["detector_specs"],
             )  # shot number hardcoded to get calibration
             config["other"]["extraoptions"]["spectype"] = "angular_full"
 

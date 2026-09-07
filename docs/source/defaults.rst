@@ -37,17 +37,21 @@ These parameters are found in the ``parameters:electron`` section of the input d
 
 - ``fe`` is the electron velocity distribution function. Like other parameters it has an active flag which controls whether it is being fit, but the other fields function differently. 
     
-    - ``dim`` specifies the dimensionality of the distribution function. Options are 1 for a distribution function that is spherically symmetric in velocity space and 2 for a distribution function that has x and y dependence but is integrated along z where z is the probe's polarization direction. 2D options are very computationally expensive and most 2D effects are not visible in standard Thomson scattering, therefore 2D should only be used in forward modeling.
+    - ``dim`` specifies the dimensionality of the distribution supplied to the form factor. Option 1 is a one-velocity projection. Option 2 is the normalized Cartesian marginal :math:`f_2(u_x,u_y)=\int f_3(u_x,u_y,u_z)\,du_z`, where :math:`u=v/v_{Te}` and :math:`v_{Te}=\sqrt{T_e/m_e}`. The returned numerical EDF obeys :math:`\int f_2\,du_xdu_y=1`; the physical number-density marginal is :math:`n_e f_2/v_{Te}^2` and has units of density per velocity squared. For every isotropic super-Gaussian initializer, :math:`\langle u_x^2+u_y^2\rangle=2`, so :math:`\langle v_x^2+v_y^2\rangle=2T_e/m_e` independent of the shape parameter. The in-plane density, means, and centered second moment are available from ``get_in_plane_moments``; out-of-plane moments are model-dependent and are not reported as ARTS2D observables.
     
-    - ``type`` specifies the class of distribution function. 1D Options are ``dlm`` for a Dum-Langdon-Matte distribution also known as a super-gaussian,  ``mx`` for a Maxwellian distribution, and ``arbitrary`` for an arbitrary numerically defined distribution. For most purposes the ``dlm`` option is sufficient and recommended, while the ``mx`` option only works if ``fe:active`` is set to False but ``dlm`` can also produce a Maxwellian distribution if the super-Gaussian order is set to 2. The ``arbitrary`` option allows the code to alter the distribution function point by point and is only tractable for special cases. 2D options are ``arbitrary`` for an arbitrary numerically defined distribution in 2D and ``spherical`` for a distribution based on spherical harmonics. Regardless of the dimensionality or model the distribution function is projected onto a Cartesian grid for use in the Thomson scattering calculations.
+    - ``type`` specifies the class of distribution function. 1D Options are ``dlm`` for a Dum-Langdon-Matte distribution also known as a super-gaussian,  ``mx`` for a Maxwellian distribution, and ``arbitrary`` for an arbitrary numerically defined distribution. For most purposes the ``dlm`` option is sufficient and recommended, while the ``mx`` option only works if ``fe:active`` is set to False but ``dlm`` can also produce a Maxwellian distribution if the super-Gaussian order is set to 2. The ``arbitrary`` option allows the code to alter the distribution function point by point and is only tractable for special cases. For 2D, ``arbitrary`` directly parameterizes the positive Cartesian 2-V marginal. ``sphericalharmonic`` defines a positive 3-V hypothesis and numerically integrates its unobserved velocity before returning the Cartesian marginal; it never substitutes the central slice :math:`f_3(u_x,u_y,0)`. Its bounded exponential log-anisotropy parameterization imposes positivity smoothly instead of clipping negative samples.
+
+      ARTS2D's ray model represents every finite-aperture ray by a scalar scattering angle and constructs :math:`\mathbf{k}=(k_x,k_y)` in the plane containing the probe wavevector. The subsequent Radon transform therefore uses the exact sufficient 2-V marginal for every representable ray. A genuinely out-of-plane ray or an out-of-plane moment requires a 3-V observable and cannot be inferred through this interface.
 
     - ``nvx`` is the number of velocity points along each direction of the final velocity grid
 
     - ``params`` is the container for various model specific parameters.
 
-        - ``Nl`` is the number of Legendre polynomials used to define the distribution function when the ``spherical`` model is used. This parameter is only relevant if ``type: spherical`` and is ignored otherwise.
+        - ``Nl`` is the maximum spherical-harmonic degree used to define the distribution function when the ``sphericalharmonic`` model is used. TSADAR uses the real cosine harmonics with JAX's ``(degree=l, order=m)`` convention and embeds physical velocity as ``(X, Y, Z) = (vy, vz, vx)``. The ``(1, 0)`` and ``(1, 1)`` modes point along ``vx`` and ``vy``; the unrepresented first-order sine mode points along the unobserved ``vz`` direction and integrates to zero for the coplanar ARTS2D observable. This is a 3-D spherical-harmonic basis, not a 2-D polar Fourier basis.
 
-        - ``dtx`` is the Knudsen number along the x direction for Spitzer-Harm type or the more general Mora-Yahi type distribution functions. This parameter set the amount of heat flux in this model. This parameter is only relevant if ``flm_type`` is set to ``mora-yahi`` and is ignored otherwise. See `Mora and Yahi (2003) <https://journals.aps.org/pra/abstract/10.1103/PhysRevA.26.2259>`_. 
+        - ``init_m`` is the initial isotropic super-Gaussian shape. The ``sphericalharmonic`` model accepts the closed interval 2 through 5. It stores the normalized shape with a projected closed-interval parameterization, so the exact endpoint initializers remain differentiable toward the feasible interior instead of being represented by infinite logits.
+
+        - ``dtx`` is the Knudsen number along the x direction for Spitzer-Harm type or the more general Mora-Yahi type distribution functions. This parameter set the amount of heat flux in this model. This parameter is only relevant if ``flm_type`` is set to ``mora-yahi`` and is ignored otherwise. See `Mora and Yahi (1982) <https://journals.aps.org/pra/abstract/10.1103/PhysRevA.26.2259>`_.
         
         - ``dty`` is the Knudsen number along the y direction for the Mora-Yahi type distribution functions.
 
@@ -59,6 +63,10 @@ These parameters are found in the ``parameters:electron`` section of the input d
             - ``intens`` is the :math:`3\omega` laser intensity in units of :math:`10^{14}` W/cm\ :sup:`-2` and is used in the Matte formula to determine the super-Gaussian order. This is only relevant if ``matte`` is set to True.
 
         - ``nvr`` is the number of velocity points in the radial direction for the spherical harmonic decomposition. This is only relevant if ``type: spherical`` and is ignored otherwise.
+
+        - ``nvz`` is the optional number of Gauss-Legendre nodes used to marginalize the unobserved velocity for ``sphericalharmonic``. It defaults to the larger of 64 and ``nvr``. The integration interval is :math:`-6 \le u_z \le 6`; the isotropic Maxwellian and representative super-Gaussian and anisotropic regressions use a documented relative tolerance of :math:`10^{-4}` or better.
+
+        - ``anisotropy_log_limit`` is the optional smooth bound on the harmonic log-density perturbation. It defaults to 8 and must be positive. The 3-V model is proportional to :math:`f_{00}\exp[L\tanh(a/L)]`, so it stays positive and differentiable without a hard clip while remaining linear in the harmonic amplitude :math:`a` near zero.
 
         - ``smooth`` is a boolean which determines if the distribution function will be smoothed at every iteration of the fit. This is especially important if any of the distribution types are `arbitrary` as the large number of free parameters can lead to unphysical oscillations in the distribution function. If ``smooth`` is set to True then the distribution function will be convolved with a window specified by ``window`` at every iteration of the fit.
 
@@ -86,7 +94,8 @@ These parameters are found in the ``parameters:ion-1`` section of the input deck
 
 - ``fract`` is the element ratio for multispecies plasmas; the sum of ``fract`` for all species is held constant at 1. So if there are 2 ion species and the first has ``fract: 0.3`` then 30% of the ions are of that species. If the sum of the ``fract`` fields for all species is not 1 then the code will automatically rescale them to sum to 1. It is possible to fit the ``fract`` field for one or more species, but this parameter is self normalized between 0 and 1 so it does not have bounds.
 
-- ``Va`` is the species flow velocity in 10^6 cm/s 
+- ``Va`` is the species lab-frame flow velocity in 10^6 cm/s. For 2-D distributions,
+  ``angle`` gives its direction from the x-axis in degrees.
     
 .. versionadded:: 0.2.0
     Va is now associated with indivdual ions allowing for counter-streaming plasmas or other complicated flow configurations. In previous versions the flow was a general parameter that was applied to all ions.
@@ -111,7 +120,9 @@ These parameters are found in the ``parameters:general`` section of the input de
 
 - ``ne_gradient`` is the electron density spatial gradient in % of ``ne``. ``ne`` will take the form ``linspace(ne-ne*ne_gradient.val/200, ne+ne*ne_gradient.val/200, ne_gradient.num_grad_points)``. This works the same as ``Te_gradient`` but for the electron density instead of the temperature.
 
-- ``ud`` is the electron drift velocity (relative to the ions) in 10^6 cm/s
+- ``ud`` is the electron drift velocity in 10^6 cm/s relative to the charge-weighted
+  ion bulk velocity, ``sum(Z * fract * Va) / sum(Z * fract)``. For 2-D distributions,
+  ``angle`` gives the drift direction from the x-axis in degrees.
 
 MLFlow
 ^^^^^^^^
@@ -154,6 +165,8 @@ The ``data:`` section contains the specifics on which shot and what region of th
     - ``end`` the last location where a lineout will be taken.
 
     - ``skip`` the distance between lineouts in the same units specified by ``type``.
+
+- ``bad_pixels`` is an optional list of ``[angular_row, wavelength_column]`` coordinates on the prepared ARTS resolution-unit detector grid. Listed pixels, non-finite samples, and pixels marked false in a supplied ``e_mask`` array are excluded from both gain profiling and the likelihood.
 
 - ``background`` specifies the location and algorithm for background analysis.
 
@@ -211,9 +224,9 @@ The ``data:`` section contains the specifics on which shot and what region of th
 
     - ``iaw_cf_max`` ending wavelength for a central feature in the IAW that is to be excluded from analysis in nm, must be larger than ``iaw_cf_min``
 
-    - ``forward_epw_start`` starting wavelength in nm for the EPW calculation for forward model only
-    
-    - ``forward_epw_end`` ending wavelength in nm for the EPW calculation for forward model only
+    - ``forward_epw_start`` first wavelength center in nm for the EPW calculation in forward mode. For detector-integrated ARTS2D, the outer detector edge is inferred by half-spacing extrapolation.
+
+    - ``forward_epw_end`` last wavelength center in nm for the EPW calculation in forward mode. For detector-integrated ARTS2D, the outer detector edge is inferred by half-spacing extrapolation.
     
     - ``forward_iaw_start`` starting wavelength in nm for the IAW calculation for forward model only
     
@@ -233,9 +246,21 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
 - ``method`` gradient descent algorithm employed by the minimizer; this can be ``l-bfgs-b`` in which case scipy's implementation of the L-BFGS-B algorithm will be used, or almost any of the optimizers from the optax library which include ``adam``, ``sgd``, and ``rmsprop``. For a full list see the `optax documentation <https://optax.readthedocs.io/en/latest/api/optimizers.html>`_. L-BFGS-B is recommended for simpler problems as its more efficient but the optax algorithms provide more control when needed and ``adam`` is usualy a good choice for IAW data and combined fits.
 
-- ``moment_loss`` boolean, adds a penalty to maintain the moments of the EDF when fitting EDFs numerically *needs more testing*
+- ``moment_loss`` is the legacy shorthand for unit-strength density, temperature, and momentum priors. For ARTS fits it is applied to the positive physical EDF (not its internal parameterization) and is equivalent to enabling the three corresponding ``angular_objective.regularization`` weights.
 
 - ``loss_method`` metric minimized in order to match data; ``l2`` is recommended but ``l1``, ``log-cosh``, and ``poisson`` are also available
+
+- ``angular_objective`` configures the ARTS detector likelihood, gain nuisances, contamination model, and EDF priors. ARTS requires ``loss_method: l2`` because this section supplies its more specific likelihood:
+
+    - ``noise.model`` is ``poisson_read`` (the default), ``measured_variance``, or ``constant``. ``poisson_read`` uses ``(read_noise**2 + excess_noise_factor * max(data - background, 0) + background_variance_scale * abs(background)) / averaged_pixels`` with ``variance_floor``. ``averaged_pixels: auto`` uses ``ang_res_unit * lam_res_unit``, matching the averages performed while preparing ARTS data. The estimate is fixed from the observation so gain profiling remains a linear problem. ``measured_variance`` requires an ``e_variance`` detector array in the prepared batch and treats it as already calibrated on the prepared detector grid.
+
+    - ``gain.mode`` is ``none``, ``global``, ``per_row``, or ``per_row_wing``. Gains multiply the background-subtracted physical spectrum and are profiled with an exact lower-bound active-set solve at every objective evaluation; measured maxima never enter the forward model. ``smoothness`` penalizes adjacent angular-gain differences and ``prior_strength``/``prior_mean`` provide a calibration prior. Both strengths are expressed relative to the mean Fisher information in the gain series, making them dimensionless. The default positive mean prior anchors the gain scale; if it is disabled, fitted ``amp1``/``amp2`` parameters must also be inactive to avoid an unidentifiable scale direction. Reported Gaussian standard errors are conditional on the selected active set and are zero for gains pinned to the configured lower bound.
+
+    - ``robust.kind`` is ``gaussian``, ``huber``, or ``student_t``. Huber uses ``threshold`` in whitened-residual units; Student-t uses ``dof``. Robust modes update the profiled linear gains with ``iterations`` IRLS passes.
+
+    - ``regularization`` supplies non-negative weights for ``radial_smoothness``, ``angular_smoothness``, ``kl_to_maxwellian``, and the ``density``, ``temperature``, and two-component ``momentum`` moment priors. These act on the normalized, positive physical EDF. Their targets default to 1, 2, and [0, 0] for a Cartesian two-velocity marginal. Unknown settings and invalid one-dimensional constraints are rejected rather than ignored.
+
+  Angular postprocessing saves ``angular_objective_diagnostics.npz`` (whitened residuals, variance, valid mask, profiled gains and their Gaussian standard errors, and raw/fitted theory) and ``angular_objective_terms.json``; every term is also logged as an MLflow metric.
 
 - ``hessian`` boolean, determines if the hessian will be supplied to the minimizer (*Not recommended; Likely to be removed*)
 
@@ -257,13 +282,23 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
 - ``num_epochs`` max number of iterations of the minimizer for each batch
 
+- ``patience`` number of consecutive steps without an improvement of at least ``min_delta`` before an Optax fit stops early. Smaller improvements are still checkpointed, so the returned loss is always the true best evaluated loss. Set to 0 to disable early stopping.
+
+- ``min_delta`` minimum loss improvement that resets ``patience``.
+
+- ``seed`` seed recorded with optimizer telemetry for reproducibility. The current Optax loops and continuation stages are deterministic and do not randomize their initial parameters.
+
+- ``validate_active_leaves`` boolean, validates before optimization that every parameter marked active in the deck exists as a finite differentiable leaf and has detector-space forward sensitivity in the fitted geometry.
+
+- ``sensitivity_tol`` lower bound for the detector-space JVP norm used by active-leaf validation. The default of zero rejects exactly insensitive parameters.
+
 - ``learning_rate`` scale factor for step sizes taken by the minimizer
 
 - ``parameter_norm`` boolean, determines if the fitted parameters will be rescaled to 0 to 1, this is always recommended as it improves the behavior of the minimizer by keeping all parameters on the same scale, but the true values of the parameters are still used for error analysis and plotting.
 
 - ``refine_factor`` factor used to rescale the EDF domain during multiple minimizations of ARTS data
 
-- ``num_mins`` how many times the minimization will be performed on ARTS data, does not effect non-ARTS data
+- ``num_mins`` number of sequential continuation/refinement stages for ARTS data; it does not affect non-ARTS data. These are not independent random restarts: each stage starts from the preceding stage's best checkpoint, and the EDF grid is refined by ``refine_factor`` between stages. The globally best evaluated checkpoint across all stages is returned.
 
 - ``save_state`` boolean, determines if the state of the minimizer will be saved at some regular period during the minimization, primarily used for understanding the behavior of the minimizer
 
@@ -354,7 +389,9 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``gain`` CCD counts per photo-electron; the standard OMEGA ROSS has a gain of 144. Gain must be accurate for appropriate use of Poisson statistics but the gain is generaly not important for the fitting process as the data is normalized by default.
 
-- ``points_per_pixel`` number of wavelength points computed in the spectrum per pixel in the data being analyzed, for most cases 1 is sufficient but if the peaks in the data are very narrow then it may be necessary to use a value larger than 1 to ensure the peaks are well resolved in the computed spectrum, due to the scaling behaviour its not recommended to use a value larger than 10 here.
+- ``points_per_pixel`` number of wavelength points computed per detector pixel by the legacy sampled-spectrum path. ARTS2D does not use this setting to resolve a narrow resonance: it integrates the continuous spectrum directly into the calibrated detector-bin edges.
+
+- ``resonance_quadrature`` controls the ARTS2D detector-bin integration and is enabled by default. ``root_scan_panels`` (4096 by default) is the fine grid used only to bracket sign-changing zeros of the real dielectric, while ``integration_panels`` (256 by default) controls the coarser regular quadrature grid. Separating them resolves closely spaced roots without paying the fine-grid cost in the detector response matrix. ``regular_order`` and the even ``root_order`` set the Gauss--Legendre rules away from and near a root; ``neighbor_panels`` expands the root-mapped neighborhood; ``max_roots`` is the fixed root capacity (16 by default); ``bisection_iterations`` controls the differentiable root solve; and ``tail_sigma`` extends the source integration domain beyond the detector by that many spectral-IRF standard deviations. When ``iawfilter`` is enabled, every filter edge strictly inside that source domain is inserted as an exact integration breakpoint: attenuation is applied to the continuous source spectrum before Gaussian spectral blur and detector integration, including when a filter cuts through a detector bin. ``iawoff`` remains a detector-space mask. ``scan_phase`` is intended for convergence tests and must lie strictly between -1 and 1. ``map_batch_size`` trades device parallelism for peak memory across scattering geometries. A detected root overflow, zero-width resonance, invalid breakpoint, invalid detector geometry, or non-finite evaluation produces a non-finite model rather than silently returning a partial integral.
 
 - ``ang_res_unit`` is the number of pixels in an angular resolution unit for ARTS
 

@@ -51,7 +51,17 @@ def forward_pass(config):
         config["data"]["fit_rng"]["forward_iaw_start"],
         config["data"]["fit_rng"]["forward_iaw_end"],
     ]
-    config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+    # Forward ARTS decks retain the raw calibration convention
+    # ``CCDsize == [wavelength, angle]`` until the synthetic detector is built.
+    # Non-angular forward decks retain the historical wavelength-second layout.
+    spectral_pixels = (
+        config["other"]["CCDsize"][0]
+        if is_angular
+        else config["other"]["CCDsize"][1]
+    )
+    config["other"]["npts"] = int(
+        spectral_pixels * config["other"]["points_per_pixel"]
+    )
 
     sas = get_scattering_angles(config)
     if not is_angular:
@@ -68,13 +78,21 @@ def forward_pass(config):
 
     if is_angular:
         [axisxE, _, _, _, _, _] = get_calibrations(
-            104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
+            104000,
+            config["other"]["extraoptions"]["spectype"],
+            0.0,
+            config["other"]["CCDsize"],
+            config["other"]["detector_specs"],
         )  # shot number hardcoded to get calibration
         config["other"]["extraoptions"]["spectype"] = "angular_full"
 
         sas["angAxis"] = axisxE
-        dummy_batch["i_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
-        dummy_batch["e_data"] = np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))
+        # Raw calibration defines CCDsize as [wavelength, angle], while ARTS model/data
+        # arrays are [angle, wavelength]. Keep that orientation explicit for non-square
+        # detectors rather than relying on OMEGA's 1024x1024 shape.
+        angular_shape = (config["other"]["CCDsize"][1], config["other"]["CCDsize"][0])
+        dummy_batch["i_data"] = np.ones(angular_shape)
+        dummy_batch["e_data"] = np.ones(angular_shape)
 
     series={}
     for species in config["parameters"].keys():
@@ -137,7 +155,11 @@ def forward_pass(config):
             savedata = plotters.plot_data_angular(
                 config,
                 {"ele": np.squeeze(ThryE)},
-                {"e_data": np.zeros((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1]))},
+                {
+                    "e_data": np.zeros(
+                        (config["other"]["CCDsize"][1], config["other"]["CCDsize"][0])
+                    )
+                },
                 {"epw_x": sas["angAxis"], "epw_y": lamAxisE, 'x_label': 'Angle'},
                 td,
             )

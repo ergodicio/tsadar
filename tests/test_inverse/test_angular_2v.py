@@ -101,8 +101,8 @@ def _perturb_params_(rng, params, dist_type: str):
         params["electron"]["fe"]["type"] = "arbitrary"
     elif dist_type == "sphericalharmonic":
         params["electron"]["fe"]["type"] = "sphericalharmonic"
-        params["electron"]["fe"]["params"]["LTx"] = 10 ** float(rng.uniform(5, 7))
-        params["electron"]["fe"]["params"]["LTy"] = 10 ** float(rng.uniform(5, 7))
+        params["electron"]["fe"]["params"]["dtx"] = float(rng.uniform(-1e-3, 1e-3))
+        params["electron"]["fe"]["params"]["dty"] = float(rng.uniform(-1e-3, 1e-3))
     else:
         raise NotImplementedError
 
@@ -157,7 +157,11 @@ def test_arts2d_inverse(dist_type: bool):
             sas = get_scattering_angles(config)
 
             sas["angAxis"], _, _, _, _, _ = get_calibrations(
-                104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
+                104000,
+                config["other"]["extraoptions"]["spectype"],
+                0.0,
+                config["other"]["CCDsize"],
+                config["other"]["detector_specs"],
             )  # shot number hardcoded to get calibration
             config["other"]["extraoptions"]["spectype"] = "angular_full"
 

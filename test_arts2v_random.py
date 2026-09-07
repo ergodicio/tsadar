@@ -103,8 +103,8 @@ def _perturb_params_(rng, params, dist_type: str):
     elif dist_type == "mora-yahi":
         params["electron"]["fe"]["type"] = "sphericalharmonic"
         params["electron"]["fe"]["params"]["flm_type"] = "mora-yahi"
-        params["electron"]["fe"]["params"]["LTx"] = 10 ** float(rng.uniform(6, 8))
-        params["electron"]["fe"]["params"]["LTy"] = 10 ** float(rng.uniform(6, 8))
+        params["electron"]["fe"]["params"]["dtx"] = float(rng.uniform(-1e-3, 1e-3))
+        params["electron"]["fe"]["params"]["dty"] = float(rng.uniform(-1e-3, 1e-3))
     elif dist_type == "nn":
         params["electron"]["fe"]["type"] = "sphericalharmonic"
         params["electron"]["fe"]["params"]["flm_type"] = "nn"
@@ -166,7 +166,11 @@ def test_arts2d_inverse(config_path: str = "tests/configs/arts2d_test_defaults.y
             sas = get_scattering_angles(config)
 
             sas["angAxis"], _, _, _, _, _ = get_calibrations(
-                104000, config["other"]["extraoptions"]["spectype"], 0.0, config["other"]["CCDsize"]
+                104000,
+                config["other"]["extraoptions"]["spectype"],
+                0.0,
+                config["other"]["CCDsize"],
+                config["other"]["detector_specs"],
             )  # shot number hardcoded to get calibration
             config["other"]["extraoptions"]["spectype"] = "angular_full"
 

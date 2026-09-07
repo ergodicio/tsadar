@@ -32,6 +32,9 @@ parameters:
     fract:
         val: 1
         active: False
+    Va:
+        val: 0
+        active: False
   general:
     amp1:
         val: 1.
@@ -56,10 +59,6 @@ parameters:
     ud:
         val: 0
         active: False
-    Va:
-        val: 0
-        active: False
-
     blur:
         val: []
         active: False

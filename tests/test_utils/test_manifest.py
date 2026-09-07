@@ -115,6 +115,16 @@ def test_unknown_files_get_a_role_rather_than_being_dropped(one_d_tree):
     assert entry["role"] == manifest.ROLE_OTHER
 
 
+def test_angular_objective_outputs_are_classified_as_diagnostics(tmp_path):
+    (tmp_path / "angular_objective_diagnostics.npz").write_bytes(b"npz")
+    (tmp_path / "angular_objective_terms.json").write_text("{}")
+
+    built = manifest.build_manifest(str(tmp_path))
+
+    assert entry_for(built, "angular_objective_diagnostics.npz")["role"] == manifest.ROLE_DIAGNOSTICS
+    assert entry_for(built, "angular_objective_terms.json")["role"] == manifest.ROLE_DIAGNOSTICS
+
+
 # -- 1D vs angular ------------------------------------------------------------
 
 

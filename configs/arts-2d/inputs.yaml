@@ -21,7 +21,7 @@ mlflow:
   experiment: inverse-thomson-scattering
   run: multiplex_arts_rot90_nosmoothtest_nonete_1
 other:
-  PhysParams:
+  detector_specs:
     widIRF:
       ang_FWHM_ele: 1.0
       spect_FWHM_ele: 0.9
@@ -39,12 +39,6 @@ parameters:
       lb: 0.0
       num_grad_points: 1
       ub: 10.0
-      val: 0.0
-    Va:
-      active: false
-      angle: 0.0
-      lb: -40.5
-      ub: 40.5
       val: 0.0
     amp1:
       active: true
@@ -101,7 +95,7 @@ parameters:
       lb: 0.03
       ub: 2.0
       val: 0.44
-    
+
   ion-1:
     A:
       active: false
@@ -112,6 +106,12 @@ parameters:
       same: false
       ub: 1.0
       val: 0.03
+    Va:
+      active: false
+      angle: 0.0
+      lb: -40.5
+      ub: 40.5
+      val: 0.0
     Z:
       active: false
       lb: 0.5
@@ -120,4 +120,3 @@ parameters:
     fract:
       active: false
       val: 1.0
-    

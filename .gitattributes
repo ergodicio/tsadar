@@ -1,0 +1,3 @@
+# Append-only research notebooks: preserve entries from concurrent branches.
+NOTES.md merge=union
+**/NOTES.md merge=union

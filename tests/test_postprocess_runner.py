@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 
@@ -93,6 +94,17 @@ def test_load_merged_config_falls_back_to_defaults_and_inputs(tmp_path):
 
     assert merged["a"] == 1
     assert merged["b"]["c"] == 3  # inputs overrides defaults
+
+
+def test_load_merged_config_applies_checkpoint_refinement_metadata(tmp_path):
+    with open(tmp_path / "config.yaml", "w") as fi:
+        yaml.dump({"optimizer": {"num_mins": 4}}, fi)
+    with open(tmp_path / "checkpoint_metadata.json", "w") as fi:
+        json.dump({"format_version": 1, "angular_refinements": 1}, fi)
+
+    config = _load_merged_config(str(tmp_path))
+
+    assert config["optimizer"]["checkpoint_refinements"] == 1
 
 
 def test_run_postprocess_remote():

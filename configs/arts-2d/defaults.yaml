@@ -1,4 +1,7 @@
 data:
+  # Bad pixels on the prepared, resolution-unit detector grid as [angular_row,
+  # wavelength_column]. They are excluded from gain profiling and the likelihood.
+  bad_pixels: []
   fit_EPWb: true
   fit_EPWr: true
   fit_IAW: false
@@ -58,9 +61,48 @@ optimizer:
   learning_rate: 0.001
   method: rmsprop
   moment_loss: false
+  # Noise-aware ARTS2D likelihood. The Poisson/read model fixes each variance from
+  # measured signal above the supplied background so linear detector gains can be
+  # profiled analytically. Use measured_variance with an e_variance batch array when a
+  # calibrated covariance diagonal is available.
+  angular_objective:
+    noise:
+      model: poisson_read
+      read_noise: 1.0
+      excess_noise_factor: 1.0
+      background_variance_scale: 1.0
+      variance_floor: 1.0e-6
+      averaged_pixels: auto
+    gain:
+      mode: per_row
+      smoothness: 0.01
+      # Anchors the gain scale so active amp1/amp2 remain identifiable.
+      prior_strength: 0.01
+      prior_mean: 1.0
+      minimum: 0.0
+    robust:
+      kind: gaussian
+      threshold: 3.0
+      iterations: 3
+      dof: 4.0
+    regularization:
+      radial_smoothness: 0.0
+      angular_smoothness: 0.0
+      kl_to_maxwellian: 0.0
+      density: 0.0
+      temperature: 0.0
+      momentum: 0.0
+      density_target: 1.0
+      temperature_target: 2.0
+      momentum_target: [0.0, 0.0]
   loss_method: l2
   num_epochs: 1000
   num_mins: 1
+  patience: 500
+  min_delta: 1.0e-8
+  seed: 0
+  sensitivity_tol: 0.0
+  validate_active_leaves: true
   parameter_norm: true
   refine_factor: 1
   save_state: true
@@ -83,7 +125,7 @@ other:
   calc_sigmas: false
   crop_window: 1
   expandedions: false
-  extraoptions:
+  extraoptions: {}
   flatbg: 0
   gain: 1
   iawfilter:
@@ -99,6 +141,27 @@ other:
   # ~1e-2 in relative L2 on the gradient w.r.t. the EDF -- the gradient is the binding
   # constraint, so raise this if a 2D fit struggles to converge.
   n_beta: 1024
+  # Integrate the collisionless ARTS2D spectrum into finite detector bins before
+  # angular postprocessing. A fine fixed scan finds dielectric roots independently of
+  # the coarser integration grid; root neighborhoods use a tan mapping so resonances much
+  # narrower than a wavelength pixel retain their area and differentiable position. The
+  # spectral Gaussian IRF is included analytically through bin-edge CDF differences and
+  # must not be applied again downstream. Enabled iawfilter edges become exact source-side
+  # integration breakpoints before that IRF is applied.
+  resonance_quadrature:
+    enabled: true
+    root_scan_panels: 4096
+    integration_panels: 256
+    regular_order: 8
+    root_order: 32
+    max_roots: 16
+    neighbor_panels: 1
+    bisection_iterations: 48
+    tail_sigma: 6.0
+    scan_phase: 0.0
+    # Number of gradient/angle spectra evaluated concurrently. One bounds memory most
+    # tightly; raise cautiously on a device with enough memory.
+    map_batch_size: 1
   points_per_pixel: 1
   refit: true
   refit_thresh: 0.25
@@ -109,12 +172,6 @@ parameters:
       lb: 0.0
       num_grad_points: 1
       ub: 10.0
-      val: 0.0
-    Va:
-      active: false
-      angle: 0.0
-      lb: -20.5
-      ub: 20.5
       val: 0.0
     amp1:
       active: true
@@ -178,6 +235,12 @@ parameters:
       lb: 0.001
       ub: 1.0
       val: 0.12
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: 0.0
     Z:
       active: false
       lb: 0.5

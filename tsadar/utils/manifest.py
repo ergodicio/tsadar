@@ -35,6 +35,7 @@ ROLE_PARAMETER_PROFILES = "parameter_profiles"
 ROLE_LOSSES = "losses"
 ROLE_DISTRIBUTION = "distribution"
 ROLE_UNCERTAINTY = "uncertainty"
+ROLE_DIAGNOSTICS = "diagnostics"
 ROLE_PLOT = "plot"
 ROLE_CONFIG = "config"
 ROLE_OTHER = "other"
@@ -55,6 +56,8 @@ KNOWN_ROLES = {
     "sigmas_mcmc.nc": ROLE_UNCERTAINTY,
     "binary/mcmc_covariance.nc": ROLE_UNCERTAINTY,
     "binary/mcmc_samples.nc": ROLE_UNCERTAINTY,
+    "angular_objective_diagnostics.npz": ROLE_DIAGNOSTICS,
+    "angular_objective_terms.json": ROLE_DIAGNOSTICS,
     "config.yaml": ROLE_CONFIG,
     "defaults.yaml": ROLE_CONFIG,
     "inputs.yaml": ROLE_CONFIG,

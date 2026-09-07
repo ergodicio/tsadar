@@ -3,6 +3,7 @@ individually poor-fit lineouts, and produces the resulting plots and saved param
 from typing import Dict
 from collections import defaultdict
 from flatten_dict import flatten, unflatten
+import json
 
 import time, tempfile, mlflow, os, copy
 
@@ -405,6 +406,14 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     losses, sqdevs, fits_ele, _, params = loss_fn.array_loss(fitted_weights, batch)
     fits = {"ele": fits_ele}
     all_params["electron"]["v"] = params["electron"]["v"]
+
+    # Persist the actual likelihood diagnostics, rather than only the unweighted
+    # squared-deviation image used by the historical plotting code.
+    diagnostic_arrays, objective_terms = loss_fn.angular_diagnostics(fitted_weights, batch)
+    np.savez_compressed(os.path.join(td, "angular_objective_diagnostics.npz"), **diagnostic_arrays)
+    with open(os.path.join(td, "angular_objective_terms.json"), "w") as file:
+        json.dump(objective_terms, file, indent=2, sort_keys=True)
+    mlflow.log_metrics({f"arts2d_{key}": value for key, value in objective_terms.items()})
 
     # Calculate sigmas if needed
     sigmas = None

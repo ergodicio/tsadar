@@ -1,9 +1,10 @@
 """fit: the main entry point for running an inverse Thomson scattering fit -- loads data, dispatches to the
 1D or angular optimization loop, saves the fit results, and (unless deferred) runs postprocessing."""
-from typing import Dict, Optional, Tuple
+import json
 import os
 import tempfile
 import time
+from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 import equinox as eqx
@@ -45,6 +46,16 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
         os.makedirs(os.path.join(td, "csv"), exist_ok=True)
         eqx.tree_serialise_leaves(os.path.join(td, "fitted_weights.eqx"), fitted_weights)
 
+        # The global-best angular checkpoint can come from an earlier refinement stage,
+        # whose pytree shape differs from the final stage. Keep the shape provenance next
+        # to the Equinox leaves so a standalone postprocessor builds the right skeleton.
+        checkpoint_metadata = {
+            "format_version": 1,
+            "angular_refinements": config["optimizer"].get("checkpoint_refinements"),
+        }
+        with open(os.path.join(td, "checkpoint_metadata.json"), "w") as metadata_file:
+            json.dump(checkpoint_metadata, metadata_file)
+
         final_params = None
         if all_params is not None:
             final_params = plotters.get_final_params(config, all_params, all_axes, td)
@@ -81,6 +92,20 @@ def _validate_inputs_(config: Dict) -> Dict:
         raise ValueError(
             f"optimizer:num_epochs must be at least 1, got {config['optimizer']['num_epochs']}"
         )
+    if config["optimizer"].get("num_mins", 1) < 1:
+        raise ValueError(
+            f"optimizer:num_mins must be at least 1, got {config['optimizer']['num_mins']}"
+        )
+    if int(config["optimizer"].get("patience", 500)) < 0:
+        raise ValueError("optimizer:patience must be nonnegative (0 disables early stopping)")
+    if float(config["optimizer"].get("min_delta", 1e-8)) < 0:
+        raise ValueError("optimizer:min_delta must be nonnegative")
+    if float(config["optimizer"].get("sensitivity_tol", 0.0)) < 0:
+        raise ValueError("optimizer:sensitivity_tol must be nonnegative")
+    if config["optimizer"].get("save_state", False) and int(
+        config["optimizer"].get("save_state_freq", 0)
+    ) < 1:
+        raise ValueError("optimizer:save_state_freq must be at least 1 when save_state is enabled")
 
     # check boundries for linouts and fit ranges to ensure they are ordered properly
     if config["data"]["lineouts"]["start"] == config["data"]["lineouts"]["end"]:

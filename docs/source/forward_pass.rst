@@ -13,13 +13,14 @@ Other
 
 - ``extraoptions``
 
-    - ``spectype`` the type of spectrum to be computed. This field is self determined from the data when fitting. For a forward pass somthing has to be specified but it deos not effect the spectrum. Options are ``temporal`` or  ``imaging`` In this context they produce the same spectrum.
+    - ``spectype`` the type of spectrum to be computed. This field is determined from the data when fitting, but must be supplied for a forward pass. Options include ``temporal``, ``imaging``, and ``angular``.
 
-    - ``detector_specs`` the subfields define instrumental properties
+- ``detector_specs`` defines instrumental properties and is a sibling of ``extraoptions`` under ``other``.
 
-        - ``widIRF`` the subfields define the instrumental response functions, when fitting data it is determined from the calibration files but when running in forward mode these must be supplied. The subfields are:
+    - ``widIRF`` defines the instrumental response widths. They are read from calibration files when fitting data and must be supplied in forward mode. Its subfields are:
 
-            - ``spect_std_ion`` the standard deviation of the gaussian ion instrumental response function in nanometers
+        - ``spect_stddev_ion`` the standard deviation of the Gaussian ion spectral response in nanometers.
 
-            - ``spect_std_ele`` the standard deviation of the gaussian electron instrumental response function in nanometers
+        - ``spect_stddev_ele`` the standard deviation of the Gaussian electron spectral response in nanometers for non-ARTS spectra.
 
+        - ``spect_FWHM_ele`` and ``ang_FWHM_ele`` the spectral width in nanometers and angular width in degrees, respectively, for ARTS. These two values are full widths at half maximum.

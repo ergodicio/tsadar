@@ -58,11 +58,13 @@ This image provides a simplified visual representation of the effect of each par
 
 **lam** is the probe wavelength. The ion acoustic wave spectrum should be centered about the probe wavelength in the absence of flow.
 
-**Va** is the plasma flow velocity. This provides a doppler shift to the entire spectrum resuling in the center of the 2 peaks shifting relative to the probe wavelength. 
+**Va** is each ion species' lab-frame flow velocity. This Doppler-shifts that species' response.
 
-**ud** is the electron drfit velocity or the velocity of the electrons relative to the fluid velocity of the ions. Shifting the electrons relative to the ions will increase damping on one wave while reducing it on the other leading to an asymmetry in the peak amplitudes. 
+**ud** is the electron drift relative to the charge-weighted ion bulk velocity,
+``sum(Z * fract * Va) / sum(Z * fract)``. Shifting the electrons relative to the ions
+increases damping on one wave while reducing it on the other, producing an asymmetry in
+the peak amplitudes.
 
 **amp3** is the IAW amplitude multiplier, this is a fudge factor that helps deal with Poisson noise.
-
 
 

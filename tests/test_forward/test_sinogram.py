@@ -143,8 +143,8 @@ def _params_2d(vx, df, nvx):
     """The parameter tree `calc_in_2D` reads, built directly rather than from a deck."""
     return {
         "electron": {"ne": 0.2, "Te": 0.6, "fe": df, "v": vx},
-        "general": {"ne_gradient": 0.0, "Te_gradient": 0.0, "lam": 526.5, "Va": 0.0, "ud": 0.0},
-        "ion-1": {"A": 40.0, "Z": 18.0, "Ti": 0.12, "fract": 1.0},
+        "general": {"ne_gradient": 0.0, "Te_gradient": 0.0, "lam": 526.5, "ud": 0.0},
+        "ion-1": {"A": 40.0, "Z": 18.0, "Ti": 0.12, "fract": 1.0, "Va": 0.0},
     }
 
 
@@ -152,10 +152,10 @@ def test_calc_in_2D_matches_exact_rotation():
     """End-to-end guard on the real 2D entrypoint, not just the kernel.
 
     Every other test here calls `_calc_all_chi_vals_` with hand-made angles. This one goes
-    through `calc_in_2D`, so it covers how `beta` is actually built from `xie`, the
-    `jnp.squeeze(DF)` handoff, and the shape plumbing around the susceptibilities -- none
-    of which the direct-kernel tests touch. The ATS integration tests would have covered
-    it, but they are unrunnable (see module docstring).
+    through `calc_in_2D`, so it covers how `beta` is actually built from `k`, the signed
+    resonance coordinate, and the shape plumbing around the susceptibilities -- none of
+    which the direct-kernel tests touch. The ATS integration tests would have covered it,
+    but they are unrunnable (see module docstring).
     """
     nvx = 128  # what the shipped 2D decks use; the error is nvx-sensitive
     vx = jnp.linspace(-8.0, 8.0, nvx)
@@ -176,8 +176,8 @@ def test_calc_in_2D_matches_exact_rotation():
     assert _rel_err(got, exact) < 1e-4
 
 
-def _loss(ff, vx, df, beta, xie_mag, klde_mag):
-    out = ff._calc_all_chi_vals_(vx, df, beta, xie_mag, klde_mag)
+def _loss(ff, vx, df, beta, xi, klde_mag):
+    out = ff._calc_all_chi_vals_(vx, df, beta, xi, klde_mag)
     return sum(jnp.sum(o**2) for o in out)
 
 
@@ -272,12 +272,12 @@ def test_n_beta_need_not_divide_the_batch_size(n_beta):
 
 
 def test_projection_matches_rotate_then_sum():
-    """`project` is exactly the reduction it replaced, not an approximation of it."""
+    """`project` maps mathematical beta onto the legacy image-rotation sign convention."""
     vx, df = _distribution()
     ff = _form_factor(0)
 
     beta = jnp.array(1.234)
-    expected = jnp.sum(ff.rotate(vx, df, beta * 180 / jnp.pi, reshape=False), axis=0) * (vx[1] - vx[0])
+    expected = jnp.sum(ff.rotate(vx, df, -beta * 180 / jnp.pi, reshape=False), axis=0) * (vx[1] - vx[0])
 
     np.testing.assert_allclose(
         np.asarray(ff.project(vx, df, beta)), np.asarray(expected), rtol=1e-12, atol=1e-14
