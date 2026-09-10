@@ -7,6 +7,7 @@
 #SBATCH -c 32
 #SBATCH --gpus-per-task=1
 
+unset JAX_PLATFORMS
 export SLURM_CPU_BIND="cores"
 export BASE_TEMPDIR="$PSCRATCH/tmp/"
 export MLFLOW_TRACKING_URI="$PSCRATCH/mlflow"

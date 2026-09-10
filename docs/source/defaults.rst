@@ -324,8 +324,8 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``calc_sigmas`` is a boolean determining if a Hessian will be computed to determine the uncertainty in fitted parameters.
 
-.. deprecated:: 0.2.0
-    ``calc_sigmas`` is currently deprecated. Implementation of uncertainty quantification is planned for a future release but the current method of computing sigmas from the Hessian is not robust and therefore has been deprecated until a more robust method can be implemented.
+.. versionchanged:: 0.3.0
+    Earlier releases computed this Hessian with respect to the *entire* fitted-parameter pytree, which could attempt a multi-hundred-GB allocation on an ordinary fit whose electron distribution function carries a sizeable fixed interpolation table (even with ``fe`` inactive), and the resulting uncertainties were not usable. The Hessian is now restricted to only the active fit parameters (the same restriction ``mcmc.use_laplace_seed`` below already applied), which fixes both problems. ``calc_sigmas`` still does not support the electron distribution function ("fe") as an active fit parameter -- deactivate ``electron.fe.active`` to use it, or use the MCMC postprocessor (:doc:`mcmc`) instead.
 
 - ``mcmc`` is a container for options controlling the standalone MCMC uncertainty postprocessor -- see :doc:`mcmc` for what it does and how to run it. These fields are only read by that postprocessor, never by a normal fit or by ``calc_sigmas``; the whole section (or any individual field) may be omitted, in which case the defaults below are used.
 
@@ -347,11 +347,13 @@ The ``other:`` section includes options specifying the types of data that are be
 
     - ``init_dispersion_factor`` multiplier on the seeded step scale, used to perturb each independent chain's own starting point before burn-in begins -- see ``calibration_uncertainty.num_draws`` below for what controls how many chains are run. ``0.0`` (the default) means every chain starts at the exact best fit, matching single-chain behavior exactly. Set this above 0 when running several chains (``num_draws`` > 1) so they don't all start from the same point -- useful on its own for a more thorough posterior exploration, and required for a meaningful R-hat when the calibration sigmas below are all left at 0.
 
+    - ``adapt_shape`` boolean; if true (the default), burn-in also re-estimates each parameter's *relative* step scale within a lineout from the running sample variance seen so far, on top of the Robbins-Monro magnitude adaptation above. The RM update rescales every active parameter of a lineout by the same factor (there is only one joint accept/reject decision per lineout per step), so on its own it can only correct the *overall* proposal scale -- it cannot fix a lineout where, say, ``Te``'s step is relatively too large and ``ne``'s is relatively too small, which happens whenever ``use_laplace_seed``'s per-parameter balance is off (e.g. a degenerate Hessian entry falling back to the same flat ``init_step_scale`` as every other parameter). Set to false to match pre-``adapt_shape`` behavior exactly.
+
     - ``seed`` PRNG seed for the MCMC chain(s).
 
     - ``save_samples`` boolean; if true the full thinned, pooled posterior samples are saved as an artifact (``binary/mcmc_samples.nc``) in addition to the per-lineout mean/std/covariance summary.
 
-    - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default: computing the full Hessian can attempt a very large memory allocation on fits whose electron distribution function carries a sizeable fixed interpolation table, even when ``fe`` is inactive. Enable this only once you've confirmed your config's Hessian is affordable; a failure here is caught and simply disables the comparison rather than failing the run.
+    - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default, mainly to keep this postprocessor's own footprint minimal -- as of 0.3.0 the underlying Hessian is restricted to only the active fit parameters (see ``calc_sigmas`` above), so this is no longer the large-memory-allocation risk it once was. A failure here (e.g. a degenerate Hessian, or the electron distribution function being active) is still caught and simply disables the comparison rather than failing the run.
 
 - ``calibration_uncertainty`` is a container for options controlling how many independent MCMC chains the standalone postprocessor runs and pools, and (optionally) how instrument-calibration uncertainty is propagated into them -- see :doc:`mcmc`. Like ``mcmc`` above, these fields are only read by the standalone MCMC postprocessor.
 

@@ -1,6 +1,6 @@
 """postprocess: recomputes final fits/losses/uncertainties after fitting completes, optionally refits
 individually poor-fit lineouts, and produces the resulting plots and saved parameter values."""
-from typing import Dict
+from typing import Dict, List, Tuple
 from collections import defaultdict
 from flatten_dict import flatten, unflatten
 import json
@@ -9,11 +9,12 @@ import time, tempfile, mlflow, os, copy
 
 import numpy as np
 import jax
+import equinox as eqx
 
 from tsadar.utils import manifest
 from tsadar.utils.plotting import plotters
 from ..loss_function import LossFunction
-from tsadar.core.modules.ts_params import IonParams
+from tsadar.core.modules.ts_params import IonParams, get_filter_spec
 from ..loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
@@ -104,7 +105,17 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             try:
-                hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
+                # Hessian restricted to only the active fit parameters (diff_params) -- see
+                # LossFunction.h_loss_wrt_params's docstring for why the full parameter tree must never
+                # be differentiated here (it pulls in every fixed array the model carries, e.g. the
+                # electron distribution function's interpolation table, and has been observed to attempt
+                # a >150GB allocation on an ordinary fit).
+                ts_params = fitted_weights[i_batch]
+                filter_spec = get_filter_spec(config["parameters"], ts_params)
+                diff_params, static_params = eqx.partition(ts_params, filter_spec)
+                hess = loss_fn.h_loss_wrt_params(diff_params, static_params, batch)
+                fitted_params_this_batch, _ = ts_params.get_fitted_params(config["parameters"])
+                sigmas[inds] = get_sigmas(hess, diff_params, fitted_params_this_batch, config["optimizer"]["batch_size"])
             except Exception as e:
                 print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
                 calc_sigma = False
@@ -114,53 +125,111 @@ def recalculate_with_chosen_weights(
         sqdevs["ele"][inds] = sqds["ele"]
         sqdevs["ion"][inds] = sqds["ion"]
 
-        if calc_sigma:
-            sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
-            # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
-
         fits["ele"]["total_spec"][inds] = ThryE
         fits["ion"]["total_spec"][inds] = ThryI
 
     return losses, sqdevs, fits, sigmas
 
 
-def get_sigmas(hess: Dict, batch_size: int) -> Dict:
-    """
-    Calculates the variance using the hessian with respect to the parameters and then using the hessian values
-    as the inverse of the covariance matrix and then inverting that. Negatives in the inverse hessian normally indicate
-    non-optimal points, to represent this in the final result the uncertainty of those values are reported as negative.
+def _named_diff_leaves(diff_params) -> List[Tuple[str, str]]:
+    """Returns the (species, key) name of every active leaf of a diff_params pytree (as produced by
+    eqx.partition(ts_params, get_filter_spec(...))), in the same order as jax.tree_util.tree_leaves(
+    diff_params) -- i.e. the same order get_sigmas' Hessian `rows` come back in.
 
+    Names mirror get_filter_spec's own species/key convention: species is "electron"/"general"/
+    "ion-<n>" (1-based); key strips diff_params' "normed_" prefix (get_filter_spec never prefixes
+    "fract"). This is the inverse of get_filter_spec's getattr-based navigation, recovered here via
+    tree_flatten_with_path since diff_params carries no other record of which (species, key) each leaf
+    came from.
+    """
+    names = []
+    for path, _leaf in jax.tree_util.tree_flatten_with_path(diff_params)[0]:
+        top = path[0].name
+        if top == "ions":
+            species = f"ion-{path[1].idx + 1}"
+        else:
+            species = top
+        attr = path[-1].name
+        key = attr[len("normed_") :] if attr.startswith("normed_") else attr
+        names.append((species, key))
+    return names
+
+
+def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.ndarray:
+    """
+    Calculates parameter uncertainty from a Hessian, using the hessian values as the inverse of the
+    covariance matrix and then inverting that. Negatives in the inverse hessian normally indicate
+    non-optimal points, to represent this in the final result the uncertainty of those values are
+    reported as negative.
+
+    hess must be the Hessian of the loss wrt diff_params ONLY (see LossFunction.h_loss_wrt_params) --
+    never the full ThomsonParams tree, which pulls in every fixed array the model carries (e.g. the
+    electron distribution function's interpolation table) and has been observed to attempt a >150GB
+    allocation on an ordinary fit.
 
     Args:
-        hess: Hessian dictionary, the field for each fitted parameter has subfields corresponding to each of the other
-            fitted parameters. Within each nested subfield is a batch_size x batch_size array with the hessian values
-            for that parameter combination and that batch. The cross terms of this array are zero since separate
-            lineouts within a batch do not affect each other, they are therefore discarded
+        hess: Hessian of the loss wrt diff_params, as returned by LossFunction.h_loss_wrt_params. Has
+            diff_params' pytree structure at the outer level; each "leaf" there is itself a
+            diff_params-shaped subtree of second derivatives wrt that one leaf.
+        diff_params: the same diff_params pytree the Hessian was taken wrt (only active leaves; every
+            other leaf is None, per eqx.partition).
+        fitted_params: nested dict as returned by ThomsonParams.get_fitted_params(config["parameters"])
+            -- gives the exact (species, key) columns and order the returned array must match, since
+            that's what plotters.save_sigmas_params/save_sigmas_fe assume of `all_params`.
         batch_size: int- number of lineouts in a batch
 
     Returns:
-        sigmas: batch_size x number_of_parameters array with the uncertainty values for each parameter
+        sigmas: batch_size x number_of_parameters array with the uncertainty values for each parameter,
+            columns ordered to match fitted_params (species-major, then key, in fitted_params' own
+            iteration order).
+
+    Raises:
+        NotImplementedError: if any electron distribution-function parameter ("fe"/"f"/"flm"/"m") is
+            active. Those are stored as a list of separate per-lineout objects rather than one array with
+            a batch axis (see ElectronParams.init_dists), which this leaf-diagonal approach does not
+            handle -- mirroring postprocess.mcmc's identical fe-active restriction (see its module
+            docstring).
     """
-    sizes = {
-        key + species: hess[species][key][species][key].shape[1]
-        for species in hess.keys()
-        for key in hess[species].keys()
-    }
-    actual_num_params = sum([v for k, v in sizes.items()])
-    sigmas = np.zeros((batch_size, actual_num_params))
+    for species, params in fitted_params.items():
+        unsupported = set(params.keys()) & {"fe", "f", "flm", "m"}
+        if unsupported:
+            raise NotImplementedError(
+                f"get_sigmas does not support the electron distribution function as an active fit "
+                f"parameter (found {sorted(unsupported)} under {species!r}): its per-lineout parameters "
+                "are stored as a list of separate objects rather than one array with a batch axis, which "
+                "this leaf-diagonal approach does not handle. Deactivate 'electron.fe.active' to use "
+                "calc_sigmas for the remaining (scalar) active parameters."
+            )
+
+    ordered_names = [(species, key) for species, params in fitted_params.items() for key in params.keys()]
+    num_params = len(ordered_names)
+    sigmas = np.full((batch_size, num_params), np.nan)
+    if num_params == 0:
+        return sigmas
+
+    target_structure = jax.tree_util.tree_structure(diff_params)
+    rows = jax.tree_util.tree_leaves(
+        hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure
+    )
+    row_names = _named_diff_leaves(diff_params)
+    if len(rows) != len(row_names):
+        raise ValueError(f"Unexpected Hessian structure: found {len(rows)} row(s), expected {len(row_names)}")
+    name_to_row_index = {name: idx for idx, name in enumerate(row_names)}
+    if any(name not in name_to_row_index for name in ordered_names):
+        missing = [name for name in ordered_names if name not in name_to_row_index]
+        raise ValueError(f"fitted_params names not found among diff_params' active leaves: {missing}")
+
+    blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[k1][k2] is d^2L/d(leaf k1) d(leaf k2)
+    # Permutation from ordered_names' (fitted_params') order into rows'/blocks' (diff_params') order --
+    # the two need not agree, since ThomsonParams.get_unnormed_params() (which fitted_params is ultimately
+    # derived from) lists species as electron/general/ion-<n>, while diff_params' own pytree flatten order
+    # follows ThomsonParams' declared field order, electron/ions/general.
+    perm = [name_to_row_index[name] for name in ordered_names]
 
     for i in range(batch_size):
-        temp = np.zeros((actual_num_params, actual_num_params))
-        k1 = 0
-        for species1 in hess.keys():
-            for key1 in hess[species1].keys():
-                k2 = 0
-                for species2 in hess.keys():
-                    for key2 in hess[species2].keys():
-                        temp[k1, k2] = np.squeeze(hess[species1][key1][species2][key2])[i, i]
-                        k2 += 1
-                k1 += 1
-
+        temp = np.array(
+            [[np.asarray(blocks[perm[k1]][perm[k2]])[i, i] for k2 in range(num_params)] for k1 in range(num_params)]
+        )
         inv = np.linalg.inv(temp)
         sigmas[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
 
@@ -415,13 +484,20 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         json.dump(objective_terms, file, indent=2, sort_keys=True)
     mlflow.log_metrics({f"arts2d_{key}": value for key, value in objective_terms.items()})
 
-    # Calculate sigmas if needed
+    # Calculate sigmas if needed. Hessian restricted to only the active fit parameters (diff_params) --
+    # see LossFunction.h_loss_wrt_params's docstring for why the full parameter tree must never be
+    # differentiated here.
     sigmas = None
     if config["other"]["calc_sigmas"]:
-        active_params = loss_fn.spec_calc.get_plasma_parameters(fitted_weights, return_static_params=False)
-        hess = loss_fn.h_loss_wrt_params(active_params, batch)
-        sigmas = get_sigmas(hess, config["optimizer"]["batch_size"])
-        print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
+        try:
+            filter_spec = get_filter_spec(config["parameters"], fitted_weights)
+            diff_params, static_params = eqx.partition(fitted_weights, filter_spec)
+            hess = loss_fn.h_loss_wrt_params(diff_params, static_params, batch)
+            sigmas = get_sigmas(hess, diff_params, batch_fitted_params, config["optimizer"]["batch_size"])
+            print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
+        except Exception as e:
+            print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
+            sigmas = None
 
     # Logging and plotting
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
@@ -431,7 +507,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     final_params = plotters.get_final_params(config, all_params, all_axes, td)
     sigma_fe = None
     if "fe" in final_params:
-        if config["other"]["calc_sigmas"]:
+        if sigmas is not None:
             sigma_fe = plotters.save_sigmas_fe(final_params, {}, sigmas, td)
         else:
             sigma_fe = np.zeros_like(final_params['fe'])

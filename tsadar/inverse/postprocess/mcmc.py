@@ -43,16 +43,27 @@ _DEFAULTS = {
     # exactly. Set > 0 when running several chains (config["other"]["calibration_uncertainty"]
     # ["num_draws"] > 1) purely for dispersed starts / a meaningful R-hat -- see mcmc.rst.
     "init_dispersion_factor": 0.0,
+    # Whether burn-in also re-estimates each parameter's *relative* step scale (within a lineout) from
+    # the running sample variance seen so far in burn-in, on top of the Robbins-Monro magnitude
+    # adaptation above. The RM update in _adapt_step_scale rescales every parameter of a lineout by the
+    # same factor (there is only one joint accept/reject decision per lineout per step -- see
+    # _mh_accept), so it can only correct the *overall* proposal scale, not a case where e.g. Te's
+    # step is relatively too large and ne's is relatively too small for that lineout. When
+    # use_laplace_seed leaves that relative balance wrong (a degenerate per-parameter Hessian entry
+    # falling back to the same flat init_step_scale as every other leaf, or a Hessian that is itself a
+    # poor local approximation), no amount of burn-in fixes it without this. See
+    # _shape_from_variance/_combine_magnitude_and_shape for how the correction is derived and blended
+    # in without disturbing the RM-controlled overall magnitude.
+    "adapt_shape": True,
     "seed": 0,
     "save_samples": True,
-    # postprocess.laplace.get_sigmas' Hessian is taken w.r.t. the *entire* ts_params pytree, not just the
-    # active leaves (unlike _seed_step_scale_from_laplace above, which was deliberately restricted to
-    # diff_params after this same full-tree Hessian was observed to attempt a >150GB allocation on an
-    # ordinary fit whose electron distribution function carries a sizeable fixed interpolation table,
-    # even with "fe" inactive). recalculate_with_chosen_weights already catches that failure and
-    # disables calc_sigma gracefully, but the attempt itself costs real time and memory pressure, so the
-    # comparison plot defaults to off; opt in with compare_to_laplace: true once you've confirmed your
-    # config's Hessian is actually affordable.
+    # postprocess.laplace.get_sigmas' Hessian is now taken w.r.t. diff_params only (the same restriction
+    # _seed_step_scale_from_laplace above already applies), so the multi-hundred-GB allocation this used
+    # to risk on an ordinary fit whose electron distribution function carries a sizeable fixed
+    # interpolation table is fixed. It still doesn't support "fe" active (get_sigmas raises
+    # NotImplementedError in that case, caught by recalculate_with_chosen_weights same as any other
+    # failure). The comparison plot defaults to off mainly to keep this postprocessor's own scope
+    # minimal, not for memory-safety reasons anymore -- opt in with compare_to_laplace: true freely.
     "compare_to_laplace": False,
 }
 
@@ -203,6 +214,68 @@ def _adapt_step_scale(step_scale, accept_rate: jnp.ndarray, target_accept: float
     return jax.tree_util.tree_map(lambda s: s * _broadcast_like(factor, s), step_scale)
 
 
+def _window_batch_stats(window_samples) -> Tuple[object, object]:
+    """Per-leaf (mean, m2) of one burn-in window's raw samples, where m2 = n * population variance (the
+    "M2" of Chan et al.'s parallel variance algorithm -- see _merge_running_stats). window_samples is a
+    diff_params-shaped pytree with an extra leading (adapt_every,) axis on every leaf, as returned by
+    _run_window(collect=True); mean/m2 are leaf-shaped (batch_size,) pytrees, one number per lineout."""
+    mean = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), window_samples)
+    m2 = jax.tree_util.tree_map(lambda x: jnp.var(x, axis=0) * x.shape[0], window_samples)
+    return mean, m2
+
+
+def _merge_running_stats(running: Tuple[object, object], batch: Tuple[object, object], n_running: int, n_batch: int) -> Tuple[object, object]:
+    """Chan et al.'s parallel-variance merge, applied leafwise, combining a running (mean, m2) accumulated
+    over n_running samples with one window's (mean, m2) over n_batch new samples. n_running/n_batch are
+    plain Python ints rather than traced arrays: every leaf receives exactly the same number of samples
+    every window (the whole diff_params pytree is stepped together), so the sample count carries no
+    per-leaf or per-lineout information worth tracking as an array.
+
+    At n_running == 0 (the first window) this reduces to exactly the batch's own (mean, m2), so no
+    separate initialization case is needed by the caller.
+    """
+    mean_running, m2_running = running
+    mean_batch, m2_batch = batch
+    n_total = n_running + n_batch
+    delta = jax.tree_util.tree_map(lambda mb, mr: mb - mr, mean_batch, mean_running)
+    mean_total = jax.tree_util.tree_map(lambda mr, d: mr + d * (n_batch / n_total), mean_running, delta)
+    m2_total = jax.tree_util.tree_map(
+        lambda m2r, m2b, d: m2r + m2b + d**2 * (n_running * n_batch / n_total), m2_running, m2_batch, delta
+    )
+    return mean_total, m2_total
+
+
+def _shape_from_variance(m2, n_total: int):
+    """Converts a running per-leaf m2 (see _merge_running_stats) into a step_scale-shaped pytree of
+    *relative* per-parameter scale, normalized so each lineout's values geometric-mean to 1 across
+    active leaves -- i.e. this carries only the shape (relative proportions across parameters) of the
+    proposal, not its overall magnitude, which _combine_magnitude_and_shape re-attaches separately from
+    the Robbins-Monro-adapted step_scale. Floors variance at a small epsilon so a leaf that hasn't moved
+    at all yet (e.g. the very first window) doesn't produce -inf in the log-mean below."""
+    eps = 1e-12
+    std_leaves, treedef = jax.tree_util.tree_flatten(
+        jax.tree_util.tree_map(lambda leaf: jnp.sqrt(jnp.maximum(leaf / n_total, eps)), m2)
+    )
+    log_leaves = [jnp.log(s) for s in std_leaves]
+    mean_log = jnp.mean(jnp.stack(log_leaves, axis=0), axis=0)  # (batch_size,), per lineout
+    shape_leaves = [jnp.exp(l - mean_log) for l in log_leaves]
+    return jax.tree_util.tree_unflatten(treedef, shape_leaves)
+
+
+def _combine_magnitude_and_shape(step_scale, shape):
+    """Replaces step_scale's relative per-parameter proportions with `shape` (see _shape_from_variance)
+    while exactly preserving step_scale's own overall per-lineout magnitude (its geometric mean across
+    active leaves) -- so this only ever redistributes step size between parameters of the same lineout,
+    never changes how large a step that lineout takes on average, which stays under the existing
+    Robbins-Monro/target_accept control in _adapt_step_scale."""
+    leaves, treedef = jax.tree_util.tree_flatten(step_scale)
+    log_leaves = [jnp.log(jnp.maximum(leaf, 1e-12)) for leaf in leaves]
+    magnitude = jnp.exp(jnp.mean(jnp.stack(log_leaves, axis=0), axis=0))  # (batch_size,), per lineout
+    shape_leaves = jax.tree_util.tree_leaves(shape)
+    new_leaves = [magnitude * s for s in shape_leaves]
+    return jax.tree_util.tree_unflatten(treedef, new_leaves)
+
+
 def _seed_step_scale_default(diff_params, fallback_scale: float):
     """Pure heuristic proposal-scale seed: a flat `fallback_scale` per leaf/lineout, in the
     unconstrained/logit space diff_params already lives in. No dependency on the Hessian/Laplace
@@ -216,16 +289,18 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
     """Seeds initial per-lineout, per-leaf proposal scale from a Laplace/Hessian covariance, scaled by
     the standard Roberts-Rosenthal 2.38/sqrt(d) optimal-scaling factor (d = number of active scalar
     leaves). Off-diagonal (cross-parameter) terms are ignored -- only each leaf's own second derivative
-    is used, matching postprocess.laplace.get_sigmas' use of only the diagonal blocks (cross-lineout
-    terms are structurally zero; cross-parameter terms are dropped here for simplicity, since this seeds
-    independent per-leaf proposal scales, not a joint proposal covariance).
+    is used (cross-lineout terms are structurally zero regardless), unlike postprocess.laplace.get_sigmas,
+    which inverts the full joint (active-parameter x active-parameter) block per lineout -- a deliberate
+    simplification here, since this only needs independent per-leaf proposal scales, not a joint proposal
+    covariance.
 
-    Deliberately differentiates loss_fn.neg_log_likelihood w.r.t. diff_params only (not the full
-    ts_params, unlike loss_fn.h_loss_wrt_params/postprocess.laplace.get_sigmas) -- hessian-ing the full
-    parameter tree pulls in every fixed array the model carries, including large distribution-function
-    lookup tables that are never actually being sampled, and has been observed to attempt a
-    multi-hundred-GB allocation on an ordinary fit. Restricting to diff_params keeps this to exactly the
-    handful of scalar parameters actually active, which is what run_mcmc_for_batch's fe-active guard
+    Deliberately differentiates loss_fn.neg_log_likelihood w.r.t. diff_params only, not the full
+    ts_params -- the same restriction loss_fn.h_loss_wrt_params/postprocess.laplace.get_sigmas now also
+    apply, for the same reason: hessian-ing the full parameter tree pulls in every fixed array the model
+    carries, including large distribution-function lookup tables that are never actually being sampled,
+    and has been observed to attempt a multi-hundred-GB allocation on an ordinary fit. Restricting to
+    diff_params keeps this to exactly the handful of scalar parameters actually active, which is what
+    run_mcmc_for_batch's fe-active guard
     guarantees are the only leaves present here.
 
     Wherever the Hessian is degenerate for a given leaf/lineout (non-positive curvature, or a resulting
@@ -363,13 +438,33 @@ def run_mcmc_for_batch(
         leave=False,
         position=pbar_position,
     )
+    # adapt_shape re-estimates each parameter's *relative* step scale within a lineout from the running
+    # sample variance seen so far in burn-in (see _shape_from_variance's docstring for why this exists:
+    # the RM magnitude adaptation below can't touch that balance on its own). Requires collecting each
+    # burn-in window's raw samples -- cheap here since a window is only adapt_every steps (unlike the
+    # much longer sampling phase this same _run_window is used for), and n_active must be > 0 (nothing
+    # to have a "relative" balance between with zero or one active parameters).
+    adapt_shape = bool(mcmc_cfg["adapt_shape"]) and len(jax.tree_util.tree_leaves(diff_params)) > 1
+    running_mean = jax.tree_util.tree_map(jnp.zeros_like, diff_params)
+    running_m2 = jax.tree_util.tree_map(jnp.zeros_like, diff_params)
+    samples_so_far = 0
+
     for window_index in range(n_windows):
         burn_key, window_key = jr.split(burn_key)
-        diff_params, log_post, accept_count, _ = _run_window(
-            window_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, adapt_every, collect=False
+        diff_params, log_post, accept_count, window_samples = _run_window(
+            window_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, adapt_every,
+            collect=adapt_shape,
         )
         accept_rate = accept_count / adapt_every
         step_scale = _adapt_step_scale(step_scale, accept_rate, mcmc_cfg["target_accept"], window_index, mcmc_cfg["adapt_gamma"])
+
+        if adapt_shape:
+            batch_stats = _window_batch_stats(window_samples)
+            running_mean, running_m2 = _merge_running_stats((running_mean, running_m2), batch_stats, samples_so_far, adapt_every)
+            samples_so_far += adapt_every
+            shape = _shape_from_variance(running_m2, samples_so_far)
+            step_scale = _combine_magnitude_and_shape(step_scale, shape)
+
         pbar.update(adapt_every)
 
     pbar.set_description(f"{progress_desc} sampling")

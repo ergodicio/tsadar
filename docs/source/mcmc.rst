@@ -50,6 +50,18 @@ The initial step scale can optionally be seeded from a Laplace/Hessian approxima
 (``use_laplace_seed: true``), which tends to reach a well-mixing step scale faster than starting from a
 flat guess -- see ``init_step_scale`` and ``use_laplace_seed`` in :doc:`defaults`.
 
+Robbins-Monro adaptation only ever rescales *all* of a lineout's active parameters by the same factor,
+since there is only one joint accept/reject decision per lineout per step -- it cannot correct a lineout
+where the *relative* balance between parameters is wrong (e.g. ``Te``'s proposal step is too large
+relative to ``ne``'s for that lineout), which can happen whenever the Laplace seed's per-parameter
+balance is itself off. ``adapt_shape`` (on by default) addresses this separately: each burn-in window
+also re-estimates the relative step-scale proportions across a lineout's active parameters from the
+running sample variance seen so far, leaving the RM-controlled overall magnitude untouched. A histogram
+of per-lineout acceptance rates alone can't distinguish "step size genuinely mistuned" from "relative
+balance between parameters is wrong" -- both look like poor mixing -- but if turning ``adapt_shape`` on
+narrows or removes a near-zero acceptance mode that persists even with ample ``burn_in``, the relative
+balance was the culprit.
+
 Multiple chains
 ~~~~~~~~~~~~~~~~
 

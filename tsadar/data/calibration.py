@@ -404,7 +404,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
             magE = 5.35  # (ps / px) this is just a rough guess
 
         elif 116760 < shotNum < 116780:
-            # needs to be updated with the calibrations from 10-22-25
+            
             EPWDisp = 0.4143
             IAWDisp = 0.00659
             if shotNum == 116768:

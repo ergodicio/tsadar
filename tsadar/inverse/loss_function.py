@@ -87,11 +87,11 @@ class LossFunction:
             Returns a normalized copy of the input batch.
         vg_loss(diff_weights, static_weights, batch):
             Computes the loss value and gradient with respect to weights for optimization.
-        h_loss_wrt_params(weights, batch):
-            Computes the Hessian of the loss with respect to parameters.
+        h_loss_wrt_params(diff_params, static_params, batch):
+            Computes the Hessian of the loss with respect to the active (diff_params) parameters only.
         neg_log_likelihood(weights, batch, per_lineout):
             Poisson-like -2*log-likelihood shared by the Hessian/Laplace uncertainty and the MCMC sampler.
-        _loss_for_hess_fn_(weights, batch):
+        _loss_for_hess_fn_(diff_params, static_params, batch):
             Loss function used for Hessian computation.
         calc_ei_error(batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func):
             Calculates the error between experimental and theoretical spectra for IAW and EPW.
@@ -189,6 +189,9 @@ class LossFunction:
         self._loss_ = filter_jit(self.__loss__)
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
         ## this will be replaced with jacobian params jacobian inverse
+        # filter_hessian differentiates wrt the first positional arg (diff_params) only, leaving
+        # static_params (every fixed/non-fitted array, e.g. the electron distribution function's
+        # interpolation table) out of the Hessian entirely -- see h_loss_wrt_params's docstring.
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
         self.array_loss = filter_jit(self.post_loss)
 
@@ -356,20 +359,33 @@ class LossFunction:
         else:
             return self._vg_func_(diff_weights, static_weights, batch)
 
-    def h_loss_wrt_params(self, weights, batch):
+    def h_loss_wrt_params(self, diff_params, static_params, batch):
         """
-        Computes the Hessian of the loss with respect to the (active) fitted parameters, using the
-        JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__. Used by postprocessing to
-        derive parameter uncertainties from the curvature of the loss (see postprocess.get_sigmas).
+        Computes the Hessian of the loss with respect to only the active fitted parameters (diff_params),
+        using the JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__. Used by
+        postprocessing to derive parameter uncertainties from the curvature of the loss (see
+        postprocess.laplace.get_sigmas).
+
+        Deliberately differentiates wrt diff_params only, not the full weights pytree (mirroring
+        postprocess.mcmc._seed_step_scale_from_laplace's identical restriction): hessian-ing the full
+        parameter tree pulls in every fixed array the model carries, including large distribution-function
+        lookup tables that are never actually being fit, and has been observed to attempt a >150GB
+        allocation on an ordinary fit. Callers should partition their ThomsonParams via
+        eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params)) to obtain diff_params/
+        static_params before calling this.
 
         Args:
-            weights: the parameter values to evaluate the Hessian at (typically the best-fit weights).
+            diff_params: the active/fitted leaves to differentiate wrt (typically the best-fit weights'
+                diff partition), evaluated at their current values.
+            static_params: the complementary (non-fitted) partition of the same ThomsonParams, recombined
+                with diff_params via eqx.combine before evaluating the loss.
             batch (Dict): batch of data to evaluate the loss against.
 
         Returns:
-            The Hessian of the loss with respect to weights, in the same nested structure as weights.
+            The Hessian of the loss with respect to diff_params, in the same nested structure as
+            diff_params (each "leaf" is itself a diff_params-shaped subtree of second derivatives).
         """
-        return self._h_func_(weights, batch)
+        return self._h_func_(diff_params, static_params, batch)
 
     def neg_log_likelihood(self, weights, batch: Dict, per_lineout: bool = False):
         """
@@ -424,7 +440,8 @@ class LossFunction:
 
         return i_error + e_error
 
-    def _loss_for_hess_fn_(self, weights, batch):
+    def _loss_for_hess_fn_(self, diff_params, static_params, batch):
+        weights = eqx.combine(static_params, diff_params)
         return self.neg_log_likelihood(weights, batch, per_lineout=False)
 
     def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean):

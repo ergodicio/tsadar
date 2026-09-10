@@ -163,5 +163,5 @@ on how to perform the fit.
 
 - ``calc_sigmas`` is a boolean determining if a Hessian will be computed to determine the uncertainty in fitted parameters.
 
-.. deprecated:: 0.2.0
-    ``calc_sigmas`` is currently deprecated. Implementation of uncertainty quantification is planned for a future release but the current method of computing sigmas from the Hessian is not robust and therefore has been deprecated until a more robust method can be implemented.
+.. versionchanged:: 0.3.0
+    Earlier releases computed this Hessian with respect to the *entire* fitted-parameter pytree, which could attempt a multi-hundred-GB allocation on an ordinary fit whose electron distribution function carries a sizeable fixed interpolation table (even with ``fe`` inactive), and the resulting uncertainties were not usable. The Hessian is now restricted to only the active fit parameters, which fixes both problems. ``calc_sigmas`` still does not support the electron distribution function ("fe") as an active fit parameter -- deactivate ``electron.fe.active`` to use it, or use the MCMC postprocessor (:doc:`mcmc`) instead.

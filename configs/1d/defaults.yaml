@@ -134,6 +134,11 @@ other:
     # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
     # default) means every chain starts at the exact best fit.
     init_dispersion_factor: 0.0
+    # Re-estimates each parameter's *relative* step scale within a lineout from the running burn-in
+    # sample variance, on top of the Robbins-Monro magnitude adaptation above (which alone can only
+    # rescale every parameter of a lineout by the same factor). On by default; set false to match
+    # pre-adapt_shape behavior exactly.
+    adapt_shape: true
     seed: 0
     save_samples: true
     compare_to_laplace: false
