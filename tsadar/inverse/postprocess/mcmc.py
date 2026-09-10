@@ -289,64 +289,93 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
     """Seeds initial per-lineout, per-leaf proposal scale from a Laplace/Hessian covariance, scaled by
     the standard Roberts-Rosenthal 2.38/sqrt(d) optimal-scaling factor (d = number of active scalar
     leaves). Off-diagonal (cross-parameter) terms are ignored -- only each leaf's own second derivative
-    is used (cross-lineout terms are structurally zero regardless), unlike postprocess.laplace.get_sigmas,
-    which inverts the full joint (active-parameter x active-parameter) block per lineout -- a deliberate
-    simplification here, since this only needs independent per-leaf proposal scales, not a joint proposal
-    covariance.
+    is used, unlike postprocess.laplace.get_sigmas, which inverts the full joint (active-parameter x
+    active-parameter) block per lineout -- a deliberate simplification here, since this only needs
+    independent per-leaf proposal scales, not a joint proposal covariance.
 
     Deliberately differentiates loss_fn.neg_log_likelihood w.r.t. diff_params only, not the full
-    ts_params -- the same restriction loss_fn.h_loss_wrt_params/postprocess.laplace.get_sigmas now also
+    ts_params -- the same restriction loss_fn.h_loss_wrt_params/postprocess.laplace.get_sigmas also
     apply, for the same reason: hessian-ing the full parameter tree pulls in every fixed array the model
     carries, including large distribution-function lookup tables that are never actually being sampled,
     and has been observed to attempt a multi-hundred-GB allocation on an ordinary fit. Restricting to
     diff_params keeps this to exactly the handful of scalar parameters actually active, which is what
-    run_mcmc_for_batch's fe-active guard
-    guarantees are the only leaves present here.
+    run_mcmc_for_batch's fe-active guard guarantees are the only leaves present here.
+
+    Even restricted to diff_params, building the *full* Hessian via a single eqx.filter_hessian call
+    (forward-over-reverse autodiff) requires propagating one forward-mode tangent direction per active
+    leaf *simultaneously*, all the way through the physics forward model -- and on a real multi-lineout
+    fit, that forward model's own internal quadrature/evaluation grids can be large enough that even a
+    handful of simultaneous tangent directions attempts a multi-GB allocation (observed in production
+    even after restricting to diff_params and to one fit-batch at a time). Only the diagonal is ever
+    used below, though, so each leaf's own diagonal is instead recovered via one extra forward-mode
+    sweep per leaf: jvp(grad(loss wrt that leaf alone, every other leaf held fixed), ones) gives that
+    leaf's own Hessian block's row sums, which equal its diagonal exactly since cross-lineout terms are
+    structurally zero (different lineouts don't affect each other) -- note this does *not* require
+    cross-*parameter* terms to be zero (they generally aren't, e.g. d^2L/dTe dne for the same lineout is
+    typically nonzero), since holding every other leaf fixed already keeps them out of this leaf's own
+    second derivative by construction, not because they happen to vanish.
+
+    Leaves are processed one at a time via jax.lax.map rather than a Python for loop or
+    eqx.filter_hessian's batched forward-mode sweep -- deliberately, and for two independent reasons:
+    only one tangent direction is ever live at once (peak memory, same reasoning as
+    run_mcmc_for_fit_batches seeding fit-batches sequentially rather than under one shared vmap), *and*
+    lax.map's loop body is traced/compiled exactly once regardless of the active-leaf count, unlike a
+    Python for loop under this function's caller's own eqx.filter_jit, which unrolls into that many
+    copies of the full per-leaf differentiation graph at trace time -- for a physics forward model
+    expensive enough to differentiate, that unrolled compile time was observed to reach several minutes
+    (with no output in the meantime, since nothing runs until compilation finishes), even though runtime
+    execution and peak memory were both already fine. Requires every active leaf to share one shape (a
+    single (batch_size,) float array per lineout, true of every currently-supported MCMC parameter) so
+    they can be stacked into one (n_active, batch_size) array for lax.map to index into by row.
 
     Wherever the Hessian is degenerate for a given leaf/lineout (non-positive curvature, or a resulting
     scale that's non-finite or non-positive), that entry is individually replaced by fallback_scale via
-    jnp.where -- deliberately per-entry rather than an all-or-nothing raise/except: this runs under
-    run_mcmc_for_fit_batches' eqx.filter_vmap in production, where every value here is a batching tracer,
-    so a Python-level bool()/raise on a data-dependent validity check would raise
-    TracerBoolConversionError regardless of whether the Hessian was actually degenerate (this was, in
-    fact, silently swallowing every real Laplace-seeded scale in production and falling back to a flat
-    fallback_scale for every lineout -- see git history/PR discussion for the regression this fixed).
-    Structural checks below (row/column counts) stay as ordinary raises since they depend only on pytree
-    shape, which is identical across every vmap lane.
+    jnp.where -- deliberately per-entry rather than an all-or-nothing raise/except: a Python-level
+    bool()/raise on a data-dependent validity check would raise TracerBoolConversionError under this
+    function's caller's own jit (this was, in fact, silently swallowing every real Laplace-seeded scale
+    in production and falling back to a flat fallback_scale for every lineout -- see git history/PR
+    discussion for the regression this fixed).
     """
 
     def _nll_of_diff(dp):
         weights = eqx.combine(static_params, dp)
         return loss_fn.neg_log_likelihood(weights, batch, per_lineout=False)
 
-    hess = eqx.filter_hessian(_nll_of_diff)(diff_params)
     flat_diff, treedef = jax.tree_util.tree_flatten(diff_params)
     n = len(flat_diff)
     if n == 0:
         return jax.tree_util.tree_unflatten(treedef, [])
 
-    target_structure = jax.tree_util.tree_structure(diff_params)
-    # hess has diff_params' structure at the outer level; every "leaf" there is itself a diff_params-
-    # shaped pytree (the row of second derivatives wrt that one leaf). Stopping tree_leaves' descent as
-    # soon as a subtree's structure matches diff_params' finds exactly those n rows, without needing to
-    # know the concrete species/parameter names.
-    rows = jax.tree_util.tree_leaves(hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure)
-    if len(rows) != n:
-        raise ValueError(f"Unexpected Hessian structure: found {len(rows)} row(s), expected {n}")
+    shapes = {leaf.shape for leaf in flat_diff}
+    dtypes = {leaf.dtype for leaf in flat_diff}
+    if len(shapes) != 1 or len(dtypes) != 1:
+        raise ValueError(
+            "_seed_step_scale_from_laplace requires every active leaf to share one shape/dtype (every "
+            f"currently-supported MCMC parameter is a single (batch_size,) float array per lineout); "
+            f"got shapes {shapes}, dtypes {dtypes}."
+        )
+    stacked = jnp.stack(flat_diff, axis=0)  # (n_active, batch_size)
+
+    def _nll_of_stacked(rows):
+        return _nll_of_diff(jax.tree_util.tree_unflatten(treedef, list(rows)))
+
+    def _diag_for_row(i):
+        def _nll_wrt_row(row_value):
+            return _nll_of_stacked(stacked.at[i].set(row_value))
+
+        row_value = stacked[i]
+        _, h_ii = jax.jvp(jax.grad(_nll_wrt_row), (row_value,), (jnp.ones_like(row_value),))
+        return h_ii
+
+    h_diag = jax.lax.map(_diag_for_row, jnp.arange(n))  # (n_active, batch_size)
 
     rr_factor = 2.38 / jnp.sqrt(float(n))
-    scale_leaves = []
-    for i, row in enumerate(rows):
-        row_leaves = jax.tree_util.tree_leaves(row)
-        if len(row_leaves) != n:
-            raise ValueError(f"Unexpected Hessian row structure: found {len(row_leaves)} entries, expected {n}")
-        h_ii = jnp.diagonal(row_leaves[i])  # (batch_size, batch_size) -> (batch_size,); cross-lineout terms are ~0
-        var = jnp.where(h_ii > 0, 1.0 / h_ii, jnp.nan)
-        scale = rr_factor * jnp.sqrt(var)
-        valid = jnp.isfinite(scale) & (scale > 0)
-        scale_leaves.append(jnp.where(valid, scale, fallback_scale))
+    var = jnp.where(h_diag > 0, 1.0 / h_diag, jnp.nan)
+    scale = rr_factor * jnp.sqrt(var)
+    valid = jnp.isfinite(scale) & (scale > 0)
+    scale = jnp.where(valid, scale, fallback_scale)
 
-    return jax.tree_util.tree_unflatten(treedef, scale_leaves)
+    return jax.tree_util.tree_unflatten(treedef, list(scale))
 
 
 @eqx.filter_jit
