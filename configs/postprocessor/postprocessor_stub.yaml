@@ -1,17 +1,21 @@
+mlflow:
+  experiment: shot_day_10_22_25
+  run: s116773-mcmc-stat-only-laplaceseed
+
 other:
   # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
   # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
   # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
   # nothing about fitting or the existing Hessian-based postprocessor.
   mcmc:
-    num_steps: 1000
-    burn_in: 150
+    num_steps: 8000
+    burn_in: 2000
     thin: 5
-    adapt_every: 10
+    adapt_every: 100
     target_accept: 0.234
     adapt_gamma: 0.6
-    init_step_scale: 0.001
-    use_laplace_seed: false
+    init_step_scale: 0.0002
+    use_laplace_seed: true
     # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
     # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
     # default) means every chain starts at the exact best fit.
@@ -23,7 +27,7 @@ other:
     adapt_shape: true
     seed: 0
     save_samples: true
-    compare_to_laplace: false
+    compare_to_laplace: true
   # calibration_uncertainty.num_draws is the number of independent MCMC chains the postprocessor runs
   # and pools -- not just "calibration draws": chains may differ by a perturbed instrument calibration
   # (tsadar/data/calibration.py, via the *_sigma fields below), by a perturbed starting point
@@ -33,12 +37,12 @@ other:
   calibration_uncertainty:
     num_draws: 20
     seed: 0
-    EPWDispersion_sigma: 0.0
-    IAWDispersion_sigma: 0.0
-    EPWoffset_sigma: 0.0
-    IAWoffset_sigma: 0.0
-    spect_stddev_ion_sigma: 0.0
-    spect_stddev_ele_sigma: 0.0
+    EPWDispersion_sigma: 0
+    IAWDispersion_sigma: 0
+    EPWoffset_sigma: 0
+    IAWoffset_sigma: 0
+    spect_stddev_ion_sigma: 0
+    spect_stddev_ele_sigma: 0
     gain_sigma: 0.0
   include_gains: false
 

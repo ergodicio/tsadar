@@ -349,6 +349,34 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
     return jax.tree_util.tree_unflatten(treedef, scale_leaves)
 
 
+@eqx.filter_jit
+def _seed_step_scale(loss_fn: LossFunction, static_params, batch: Dict, diff_params, mcmc_cfg: Dict):
+    """Computes one fit-batch's initial proposal step scale: Laplace-seeded (via
+    _seed_step_scale_from_laplace) if mcmc_cfg["use_laplace_seed"], falling back to the flat
+    _seed_step_scale_default whenever that's off or the Hessian seed fails structurally.
+
+    Deliberately a standalone, @eqx.filter_jit-compiled function (not inlined into run_mcmc_for_batch)
+    so run_mcmc_for_fit_batches can call it in a plain Python loop, once per fit-batch, *before*
+    vmapping the rest of run_mcmc_for_batch across every fit-batch -- see run_mcmc_for_batch's
+    step_scale docstring for why: fusing this Hessian computation into that fit-batch vmap has been
+    observed to multiply its (otherwise small, diff_params-only) memory cost by the fit-batch count,
+    since nested vmap(hessian(...)) without its own enclosing jit prevents XLA from fusing/reusing
+    buffers across the batch. jit-compiling here instead lets every fit-batch in that Python loop reuse
+    one compiled executable (same diff_params/static_params shapes every time, only the values differ).
+    """
+    step_scale = None
+    if mcmc_cfg["use_laplace_seed"]:
+        try:
+            step_scale = _seed_step_scale_from_laplace(
+                loss_fn, static_params, batch, diff_params, mcmc_cfg["init_step_scale"]
+            )
+        except Exception:
+            step_scale = None
+    if step_scale is None:
+        step_scale = _seed_step_scale_default(diff_params, mcmc_cfg["init_step_scale"])
+    return step_scale
+
+
 def run_mcmc_for_batch(
     config: Dict,
     loss_fn: LossFunction,
@@ -357,6 +385,7 @@ def run_mcmc_for_batch(
     key: jax.Array,
     progress_desc: str = "MCMC",
     pbar_position: int = 0,
+    step_scale=None,
 ) -> Tuple[object, object, Dict]:
     """
     Runs one Metropolis-Hastings chain, vectorized across the lineouts in `batch`, seeded at
@@ -375,6 +404,12 @@ def run_mcmc_for_batch(
         pbar_position: tqdm `position` (terminal line offset) for this chain's bar -- run_mcmc_pooled
             runs draws concurrently on separate threads/devices, so each draw needs its own line to avoid
             garbled interleaved output.
+        step_scale: optional precomputed initial step scale (a diff_params-shaped pytree), overriding
+            use_laplace_seed/init_step_scale entirely when given. run_mcmc_for_fit_batches passes this in,
+            computed sequentially per fit-batch via _seed_step_scale *before* vmapping this function
+            across every fit-batch of a shot -- see _seed_step_scale's docstring for why computing the
+            Laplace-seeded Hessian *inside* that fit-batch vmap is a memory-blowup risk. Leave None for a
+            direct, single-fit-batch call (e.g. tests), which seeds internally exactly as before.
 
     Returns:
         samples: a diff_params-shaped pytree; each leaf has shape (num_kept, batch_size, ...), where
@@ -393,16 +428,8 @@ def run_mcmc_for_batch(
     filter_spec = get_filter_spec(config["parameters"], ts_params)
     diff_params, static_params = eqx.partition(ts_params, filter_spec)
 
-    step_scale = None
-    if mcmc_cfg["use_laplace_seed"]:
-        try:
-            step_scale = _seed_step_scale_from_laplace(
-                loss_fn, static_params, batch, diff_params, mcmc_cfg["init_step_scale"]
-            )
-        except Exception:
-            step_scale = None
     if step_scale is None:
-        step_scale = _seed_step_scale_default(diff_params, mcmc_cfg["init_step_scale"])
+        step_scale = _seed_step_scale(loss_fn, static_params, batch, diff_params, mcmc_cfg)
 
     # Nudges this chain's own starting point away from the shared best fit, so that when several
     # independent chains are pooled (config["other"]["calibration_uncertainty"]["num_draws"] > 1) they
@@ -514,6 +541,13 @@ def _stack_batches(batch_list: List[Dict]) -> Dict:
     return jax.tree_util.tree_map(lambda *xs: jnp.stack(xs, axis=0), *batch_list)
 
 
+def _stack_step_scales(step_scales: List) -> object:
+    """Stacks a list of structurally-identical step_scale pytrees (one per fit-batch, as returned by
+    _seed_step_scale) into one pytree whose leaves have an extra leading fit-batch axis. Array-only, like
+    batch dicts, so a plain tree_map+stack."""
+    return jax.tree_util.tree_map(lambda *xs: jnp.stack(xs, axis=0), *step_scales)
+
+
 def run_mcmc_for_fit_batches(
     config: Dict,
     loss_fn: LossFunction,
@@ -526,24 +560,44 @@ def run_mcmc_for_fit_batches(
     """
     Runs run_mcmc_for_batch across every fit-batch of a single calibration draw. Every fit-batch shares
     the exact same compiled LossFunction/config -- only the data slice and starting weights differ, both
-    ordinary array-valued inputs -- so this is a single eqx.filter_vmap over the fit-batch axis rather
-    than a Python loop, avoiding a separate trace/compile per fit-batch.
+    ordinary array-valued inputs -- so the sampling itself is a single eqx.filter_vmap over the fit-batch
+    axis rather than a Python loop, avoiding a separate trace/compile per fit-batch.
+
+    The initial step_scale is the one exception: it's seeded sequentially, one fit-batch at a time, via
+    _seed_step_scale, *before* that vmap -- see _seed_step_scale's docstring for why. Fusing its Hessian
+    computation into the fit-batch vmap has been observed to multiply its (otherwise small, diff_params-
+    only) memory cost by the fit-batch count on real multi-lineout shots (a nested vmap(hessian(...)) with
+    no enclosing jit of its own prevents XLA from fusing/reusing buffers across the batch), even though
+    _seed_step_scale_from_laplace's restriction to diff_params already keeps any *single* fit-batch's
+    Hessian cheap on its own. _seed_step_scale is itself jit-compiled, so this loop still only compiles
+    once (every fit-batch shares the same diff_params/static_params shapes) and just replays that one
+    executable per fit-batch.
 
     Returns the same three outputs as run_mcmc_for_batch, each with an extra leading fit-batch axis on
     every array leaf (size len(ts_params_list)); static_params/diagnostics' non-array leaves are passed
     through unbatched by eqx.filter_vmap since they are identical across fit-batches.
     """
     n_fit_batches = len(ts_params_list)
+    mcmc_cfg = _mcmc_cfg(config)
+
+    step_scales = []
+    for ts_params, batch in zip(ts_params_list, batch_list):
+        filter_spec = get_filter_spec(config["parameters"], ts_params)
+        diff_params, static_params = eqx.partition(ts_params, filter_spec)
+        step_scales.append(_seed_step_scale(loss_fn, static_params, batch, diff_params, mcmc_cfg))
+    stacked_step_scale = _stack_step_scales(step_scales)
+
     stacked_ts_params = _stack_ts_params(ts_params_list)
     stacked_batch = _stack_batches(batch_list)
     keys = jr.split(key, n_fit_batches)
 
-    def _one(ts_params, batch, k):
+    def _one(ts_params, batch, k, step_scale):
         return run_mcmc_for_batch(
-            config, loss_fn, ts_params, batch, k, progress_desc=progress_desc, pbar_position=pbar_position
+            config, loss_fn, ts_params, batch, k, progress_desc=progress_desc, pbar_position=pbar_position,
+            step_scale=step_scale,
         )
 
-    return eqx.filter_vmap(_one)(stacked_ts_params, stacked_batch, keys)
+    return eqx.filter_vmap(_one)(stacked_ts_params, stacked_batch, keys, stacked_step_scale)
 
 
 def _gelman_rubin_r_hat(x: jnp.ndarray) -> jnp.ndarray:

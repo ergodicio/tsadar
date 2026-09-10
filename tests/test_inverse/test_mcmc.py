@@ -123,6 +123,61 @@ def test_run_mcmc_for_batch_falls_back_when_laplace_seed_disabled(fitted_fixture
     assert np.all(np.isfinite(np.asarray(diagnostics["acceptance_rate"])))
 
 
+def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(fitted_fixture):
+    # run_mcmc_for_fit_batches seeds the Laplace step scale sequentially, one fit-batch at a time, via
+    # _seed_step_scale, *before* vmapping the rest of run_mcmc_for_batch across every fit-batch (see
+    # _seed_step_scale's docstring: fusing that Hessian computation into the fit-batch vmap itself has
+    # been observed to multiply its memory cost by the fit-batch count on real multi-lineout shots).
+    # fitted_fixture's own config only ever produces a single fit-batch, so this test builds its own
+    # 3-fit-batch fit (reusing the same tiny dataset by wrapping indices) specifically to exercise that
+    # n_fit_batches > 1 path, and checks the vmapped result is bit-identical to manually looping
+    # run_mcmc_for_batch per fit-batch with the same per-batch PRNG key and a precomputed step_scale --
+    # i.e. the precompute-then-vmap refactor changes *how* this is computed, not the result.
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    all_data = fitted_fixture["all_data"]
+    sa = fitted_fixture["sa"]
+    batch_size = cfg["optimizer"]["batch_size"]
+    n_fit_batches = 3
+    n_lineouts = max(len(all_data["e_data"]), len(all_data["i_data"]))
+    sample_indices = np.arange(n_fit_batches * batch_size) % n_lineouts
+
+    with mlflow.start_run():
+        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, n_fit_batches)
+    assert len(fitted_weights) == n_fit_batches
+
+    batch_indices = np.reshape(sample_indices, (-1, batch_size))
+    background_subtract = cfg["data"]["background"]["bg_subtract"]
+    batch_list = [build_batch(all_data, batch_indices[i], background_subtract) for i in range(n_fit_batches)]
+
+    cfg["other"]["mcmc"] = {
+        "num_steps": 40, "burn_in": 20, "thin": 2, "adapt_every": 10,
+        "use_laplace_seed": True, "adapt_shape": False,
+    }
+    key = jax.random.PRNGKey(7)
+
+    samples_vmap, _, diag_vmap = mcmc.run_mcmc_for_fit_batches(cfg, loss_fn, fitted_weights, batch_list, key)
+    leaves = jax.tree_util.tree_leaves(samples_vmap)
+    assert len(leaves) > 0
+    for leaf in leaves:
+        assert leaf.shape[0] == n_fit_batches
+        assert np.all(np.isfinite(np.asarray(leaf)))
+
+    keys = jax.random.split(key, n_fit_batches)
+    manual_samples_list, manual_accept_list = [], []
+    for i in range(n_fit_batches):
+        s, _, diag_i = mcmc.run_mcmc_for_batch(cfg, loss_fn, fitted_weights[i], batch_list[i], keys[i])
+        manual_samples_list.append(s)
+        manual_accept_list.append(diag_i["acceptance_rate"])
+    manual_samples = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs, axis=0), *manual_samples_list)
+    manual_accept = jnp.stack(manual_accept_list, axis=0)
+
+    manual_leaves = jax.tree_util.tree_leaves(manual_samples)
+    assert len(leaves) == len(manual_leaves)
+    for a, b in zip(leaves, manual_leaves):
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(diag_vmap["acceptance_rate"]), np.asarray(manual_accept), rtol=1e-10)
+
+
 def test_calibration_draws_collapse_to_identity_when_unconfigured(fitted_fixture):
     cfg = fitted_fixture["config"]
     draws = mcmc_calibration.draw_calibration_realizations(
