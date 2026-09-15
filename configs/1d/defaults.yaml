@@ -128,7 +128,6 @@ other:
     adapt_every: 10
     target_accept: 0.234
     adapt_gamma: 0.6
-    init_step_scale: 0.001
     use_laplace_seed: false
     # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
     # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the

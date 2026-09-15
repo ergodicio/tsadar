@@ -24,6 +24,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import random as jr
+from jax.nn import sigmoid
 from tqdm import trange
 
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
@@ -36,9 +37,27 @@ _DEFAULTS = {
     "adapt_every": 50,
     "target_accept": 0.234,
     "adapt_gamma": 0.6,
-    "init_step_scale": 0.1,
+    # Dimensionless fraction of a parameter's own physical [lb, ub] range that a *fallback* proposal step
+    # (one seeded with no usable curvature information -- see _seed_step_scale_default and
+    # _seed_step_scale_from_laplace's per-entry fallback) should cover. Replaces the old flat, fixed-in-
+    # logit-space `init_step_scale` fallback (see git history/PR discussion for the acceptance-rate
+    # collapse that flat fallback caused once brem_amp/brem_c -- documented as fully degenerate with the
+    # scale of Z/Te/ne -- were added as active-fittable parameters): a single flat logit-space number maps
+    # to wildly different *physical* step sizes depending on where a parameter's current value sits in its
+    # own [lb, ub] (physical_step = (ub - lb) * sigmoid'(normed_x) * logit_step), so the same flat number
+    # that is reasonable for one leaf can be badly oversized for another -- and because _mh_accept makes
+    # only one *joint* accept/reject decision per lineout across every active leaf, one badly-scaled leaf
+    # (e.g. a degenerate brem_amp) can tank the whole lineout's acceptance rate, not just that parameter's.
+    # See _fallback_step_scale for how this fraction is converted to a per-leaf, per-position logit-space
+    # step. 0.02 (2% of a parameter's own range) is chosen deliberately small: this fallback only ever
+    # fires when we have *no* usable curvature estimate for a leaf (or use_laplace_seed is off entirely),
+    # so erring small protects the other, well-conditioned leaves sharing that lineout's joint accept/
+    # reject decision -- Robbins-Monro adaptation (_adapt_step_scale) can grow an initially-too-small
+    # overall step during burn-in, while an initially-too-large one can collapse acceptance so badly
+    # (as observed with brem_amp/brem_c) that there's little signal left to adapt from.
+    "fallback_step_frac": 0.02,
     "use_laplace_seed": True,
-    # Multiplier on the (Laplace-seeded or flat init_step_scale) per-lineout/per-parameter step scale,
+    # Multiplier on the (Laplace-seeded or fallback) per-lineout/per-parameter step scale,
     # used to perturb each chain's own starting point before burn-in begins (see run_mcmc_for_batch).
     # 0.0 (default) means every chain starts at the exact best fit, matching pre-multi-chain behavior
     # exactly. Set > 0 when running several chains (config["other"]["calibration_uncertainty"]
@@ -51,8 +70,8 @@ _DEFAULTS = {
     # _mh_accept), so it can only correct the *overall* proposal scale, not a case where e.g. Te's
     # step is relatively too large and ne's is relatively too small for that lineout. When
     # use_laplace_seed leaves that relative balance wrong (a degenerate per-parameter Hessian entry
-    # falling back to the same flat init_step_scale as every other leaf, or a Hessian that is itself a
-    # poor local approximation), no amount of burn-in fixes it without this. See
+    # falling back to fallback_step_frac's position-aware scale, or a Hessian that is itself a poor local
+    # approximation), no amount of burn-in fixes it without this. See
     # _shape_from_variance/_combine_magnitude_and_shape for how the correction is derived and blended
     # in without disturbing the RM-controlled overall magnitude.
     "adapt_shape": True,
@@ -277,16 +296,45 @@ def _combine_magnitude_and_shape(step_scale, shape):
     return jax.tree_util.tree_unflatten(treedef, new_leaves)
 
 
-def _seed_step_scale_default(diff_params, fallback_scale: float):
-    """Pure heuristic proposal-scale seed: a flat `fallback_scale` per leaf/lineout, in the
-    unconstrained/logit space diff_params already lives in. No dependency on the Hessian/Laplace
-    machinery -- always available, always succeeds. Used whenever use_laplace_seed is False, or when
-    _seed_step_scale_from_laplace fails structurally (see its docstring for the per-entry fallback it
-    already applies for individually-degenerate lineouts/parameters)."""
-    return jax.tree_util.tree_map(lambda leaf: jnp.full(leaf.shape, fallback_scale), diff_params)
+def _fallback_step_scale(normed_x: jnp.ndarray, fallback_step_frac: float) -> jnp.ndarray:
+    """Position-aware fallback proposal scale, in the unconstrained/logit space diff_params already lives
+    in (see get_act_and_inv_act: every active leaf here is a `sigmoid`-activated logit-space value by
+    construction). `normed_x` is a leaf's (or a whole stacked array of leaves') *current* logit-space
+    value(s); returns the logit-space step size whose corresponding physical step covers exactly
+    `fallback_step_frac` of that parameter's own [lb, ub] range at that position.
+
+    Derivation: physical_value = sigmoid(normed_x) * (ub - lb) + lb, so
+        physical_step = d(physical_value)/d(normed_x) * logit_step = sigmoid'(normed_x) * (ub - lb) * logit_step.
+    Setting physical_step = fallback_step_frac * (ub - lb) and solving for logit_step, the (ub - lb)
+    factor cancels exactly:
+        logit_step = fallback_step_frac / sigmoid'(normed_x),  where sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x)).
+    So this needs no per-parameter [lb, ub] lookup at all -- only each leaf's own current logit-space
+    value, already exactly what diff_params' leaves are.
+
+    A leaf sitting very close to its own bound has sigmoid'(normed_x) -> 0, which would blow this up to
+    +inf; `eps` floors the derivative so the fallback stays large-but-finite there instead (that leaf's
+    own acceptance may still be poor until Robbins-Monro/adapt_shape correct it during burn-in, same as
+    any other individually-degenerate leaf -- this only prevents a non-finite seed from ever being used).
+    """
+    eps = 1e-6
+    s = sigmoid(normed_x)
+    deriv = s * (1.0 - s)
+    return fallback_step_frac / jnp.maximum(deriv, eps)
 
 
-def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params, fallback_scale: float):
+def _seed_step_scale_default(diff_params, fallback_step_frac: float):
+    """Pure heuristic proposal-scale seed: a position-aware fallback (see _fallback_step_scale) per
+    leaf/lineout, derived from each leaf's own current value rather than one flat number -- a flat
+    logit-space number is not a reasonable physical step for every parameter uniformly, since the same
+    logit-space step maps to wildly different physical steps depending on where in [lb, ub] a parameter's
+    value currently sits (see fallback_step_frac's docstring comment in _DEFAULTS). No dependency on the
+    Hessian/Laplace machinery -- always available, always succeeds. Used whenever use_laplace_seed is
+    False, or when _seed_step_scale_from_laplace fails structurally (see its docstring for the per-entry
+    fallback it already applies for individually-degenerate lineouts/parameters)."""
+    return jax.tree_util.tree_map(lambda leaf: _fallback_step_scale(leaf, fallback_step_frac), diff_params)
+
+
+def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params, fallback_step_frac: float):
     """Seeds initial per-lineout, per-leaf proposal scale from a Laplace/Hessian covariance, scaled by
     the standard Roberts-Rosenthal 2.38/sqrt(d) optimal-scaling factor (d = number of active scalar
     leaves). Off-diagonal (cross-parameter) terms are ignored -- only each leaf's own second derivative
@@ -330,12 +378,18 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
     they can be stacked into one (n_active, batch_size) array for lax.map to index into by row.
 
     Wherever the Hessian is degenerate for a given leaf/lineout (non-positive curvature, or a resulting
-    scale that's non-finite or non-positive), that entry is individually replaced by fallback_scale via
-    jnp.where -- deliberately per-entry rather than an all-or-nothing raise/except: a Python-level
-    bool()/raise on a data-dependent validity check would raise TracerBoolConversionError under this
-    function's caller's own jit (this was, in fact, silently swallowing every real Laplace-seeded scale
-    in production and falling back to a flat fallback_scale for every lineout -- see git history/PR
-    discussion for the regression this fixed).
+    scale that's non-finite or non-positive), that entry is individually replaced by a position-aware
+    fallback (see _fallback_step_scale) via jnp.where -- deliberately per-entry rather than an
+    all-or-nothing raise/except: a Python-level bool()/raise on a data-dependent validity check would
+    raise TracerBoolConversionError under this function's caller's own jit (this was, in fact, silently
+    swallowing every real Laplace-seeded scale in production and falling back to a flat scalar for every
+    lineout -- see git history/PR discussion for that regression). The fallback itself used to be one flat
+    number applied identically regardless of the degenerate leaf's own current position -- observed to
+    collapse a lineout's whole joint acceptance rate when brem_amp/brem_c (documented as fully degenerate
+    with the scale of Z/Te/ne) were added as active-fittable parameters, since one flat logit-space number
+    is not a reasonable physical step for every parameter/position uniformly (see fallback_step_frac's
+    comment in _DEFAULTS and _fallback_step_scale's docstring for the derivation of the position-aware
+    replacement).
     """
 
     def _nll_of_diff(dp):
@@ -374,7 +428,8 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
     var = jnp.where(h_diag > 0, 1.0 / h_diag, jnp.nan)
     scale = rr_factor * jnp.sqrt(var)
     valid = jnp.isfinite(scale) & (scale > 0)
-    scale = jnp.where(valid, scale, fallback_scale)
+    fallback = _fallback_step_scale(stacked, fallback_step_frac)  # (n_active, batch_size), same shape as scale
+    scale = jnp.where(valid, scale, fallback)
 
     return jax.tree_util.tree_unflatten(treedef, list(scale))
 
@@ -382,7 +437,7 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
 @eqx.filter_jit
 def _seed_step_scale(loss_fn: LossFunction, static_params, batch: Dict, diff_params, mcmc_cfg: Dict):
     """Computes one fit-batch's initial proposal step scale: Laplace-seeded (via
-    _seed_step_scale_from_laplace) if mcmc_cfg["use_laplace_seed"], falling back to the flat
+    _seed_step_scale_from_laplace) if mcmc_cfg["use_laplace_seed"], falling back to the position-aware
     _seed_step_scale_default whenever that's off or the Hessian seed fails structurally.
 
     Deliberately a standalone, @eqx.filter_jit-compiled function (not inlined into run_mcmc_for_batch)
@@ -398,12 +453,12 @@ def _seed_step_scale(loss_fn: LossFunction, static_params, batch: Dict, diff_par
     if mcmc_cfg["use_laplace_seed"]:
         try:
             step_scale = _seed_step_scale_from_laplace(
-                loss_fn, static_params, batch, diff_params, mcmc_cfg["init_step_scale"]
+                loss_fn, static_params, batch, diff_params, mcmc_cfg["fallback_step_frac"]
             )
         except Exception:
             step_scale = None
     if step_scale is None:
-        step_scale = _seed_step_scale_default(diff_params, mcmc_cfg["init_step_scale"])
+        step_scale = _seed_step_scale_default(diff_params, mcmc_cfg["fallback_step_frac"])
     return step_scale
 
 
@@ -435,7 +490,7 @@ def run_mcmc_for_batch(
             runs draws concurrently on separate threads/devices, so each draw needs its own line to avoid
             garbled interleaved output.
         step_scale: optional precomputed initial step scale (a diff_params-shaped pytree), overriding
-            use_laplace_seed/init_step_scale entirely when given. run_mcmc_for_fit_batches passes this in,
+            use_laplace_seed/fallback_step_frac entirely when given. run_mcmc_for_fit_batches passes this in,
             computed sequentially per fit-batch via _seed_step_scale *before* vmapping this function
             across every fit-batch of a shot -- see _seed_step_scale's docstring for why computing the
             Laplace-seeded Hessian *inside* that fit-batch vmap is a memory-blowup risk. Leave None for a
