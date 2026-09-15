@@ -178,6 +178,63 @@ def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(
     np.testing.assert_allclose(np.asarray(diag_vmap["acceptance_rate"]), np.asarray(manual_accept), rtol=1e-10)
 
 
+def test_seed_step_scale_from_laplace_matches_full_hessian_diagonal(fitted_fixture):
+    # _seed_step_scale_from_laplace computes each active leaf's diagonal Hessian entry via
+    # jvp(grad(loss wrt that leaf alone), ones) -- one extra forward-mode sweep per leaf -- instead of
+    # eqx.filter_hessian's full Hessian (which needs every leaf's tangent direction live simultaneously,
+    # and has been observed to attempt a large allocation on a real multi-lineout fit even restricted to
+    # diff_params and one fit-batch at a time). This is only valid because every off-diagonal entry
+    # (cross-lineout *and* cross-parameter) is structurally zero for this model -- verify that
+    # assumption directly against the ground-truth full Hessian, and that the two approaches produce
+    # numerically identical step scales end-to-end.
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise more than just electron/general leaves
+    all_data = fitted_fixture["all_data"]
+    sa = fitted_fixture["sa"]
+    sample_indices = np.arange(cfg["optimizer"]["batch_size"])
+
+    with mlflow.start_run():
+        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, 1)
+    ts_params = fitted_weights[0]
+    filter_spec = get_filter_spec(cfg["parameters"], ts_params)
+    diff_params, static_params = eqx.partition(ts_params, filter_spec)
+    batch = build_batch(all_data, sample_indices, cfg["data"]["background"]["bg_subtract"])
+
+    def _nll_of_diff(dp):
+        weights = eqx.combine(static_params, dp)
+        return loss_fn.neg_log_likelihood(weights, batch, per_lineout=False)
+
+    full_hess = eqx.filter_hessian(_nll_of_diff)(diff_params)
+    target_structure = jax.tree_util.tree_structure(diff_params)
+    rows = jax.tree_util.tree_leaves(
+        full_hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure
+    )
+    n = len(jax.tree_util.tree_leaves(diff_params))
+    assert len(rows) == n
+    for i, row in enumerate(rows):
+        row_leaves = jax.tree_util.tree_leaves(row)
+        assert len(row_leaves) == n
+        for j, block in enumerate(row_leaves):
+            block = np.asarray(block)
+            off_diagonal = block - np.diag(np.diag(block))
+            assert np.allclose(off_diagonal, 0.0, atol=1e-6), (
+                f"leaf {i} x leaf {j} Hessian block has nonzero off-diagonal entries -- the "
+                "grad+jvp(ones) diagonal trick is not valid for this model"
+            )
+
+    step_scale = mcmc._seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params, fallback_scale=0.1)
+    step_scale_leaves = jax.tree_util.tree_leaves(step_scale)
+    assert len(step_scale_leaves) == n
+    for i, row in enumerate(rows):
+        row_leaves = jax.tree_util.tree_leaves(row)
+        h_ii = np.diagonal(np.asarray(row_leaves[i]))
+        expected_var = np.where(h_ii > 0, 1.0 / h_ii, np.nan)
+        expected_scale = (2.38 / np.sqrt(n)) * np.sqrt(expected_var)
+        valid = np.isfinite(expected_scale) & (expected_scale > 0)
+        expected_scale = np.where(valid, expected_scale, 0.1)
+        np.testing.assert_allclose(np.asarray(step_scale_leaves[i]), expected_scale, rtol=1e-6, atol=1e-8)
+
+
 def test_calibration_draws_collapse_to_identity_when_unconfigured(fitted_fixture):
     cfg = fitted_fixture["config"]
     draws = mcmc_calibration.draw_calibration_realizations(

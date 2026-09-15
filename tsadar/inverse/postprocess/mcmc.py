@@ -16,6 +16,7 @@ leaves rather than one (batch_size,)-shaped leaf -- incompatible with this modul
 leaf-broadcast-based proposal/accept-reject without a further per-lineout destacking step, which is left
 as a documented follow-on. run_mcmc_for_batch raises NotImplementedError if "fe" is active.
 """
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Tuple
 
@@ -609,11 +610,21 @@ def run_mcmc_for_fit_batches(
     n_fit_batches = len(ts_params_list)
     mcmc_cfg = _mcmc_cfg(config)
 
+    # No tqdm here deliberately: this loop's first iteration includes _seed_step_scale's one-time JIT
+    # compile (which, for an expensive physics forward model, can itself take a while), and every
+    # iteration after that should be near-instant (same compiled executable, reused). Printing each
+    # iteration's own wall time -- rather than a bar that would sit at 0% through that entire first-call
+    # compile -- makes that compile-vs-replay split visible directly, which matters for diagnosing
+    # whether a slow startup here is compilation (one-time) or genuinely per-fit-batch cost (recurring).
+    print(f"{progress_desc}: seeding step scale for {n_fit_batches} fit-batch(es)...", flush=True)
     step_scales = []
-    for ts_params, batch in zip(ts_params_list, batch_list):
+    for i, (ts_params, batch) in enumerate(zip(ts_params_list, batch_list)):
+        t0 = time.time()
         filter_spec = get_filter_spec(config["parameters"], ts_params)
         diff_params, static_params = eqx.partition(ts_params, filter_spec)
         step_scales.append(_seed_step_scale(loss_fn, static_params, batch, diff_params, mcmc_cfg))
+        jax.block_until_ready(step_scales[-1])
+        print(f"{progress_desc}: fit-batch {i + 1}/{n_fit_batches} step scale seeded in {time.time() - t0:.1f}s", flush=True)
     stacked_step_scale = _stack_step_scales(step_scales)
 
     stacked_ts_params = _stack_ts_params(ts_params_list)
