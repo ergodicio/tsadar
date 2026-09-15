@@ -12,7 +12,6 @@ import jax
 import equinox as eqx
 
 from tsadar.utils import manifest
-from tsadar.utils.plotting import plotters
 from ..loss_function import LossFunction
 from tsadar.core.modules.ts_params import IonParams, get_filter_spec
 from ..loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
@@ -413,6 +412,8 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
             t1 (float): updated timestamp, taken after recomputing losses/fits, for timing the plotting step
             final_params (Dict): the final fitted parameters and distribution function data
     """
+    from tsadar.utils.plotting import plotters
+
     losses, sqdevs, fits, sigmas = recalculate_with_chosen_weights(
         config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights, num_params
     )
@@ -461,6 +462,8 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
             t1 (float): updated timestamp, taken after recomputing losses/fits, for timing the plotting step
             final_params (Dict): the final fitted parameters and distribution function data
     """
+    from tsadar.utils.plotting import plotters
+
     # Prepare parameter containers
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
     batch_fitted_params, num_params = fitted_weights.get_fitted_params(config["parameters"])

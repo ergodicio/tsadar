@@ -12,10 +12,8 @@ import equinox as eqx
 import mlflow
 
 from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
-from tsadar.utils.plotting import plotters
 
 from ..data import prepare
-from . import postprocess
 
 
 def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
@@ -42,6 +40,8 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
     Returns:
         The dict returned by plotters.get_final_params, or None if all_params wasn't available.
     """
+    from tsadar.utils.plotting import plotters
+
     with tempfile.TemporaryDirectory() as td:
         os.makedirs(os.path.join(td, "csv"), exist_ok=True)
         eqx.tree_serialise_leaves(os.path.join(td, "fitted_weights.eqx"), fitted_weights)
@@ -223,6 +223,8 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     if config["other"].get("run_postprocess", True):
         mlflow.set_tag("status", "postprocessing")
         print("postprocessing")
+
+        from . import postprocess
 
         final_params = postprocess.postprocess(
             config, sample_indices, all_data, all_axes, loss_fn, sa, fitted_weights, all_params, num_params

@@ -17,7 +17,6 @@ import numpy as np
 import xarray as xr
 
 from tsadar.utils import manifest
-from tsadar.utils.plotting import plotters
 from ..loops import build_batch
 from ..loss_function import LossFunction
 from . import mcmc, mcmc_calibration
@@ -210,6 +209,8 @@ def mcmc_postprocess(
     mlflow.log_metrics({"mcmc postprocessing time": round(time.time() - t0, 2)})
     mlflow.set_tag("status", "plotting")
     t0 = time.time()
+
+    from tsadar.utils.plotting import plotters
 
     with tempfile.TemporaryDirectory() as td:
         _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
