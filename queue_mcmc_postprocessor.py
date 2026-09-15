@@ -12,9 +12,7 @@ import argparse, os, tempfile, time
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 
-import mlflow
-
-from tsadar.postprocess_runner import _extract_run_id, _load_merged_config
+from tsadar.postprocess_runner import _download_run_artifact, _extract_run_id, _load_merged_config, _resolve_artifact_uri
 from tsadar.utils import misc
 
 if "BASE_TEMPDIR" in os.environ:
@@ -33,11 +31,12 @@ def _resolve_machine(args) -> str:
     else:
         run_id = _extract_run_id(args.run)
         with tempfile.TemporaryDirectory(dir=BASE_TEMPDIR) as td:
+            base_uri = _resolve_artifact_uri(run_id)
             try:
-                mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
+                _download_run_artifact(base_uri, "config.yaml", td)
             except Exception:
                 for fname in ["defaults.yaml", "inputs.yaml"]:
-                    mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=fname, dst_path=td)
+                    _download_run_artifact(base_uri, fname, td)
             config = _load_merged_config(td)
 
     if args.overrides:

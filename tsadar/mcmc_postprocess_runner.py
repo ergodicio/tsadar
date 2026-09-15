@@ -14,7 +14,13 @@ from typing import Dict, Optional
 import mlflow
 
 from .inverse.postprocess import mcmc_postprocess as _mcmc_postprocess_module
-from .postprocess_runner import _extract_run_id, _load_merged_config, _reconstruct_fit_state
+from .postprocess_runner import (
+    _download_run_artifact,
+    _extract_run_id,
+    _load_merged_config,
+    _reconstruct_fit_state,
+    _resolve_artifact_uri,
+)
 from .utils import misc
 
 
@@ -109,15 +115,16 @@ def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = 
     run_id = _extract_run_id(run_id_or_url)
 
     with tempfile.TemporaryDirectory() as td:
+        base_uri = _resolve_artifact_uri(run_id)
         try:
-            mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
+            _download_run_artifact(base_uri, "config.yaml", td)
             config_fnames = ["config.yaml"]
         except Exception:
             config_fnames = ["defaults.yaml", "inputs.yaml"]
 
         for fname in config_fnames + ["fitted_weights.eqx"]:
             try:
-                mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=fname, dst_path=td)
+                _download_run_artifact(base_uri, fname, td)
             except Exception as e:
                 raise FileNotFoundError(
                     f"Could not download {fname} from run {run_id}: {e}. If this is fitted_weights.eqx, "

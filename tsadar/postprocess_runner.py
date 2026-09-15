@@ -2,6 +2,7 @@
 loaded either from a local run directory or a remote MLflow run (by id or URL), without redoing the fit."""
 import json
 import os
+import posixpath
 import re
 import tempfile
 from dataclasses import dataclass
@@ -11,7 +12,6 @@ import equinox as eqx
 import mlflow
 import numpy as np
 import yaml
-from mlflow.exceptions import MlflowException
 
 from .core.modules.ts_params import ThomsonParams
 from .inverse import postprocess
@@ -48,6 +48,34 @@ def _extract_run_id(run_id_or_url: str) -> str:
         f"Could not extract an mlflow run id from {run_id_or_url!r}. Expected either a bare 32-character "
         "hex run id, or a run URL containing '.../experiments/<experiment_id>/runs/<run_id>'."
     )
+
+
+def _resolve_artifact_uri(run_id: str) -> str:
+    """
+    Resolves an mlflow run's artifact root URI once, via the public mlflow.get_run() API, so that
+    downloading several artifacts from the same run doesn't re-resolve the run once per file.
+
+    mlflow.artifacts.download_artifacts(run_id=..., artifact_path=...) internally constructs a fresh
+    RunsArtifactRepository per call, and RunsArtifactRepository.__init__ does its own store.get_run(run_id)
+    REST round-trip - so downloading N files the old way cost N+ redundant round-trips just to resolve the
+    same run over and over. Resolving once here and downloading through the resulting absolute
+    artifact_uri (as opposed to the runs:/<id>/... scheme) bypasses that per-file re-resolution.
+
+    Note a real, intentional behavior change: a genuinely nonexistent run_id now fails immediately here
+    with a clear "run not found" error from mlflow.get_run(), instead of the old per-file flow's confusing
+    sequence (the config.yaml probe fails -> falls back to defaults.yaml/inputs.yaml -> that fails too).
+    """
+    return mlflow.get_run(run_id).info.artifact_uri
+
+
+def _download_run_artifact(base_artifact_uri: str, fname: str, dst_path: str) -> None:
+    """
+    Downloads one file from a run's artifacts, given that run's artifact root URI (from
+    _resolve_artifact_uri). Joined with posixpath.join rather than os.path.join since mlflow artifact
+    paths are always POSIX-style regardless of the local platform (this repo runs on both Windows and
+    Linux/NERSC).
+    """
+    mlflow.artifacts.download_artifacts(artifact_uri=posixpath.join(base_artifact_uri, fname), dst_path=dst_path)
 
 
 def _load_merged_config(dir_path: str) -> Dict:
@@ -260,15 +288,16 @@ def run_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None)
     run_id = _extract_run_id(run_id_or_url)
 
     with tempfile.TemporaryDirectory() as td:
+        base_uri = _resolve_artifact_uri(run_id)
         try:
-            mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="config.yaml", dst_path=td)
+            _download_run_artifact(base_uri, "config.yaml", td)
             remaining_fnames = ["fitted_weights.eqx"]
-        except MlflowException:
+        except Exception:
             remaining_fnames = ["defaults.yaml", "inputs.yaml", "fitted_weights.eqx"]
 
         for fname in remaining_fnames:
             try:
-                mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=fname, dst_path=td)
+                _download_run_artifact(base_uri, fname, td)
             except Exception as e:
                 raise FileNotFoundError(
                     f"Could not download {fname} from run {run_id}: {e}. If this is fitted_weights.eqx, "
@@ -278,9 +307,7 @@ def run_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None)
         # Optional for backward compatibility. New angular checkpoints use this to
         # restore a global best that came from an earlier refinement stage.
         try:
-            mlflow.artifacts.download_artifacts(
-                run_id=run_id, artifact_path="checkpoint_metadata.json", dst_path=td
-            )
+            _download_run_artifact(base_uri, "checkpoint_metadata.json", td)
         except Exception:
             pass
 
