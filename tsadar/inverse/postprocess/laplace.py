@@ -112,7 +112,7 @@ def recalculate_with_chosen_weights(
                 ts_params = fitted_weights[i_batch]
                 filter_spec = get_filter_spec(config["parameters"], ts_params)
                 diff_params, static_params = eqx.partition(ts_params, filter_spec)
-                hess = loss_fn.h_loss_wrt_params(diff_params, static_params, batch)
+                hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
                 fitted_params_this_batch, _ = ts_params.get_fitted_params(config["parameters"])
                 sigmas[inds] = get_sigmas(hess, diff_params, fitted_params_this_batch, config["optimizer"]["batch_size"])
             except Exception as e:
@@ -161,15 +161,19 @@ def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.nd
     non-optimal points, to represent this in the final result the uncertainty of those values are
     reported as negative.
 
-    hess must be the Hessian of the loss wrt diff_params ONLY (see LossFunction.h_loss_wrt_params) --
-    never the full ThomsonParams tree, which pulls in every fixed array the model carries (e.g. the
-    electron distribution function's interpolation table) and has been observed to attempt a >150GB
-    allocation on an ordinary fit.
+    hess must be the Hessian of the loss wrt diff_params ONLY (see LossFunction.h_loss_wrt_params_
+    per_lineout) -- never the full ThomsonParams tree, which pulls in every fixed array the model
+    carries (e.g. the electron distribution function's interpolation table) and has been observed to
+    attempt a >150GB allocation on an ordinary fit.
 
     Args:
-        hess: Hessian of the loss wrt diff_params, as returned by LossFunction.h_loss_wrt_params. Has
-            diff_params' pytree structure at the outer level; each "leaf" there is itself a
-            diff_params-shaped subtree of second derivatives wrt that one leaf.
+        hess: per-lineout Hessian of the loss wrt diff_params, as returned by LossFunction.
+            h_loss_wrt_params_per_lineout (NOT the dense h_loss_wrt_params -- see that function's
+            docstring for why the dense cross-lineout terms this deliberately skips are structurally
+            zero and safe to omit). Has diff_params' pytree structure at the outer level; each "leaf"
+            there is itself a diff_params-shaped subtree, but unlike h_loss_wrt_params, each of *its*
+            leaves/"blocks" is already just the (batch_size,) per-lineout diagonal entry rather than a
+            dense (batch_size, batch_size) matrix.
         diff_params: the same diff_params pytree the Hessian was taken wrt (only active leaves; every
             other leaf is None, per eqx.partition).
         fitted_params: nested dict as returned by ThomsonParams.get_fitted_params(config["parameters"])
@@ -218,7 +222,7 @@ def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.nd
         missing = [name for name in ordered_names if name not in name_to_row_index]
         raise ValueError(f"fitted_params names not found among diff_params' active leaves: {missing}")
 
-    blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[k1][k2] is d^2L/d(leaf k1) d(leaf k2)
+    blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[k1][k2][i] is d^2L/d(leaf k1[i]) d(leaf k2[i])
     # Permutation from ordered_names' (fitted_params') order into rows'/blocks' (diff_params') order --
     # the two need not agree, since ThomsonParams.get_unnormed_params() (which fitted_params is ultimately
     # derived from) lists species as electron/general/ion-<n>, while diff_params' own pytree flatten order
@@ -227,7 +231,7 @@ def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.nd
 
     for i in range(batch_size):
         temp = np.array(
-            [[np.asarray(blocks[perm[k1]][perm[k2]])[i, i] for k2 in range(num_params)] for k1 in range(num_params)]
+            [[np.asarray(blocks[perm[k1]][perm[k2]])[i] for k2 in range(num_params)] for k1 in range(num_params)]
         )
         inv = np.linalg.inv(temp)
         sigmas[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
@@ -495,7 +499,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         try:
             filter_spec = get_filter_spec(config["parameters"], fitted_weights)
             diff_params, static_params = eqx.partition(fitted_weights, filter_spec)
-            hess = loss_fn.h_loss_wrt_params(diff_params, static_params, batch)
+            hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
             sigmas = get_sigmas(hess, diff_params, batch_fitted_params, config["optimizer"]["batch_size"])
             print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
         except Exception as e:

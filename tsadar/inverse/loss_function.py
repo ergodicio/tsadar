@@ -193,6 +193,7 @@ class LossFunction:
         # static_params (every fixed/non-fitted array, e.g. the electron distribution function's
         # interpolation table) out of the Hessian entirely -- see h_loss_wrt_params's docstring.
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
+        self._h_func_per_lineout_ = filter_jit(self._h_loss_wrt_params_per_lineout_impl)
         self.array_loss = filter_jit(self.post_loss)
 
     def _validated_angular_objective(self, supplied):
@@ -386,6 +387,91 @@ class LossFunction:
             diff_params (each "leaf" is itself a diff_params-shaped subtree of second derivatives).
         """
         return self._h_func_(diff_params, static_params, batch)
+
+    def h_loss_wrt_params_per_lineout(self, diff_params, static_params, batch):
+        """
+        Low-memory alternative to h_loss_wrt_params, for callers (postprocess.laplace.get_sigmas) that
+        only ever need each lineout's own (active-parameter x active-parameter) Hessian block, never the
+        cross-lineout terms.
+
+        h_loss_wrt_params's full forward-over-reverse Hessian is dense in the batch axis: each
+        (leaf_a, leaf_b) entry comes back shaped (batch_size, batch_size), even though every lineout in a
+        fit-batch is modeled independently of every other (different lineouts share no parameters and
+        don't interact in the forward model), so every off-batch-diagonal entry is structurally zero --
+        confirmed directly against eqx.filter_hessian ground truth by this module's own test suite (see
+        tests/test_inverse/test_laplace.py). Computing and discarding that dense (batch_size, batch_size)
+        block per parameter pair is exactly what has been observed to attempt an 18+GiB allocation on a
+        real production shot's compare_to_laplace=True path (recalculate_with_chosen_weights): memory
+        there scales as O((n_active * batch_size)^2), when only O(n_active^2 * batch_size) is ever used.
+
+        Derivation: let rows be diff_params' active leaves stacked into one (n_active, batch_size) array
+        and L(rows) = neg_log_likelihood summed over the whole batch. g = grad(L) is itself (n_active,
+        batch_size) (reverse-mode gives every leaf's gradient in one backward pass). For a fixed column
+        b, jvp(g, tangent=e_b) -- e_b being 1 on row b, 0 elsewhere, i.e. a tangent of 1 in every lineout's
+        b-th leaf simultaneously -- gives, at [a, i]: sum_j d^2L/d(leaf_a[i]) d(leaf_b[j]). Since only j=i
+        survives (lineout independence), that sum equals exactly H_{a,b}[i, i], the one entry per lineout
+        that get_sigmas actually uses -- for every row a at once, from a single extra forward-mode sweep.
+        So only n_active jvp calls (one per column b) are needed, each producing the full (n_active,
+        batch_size) per-lineout Hessian column in one shot, rather than n_active^2 or a single dense
+        n_active*batch_size-dimensional sweep.
+
+        Leaves are looped over via jax.lax.map (compiled once regardless of n_active) rather than a
+        Python loop, mirroring postprocess.mcmc._seed_step_scale_from_laplace's identical reasoning: an
+        unrolled Python for loop under this function's own eqx.filter_jit would retrace/recompile the
+        full per-column differentiation graph once per active leaf.
+
+        Args:
+            diff_params: the active leaves to differentiate wrt, as passed to h_loss_wrt_params. Every
+                leaf must share one (batch_size,) shape/dtype (true of every currently-supported fit
+                parameter), mirroring _seed_step_scale_from_laplace's identical requirement.
+            static_params: as in h_loss_wrt_params.
+            batch (Dict): batch of data to evaluate the loss against.
+
+        Returns:
+            The same nested diff_params-shaped-pytree-of-pytrees structure h_loss_wrt_params returns,
+            except each leaf/"block" has shape (batch_size,) -- that lineout's own H_{a,b}[i, i] entry --
+            instead of the dense, mostly-structurally-zero (batch_size, batch_size).
+        """
+        return self._h_func_per_lineout_(diff_params, static_params, batch)
+
+    def _h_loss_wrt_params_per_lineout_impl(self, diff_params, static_params, batch):
+        """Implementation of h_loss_wrt_params_per_lineout, factored out so __init__ can wrap it in one
+        filter_jit-compiled callable (self._h_func_per_lineout_) -- mirroring _h_func_/_loss_for_hess_fn_
+        -- rather than retracing this Hessian computation from scratch on every call."""
+
+        def _nll_of_diff(dp):
+            weights = eqx.combine(static_params, dp)
+            return self.neg_log_likelihood(weights, batch, per_lineout=False)
+
+        flat_diff, treedef = jax.tree_util.tree_flatten(diff_params)
+        n = len(flat_diff)
+        if n == 0:
+            return jax.tree_util.tree_unflatten(treedef, [])
+
+        shapes = {leaf.shape for leaf in flat_diff}
+        dtypes = {leaf.dtype for leaf in flat_diff}
+        if len(shapes) != 1 or len(dtypes) != 1:
+            raise ValueError(
+                "h_loss_wrt_params_per_lineout requires every active leaf to share one shape/dtype "
+                f"(one (batch_size,) float array per lineout); got shapes {shapes}, dtypes {dtypes}."
+            )
+        stacked = jnp.stack(flat_diff, axis=0)  # (n_active, batch_size)
+
+        def _nll_of_stacked(rows):
+            return _nll_of_diff(jax.tree_util.tree_unflatten(treedef, list(rows)))
+
+        grad_of_stacked = jax.grad(_nll_of_stacked)
+
+        def _col_for(b):
+            tangent = jnp.zeros_like(stacked).at[b].set(1.0)
+            _, jvp_out = jax.jvp(grad_of_stacked, (stacked,), (tangent,))
+            return jvp_out  # (n_active, batch_size); jvp_out[a, i] == H_{a,b}[i, i]
+
+        h_cols = jax.lax.map(_col_for, jnp.arange(n))  # (n_active [b], n_active [a], batch_size)
+        h_per_lineout = jnp.transpose(h_cols, (1, 0, 2))  # (n_active [a], n_active [b], batch_size)
+
+        rows = [jax.tree_util.tree_unflatten(treedef, list(h_per_lineout[a])) for a in range(n)]
+        return jax.tree_util.tree_unflatten(treedef, rows)
 
     def neg_log_likelihood(self, weights, batch: Dict, per_lineout: bool = False):
         """

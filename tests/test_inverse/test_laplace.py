@@ -109,7 +109,7 @@ def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
     filter_spec = get_filter_spec(cfg["parameters"], ts_params0)
     diff_params0, static_params0 = eqx.partition(ts_params0, filter_spec)
     batch0 = build_batch(all_data, sample_indices[:batch_size], cfg["data"]["background"]["bg_subtract"])
-    hess0 = loss_fn.h_loss_wrt_params(diff_params0, static_params0, batch0)
+    hess0 = loss_fn.h_loss_wrt_params_per_lineout(diff_params0, static_params0, batch0)
 
     fitted_params0, _ = ts_params0.get_fitted_params(cfg["parameters"])
     sigmas = get_sigmas(hess0, diff_params0, fitted_params0, batch_size)
@@ -126,11 +126,71 @@ def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
         for a, (sp1, k1) in enumerate(ordered):
             outer = _leaf(hess0, sp1, k1)
             for b, (sp2, k2) in enumerate(ordered):
-                temp[a, b] = np.asarray(_leaf(outer, sp2, k2))[i, i]
+                temp[a, b] = np.asarray(_leaf(outer, sp2, k2))[i]
         inv = np.linalg.inv(temp)
         independent[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
 
     np.testing.assert_allclose(sigmas, independent, rtol=1e-8)
+
+
+def test_h_loss_wrt_params_per_lineout_matches_full_hessian_diagonal(fitted_fixture):
+    # h_loss_wrt_params_per_lineout exists specifically to avoid ever materializing h_loss_wrt_params's
+    # dense (batch_size, batch_size) blocks -- which, for every (leaf_a, leaf_b) pair, are all-zero off
+    # the lineout diagonal (different lineouts don't interact in the forward model), but computing and
+    # discarding them anyway is what's been observed to attempt an 18+GiB allocation on a real production
+    # shot's compare_to_laplace=True path (recalculate_with_chosen_weights). Verify both halves of that
+    # claim directly against eqx.filter_hessian ground truth: the dense off-diagonal actually is
+    # (numerically) zero for every leaf pair, not just same-leaf pairs, and h_loss_wrt_params_per_lineout's
+    # cheap per-lineout diagonal exactly reproduces the dense version's diagonal.
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise a genuine cross-parameter (Te/ne vs Z) pair
+    all_data = fitted_fixture["all_data"]
+    sa = fitted_fixture["sa"]
+    sample_indices = fitted_fixture["sample_indices"]
+    batch_size = cfg["optimizer"]["batch_size"]
+
+    with mlflow.start_run():
+        num_batches = len(sample_indices) // batch_size or 1
+        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, num_batches)
+
+    ts_params0 = fitted_weights[0]
+    filter_spec = get_filter_spec(cfg["parameters"], ts_params0)
+    diff_params0, static_params0 = eqx.partition(ts_params0, filter_spec)
+    batch0 = build_batch(all_data, sample_indices[:batch_size], cfg["data"]["background"]["bg_subtract"])
+
+    def _nll_of_diff(dp):
+        weights = eqx.combine(static_params0, dp)
+        return loss_fn.neg_log_likelihood(weights, batch0, per_lineout=False)
+
+    full_hess = eqx.filter_hessian(_nll_of_diff)(diff_params0)
+    target_structure = jax.tree_util.tree_structure(diff_params0)
+    dense_rows = jax.tree_util.tree_leaves(
+        full_hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure
+    )
+    n = len(jax.tree_util.tree_leaves(diff_params0))
+    assert len(dense_rows) == n
+
+    per_lineout_hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params0, static_params0, batch0)
+    per_lineout_rows = jax.tree_util.tree_leaves(
+        per_lineout_hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure
+    )
+    assert len(per_lineout_rows) == n
+
+    for a, dense_row in enumerate(dense_rows):
+        dense_blocks = jax.tree_util.tree_leaves(dense_row)
+        per_lineout_blocks = jax.tree_util.tree_leaves(per_lineout_rows[a])
+        assert len(dense_blocks) == n
+        assert len(per_lineout_blocks) == n
+        for b in range(n):
+            dense_block = np.asarray(dense_blocks[b])
+            off_diagonal = dense_block - np.diag(np.diag(dense_block))
+            assert np.allclose(off_diagonal, 0.0, atol=1e-6), (
+                f"leaf {a} x leaf {b} Hessian block has nonzero off-diagonal (cross-lineout) entries -- "
+                "h_loss_wrt_params_per_lineout's diagonal-only shortcut is not valid for this model"
+            )
+            np.testing.assert_allclose(
+                np.asarray(per_lineout_blocks[b]), np.diagonal(dense_block), rtol=1e-6, atol=1e-8
+            )
 
 
 def test_get_sigmas_raises_when_fe_active():
