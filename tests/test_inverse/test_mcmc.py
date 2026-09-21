@@ -102,7 +102,7 @@ def test_run_mcmc_for_batch_acceptance_rate_near_target(fitted_fixture):
         assert np.all(np.isfinite(np.asarray(leaf)))
 
 
-def test_seed_step_scale_from_laplace_uses_position_aware_fallback_for_degenerate_brem_c(fitted_fixture):
+def test_seed_step_scale_from_laplace_uses_flat_fallback_for_degenerate_brem_c(fitted_fixture):
     # brem_c (the forward-model bremsstrahlung background's additive offset -- see
     # tsadar.core.physics.bremsstrahlung.brem_spectrum, where it enters as a pure "+ offset" term) is
     # documented, by the commit that introduced brem_amp/brem_c as active-fittable parameters (e6bee35f),
@@ -115,21 +115,14 @@ def test_seed_step_scale_from_laplace_uses_position_aware_fallback_for_degenerat
     # _seed_step_scale_from_laplace, not a well-conditioned parameter whose acceptance rate happens to
     # suffer for an unrelated reason (e.g. off-diagonal cross-parameter correlation, which is a separate,
     # already-documented limitation of this diagonal-only Laplace approximation -- see that function's own
-    # docstring -- and out of scope for this fix).
+    # docstring -- and out of scope for this test).
     #
-    # This checks the *seeded fallback scale itself* rather than the sampler's post-burn-in acceptance
-    # rate. Both were tried: with a realistic burn-in budget (2000+ steps / 40+ adaptation windows, as
-    # used by test_run_mcmc_for_batch_acceptance_rate_near_target), Robbins-Monro + adapt_shape adaptation
-    # converges brem_c's *sampled* acceptance rate to essentially the same value regardless of which
-    # fallback formula seeded its *initial* step here -- verified directly by swapping in the old flat
-    # fallback behavior and comparing, which reproduced the fixed code's post-burn-in acceptance rate to
-    # within simulation noise on this fixture (the two formulas' magnitudes are simply too close at this
-    # leaf's specific fitted position, and mathematically can never differ by more than a bounded factor
-    # for any position, for the acceptance-rate difference to reliably survive that much adaptation). What
-    # the fix changes deterministically is the *seed* itself -- from one flat number shared by every
-    # leaf/lineout regardless of position, to a value derived from each leaf's own current position (see
-    # _fallback_step_scale) -- so that is what this test verifies directly, plus an end-to-end sanity
-    # check that the sampler still runs to completion with this genuinely degenerate parameter active.
+    # A position-aware fallback formula was tried here and reverted (see init_step_scale's comment in
+    # _DEFAULTS): it silently changed this field's units under the same config key, which orphaned decks
+    # carrying forward a tuned flat value and caused a real production acceptance-rate collapse. This test
+    # now checks the fallback is exactly the flat init_step_scale passed in, matching _seed_step_scale_
+    # default's own semantics, plus an end-to-end sanity check that the sampler still runs to completion
+    # with this genuinely degenerate parameter active.
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["data"]["background"]["type"] = "brem_model"
     cfg["parameters"]["general"]["brem_amp"] = {"active": True, "lb": 0.0, "ub": 1.0, "val": 0.4}
@@ -169,23 +162,18 @@ def test_seed_step_scale_from_laplace_uses_position_aware_fallback_for_degenerat
         "test's docstring for how val=0.7 was chosen to reproduce that."
     )
 
-    fallback_step_frac = 0.02
-    step_scale = mcmc._seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params, fallback_step_frac)
+    init_step_scale = 0.02
+    step_scale = mcmc._seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params, init_step_scale)
     step_scale_leaves = jax.tree_util.tree_leaves(step_scale)
 
-    s = 1.0 / (1.0 + np.exp(-np.asarray(row_value)))
-    expected_fallback = fallback_step_frac / np.maximum(s * (1 - s), 1e-6)
-
-    # The crux of the fix: brem_c's seeded scale is derived from its own current (logit-space) position,
-    # matching _fallback_step_scale's formula exactly -- pre-fix code returned the raw fallback_step_frac
-    # argument unchanged here (0.02, a flat constant applied to every invalid leaf/lineout regardless of
-    # position), which would fail this assertion since 0.02 != expected_fallback (~0.09 at this position).
-    np.testing.assert_allclose(np.asarray(step_scale_leaves[brem_c_idx]), expected_fallback, rtol=1e-6, atol=1e-8)
-    assert np.all(np.asarray(step_scale_leaves[brem_c_idx]) > 0.03)  # sanity: nowhere near the old flat 0.02
+    # The degenerate leaf's seeded scale is exactly the flat init_step_scale passed in -- no position- or
+    # curvature-derived adjustment for an entry whose curvature wasn't usable in the first place.
+    np.testing.assert_allclose(
+        np.asarray(step_scale_leaves[brem_c_idx]), init_step_scale, rtol=1e-6, atol=1e-8
+    )
 
     # End-to-end sanity: the sampler still runs to completion and returns finite, valid results with this
-    # genuinely degenerate parameter active (integration coverage for the fallback path) -- not asserting
-    # a specific acceptance-rate target here, per this test's docstring above.
+    # genuinely degenerate parameter active (integration coverage for the fallback path).
     cfg["other"]["mcmc"] = {"num_steps": 500, "burn_in": 200, "thin": 5, "adapt_every": 50, "use_laplace_seed": True}
     key = jax.random.PRNGKey(42)
     samples, _, diagnostics = mcmc.run_mcmc_for_batch(cfg, loss_fn, ts_params, batch, key)
@@ -198,19 +186,15 @@ def test_seed_step_scale_from_laplace_uses_position_aware_fallback_for_degenerat
 
 
 def test_seed_step_scale_default_has_no_hessian_dependency(fitted_fixture):
-    # _seed_step_scale_default takes no loss_fn/batch -- confirming it has no Hessian dependency -- but is
-    # now position-aware (see _fallback_step_scale) rather than one flat number shared by every leaf, so
-    # this checks its output against that same formula directly instead of asserting flat equality.
+    # _seed_step_scale_default takes no loss_fn/batch -- confirming it has no Hessian dependency -- and is
+    # a flat init_step_scale shared by every leaf/lineout, in the same logit space diff_params lives in.
     ts_params = fitted_fixture["fitted_weights"][0]
     filter_spec = get_filter_spec(fitted_fixture["config"]["parameters"], ts_params)
     diff_params, _ = eqx.partition(ts_params, filter_spec)
-    fallback_step_frac = 0.05
-    step_scale = mcmc._seed_step_scale_default(diff_params, fallback_step_frac)
-    for leaf, scale_leaf in zip(jax.tree_util.tree_leaves(diff_params), jax.tree_util.tree_leaves(step_scale)):
-        s = jax.nn.sigmoid(np.asarray(leaf))
-        expected = fallback_step_frac / np.maximum(s * (1 - s), 1e-6)
-        assert np.all(np.asarray(scale_leaf) > 0)
-        np.testing.assert_allclose(np.asarray(scale_leaf), expected, rtol=1e-6, atol=1e-8)
+    init_step_scale = 0.05
+    step_scale = mcmc._seed_step_scale_default(diff_params, init_step_scale)
+    for leaf in jax.tree_util.tree_leaves(step_scale):
+        assert np.all(np.asarray(leaf) == init_step_scale)
 
 
 def test_run_mcmc_for_batch_falls_back_when_laplace_seed_disabled(fitted_fixture):
@@ -324,12 +308,11 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_diagonal(fitted_fixtu
                 "grad+jvp(ones) diagonal trick is not valid for this model"
             )
 
-    fallback_step_frac = 0.1
+    init_step_scale = 0.1
     step_scale = mcmc._seed_step_scale_from_laplace(
-        loss_fn, static_params, batch, diff_params, fallback_step_frac=fallback_step_frac
+        loss_fn, static_params, batch, diff_params, init_step_scale=init_step_scale
     )
     step_scale_leaves = jax.tree_util.tree_leaves(step_scale)
-    diff_leaves = jax.tree_util.tree_leaves(diff_params)
     assert len(step_scale_leaves) == n
     for i, row in enumerate(rows):
         row_leaves = jax.tree_util.tree_leaves(row)
@@ -339,11 +322,9 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_diagonal(fitted_fixtu
         valid = np.isfinite(expected_scale) & (expected_scale > 0)
         # Every active leaf in this test is well-conditioned (h_ii > 0 everywhere -- see the off-diagonal
         # check above), so `valid` should be True everywhere and this fallback branch is never actually
-        # exercised here; it's still computed correctly (matching _fallback_step_scale) so the assertion
-        # stays meaningful if that ever stops being true.
-        s = 1.0 / (1.0 + np.exp(-np.asarray(diff_leaves[i])))
-        fallback = fallback_step_frac / np.maximum(s * (1 - s), 1e-6)
-        expected_scale = np.where(valid, expected_scale, fallback)
+        # exercised here; it's still computed correctly (matching the flat init_step_scale) so the
+        # assertion stays meaningful if that ever stops being true.
+        expected_scale = np.where(valid, expected_scale, init_step_scale)
         np.testing.assert_allclose(np.asarray(step_scale_leaves[i]), expected_scale, rtol=1e-6, atol=1e-8)
 
 
@@ -474,7 +455,7 @@ def test_init_dispersion_factor_perturbs_starting_point(fitted_fixture):
     # chain's samples land compared to an otherwise-identical zero-dispersion run at the same key.
     cfg = copy.deepcopy(fitted_fixture["config"])
     base_settings = {
-        "num_steps": 5, "burn_in": 0, "thin": 1, "adapt_every": 5, "use_laplace_seed": False, "fallback_step_frac": 0.05,
+        "num_steps": 5, "burn_in": 0, "thin": 1, "adapt_every": 5, "use_laplace_seed": False, "init_step_scale": 0.05,
     }
     key = jax.random.PRNGKey(3)
 

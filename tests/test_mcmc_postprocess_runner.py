@@ -107,15 +107,28 @@ def test_run_mcmc_postprocess_local_applies_overrides():
     # Overriding other.mcmc.save_samples to False (without touching the saved deck on disk) should
     # change what gets written -- proving `overrides` actually drives postprocessing behavior rather
     # than being silently ignored in favor of the run's saved config snapshot.
+    overrides = {"other": {"mcmc": {"save_samples": False}}}
     with tempfile.TemporaryDirectory() as td:
         _fit_and_stage_artifacts(td)
-        run_mcmc_postprocess_local(td, overrides={"other": {"mcmc": {"save_samples": False}}})
+        run_mcmc_postprocess_local(td, overrides=overrides)
 
     run = mlflow.last_active_run()
     client = mlflow.tracking.MlflowClient()
     binary_files = {f.path for f in client.list_artifacts(run.info.run_id, "binary")}
     assert "binary/mcmc_samples.nc" not in binary_files
     assert "binary/mcmc_covariance.nc" in binary_files
+
+    # The overrides stub is saved as its own artifact at run start (same pattern
+    # runner.load_and_make_folders uses for defaults.yaml/inputs.yaml on an ordinary fit), so the exact
+    # deck that produced this run can be recovered later even if the original file is lost.
+    top_level_files = {f.path for f in client.list_artifacts(run.info.run_id)}
+    assert "overrides.yaml" in top_level_files
+    with tempfile.TemporaryDirectory() as dl:
+        local_path = mlflow.artifacts.download_artifacts(
+            run_id=run.info.run_id, artifact_path="overrides.yaml", dst_path=dl
+        )
+        with open(local_path, "r") as fi:
+            assert yaml.safe_load(fi) == overrides
 
 
 def test_run_mcmc_postprocess_local_reports_r_hat_with_multiple_chains():

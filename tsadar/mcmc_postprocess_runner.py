@@ -12,6 +12,7 @@ import tempfile
 from typing import Dict, Optional
 
 import mlflow
+import yaml
 
 from .inverse.postprocess import mcmc_postprocess as _mcmc_postprocess_module
 from .postprocess_runner import (
@@ -24,7 +25,9 @@ from .postprocess_runner import (
 from .utils import misc
 
 
-def run_mcmc_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None) -> Dict:
+def run_mcmc_postprocess(
+    config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None, overrides: Optional[Dict] = None
+) -> Dict:
     """
     MCMC analogue of postprocess_runner.run_postprocess: reconstructs everything the MCMC postprocessor
     needs from a saved config + fitted_weights.eqx (rather than re-fitting), and runs it inside a
@@ -39,6 +42,14 @@ def run_mcmc_postprocess(config: Dict, fitted_weights_path: str, source_run_id: 
         fitted_weights_path (str): Local path to a fitted_weights.eqx saved by fitter._save_fit_artifacts.
         source_run_id (Optional[str]): The mlflow run id the artifacts came from, if any - logged as a tag
             on the new run for traceability, but the source run itself is never touched.
+        overrides (Optional[Dict]): the --overrides stub deck this run was actually launched with, if any
+            (see run_mcmc_postprocess_local/_remote). Saved as its own overrides.yaml artifact at the
+            start of the run -- same save-the-deck-at-run-start pattern runner.load_and_make_folders uses
+            for defaults.yaml/inputs.yaml on an ordinary fit -- so the exact stub that produced this run
+            can always be recovered and reused later (`--overrides <downloaded file> --run <this run's
+            id>`), even if the original file passed on the command line is later moved, edited, or lost.
+            See git history/PR discussion for a production regression that was hard to pin down partly
+            because the actual overrides deck used to launch the run could no longer be located.
     Returns:
         Dict: The final_params produced by inverse.postprocess.mcmc_postprocess.mcmc_postprocess.
     """
@@ -50,6 +61,11 @@ def run_mcmc_postprocess(config: Dict, fitted_weights_path: str, source_run_id: 
     with mlflow.start_run(run_name=run_name):
         if source_run_id is not None:
             mlflow.set_tag("source_run_id", source_run_id)
+        if overrides:
+            with tempfile.TemporaryDirectory() as td:
+                with open(os.path.join(td, "overrides.yaml"), "w") as fi:
+                    yaml.dump(overrides, fi)
+                mlflow.log_artifacts(td)
         misc.log_mlflow(config)
 
         state = _reconstruct_fit_state(config, fitted_weights_path)
@@ -97,7 +113,7 @@ def run_mcmc_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) 
             f"No fitted_weights.eqx found in {dir_path} - this fit may predate that artifact, or "
             "postprocessing/saving may have been disabled for it."
         )
-    return run_mcmc_postprocess(config, fitted_weights_path)
+    return run_mcmc_postprocess(config, fitted_weights_path, overrides=overrides)
 
 
 def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None) -> Dict:
@@ -135,4 +151,4 @@ def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = 
         if overrides:
             config = misc.merge_defaults_and_inputs(config, overrides)
         fitted_weights_path = os.path.join(td, "fitted_weights.eqx")
-        return run_mcmc_postprocess(config, fitted_weights_path, source_run_id=run_id)
+        return run_mcmc_postprocess(config, fitted_weights_path, source_run_id=run_id, overrides=overrides)
