@@ -546,7 +546,34 @@ def plot_sigma_comparison(config, all_params, laplace_sigmas_ds, mcmc_sigmas_ds,
                 plt.close(fig)
 
 
-def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: str) -> None:
+def _color_corner_by_chain(fig, samples: np.ndarray, num_chains: int) -> None:
+    """Diagnostic overlay for plot_corner: scatters each chain's own points, colored separately, onto
+    every off-diagonal axis of an existing corner.corner figure -- so chains that never mixed with each
+    other (see mcmc.run_mcmc_pooled) show up as visually separated clusters instead of blending into
+    what the pooled density/marginal histograms alone might make look like one converged posterior.
+    Those contours/histograms are left untouched (computed from the full pooled sample regardless of
+    chain identity, so still meaningful either way) -- this only replaces plot_corner's own uniformly-
+    colored raw-point layer (disabled by its caller via plot_datapoints=False).
+
+    samples' leading axis must be num_chains contiguous, equal-length blocks, one per chain, in the
+    same concatenation order mcmc_postprocess.py pools them (draw 0's samples first, then draw 1's, ...).
+    Cycles through a 20-color map rather than a legend -- with up to ~20 chains, a per-chain legend
+    entry on every panel would be more clutter than signal; what matters here is whether the colors
+    separate into distinct clumps or overlap, not which color is which chain.
+    """
+    n = samples.shape[1]
+    axes = np.asarray(fig.axes).reshape((n, n))
+    chain_len = samples.shape[0] // num_chains
+    cmap = plt.get_cmap("tab20")
+    for row in range(1, n):
+        for col in range(row):
+            ax = axes[row, col]
+            for c in range(num_chains):
+                sl = slice(c * chain_len, (c + 1) * chain_len)
+                ax.scatter(samples[sl, col], samples[sl, row], s=1, alpha=0.3, color=cmap(c % 20), rasterized=True)
+
+
+def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: str, num_chains: int = 1) -> None:
     """
     Corner plot (pairwise joint posteriors below the diagonal, 1D marginal histograms on it) for one
     lineout's MCMC-sampled parameters, via the `corner` package.
@@ -565,6 +592,11 @@ def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: 
             plot title/filename.
         td: directory to save the plot under (td/plots/corner); if reused standalone, pass any directory
             that already has a plots/corner subfolder or create one first.
+        num_chains: number of independent MCMC chains pooled (in order) into samples' leading axis --
+            see mcmc.run_mcmc_pooled/mcmc_postprocess.py. 1 (default) reproduces the original single-
+            color behavior exactly; > 1 recolors each chain's own points separately (see
+            _color_corner_by_chain) so chains that failed to mix are visible directly on the plot,
+            instead of needing a one-off script to notice a high R-hat is actually several stuck chains.
 
     Returns:
         None: the plot is saved to td/plots/corner and, when called from within an active mlflow run
@@ -584,7 +616,12 @@ def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: 
     pad = np.where(span > 0, 0.0, np.where(np.abs(mins) > 0, np.abs(mins) * 1e-3, 1e-6))
     ranges = list(zip(mins - pad, maxs + pad))
 
-    fig = corner.corner(samples, labels=param_names, show_titles=True, title_fmt=".3g", range=ranges)
+    fig = corner.corner(
+        samples, labels=param_names, show_titles=True, title_fmt=".3g", range=ranges,
+        plot_datapoints=(num_chains <= 1),
+    )
+    if num_chains > 1:
+        _color_corner_by_chain(fig, samples, num_chains)
     fig.suptitle(f"lineout {lineout_value}")
     fig.savefig(os.path.join(td, "plots", "corner", f"corner_lineout_{lineout_value}.png"), bbox_inches="tight")
     plt.close(fig)

@@ -255,7 +255,8 @@ def mcmc_postprocess(
                 for lineout_local, lineout_global in enumerate(inds):
                     if lineout_global in corner_targets:
                         plotters.plot_corner(
-                            stacked[:, lineout_local, :], param_names, lineout_vals[lineout_global], td
+                            stacked[:, lineout_local, :], param_names, lineout_vals[lineout_global], td,
+                            num_chains=len(draws),
                         )
 
         if mcmc_cfg["save_samples"] and n_active > 0:
