@@ -193,9 +193,11 @@ def test_single_bin_forward_arts_uses_the_requested_finite_support():
 
 
 @pytest.mark.parametrize("number_of_points", [400, 801])
+@pytest.mark.physics
 def test_normalized_spectral_irf_preserves_unresolved_line_area_and_centroid(
     number_of_points,
 ):
+    """P-IRF-01: normalized spectral blur preserves line area and centroid, reducing peak height."""
     wavelengths = jnp.linspace(-10.0, 10.0, number_of_points)
     edges = detector_edges_from_centers(np.asarray(wavelengths))
     widths = np.diff(edges)
@@ -225,7 +227,9 @@ def test_normalized_spectral_irf_preserves_unresolved_line_area_and_centroid(
     assert float(jnp.max(blurred)) < float(jnp.max(unresolved_line))
 
 
+@pytest.mark.physics
 def test_normalized_ats_irf_keeps_constant_density_away_from_boundaries():
+    """P-IRF-02: a normalized spectral/angular response preserves constant interior density."""
     angles = np.linspace(-5.0, 5.0, 101)
     wavelengths = jnp.linspace(-10.0, 10.0, 201)
     constant = jnp.ones((angles.size, wavelengths.size))
@@ -271,7 +275,9 @@ def test_uniform_spectral_operator_matches_exact_dense_response(number_of_points
     )
 
 
+@pytest.mark.physics
 def test_real_nonuniform_angular_irf_preserves_physical_area_and_center():
+    """P-IRF-03: nonuniform angular calibration preserves physical area and centroid."""
     angles, *_ = get_calibrations(104000, "angular", 0.0, [1024, 1024], {})
     edges = detector_edges_from_centers(angles)
     widths = np.diff(edges)
