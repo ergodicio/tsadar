@@ -208,8 +208,9 @@ are not added to the selection. These cases run in the fast lane.
      - Area within 2e-11, spectral centroid within 2e-11 nm, nonuniform angular
        centroid within 1e-3 degrees; constant interior within 1e-6
 
-``test_unresolved_arts2d.py`` remains in the slow lane, including physical-root
-coverage and phase/refinement checks on spectra and gradients.
+The physical-root coverage and phase/refinement checks on spectra and gradients
+in ``test_unresolved_arts2d.py`` remain in the slow lane. Its lightweight geometry
+layout and aperture-weighting test runs in the fast PR suite.
 
 Recovery design and tolerance evidence
 --------------------------------------
