@@ -73,11 +73,16 @@ def _faddeeva_susceptibility(xi, klde):
     return (1.0 + zeta * plasma_dispersion) / klde**2
 
 
+@pytest.mark.physics
 def test_signed_maxwellian_susceptibility_matches_faddeeva(form_factor):
-    """Both signs of xi, including zero, match the analytic Landau response."""
+    """P-CHI-01: Both signs of xi, including zero, match the analytic Landau response."""
     vx = jnp.linspace(-9.0, 9.0, 1025)
     sinogram = _isotropic_maxwellian_sinogram(vx, form_factor.n_beta)
-    xis = np.array([-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0])
+    # Include near-pole coordinates, exact grid nodes and both sides, and the
+    # asymptotic tail. Keep pairs explicit for independent parity assertions.
+    h = float(vx[1] - vx[0])
+    positive = np.array([1e-8, h - 1e-8, h, h + 1e-8, 0.5, 1.0, 2.0, 4.0, 6.0, 8.2])
+    xis = np.concatenate((-positive[::-1], [0.0], positive))
     klde = 0.73
 
     got = np.stack(
@@ -103,15 +108,22 @@ def test_signed_maxwellian_susceptibility_matches_faddeeva(form_factor):
     np.testing.assert_allclose(got[:, 2], expected_chi.real, rtol=5e-4, atol=5e-4)
     np.testing.assert_allclose(got[:, 1], expected_chi.imag, rtol=5e-4, atol=5e-4)
 
+    tail = np.abs(xis) >= 4.0
+    np.testing.assert_allclose(
+        got[tail, 2], expected_chi.real[tail], rtol=1e-3, atol=0,
+        err_msg="P-CHI-01: large-phase-velocity real susceptibility",
+    )
+
     # These parity checks make the signed-coordinate requirement explicit instead of
     # relying only on the pointwise analytic comparison above.
-    np.testing.assert_allclose(got[:3, 0], got[:3:-1, 0], rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(got[:3, 2], got[:3:-1, 2], rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(got[:3, 1], -got[:3:-1, 1], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(got[: positive.size, 0], got[: positive.size:-1, 0], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(got[: positive.size, 2], got[: positive.size:-1, 2], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(got[: positive.size, 1], -got[: positive.size:-1, 1], rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.physics
 def test_xi_zero_susceptibility_and_gradient_are_finite(form_factor):
-    """A pole on the central grid node has the analytic value and tangent."""
+    """P-CHI-02: A pole on the central grid node has the analytic value and tangent."""
     vx = jnp.linspace(-9.0, 9.0, 1025)
     sinogram = _isotropic_maxwellian_sinogram(vx, form_factor.n_beta)
     beta = jnp.asarray(np.pi / 7.0)
@@ -183,8 +195,9 @@ def test_shipped_decks_use_per_ion_flow_schema():
                 assert "Va" in species_config, f"{deck_path}: {species}"
 
 
+@pytest.mark.physics
 def test_shifted_anisotropic_gaussian_radon_mean_variance_and_signs(form_factor):
-    """`beta` is the conventional (cos beta, sin beta) projection direction."""
+    """P-RADON-01: `beta` is the conventional (cos beta, sin beta) projection direction."""
     vx = jnp.linspace(-9.0, 9.0, 129)
     grid_x, grid_y = jnp.meshgrid(vx, vx)
     mean = np.array([0.8, -0.55])
@@ -252,8 +265,9 @@ def test_axis_aligned_k_at_xi_zero_has_finite_geometry_gradients(k, expected_bet
     assert bool(jnp.all(jnp.isfinite(jacobian)))
 
 
+@pytest.mark.physics
 def test_projection_locked_to_k_and_parallel_drift_is_a_translation(form_factor):
-    """Perpendicular flow is invisible; parallel flow shifts xi by exactly u/vTe."""
+    """P-FLOW-01: Perpendicular flow is invisible; parallel flow shifts xi by exactly u/vTe."""
     k = (jnp.asarray(3.0), jnp.asarray(4.0))
     k_hat = (jnp.asarray(0.6), jnp.asarray(0.8))
     perpendicular = (jnp.asarray(-0.8), jnp.asarray(0.6))
@@ -328,8 +342,9 @@ def test_projection_locked_to_k_and_parallel_drift_is_a_translation(form_factor)
     )
 
 
+@pytest.mark.physics
 def test_charge_weighted_multispecies_frame_is_order_and_galilean_invariant():
-    """1-D and 2-D bulk-flow definitions agree and do not depend on ion order."""
+    """P-FLOW-02: 1-D and 2-D bulk-flow definitions agree and do not depend on ion order."""
     charge = jnp.asarray([1.0, 6.0, 8.0])
     fraction = jnp.asarray([0.25, 0.35, 0.40])
     ion_flow = (
@@ -434,8 +449,9 @@ def test_multispecies_2d_spectrum_is_invariant_to_species_order():
     )
 
 
+@pytest.mark.physics
 def test_isotropic_zero_flow_1d_and_2d_spectra_agree():
-    """Matched Maxwellians give the same spectrum in the two susceptibility paths.
+    """P-ISOTROPIC-01: Matched Maxwellians give the same spectrum in the two susceptibility paths.
 
     The remaining tolerance is set by two intentionally different discretizations:
     the 1-D path differentiates the sampled EDF along the wavelength-derived xi axis,

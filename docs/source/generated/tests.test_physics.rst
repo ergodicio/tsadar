@@ -36,6 +36,30 @@ tests.test\_physics.test\_reference\_sweeps module
    :undoc-members:
    :show-inheritance:
 
+tests.test\_physics.test\_noncollective module
+----------------------------------------------
+
+.. automodule:: tests.test_physics.test_noncollective
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tests.test\_physics.test\_production\_recovery module
+-----------------------------------------------------
+
+.. automodule:: tests.test_physics.test_production_recovery
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+tests.test\_physics.test\_arts\_recovery module
+-----------------------------------------------
+
+.. automodule:: tests.test_physics.test_arts_recovery
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

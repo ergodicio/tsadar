@@ -359,7 +359,7 @@ def test_ion_bulk_flow_doppler_shifts_iaw_doublet(iaw_case):
 
 
 def test_noiseless_epw_spectrum_recovers_electron_density(epw_case):
-    """P-INV-01: a scalar inverse pass recovers the density that generated the EPW."""
+    """P-INV-01: scalar density self-consistency on the same forward grid."""
 
     wavelengths, evaluate = epw_case
     true_density = 0.24

@@ -69,8 +69,9 @@ def _rel_err(got, ref):
 # chiEI is the interpolated *derivative* of the projection, so it converges a order
 # slower than the other two and sets these tolerances.
 @pytest.mark.parametrize("n_beta, tol", [(256, 1e-4), (512, 3e-5), (1024, 5e-6)])
+@pytest.mark.physics
 def test_sinogram_matches_exact_rotation(n_beta, tol):
-    """The tabulated projection reproduces the per-point rotation to the stated tolerance."""
+    """P-SINO-01: The tabulated projection reproduces the per-point rotation to the stated tolerance."""
     vx, df = _distribution()
     beta, xie_mag, klde_mag = _inputs(48)
 
@@ -82,8 +83,9 @@ def test_sinogram_matches_exact_rotation(n_beta, tol):
         assert _rel_err(got, ref) < tol, f"{name} exceeded {tol} at n_beta={n_beta}"
 
 
+@pytest.mark.physics
 def test_sinogram_converges_with_n_beta():
-    """Refining the angle grid must reduce the error faster than linear interpolation would.
+    """P-SINO-02: Refining the angle grid must reduce the error faster than linear interpolation would.
 
     Linear interpolation in the angle already converges O(h**2) in *value*, which over this
     8x refinement gives ~64 -- so a bound of 10 would not have distinguished it from the
@@ -101,8 +103,9 @@ def test_sinogram_converges_with_n_beta():
     assert errs[0] / errs[-1] > 60.0, f"convergence consistent with linear interpolation: {errs}"
 
 
+@pytest.mark.physics
 def test_interp_beta_wraps_periodically():
-    """The angle grid covers exactly one period, so the seam at 2*pi must be continuous."""
+    """P-SINO-03: The angle grid covers exactly one period, so the seam at 2*pi must be continuous."""
     vx, df = _distribution()
     ff = _form_factor(256)
     proj, _ = ff._build_sinogram(vx, df)
@@ -148,8 +151,9 @@ def _params_2d(vx, df, nvx):
     }
 
 
+@pytest.mark.physics
 def test_calc_in_2D_matches_exact_rotation():
-    """End-to-end guard on the real 2D entrypoint, not just the kernel.
+    """P-SINO-07: End-to-end guard on the real 2D entrypoint, not just the kernel.
 
     Every other test here calls `_calc_all_chi_vals_` with hand-made angles. This one goes
     through `calc_in_2D`, so it covers how `beta` is actually built from `k`, the signed
@@ -181,8 +185,9 @@ def _loss(ff, vx, df, beta, xi, klde_mag):
     return sum(jnp.sum(o**2) for o in out)
 
 
+@pytest.mark.physics
 def test_gradient_wrt_angle_matches_exact():
-    """The angle carries the dependence on ne/Te/ud/Va, so its gradient has to be right.
+    """P-SINO-04: The angle carries the dependence on ne/Te/ud/Va, so its gradient has to be right.
 
     This is why `_interp_beta` is cubic and not linear: a linear interpolant's derivative
     in the angle is piecewise constant, which lands ~1e-2 off here however fine the grid.
@@ -196,8 +201,9 @@ def test_gradient_wrt_angle_matches_exact():
     assert _rel_err(got, exact) < 1e-3
 
 
+@pytest.mark.physics
 def test_gradient_wrt_distribution_matches_exact():
-    """Gradients converge more slowly than values -- pin both the magnitude and direction.
+    """P-SINO-05: Gradients converge more slowly than values -- pin both the magnitude and direction.
 
     At n_beta=1024 the value error is ~1e-5 but the gradient is ~1e-2 in relative L2. The
     descent *direction* is far better than that (1 - cos ~ 1e-5), which is what actually
@@ -215,8 +221,9 @@ def test_gradient_wrt_distribution_matches_exact():
     assert 1.0 - cos < 1e-4, f"gradient direction off by 1 - cos = {1 - cos:.2e}"
 
 
+@pytest.mark.physics
 def test_gradient_converges_with_n_beta():
-    """Refining the angle grid must improve the gradient, not just the values.
+    """P-SINO-06: Refining the angle grid must improve the gradient, not just the values.
 
     This is the test that actually pins cubic-over-linear: linear converges O(h) in the
     gradient, landing exactly on 4.0 over this 4x refinement, against a measured ~27.
@@ -282,3 +289,36 @@ def test_projection_matches_rotate_then_sum():
     np.testing.assert_allclose(
         np.asarray(ff.project(vx, df, beta)), np.asarray(expected), rtol=1e-12, atol=1e-14
     )
+
+
+@pytest.mark.physics
+def test_beta_gradient_matches_converged_finite_difference():
+    """P-SINO-08: the AD β derivative agrees with independent centered differences.
+
+    Three steps shrink by four away from angular interpolation knots. A smooth
+    centered stencil has O(h²) error; require convergence and relative error below
+    2e-5 for the projected EDF and both susceptibility components together.
+    """
+    import jax
+
+    vx, df = _distribution()
+    ff = _form_factor(256)
+    sinogram = ff._build_sinogram(vx, df)
+
+    @jax.jit
+    def evaluate(beta):
+        return jnp.asarray(
+            ff.calc_chi_vals(vx, sinogram, (beta, jnp.asarray(1.1), jnp.asarray(0.73)))
+        ).ravel()
+
+    beta = jnp.asarray(0.937)
+    derivative = jax.jacfwd(evaluate)(beta)
+    assert jnp.linalg.norm(derivative) > 1e-3, "P-SINO-08: vacuous angle derivative"
+    errors = []
+    for step in (1e-3, 2.5e-4, 6.25e-5):
+        finite_difference = (evaluate(beta + step) - evaluate(beta - step)) / (2 * step)
+        errors.append(
+            float(jnp.linalg.norm(finite_difference - derivative) / jnp.linalg.norm(derivative))
+        )
+    assert errors[-1] < 2e-5, f"P-SINO-08: AD/finite-difference relative errors={errors}"
+    assert errors[-1] < errors[0] / 8, f"P-SINO-08: step refinement did not converge: {errors}"

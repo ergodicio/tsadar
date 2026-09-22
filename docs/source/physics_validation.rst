@@ -29,8 +29,11 @@ Reference plasma and observables
 The initial integrated cases use an isotropic Maxwellian electron distribution, one
 hydrogen ion species, a 526.5 nm probe, and 60-degree scattering. They exercise the
 production ``FormFactor`` from physical parameters through the wavelength-space
-spectrum. MLflow, plotting, detector calibration, and YAML merging are excluded so a
-failure is attributable to the model or physical oracle.
+spectrum. These local oracles exclude instrument fitting. The production recovery cases
+separately exercise ``ThomsonParams``, ``ThomsonScatteringDiagnostic``, IRFs,
+``LossFunction``, parameter activation, and the configured production optimizer.
+They use the shipped deck with explicit small reference settings and do not require
+experimental files or a tracking server.
 
 Peak tests compare the plasma-wave detuning
 
@@ -47,7 +50,8 @@ mode and were replaced by the cases below.
 Implemented inventory
 ---------------------
 
-Every case ID appears in its test docstring and failure messages.
+Every case ID appears in its test docstring. New integrated cases also include the
+ID in their assertion diagnostics; focused NumPy checks report the mismatched arrays.
 
 .. list-table:: Integrated physics cases
    :header-rows: 1
@@ -100,10 +104,35 @@ Every case ID appears in its test docstring and failure messages.
      - 2%; grid refinement and peak interpolation are much smaller
      - Fast
    * - ``P-INV-01``
-     - Parameter recovery
-     - A noiseless EPW spectrum has its minimum loss at the density that generated it
+     - Scalar density self-consistency
+     - A custom scalar MSE on the same forward implementation/grid has its minimum
+       at the generating density; this is not production inverse validation
      - Absolute density error below 0.002 in units of :math:`10^{20}\,\mathrm{cm}^{-3}`
      - Fast
+   * - ``P-NONCOLL-01``
+     - Anisotropic non-collective limit
+     - For a shifted Gaussian with covariance :math:`\Sigma`, the analytic Radon
+       projection is :math:`N(\hat k\cdot\mu,\hat k^T\Sigma\hat k)`.
+       As density decreases, :math:`\epsilon\to1` and the absolute wavelength-space
+       spectrum approaches that projection times the physical prefactors
+     - Final peak-normalized error below 0.5%; screening below 0.002, scaling with
+       density; require at least 10x spectral-error reduction before the grid floor
+     - Fast
+   * - ``P-INV-02``
+     - Production EPW and IAW recovery
+     - Recover :math:`(n_e,T_e)` or :math:`(V_a,T_i)` through the diagnostic, IRF,
+       loss and SciPy fitting loop, with other parameters fixed
+     - 3% parameter error (plus 0.01 flow units), 2% detector relative L2, and
+       at least 100x objective reduction from displaced initial conditions
+     - Fast
+   * - ``P-INV-03``
+     - Production ARTS2D recovery
+     - Recover :math:`(n_e,T_e)` for a fixed Maxwellian 2-V EDF at three angles;
+       use root-aware detector quadrature, the noise-aware angular objective,
+       active-leaf sensitivity validation and the partitioned Optax loop
+     - 3% parameter error, 2% detector relative L2, and at least 100x objective
+       reduction; truth doubles velocity, sinogram, root and integration grids
+     - Slow/nightly
    * - ``P-ORACLE-01``
      - Deliberate inconsistency
      - Reversing the measured low- and high-density responses must be rejected by the
@@ -134,42 +163,125 @@ kinetic spectral-density and dispersion references are Sheffield, Froula, Glenze
 Luhmann, *Plasma Scattering of Electromagnetic Radiation* (2010), also cited in
 :ref:`ts_fundamentals`.
 
-Existing focused coverage
+Selected focused coverage
 -------------------------
 
-Several focused tests support the integrated battery without being its primary
-end-to-end reference:
+The following existing tests now carry ``physics`` markers and stable case IDs.
+Their scientific assertions are retained; configuration/plumbing-only neighbors
+are not added to the selection. These cases run in the fast lane.
 
-* ``tests/test_form_factor/test_arts2d_consistency.py`` compares the Maxwellian
-  susceptibility with the analytic Faddeeva function and checks parity, Galilean
-  invariance, species ordering, Radon moments, and isotropic 1D/2D agreement.
-* ``tests/test_forward/test_irf_area.py`` checks area and centroid preservation through
-  instrument-response corrections.
-* ``tests/test_forward/test_unresolved_arts2d.py`` exercises unresolved-root topology
-  and runs in the slow reference lane.
+.. list-table:: Focused invariant inventory
+   :header-rows: 1
+   :widths: 20 40 40
 
-High-value additions
---------------------
+   * - IDs / module
+     - Reference or invariant
+     - Numerical contract
+   * - ``P-CHI-01/02``; ``test_arts2d_consistency.py``
+     - Maxwellian Faddeeva real/imaginary susceptibility, parity, and the pole tangent
+     - 1025 velocity nodes; signed near-zero, exact-grid and adjacent points, and
+       tails to |xi|=8.2. Component rtol/atol 5e-4; real tail rtol 1e-3 without an
+       absolute floor. Zero-pole tangent rtol 5e-4
+   * - ``P-RADON-01``; ``test_arts2d_consistency.py``
+     - Shifted anisotropic Gaussian projection, normalization, mean, and variance
+     - Analytic Gaussian projection at axial and oblique angles; 129 velocity nodes;
+       tolerances retained from the focused test's rotation-discretization checks
+   * - ``P-FLOW-01/02``, ``P-ISOTROPIC-01``; same module
+     - Parallel/perpendicular flow, charge-weighted frame invariance, and matched
+       isotropic 1D/2D spectra
+     - Exact frame algebra near roundoff; spectrum tolerance covers the different
+       one- and two-dimensional susceptibility discretizations
+   * - ``P-SINO-01..08``; ``test_sinogram.py``
+     - Exact rotation reference, angular-grid convergence, periodic seam, angle/EDF
+       AD gradients, end-to-end 2D agreement, independent finite differences
+     - Value error falls from 1e-4 to 5e-6 over 256..1024 angles; EDF-gradient L2
+       error below 2%; finite-difference beta-gradient error below 2e-5 with step
+       refinement at a point away from interpolation knots
+   * - ``P-MARGINAL-01..04``, ``P-MOMENT-01``; ``test_arts2d_marginal.py``
+     - Analytic Maxwellian marginal, independent adaptive 3-V integration,
+       anisotropic positivity, projection commutation, normalization and moments
+     - Shape-specific adaptive-integration rtol 5e-8..6e-6; normalization and mean
+       within 2e-15; in-plane thermal second moment within 2e-6
+   * - ``P-IRF-01..03``; ``test_irf_area.py``
+     - Unresolved-line area/centroid, constant-density interior, real nonuniform
+       angular calibration
+     - Area within 2e-11, spectral centroid within 2e-11 nm, nonuniform angular
+       centroid within 1e-3 degrees; constant interior within 1e-6
 
-The following cases are the recommended implementation backlog, in priority order.
+``test_unresolved_arts2d.py`` remains in the slow lane, including physical-root
+coverage and phase/refinement checks on spectra and gradients.
 
-1. Add a detector-level synthetic recovery through ``ThomsonScatteringDiagnostic`` and
-   the production loss path. Recover ``(n_e,T_e)`` from an EPW spectrum and
-   ``(V_a,T_i)`` from an IAW spectrum with all nuisance parameters fixed.
-2. Add the non-collective limit. For :math:`k\lambda_{De}\gg1`, susceptibilities and
-   ion scattering vanish and the corrected spectral shape must approach the projected
-   electron distribution. A shifted anisotropic Gaussian gives an analytic reference.
-3. Add exact aperture and gradient invariants: splitting one angular weight among
-   duplicate angles must not change a detector spectrum, and reversing a symmetric
-   density/temperature gradient must not change its averaged spectrum.
-4. Add 2D mirror covariance. Reflecting
-   :math:`f(v_x,v_y)\rightarrow f(v_x,-v_y)` while reflecting the scattering and flow
-   angles must leave the complete spectrum invariant.
-5. Add a slow resolution/backend matrix over wavelength, velocity, angular-projection,
-   and root-scan grids, including values, peak roots, integrated areas, and AD gradients.
-6. Add noisy, multi-seed combined EPW/IAW recovery generated on a finer grid than the
-   fit model. Keep this on NERSC/nightly because it is a stress test, not a pull-request
-   gate.
+Recovery design and tolerance evidence
+--------------------------------------
+
+``P-INV-02`` generates truth with 512 velocity and 2048 wavelength samples and fits
+with 256/1024 samples. Both use 128 detector pixels and nonzero instrumental widths.
+The legacy 1D binning gives slightly different detector centers at these resolutions,
+so truth is interpolated onto the fit detector centers. This removes exact-grid
+self-consistency, but is still a same-model recovery test, not an independent proof
+of the forward physics. Independent oracles are supplied by ``P-MAXWELL-01`` and
+``P-NONCOLL-01``.
+
+The EPW deck uses the physical central notch; otherwise an under-resolved IAW can
+control the legacy spectrum's peak normalization even though the ion feature is
+excluded from the EPW loss. Nuisance amplitudes are fixed at 100 detector units.
+The recovered physical parameters and residuals are written as JUnit properties
+when a report is requested (use ``-o junit_family=legacy --junitxml=physics.xml``).
+
+``P-INV-03`` uses identical detector edges for truth and fit. Its blue-wing window
+avoids the central ion feature. Only density and temperature are active; it does not
+establish arbitrary-EDF identifiability, withheld-angle prediction or uncertainty
+coverage. Those belong to ISS#140 and the wider ISS#151 campaign.
+
+Measured CPU float64 checks (JAX 0.10.2)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following are measured errors, not the acceptance thresholds above. Doubling
+both 1D generation/fit velocity and wavelength resolutions reduces the residuals;
+the 3% parameter and 2% spectrum bounds retain margin for backend variation.
+
+.. list-table:: Recovery and resolution evidence
+   :header-rows: 1
+   :widths: 22 40 38
+
+   * - Case
+     - Recovered parameters (truth)
+     - Detector relative L2
+   * - 1D EPW
+     - ne=0.200391 (0.2), Te=0.598048 (0.6)
+     - 0.9366%; 0.4577% with both grids doubled
+   * - 1D IAW
+     - Va=1.500645 (1.5), Ti=0.0800274 (0.08)
+     - 0.1956%; 0.0962% with both grids doubled
+   * - ARTS2D EPW
+     - ne=0.200373 (0.2), Te=0.597356 (0.6)
+     - 0.6159%; objective 47.922 -> 0.025698
+
+For ``P-NONCOLL-01``, the peak-normalized spectral error at the final density drops
+from 0.1943% on 129 velocity nodes to 0.0614% on 257 nodes. On the latter grid,
+decreasing density from 0.02 to 0.0002 to 0.000002 (units of 1e20 cm^-3) reduces
+the error from 81.263% to 1.406% to 0.0614%; maximum |epsilon-1| decreases from
+7.6298 to 0.07626 to 0.0007626. The test therefore checks the approach to the
+limit as well as the final grid error. These CPU checks do not constitute GPU
+validation or the full backend/resolution matrix.
+
+Remaining ISS#151 coverage
+--------------------------
+
+This PR advances ISS#151; it does not close the entire expanded test plan.
+
+1. Full-spectrum simultaneous rotational/mirror covariance and first-harmonic
+   perpendicular-null/parallel-sign-reversal selection rules.
+2. Exact aperture and gradient collapse invariants, plus full-spectrum Doppler
+   covariance rather than only midpoint and kernel-level checks.
+3. A component-level oracle for the production 1D arbitrary-EDF susceptibility,
+   and temperature/ionization scans across collective asymptotic validity limits.
+4. Explicit zero-width IRF and additional free-form smoothing/moment invariants.
+5. A resolution/backend matrix over wavelength, velocity, angular-projection and
+   root-scan grids, float32/float64 and real CPU/GPU executions. Compare spectra,
+   roots, integrated areas and AD gradients.
+6. Noisy multi-seed combined EPW/IAW and anisotropic EDF recovery, including
+   calibration perturbations, interval coverage and visible/null-space diagnostics.
 
 Adding a case
 -------------
