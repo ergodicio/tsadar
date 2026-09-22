@@ -34,13 +34,24 @@ _DEFAULTS = {
     "num_steps": 8000,
     "burn_in": 3000,
     "thin": 5,
+    # Chunk size burn-in is reported/checkpointed in (tqdm granularity) -- purely cosmetic now that
+    # adaptation itself (_ram_update) runs every single step rather than once per window; does not affect
+    # the sampler's behavior, only how often the progress bar updates.
     "adapt_every": 50,
     "target_accept": 0.234,
+    # Vihola's (2012) Robust Adaptive Metropolis (RAM) vanishing-gain exponent: eta_i =
+    # min(1, n_active * step_index^-adapt_gamma) -- see _ram_update. 0.6 is within Vihola's recommended
+    # (0.5, 1] range (larger = faster-decaying adaptation, more stable but slower to converge; 0.5 is the
+    # slowest-decaying choice consistent with the theory's ergodicity guarantees).
     "adapt_gamma": 0.6,
-    # Fallback proposal step (one seeded with no usable curvature information -- see
-    # _seed_step_scale_default and _seed_step_scale_from_laplace's per-entry fallback), applied as-is in
-    # the same unconstrained/logit space diff_params already lives in -- i.e. a flat number shared by
-    # every active leaf/lineout, not scaled by each leaf's own position or physical [lb, ub] range.
+    # Fallback proposal step used only when there's no usable curvature information at all (see
+    # _seed_step_scale_default -- used whenever use_laplace_seed is False, or the whole Laplace Hessian
+    # computation raises structurally), applied as-is in the same unconstrained/logit space diff_params
+    # already lives in -- i.e. a flat, uncorrelated number shared by every active leaf/lineout, not scaled
+    # by each leaf's own position or physical [lb, ub] range. _seed_step_scale_from_laplace no longer has
+    # a per-entry version of this fallback: an individually-degenerate leaf's own row/column is instead
+    # regularized in place (see _regularized_proposal_cholesky), preserving its measured coupling to every
+    # other leaf, rather than replaced outright.
     #
     # A position-aware version of this field (as a dimensionless fraction of each leaf's own physical
     # range, converted internally via sigmoid'(normed_x)) was tried and reverted: it silently changed
@@ -58,18 +69,6 @@ _DEFAULTS = {
     # exactly. Set > 0 when running several chains (config["other"]["calibration_uncertainty"]
     # ["num_draws"] > 1) purely for dispersed starts / a meaningful R-hat -- see mcmc.rst.
     "init_dispersion_factor": 0.0,
-    # Whether burn-in also re-estimates each parameter's *relative* step scale (within a lineout) from
-    # the running sample variance seen so far in burn-in, on top of the Robbins-Monro magnitude
-    # adaptation above. The RM update in _adapt_step_scale rescales every parameter of a lineout by the
-    # same factor (there is only one joint accept/reject decision per lineout per step -- see
-    # _mh_accept), so it can only correct the *overall* proposal scale, not a case where e.g. Te's
-    # step is relatively too large and ne's is relatively too small for that lineout. When
-    # use_laplace_seed leaves that relative balance wrong (a degenerate per-parameter Hessian entry
-    # falling back to the same flat init_step_scale as every other leaf, or a Hessian that is itself a
-    # poor local approximation), no amount of burn-in fixes it without this. See
-    # _shape_from_variance/_combine_magnitude_and_shape for how the correction is derived and blended
-    # in without disturbing the RM-controlled overall magnitude.
-    "adapt_shape": True,
     "seed": 0,
     "save_samples": True,
     # postprocess.laplace.get_sigmas' Hessian is now taken w.r.t. diff_params only (the same restriction
@@ -127,16 +126,26 @@ def _broadcast_like(scale_leaf: jnp.ndarray, value_leaf: jnp.ndarray) -> jnp.nda
     return scale_leaf.reshape(scale_leaf.shape + (1,) * extra)
 
 
-def _propose(key: jax.Array, diff_params, step_scale):
-    """One Gaussian random-walk proposal across every leaf of diff_params, scaled per-lineout and
-    per-leaf by the matching leaf of step_scale (same pytree structure)."""
+def _propose(key: jax.Array, diff_params, step_scale: jnp.ndarray):
+    """One Gaussian random-walk proposal, jointly correlated across every active leaf of diff_params,
+    scaled per lineout by step_scale -- the (batch_size, n_active, n_active) Cholesky factor of that
+    lineout's proposal covariance (see _regularized_proposal_cholesky/_seed_step_scale_default). Active
+    leaves are flattened into one (batch_size, n_active) block, in jax.tree_util.tree_flatten's own
+    leaf order, stepped as proposal = current + step_scale @ z (z ~ N(0, I) per lineout), then
+    unflattened back.
+
+    Unlike the independent per-leaf proposal this replaced, a step in one leaf is now drawn correlated
+    with every other leaf according to that lineout's actual local covariance -- letting the walk move
+    efficiently along real degenerate/correlated ridges (e.g. a near-exact pairwise degeneracy between
+    two leaves, or one leaf's own curvature being weak but substantially coupled to another's) instead of
+    proposing independent per-axis moves that almost always land off of them.
+    """
     leaves, treedef = jax.tree_util.tree_flatten(diff_params)
-    scale_leaves = jax.tree_util.tree_leaves(step_scale)
-    keys = list(jr.split(key, max(len(leaves), 1)))
-    new_leaves = [
-        leaf + _broadcast_like(scale, leaf) * jr.normal(k, leaf.shape)
-        for leaf, scale, k in zip(leaves, scale_leaves, keys)
-    ]
+    stacked = jnp.stack(leaves, axis=-1)  # (batch_size, n_active)
+    z = jr.normal(key, stacked.shape)
+    delta = jnp.einsum("bij,bj->bi", step_scale, z)
+    new_stacked = stacked + delta
+    new_leaves = [new_stacked[..., i] for i in range(len(leaves))]
     return jax.tree_util.tree_unflatten(treedef, new_leaves)
 
 
@@ -237,177 +246,291 @@ def _run_window(
     return diff_params, log_post, accept_count, collected
 
 
-def _adapt_step_scale(step_scale, accept_rate: jnp.ndarray, target_accept: float, window_index: int, adapt_gamma: float):
-    """Robbins-Monro proposal-scale update, applied identically to every leaf of step_scale for a given
-    lineout (there is only one joint accept/reject decision per lineout per step, so a single per-lineout
-    acceptance-rate signal is all that's available to adapt from)."""
-    factor = jnp.exp((accept_rate - target_accept) / (window_index + 1.0) ** adapt_gamma)
-    return jax.tree_util.tree_map(lambda s: s * _broadcast_like(factor, s), step_scale)
+def _ram_update(
+    step_scale: jnp.ndarray,
+    z: jnp.ndarray,
+    alpha: jnp.ndarray,
+    target_accept: float,
+    step_index: jnp.ndarray,
+    adapt_gamma: float,
+    n_active: int,
+) -> jnp.ndarray:
+    """One step of Vihola's (2012) Robust Adaptive Metropolis (RAM) rank-one update to the proposal
+    Cholesky factor -- replaces the separate Robbins-Monro magnitude update + windowed empirical-shape
+    re-estimation this module used previously. RAM adapts every direction of the joint proposal
+    independently and automatically from the *continuous* per-step MH acceptance probability, with no
+    separate "magnitude" vs "shape" decomposition and no eigenvalue floor or determinant-normalization
+    step of its own:
 
+        Sigma_i = S_{i-1} (I + eta_i * (alpha_i - target_accept) * z z^T / ||z||^2) S_{i-1}^T
+        S_i = cholesky(Sigma_i)
 
-def _window_batch_stats(window_samples) -> Tuple[object, object]:
-    """Per-leaf (mean, m2) of one burn-in window's raw samples, where m2 = n * population variance (the
-    "M2" of Chan et al.'s parallel variance algorithm -- see _merge_running_stats). window_samples is a
-    diff_params-shaped pytree with an extra leading (adapt_every,) axis on every leaf, as returned by
-    _run_window(collect=True); mean/m2 are leaf-shaped (batch_size,) pytrees, one number per lineout."""
-    mean = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), window_samples)
-    m2 = jax.tree_util.tree_map(lambda x: jnp.var(x, axis=0) * x.shape[0], window_samples)
-    return mean, m2
+    where z is the whitened direction actually drawn this step (z ~ N(0, I); the proposal was
+    current + S_{i-1} @ z) and eta_i = min(1, n_active * step_index^-adapt_gamma) is a vanishing gain
+    sequence. A direction that keeps getting accepted (alpha_i > target_accept) grows on its own; one
+    that keeps getting rejected shrinks -- with no shared renormalization coupling it to any other
+    direction. The previous determinant-1 shape normalization was found to force a near-degenerate
+    direction's regularization to inflate every *other*, genuinely well-constrained direction along with
+    it (confirmed both as a production runaway and, separately, as a NaN-producing Cholesky failure on an
+    under-sampled window); RAM has no such coupling by construction.
 
+    Guaranteed positive-definite: alpha_i in [0,1] and target_accept in (0,1) bound
+    (alpha_i - target_accept) in (-target_accept, 1-target_accept), and eta_i <= 1, so the inner matrix's
+    one nontrivial eigenvalue (1 + eta_i*(alpha_i-target_accept)) stays strictly greater than
+    (1 - target_accept) > 0 -- no eigenvalue floor or clipping needed the way the Hessian-based Laplace
+    seed (_regularized_proposal_cholesky) needs one.
 
-def _merge_running_stats(running: Tuple[object, object], batch: Tuple[object, object], n_running: int, n_batch: int) -> Tuple[object, object]:
-    """Chan et al.'s parallel-variance merge, applied leafwise, combining a running (mean, m2) accumulated
-    over n_running samples with one window's (mean, m2) over n_batch new samples. n_running/n_batch are
-    plain Python ints rather than traced arrays: every leaf receives exactly the same number of samples
-    every window (the whole diff_params pytree is stepped together), so the sample count carries no
-    per-leaf or per-lineout information worth tracking as an array.
+    Never inverts a Hessian, so a saddle-point diagonal entry (e.g. Ti's or brem_c's negative own
+    curvature at the reported best fit) is not a concern here -- this only ever consumes an initial S_0
+    (e.g. from _seed_step_scale_from_laplace) as a reasonable starting point, not as something that has
+    to already be correct.
 
-    At n_running == 0 (the first window) this reduces to exactly the batch's own (mean, m2), so no
-    separate initialization case is needed by the caller.
+    Args:
+        step_scale: S_{i-1}, (batch_size, n_active, n_active) Cholesky factor.
+        z: this step's whitened proposal draw, (batch_size, n_active) -- see _propose.
+        alpha: this step's continuous MH acceptance probability per lineout, (batch_size,) -- NOT the
+            realized 0/1 accept/reject event; RAM's derivation targets E[alpha] = target_accept.
+        step_index: how many RAM adaptation steps have been taken so far including this one (>= 1), as a
+            traced array -- continues across burn-in chunks rather than resetting each one, since eta_i's
+            vanishing-gain guarantee depends on it increasing monotonically across the whole burn-in.
+        n_active: number of active scalar leaves (dimension d in Vihola's eta_i formula).
+
+    Returns:
+        S_i: updated (batch_size, n_active, n_active) Cholesky factor.
     """
-    mean_running, m2_running = running
-    mean_batch, m2_batch = batch
-    n_total = n_running + n_batch
-    delta = jax.tree_util.tree_map(lambda mb, mr: mb - mr, mean_batch, mean_running)
-    mean_total = jax.tree_util.tree_map(lambda mr, d: mr + d * (n_batch / n_total), mean_running, delta)
-    m2_total = jax.tree_util.tree_map(
-        lambda m2r, m2b, d: m2r + m2b + d**2 * (n_running * n_batch / n_total), m2_running, m2_batch, delta
+    eta = jnp.minimum(1.0, n_active * (step_index ** (-adapt_gamma)))
+    z_normsq = jnp.sum(z * z, axis=-1)
+    coef = eta * (alpha - target_accept) / jnp.maximum(z_normsq, 1e-300)
+    eye_n = jnp.broadcast_to(jnp.eye(n_active), step_scale.shape)
+    inner = eye_n + coef[:, None, None] * jnp.einsum("bi,bj->bij", z, z)
+    sigma_new = jnp.einsum("bij,bjk,blk->bil", step_scale, inner, step_scale)
+    sigma_new = 0.5 * (sigma_new + jnp.swapaxes(sigma_new, -1, -2))  # symmetrize away float roundoff
+    return jnp.linalg.cholesky(sigma_new)
+
+
+@eqx.filter_jit
+def _run_ram_window(
+    key: jax.Array,
+    loss_fn: LossFunction,
+    static_params,
+    batch: Dict,
+    diff_params,
+    log_post: jnp.ndarray,
+    step_scale: jnp.ndarray,
+    n_steps: int,
+    step_offset: jnp.ndarray,
+    target_accept: float,
+    adapt_gamma: float,
+):
+    """Runs n_steps of propose+accept/reject via jax.lax.scan, adapting step_scale every single step via
+    the RAM rank-one update (_ram_update). Unlike _run_window (used for the frozen-step_scale sampling
+    phase), step_scale here changes step by step rather than once per window, so this cannot share
+    _run_window's scan body.
+
+    step_offset lets this be called once per (adapt_every-sized) chunk purely for tqdm progress-bar
+    granularity, while RAM's own adaptation stays genuinely continuous across chunks: step_offset is the
+    number of RAM steps already taken before this call, so this chunk's steps continue that count
+    (step_offset + 1, step_offset + 2, ...) rather than restarting eta_i from step 1 every chunk -- see
+    _ram_update's docstring for why that continuity matters. Pass step_offset as a traced jnp array (not
+    a bare Python int/float) at the call site: a bare Python value would be treated as a static argument
+    by @eqx.filter_jit and trigger a fresh trace/compile on every distinct value, i.e. every chunk.
+
+    @eqx.filter_jit matters here for the same reason documented on _run_window: without it, every
+    burn-in chunk's call would retrace the whole forward-model graph from Python even though the
+    compiled XLA kernel underneath is reused.
+
+    Returns (diff_params, log_post, step_scale, accept_count) -- accept_count is the number of accepted
+    steps per lineout over this chunk (realized 0/1 decisions, matching _run_window's convention), not
+    the continuous alpha RAM itself adapts from.
+    """
+
+    def _single_step(carry, inputs):
+        diff_params, log_post, step_scale = carry
+        key_i, step_index = inputs
+        k_prop, k_acc = jr.split(key_i)
+
+        leaves, treedef = jax.tree_util.tree_flatten(diff_params)
+        n_active = len(leaves)
+        stacked = jnp.stack(leaves, axis=-1)  # (batch_size, n_active)
+        z = jr.normal(k_prop, stacked.shape)
+        delta = jnp.einsum("bij,bj->bi", step_scale, z)
+        new_stacked = stacked + delta
+        proposal = jax.tree_util.tree_unflatten(treedef, [new_stacked[..., i] for i in range(n_active)])
+
+        log_post_proposal = _log_posterior(loss_fn, proposal, static_params, batch)
+        log_ratio = log_post_proposal - log_post
+        # continuous MH acceptance probability alpha_i = min(1, ratio) -- see _ram_update's docstring for
+        # why RAM's derivation needs this, not just the realized 0/1 accept/reject event.
+        alpha = jnp.exp(jnp.minimum(log_ratio, 0.0))
+
+        u = jr.uniform(k_acc, log_post.shape)
+        accept = jnp.log(u) < log_ratio
+        accept_b = _broadcast_like(accept, stacked)
+        new_stacked = jnp.where(accept_b, new_stacked, stacked)
+        new_diff_params = jax.tree_util.tree_unflatten(treedef, [new_stacked[..., i] for i in range(n_active)])
+        new_log_post = jnp.where(accept, log_post_proposal, log_post)
+
+        new_step_scale = _ram_update(step_scale, z, alpha, target_accept, step_index, adapt_gamma, n_active)
+
+        return (new_diff_params, new_log_post, new_step_scale), accept
+
+    keys = jr.split(key, n_steps)
+    step_indices = step_offset + 1.0 + jnp.arange(n_steps, dtype=step_offset.dtype)
+    (diff_params, log_post, step_scale), accept_trace = jax.lax.scan(
+        _single_step, (diff_params, log_post, step_scale), (keys, step_indices)
     )
-    return mean_total, m2_total
+    accept_count = jnp.sum(accept_trace.astype(jnp.int32), axis=0)
+    return diff_params, log_post, step_scale, accept_count
 
 
-def _shape_from_variance(m2, n_total: int):
-    """Converts a running per-leaf m2 (see _merge_running_stats) into a step_scale-shaped pytree of
-    *relative* per-parameter scale, normalized so each lineout's values geometric-mean to 1 across
-    active leaves -- i.e. this carries only the shape (relative proportions across parameters) of the
-    proposal, not its overall magnitude, which _combine_magnitude_and_shape re-attaches separately from
-    the Robbins-Monro-adapted step_scale. Floors variance at a small epsilon so a leaf that hasn't moved
-    at all yet (e.g. the very first window) doesn't produce -inf in the log-mean below."""
-    eps = 1e-12
-    std_leaves, treedef = jax.tree_util.tree_flatten(
-        jax.tree_util.tree_map(lambda leaf: jnp.sqrt(jnp.maximum(leaf / n_total, eps)), m2)
-    )
-    log_leaves = [jnp.log(s) for s in std_leaves]
-    mean_log = jnp.mean(jnp.stack(log_leaves, axis=0), axis=0)  # (batch_size,), per lineout
-    shape_leaves = [jnp.exp(l - mean_log) for l in log_leaves]
-    return jax.tree_util.tree_unflatten(treedef, shape_leaves)
-
-
-def _combine_magnitude_and_shape(step_scale, shape):
-    """Replaces step_scale's relative per-parameter proportions with `shape` (see _shape_from_variance)
-    while exactly preserving step_scale's own overall per-lineout magnitude (its geometric mean across
-    active leaves) -- so this only ever redistributes step size between parameters of the same lineout,
-    never changes how large a step that lineout takes on average, which stays under the existing
-    Robbins-Monro/target_accept control in _adapt_step_scale."""
-    leaves, treedef = jax.tree_util.tree_flatten(step_scale)
-    log_leaves = [jnp.log(jnp.maximum(leaf, 1e-12)) for leaf in leaves]
-    magnitude = jnp.exp(jnp.mean(jnp.stack(log_leaves, axis=0), axis=0))  # (batch_size,), per lineout
-    shape_leaves = jax.tree_util.tree_leaves(shape)
-    new_leaves = [magnitude * s for s in shape_leaves]
-    return jax.tree_util.tree_unflatten(treedef, new_leaves)
-
-
-def _seed_step_scale_default(diff_params, init_step_scale: float):
-    """Pure heuristic proposal-scale seed: a flat `init_step_scale` per leaf/lineout, in the
+def _seed_step_scale_default(diff_params, init_step_scale: float) -> jnp.ndarray:
+    """Pure heuristic proposal-scale seed: a flat, uncorrelated `init_step_scale` per leaf/lineout --
+    i.e. the Cholesky factor of a diagonal covariance diag(init_step_scale^2) -- in the
     unconstrained/logit space diff_params already lives in. No dependency on the Hessian/Laplace
     machinery -- always available, always succeeds. Used whenever use_laplace_seed is False, or when
-    _seed_step_scale_from_laplace fails structurally (see its docstring for the per-entry fallback it
-    already applies for individually-degenerate lineouts/parameters)."""
-    return jax.tree_util.tree_map(lambda leaf: jnp.full(leaf.shape, init_step_scale), diff_params)
+    _seed_step_scale_from_laplace fails structurally.
 
-
-def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params, init_step_scale: float):
-    """Seeds initial per-lineout, per-leaf proposal scale from a Laplace/Hessian covariance, scaled by
-    the standard Roberts-Rosenthal 2.38/sqrt(d) optimal-scaling factor (d = number of active scalar
-    leaves). Off-diagonal (cross-parameter) terms are ignored -- only each leaf's own second derivative
-    is used, unlike postprocess.laplace.get_sigmas, which inverts the full joint (active-parameter x
-    active-parameter) block per lineout -- a deliberate simplification here, since this only needs
-    independent per-leaf proposal scales, not a joint proposal covariance.
-
-    Deliberately differentiates loss_fn.neg_log_likelihood w.r.t. diff_params only, not the full
-    ts_params -- the same restriction loss_fn.h_loss_wrt_params/postprocess.laplace.get_sigmas also
-    apply, for the same reason: hessian-ing the full parameter tree pulls in every fixed array the model
-    carries, including large distribution-function lookup tables that are never actually being sampled,
-    and has been observed to attempt a multi-hundred-GB allocation on an ordinary fit. Restricting to
-    diff_params keeps this to exactly the handful of scalar parameters actually active, which is what
-    run_mcmc_for_batch's fe-active guard guarantees are the only leaves present here.
-
-    Even restricted to diff_params, building the *full* Hessian via a single eqx.filter_hessian call
-    (forward-over-reverse autodiff) requires propagating one forward-mode tangent direction per active
-    leaf *simultaneously*, all the way through the physics forward model -- and on a real multi-lineout
-    fit, that forward model's own internal quadrature/evaluation grids can be large enough that even a
-    handful of simultaneous tangent directions attempts a multi-GB allocation (observed in production
-    even after restricting to diff_params and to one fit-batch at a time). Only the diagonal is ever
-    used below, though, so each leaf's own diagonal is instead recovered via one extra forward-mode
-    sweep per leaf: jvp(grad(loss wrt that leaf alone, every other leaf held fixed), ones) gives that
-    leaf's own Hessian block's row sums, which equal its diagonal exactly since cross-lineout terms are
-    structurally zero (different lineouts don't affect each other) -- note this does *not* require
-    cross-*parameter* terms to be zero (they generally aren't, e.g. d^2L/dTe dne for the same lineout is
-    typically nonzero), since holding every other leaf fixed already keeps them out of this leaf's own
-    second derivative by construction, not because they happen to vanish.
-
-    Leaves are processed one at a time via jax.lax.map rather than a Python for loop or
-    eqx.filter_hessian's batched forward-mode sweep -- deliberately, and for two independent reasons:
-    only one tangent direction is ever live at once (peak memory, same reasoning as
-    run_mcmc_for_fit_batches seeding fit-batches sequentially rather than under one shared vmap), *and*
-    lax.map's loop body is traced/compiled exactly once regardless of the active-leaf count, unlike a
-    Python for loop under this function's caller's own eqx.filter_jit, which unrolls into that many
-    copies of the full per-leaf differentiation graph at trace time -- for a physics forward model
-    expensive enough to differentiate, that unrolled compile time was observed to reach several minutes
-    (with no output in the meantime, since nothing runs until compilation finishes), even though runtime
-    execution and peak memory were both already fine. Requires every active leaf to share one shape (a
-    single (batch_size,) float array per lineout, true of every currently-supported MCMC parameter) so
-    they can be stacked into one (n_active, batch_size) array for lax.map to index into by row.
-
-    Wherever the Hessian is degenerate for a given leaf/lineout (non-positive curvature, or a resulting
-    scale that's non-finite or non-positive), that entry is individually replaced by the flat
-    `init_step_scale` via jnp.where -- deliberately per-entry rather than an all-or-nothing
-    raise/except: a Python-level bool()/raise on a data-dependent validity check would raise
-    TracerBoolConversionError under this function's caller's own jit (this was, in fact, silently
-    swallowing every real Laplace-seeded scale in production and falling back to a flat scalar for every
-    lineout -- see git history/PR discussion for that regression). See init_step_scale's comment in
-    _DEFAULTS for why this fallback is deliberately flat rather than position-aware.
+    Returns:
+        L: (batch_size, n_active, n_active) Cholesky factor -- see _propose.
     """
-
-    def _nll_of_diff(dp):
-        weights = eqx.combine(static_params, dp)
-        return loss_fn.neg_log_likelihood(weights, batch, per_lineout=False)
-
-    flat_diff, treedef = jax.tree_util.tree_flatten(diff_params)
-    n = len(flat_diff)
+    leaves = jax.tree_util.tree_leaves(diff_params)
+    n = len(leaves)
     if n == 0:
-        return jax.tree_util.tree_unflatten(treedef, [])
+        return jnp.zeros((0, 0, 0))
+    batch_size = leaves[0].shape[0]
+    return init_step_scale * jnp.broadcast_to(jnp.eye(n), (batch_size, n, n))
 
-    shapes = {leaf.shape for leaf in flat_diff}
-    dtypes = {leaf.dtype for leaf in flat_diff}
-    if len(shapes) != 1 or len(dtypes) != 1:
-        raise ValueError(
-            "_seed_step_scale_from_laplace requires every active leaf to share one shape/dtype (every "
-            f"currently-supported MCMC parameter is a single (batch_size,) float array per lineout); "
-            f"got shapes {shapes}, dtypes {dtypes}."
-        )
-    stacked = jnp.stack(flat_diff, axis=0)  # (n_active, batch_size)
 
-    def _nll_of_stacked(rows):
-        return _nll_of_diff(jax.tree_util.tree_unflatten(treedef, list(rows)))
+_LAPLACE_EIGVAL_FLOOR = 1e-3
+"""Floor applied to the eigenvalues of the *normalized* (correlation-scaled) per-lineout Hessian before
+it's inverted into a proposal covariance (see _regularized_proposal_cholesky) -- keeps the result
+positive-definite even when the raw Hessian isn't (e.g. a leaf whose own curvature is negative at the
+reported best fit, observed in production for weakly-identified parameters). In normalized units, a
+well-conditioned, uncorrelated direction has eigenvalue exactly 1 by construction, so 1e-3 means a
+clipped direction is treated as roughly 30x wider (sqrt(1/1e-3) ~ 32) than a typical well-conditioned
+direction -- deliberately generous rather than conservative, since a genuinely unconstrained parameter's
+true uncertainty should be allowed to come out large; sigmoid saturation at the physical [lb, ub] bound
+caps how far this can actually push a proposal in physical terms regardless of how large a step this
+permits in logit space.
 
-    def _diag_for_row(i):
-        def _nll_wrt_row(row_value):
-            return _nll_of_stacked(stacked.at[i].set(row_value))
+Only needed here, for the Hessian-based Laplace seed (which can be genuinely non-positive-definite at a
+saddle) -- the RAM adaptation that takes over from this seed during burn-in (_ram_update) needs no
+eigenvalue floor of its own; it's positive-definite by construction."""
 
-        row_value = stacked[i]
-        _, h_ii = jax.jvp(jax.grad(_nll_wrt_row), (row_value,), (jnp.ones_like(row_value),))
-        return h_ii
 
-    h_diag = jax.lax.map(_diag_for_row, jnp.arange(n))  # (n_active, batch_size)
+def _stack_hessian(hess, diff_params) -> jnp.ndarray:
+    """Flattens a per-lineout Hessian (as returned by LossFunction.h_loss_wrt_params_per_lineout -- a
+    diff_params-shaped pytree of diff_params-shaped subtrees, each *leaf* of which is itself a
+    (batch_size,) array) into one dense (batch_size, n_active, n_active) array, ordered to match
+    jax.tree_util.tree_leaves(diff_params). Mirrors postprocess.laplace.get_sigmas' identical
+    pytree-to-array flattening."""
+    target_structure = jax.tree_util.tree_structure(diff_params)
+    rows = jax.tree_util.tree_leaves(hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure)
+    n = len(rows)
+    blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[a][b]: (batch_size,)
+    rows_stacked = [jnp.stack([blocks[a][b] for b in range(n)], axis=-1) for a in range(n)]  # each: (batch_size, n)
+    return jnp.stack(rows_stacked, axis=-2)  # (batch_size, n_active, n_active); [:, a, b] = d2L/d(a)d(b)
 
+
+def _regularized_proposal_cholesky(H: jnp.ndarray, rr_factor: float) -> jnp.ndarray:
+    """Turns a per-lineout Hessian block (batch_size, n_active, n_active); see _stack_hessian) into the
+    Cholesky factor of a valid (positive-definite) proposal covariance, scaled by the Roberts-Rosenthal
+    rr_factor, even when the raw Hessian itself is not positive-definite -- which happens in production
+    for weakly-identified parameters (e.g. an ion temperature whose own diagonal curvature was measured
+    negative at the reported best fit: a saddle direction, not a true local minimum, because that
+    direction is only identifiable jointly with another parameter -- see _seed_step_scale_from_laplace's
+    docstring).
+
+    Regularizes by eigenvalue-clipping the *normalized* (correlation-scaled) Hessian rather than the raw
+    one: the diagonal entries here can span many orders of magnitude (a real production lineout showed
+    roughly -700 for one leaf alongside 6e7 for another), so a single absolute eigenvalue floor applied
+    to the raw Hessian has no scale-consistent meaning across leaves. Normalizing first (dividing by each
+    leaf's own sqrt(|H_ii|) -- the matrix analogue of turning a covariance into a correlation matrix)
+    puts every well-conditioned direction's eigenvalue at O(1) regardless of the leaf's raw curvature
+    scale, so one small fixed floor (_LAPLACE_EIGVAL_FLOOR) is meaningful for every leaf simultaneously.
+
+    Crucially, this preserves the Hessian's eigenvectors -- i.e. *which combinations* of parameters form
+    a near-degenerate direction -- rather than discarding that structure the way a flat per-entry
+    fallback would, since that structure is exactly what a joint proposal needs to move efficiently along
+    real degenerate ridges instead of proposing independent per-parameter steps that almost always land
+    off of them.
+
+    Args:
+        H: per-lineout Hessian block, (batch_size, n_active, n_active), as returned by _stack_hessian.
+        rr_factor: the Roberts-Rosenthal 2.38/sqrt(n_active) optimal-scaling factor (same convention as
+            the diagonal-only seeding this replaced).
+
+    Returns:
+        L: (batch_size, n_active, n_active) lower-triangular Cholesky factor, one per lineout, such that
+            L @ L.T is the proposal covariance to draw MH steps from (see _propose).
+    """
+    diag = jnp.diagonal(H, axis1=-2, axis2=-1)  # (batch_size, n_active)
+    d = 1.0 / jnp.sqrt(jnp.maximum(jnp.abs(diag), 1e-300))  # floors an exactly-zero diagonal entry
+    h_norm = H * d[:, :, None] * d[:, None, :]  # D @ H @ D per lineout, D = diag(d)
+
+    eigvals, eigvecs = jnp.linalg.eigh(h_norm)  # ascending eigvals; (batch_size, n), (batch_size, n, n)
+    eigvals_reg = jnp.maximum(eigvals, _LAPLACE_EIGVAL_FLOOR)
+
+    # Sigma = rr_factor^2 * H_reg^-1, built directly from the regularized, normalized eigendecomposition
+    # without ever forming H_reg or inverting it explicitly: H_norm = D @ H @ D (D = diag(d)), so
+    # H = D^-1 @ H_norm @ D^-1, and therefore H^-1 = D @ H_norm^-1 @ D = D @ Q @ diag(1/eigvals) @ Q.T @ D.
+    # Scale the eigenvectors by d itself here (NOT 1/d) -- using 1/d inverts the whole result (a
+    # well-constrained leaf's huge curvature would turn into a huge proposal variance instead of a tiny
+    # one), which is exactly what production showed: every eigendirection oversized from the very first
+    # seed, before any burn-in adaptation ran at all.
+    scaled_eigvecs = eigvecs * d[:, :, None]  # D @ Q
+    sigma = jnp.einsum("bik,bk,bjk->bij", scaled_eigvecs, (rr_factor**2) / eigvals_reg, scaled_eigvecs)
+    sigma = 0.5 * (sigma + jnp.swapaxes(sigma, -1, -2))  # symmetrize away float roundoff
+    return jnp.linalg.cholesky(sigma)
+
+
+def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params) -> jnp.ndarray:
+    """Seeds the initial per-lineout proposal covariance (as a Cholesky factor) from the full per-lineout
+    Laplace/Hessian covariance, scaled by the standard Roberts-Rosenthal 2.38/sqrt(d) optimal-scaling
+    factor (d = number of active scalar leaves) -- see _regularized_proposal_cholesky.
+
+    Unlike the diagonal-only version this replaced, off-diagonal (cross-parameter) terms are now used
+    directly, via LossFunction.h_loss_wrt_params_per_lineout -- the same low-memory per-lineout Hessian
+    postprocess.laplace.get_sigmas uses, restricted to diff_params only for the same reason that function
+    and h_loss_wrt_params_per_lineout's own docstring document (hessian-ing the full parameter tree pulls
+    in every fixed array the model carries, e.g. a large distribution-function lookup table, and has been
+    observed to attempt a multi-hundred-GB allocation on an ordinary fit). Reusing that method also means
+    this no longer needs its own bespoke diagonal-extraction trick (the jax.lax.map/jvp sweep the
+    previous version used) -- h_loss_wrt_params_per_lineout already handles the low-memory computation,
+    and this only adds the regularize-and-Cholesky step on top.
+
+    Motivation: two independent, real degeneracies observed in a real production fit made the
+    diagonal-only proposal badly inefficient even though each individual leaf's own curvature looked
+    reasonable in isolation -- a near-exact pairwise degeneracy between two leaves (off-diagonal Hessian
+    entry measured at -0.9998 of sqrt(h_aa * h_bb), i.e. essentially one degenerate direction shared by
+    only those two), and a leaf with genuinely poor identifiability on its own (own diagonal curvature
+    measured negative -- not just small -- at a real fitted point, but substantially coupled to another
+    leaf, and more weakly to two others, through the off-diagonal terms). An independent per-leaf
+    proposal can only ever guess randomly at these combinations, landing off the true (correlated) ridge
+    almost every time; seeding from -- and proposing along -- the actual joint covariance lets the walk
+    move efficiently along it instead, while still correctly reporting a large marginal uncertainty for a
+    poorly-identified leaf and comparatively tight ones for the leaves it's coupled to.
+
+    See _regularized_proposal_cholesky for how a Hessian that isn't positive-definite is handled:
+    eigenvalue-clipped in normalized (correlation-scaled) space so the fix is meaningful across leaves
+    whose raw curvature can differ by many orders of magnitude, while preserving the Hessian's
+    eigenvectors -- i.e. which *combinations* of parameters actually form each near-degenerate direction
+    -- rather than discarding that structure the way a per-entry flat fallback would. There is
+    accordingly no per-entry fallback here any more: an individually-degenerate leaf's own row/column is
+    regularized in place, preserving its measured coupling to every other leaf, rather than replaced
+    outright.
+
+    Returns:
+        L: (batch_size, n_active, n_active) Cholesky factor of the proposal covariance -- see _propose.
+    """
+    n = len(jax.tree_util.tree_leaves(diff_params))
+    if n == 0:
+        return jnp.zeros((0, 0, 0))
+
+    hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
+    H = _stack_hessian(hess, diff_params)  # (batch_size, n_active, n_active)
     rr_factor = 2.38 / jnp.sqrt(float(n))
-    var = jnp.where(h_diag > 0, 1.0 / h_diag, jnp.nan)
-    scale = rr_factor * jnp.sqrt(var)
-    valid = jnp.isfinite(scale) & (scale > 0)
-    scale = jnp.where(valid, scale, init_step_scale)
-
-    return jax.tree_util.tree_unflatten(treedef, list(scale))
+    return _regularized_proposal_cholesky(H, rr_factor)
 
 
 @eqx.filter_jit
@@ -428,10 +551,9 @@ def _seed_step_scale(loss_fn: LossFunction, static_params, batch: Dict, diff_par
     step_scale = None
     if mcmc_cfg["use_laplace_seed"]:
         try:
-            step_scale = _seed_step_scale_from_laplace(
-                loss_fn, static_params, batch, diff_params, mcmc_cfg["init_step_scale"]
-            )
-        except Exception:
+            step_scale = _seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params)
+        except Exception as e:
+            print(f"Laplace-seeded step scale failed, falling back to flat init_step_scale: {type(e).__name__}: {e}", flush=True)
             step_scale = None
     if step_scale is None:
         step_scale = _seed_step_scale_default(diff_params, mcmc_cfg["init_step_scale"])
@@ -465,7 +587,8 @@ def run_mcmc_for_batch(
         pbar_position: tqdm `position` (terminal line offset) for this chain's bar -- run_mcmc_pooled
             runs draws concurrently on separate threads/devices, so each draw needs its own line to avoid
             garbled interleaved output.
-        step_scale: optional precomputed initial step scale (a diff_params-shaped pytree), overriding
+        step_scale: optional precomputed initial step scale (the (batch_size, n_active, n_active)
+            Cholesky factor of a per-lineout proposal covariance -- see _propose), overriding
             use_laplace_seed/init_step_scale entirely when given. run_mcmc_for_fit_batches passes this in,
             computed sequentially per fit-batch via _seed_step_scale *before* vmapping this function
             across every fit-batch of a shot -- see _seed_step_scale's docstring for why computing the
@@ -477,7 +600,8 @@ def run_mcmc_for_batch(
             num_kept = ceil((num_steps - burn_in) / thin).
         static_params: the non-sampled complement of ts_params (eqx.partition's static half), needed by
             the caller to recombine samples into full parameter values via eqx.combine.
-        diagnostics: {"acceptance_rate": array (batch_size,), "final_step_scale": step_scale pytree}.
+        diagnostics: {"acceptance_rate": array (batch_size,), "final_step_scale": step_scale Cholesky
+            factor, (batch_size, n_active, n_active)}.
 
     Raises:
         NotImplementedError: if config["parameters"]["electron"]["fe"]["active"] is true (see module
@@ -499,7 +623,7 @@ def run_mcmc_for_batch(
     init_dispersion_factor = float(mcmc_cfg.get("init_dispersion_factor", 0.0))
     if init_dispersion_factor > 0:
         key, disperse_key = jr.split(key)
-        dispersed_scale = jax.tree_util.tree_map(lambda s: init_dispersion_factor * s, step_scale)
+        dispersed_scale = init_dispersion_factor * step_scale
         diff_params = _propose(disperse_key, diff_params, dispersed_scale)
 
     log_post = _log_posterior(loss_fn, diff_params, static_params, batch)
@@ -526,33 +650,17 @@ def run_mcmc_for_batch(
         leave=False,
         position=pbar_position,
     )
-    # adapt_shape re-estimates each parameter's *relative* step scale within a lineout from the running
-    # sample variance seen so far in burn-in (see _shape_from_variance's docstring for why this exists:
-    # the RM magnitude adaptation below can't touch that balance on its own). Requires collecting each
-    # burn-in window's raw samples -- cheap here since a window is only adapt_every steps (unlike the
-    # much longer sampling phase this same _run_window is used for), and n_active must be > 0 (nothing
-    # to have a "relative" balance between with zero or one active parameters).
-    adapt_shape = bool(mcmc_cfg["adapt_shape"]) and len(jax.tree_util.tree_leaves(diff_params)) > 1
-    running_mean = jax.tree_util.tree_map(jnp.zeros_like, diff_params)
-    running_m2 = jax.tree_util.tree_map(jnp.zeros_like, diff_params)
-    samples_so_far = 0
-
+    # Burn-in adapts step_scale every single step via RAM (_ram_update/_run_ram_window), not once per
+    # window -- adapt_every here only sets how often the progress bar updates and how large each
+    # individual jax.lax.scan chunk is, not the adaptation's own behavior. step_offset (passed as a
+    # traced array, not a bare Python int -- see _run_ram_window's docstring) keeps RAM's vanishing-gain
+    # step counter continuous across chunks.
     for window_index in range(n_windows):
         burn_key, window_key = jr.split(burn_key)
-        diff_params, log_post, accept_count, window_samples = _run_window(
+        diff_params, log_post, step_scale, accept_count = _run_ram_window(
             window_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, adapt_every,
-            collect=adapt_shape,
+            jnp.asarray(float(window_index * adapt_every)), mcmc_cfg["target_accept"], mcmc_cfg["adapt_gamma"],
         )
-        accept_rate = accept_count / adapt_every
-        step_scale = _adapt_step_scale(step_scale, accept_rate, mcmc_cfg["target_accept"], window_index, mcmc_cfg["adapt_gamma"])
-
-        if adapt_shape:
-            batch_stats = _window_batch_stats(window_samples)
-            running_mean, running_m2 = _merge_running_stats((running_mean, running_m2), batch_stats, samples_so_far, adapt_every)
-            samples_so_far += adapt_every
-            shape = _shape_from_variance(running_m2, samples_so_far)
-            step_scale = _combine_magnitude_and_shape(step_scale, shape)
-
         pbar.update(adapt_every)
 
     pbar.set_description(f"{progress_desc} sampling")

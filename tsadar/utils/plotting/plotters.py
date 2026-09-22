@@ -438,12 +438,15 @@ def save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigma
 
     """
     coords = ((all_axes["x_label"], np.array(all_axes["epw_x"][config["data"]["lineouts"]["pixelE"]])),)
+    # i must be a single running index across every species' keys combined, matching sigmas' own
+    # column order (species-major, then key, the same combined order fitted_params/active_keys are
+    # built in -- see get_sigmas/postprocess.mcmc._active_param_keys) -- NOT reset per species. Every
+    # species after the first previously restarted enumerate() at 0, silently pulling an earlier
+    # species' column instead of its own (e.g. "general"'s amp1 pulling "electron"'s Te column) for any
+    # config with more than one active species, which is the common case.
+    ordered_names = [(series, k) for series in all_params.keys() for k in all_params[series].keys()]
     sigmas_ds = xr.Dataset(
-        {
-            k + "_" + series: xr.DataArray(sigmas[:, i], coords=coords)
-            for series in all_params.keys()
-            for i, k in enumerate(all_params[series].keys())
-        }
+        {k + "_" + series: xr.DataArray(sigmas[:, i], coords=coords) for i, (series, k) in enumerate(ordered_names)}
     )
     sigmas_ds.to_netcdf(os.path.join(td, filename))
     return sigmas_ds

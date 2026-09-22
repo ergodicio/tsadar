@@ -102,7 +102,7 @@ def test_run_mcmc_for_batch_acceptance_rate_near_target(fitted_fixture):
         assert np.all(np.isfinite(np.asarray(leaf)))
 
 
-def test_seed_step_scale_from_laplace_uses_flat_fallback_for_degenerate_brem_c(fitted_fixture):
+def test_seed_step_scale_from_laplace_regularizes_degenerate_brem_c(fitted_fixture):
     # brem_c (the forward-model bremsstrahlung background's additive offset -- see
     # tsadar.core.physics.bremsstrahlung.brem_spectrum, where it enters as a pure "+ offset" term) is
     # documented, by the commit that introduced brem_amp/brem_c as active-fittable parameters (e6bee35f),
@@ -111,18 +111,19 @@ def test_seed_step_scale_from_laplace_uses_flat_fallback_for_degenerate_brem_c(f
     # converged optimum. Starting it at val=0.7 (rather than the deck's usual, better-behaved 0.4) and
     # letting it fit alongside everything else reproduces a *genuine* non-positive diagonal Hessian entry
     # for it in this dataset (confirmed directly: h_ii is consistently around -45 to -80 for both
-    # lineouts at the resulting fitted point) -- i.e. this exercises the real `valid = False` branch of
-    # _seed_step_scale_from_laplace, not a well-conditioned parameter whose acceptance rate happens to
-    # suffer for an unrelated reason (e.g. off-diagonal cross-parameter correlation, which is a separate,
-    # already-documented limitation of this diagonal-only Laplace approximation -- see that function's own
-    # docstring -- and out of scope for this test).
+    # lineouts at the resulting fitted point) -- i.e. this exercises the real eigenvalue-clipping
+    # regularization branch of _seed_step_scale_from_laplace, not a well-conditioned parameter whose
+    # acceptance rate happens to suffer for an unrelated reason.
     #
-    # A position-aware fallback formula was tried here and reverted (see init_step_scale's comment in
-    # _DEFAULTS): it silently changed this field's units under the same config key, which orphaned decks
-    # carrying forward a tuned flat value and caused a real production acceptance-rate collapse. This test
-    # now checks the fallback is exactly the flat init_step_scale passed in, matching _seed_step_scale_
-    # default's own semantics, plus an end-to-end sanity check that the sampler still runs to completion
-    # with this genuinely degenerate parameter active.
+    # The old diagonal-only Laplace seeding used a flat per-entry fallback for a leaf like this; the
+    # full-covariance version has no such fallback -- an individually-degenerate leaf's row/column is
+    # regularized in place instead (see _regularized_proposal_cholesky), preserving whatever coupling it
+    # has to every other leaf rather than discarding it. This checks the resulting proposal covariance is
+    # still valid (positive-definite) for every lineout despite brem_c's non-positive curvature, that
+    # brem_c's own marginal variance comes out larger than a well-conditioned leaf's (a genuinely
+    # poorly-constrained parameter reported as such, not silently clamped to some arbitrary flat number),
+    # plus an end-to-end sanity check that the sampler still runs to completion with this genuinely
+    # degenerate parameter active.
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["data"]["background"]["type"] = "brem_model"
     cfg["parameters"]["general"]["brem_amp"] = {"active": True, "lb": 0.0, "ub": 1.0, "val": 0.4}
@@ -141,6 +142,7 @@ def test_seed_step_scale_from_laplace_uses_flat_fallback_for_degenerate_brem_c(f
     leaves = jax.tree_util.tree_leaves(diff_params)
     paths = [p for p, _ in jax.tree_util.tree_flatten_with_path(diff_params)[0]]
     brem_c_idx = next(i for i, p in enumerate(paths) if "brem_c" in str(p))
+    other_idx = next(i for i in range(len(leaves)) if i != brem_c_idx)
 
     # Confirm this scenario actually lands brem_c in the non-positive-curvature regime this test means to
     # exercise -- if it didn't, the assertions below wouldn't be testing what this test claims to test.
@@ -158,22 +160,30 @@ def test_seed_step_scale_from_laplace_uses_flat_fallback_for_degenerate_brem_c(f
     _, h_ii = jax.jvp(jax.grad(_nll_wrt_brem_c), (row_value,), (jnp.ones_like(row_value),))
     assert np.all(np.asarray(h_ii) <= 0), (
         f"expected brem_c's diagonal Hessian entry to be non-positive at this fitted point (got {h_ii}) -- "
-        "this scenario is no longer exercising _seed_step_scale_from_laplace's fallback branch; see this "
-        "test's docstring for how val=0.7 was chosen to reproduce that."
+        "this scenario is no longer exercising the intended regularization branch; see this test's "
+        "docstring for how val=0.7 was chosen to reproduce that."
     )
 
-    init_step_scale = 0.02
-    step_scale = mcmc._seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params, init_step_scale)
-    step_scale_leaves = jax.tree_util.tree_leaves(step_scale)
+    step_scale = mcmc._seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params)
+    n = len(leaves)
+    batch_size = cfg["optimizer"]["batch_size"]
+    assert step_scale.shape == (batch_size, n, n)
 
-    # The degenerate leaf's seeded scale is exactly the flat init_step_scale passed in -- no position- or
-    # curvature-derived adjustment for an entry whose curvature wasn't usable in the first place.
-    np.testing.assert_allclose(
-        np.asarray(step_scale_leaves[brem_c_idx]), init_step_scale, rtol=1e-6, atol=1e-8
+    sigma = np.einsum("bik,bjk->bij", np.asarray(step_scale), np.asarray(step_scale))
+    eigvals = np.linalg.eigvalsh(sigma)
+    assert np.all(eigvals > 0), "proposal covariance must stay positive-definite even with brem_c's degenerate curvature"
+
+    # brem_c's own marginal variance should come out larger than a well-conditioned leaf's -- a
+    # genuinely poorly-constrained parameter reported as such, not silently clamped to a fixed number.
+    brem_c_var = sigma[:, brem_c_idx, brem_c_idx]
+    other_var = sigma[:, other_idx, other_idx]
+    assert np.all(brem_c_var > other_var), (
+        f"expected brem_c's marginal variance to exceed a well-conditioned leaf's "
+        f"(brem_c={brem_c_var}, other={other_var})"
     )
 
     # End-to-end sanity: the sampler still runs to completion and returns finite, valid results with this
-    # genuinely degenerate parameter active (integration coverage for the fallback path).
+    # genuinely degenerate parameter active (integration coverage for the regularization path).
     cfg["other"]["mcmc"] = {"num_steps": 500, "burn_in": 200, "thin": 5, "adapt_every": 50, "use_laplace_seed": True}
     key = jax.random.PRNGKey(42)
     samples, _, diagnostics = mcmc.run_mcmc_for_batch(cfg, loss_fn, ts_params, batch, key)
@@ -186,15 +196,20 @@ def test_seed_step_scale_from_laplace_uses_flat_fallback_for_degenerate_brem_c(f
 
 
 def test_seed_step_scale_default_has_no_hessian_dependency(fitted_fixture):
-    # _seed_step_scale_default takes no loss_fn/batch -- confirming it has no Hessian dependency -- and is
-    # a flat init_step_scale shared by every leaf/lineout, in the same logit space diff_params lives in.
+    # _seed_step_scale_default takes no loss_fn/batch -- confirming it has no Hessian dependency -- and
+    # returns a flat, uncorrelated init_step_scale per leaf/lineout as a diagonal Cholesky factor, in the
+    # same logit space diff_params lives in.
     ts_params = fitted_fixture["fitted_weights"][0]
     filter_spec = get_filter_spec(fitted_fixture["config"]["parameters"], ts_params)
     diff_params, _ = eqx.partition(ts_params, filter_spec)
     init_step_scale = 0.05
     step_scale = mcmc._seed_step_scale_default(diff_params, init_step_scale)
-    for leaf in jax.tree_util.tree_leaves(step_scale):
-        assert np.all(np.asarray(leaf) == init_step_scale)
+    n = len(jax.tree_util.tree_leaves(diff_params))
+    batch_size = jax.tree_util.tree_leaves(diff_params)[0].shape[0]
+    assert step_scale.shape == (batch_size, n, n)
+    expected = init_step_scale * np.eye(n)
+    for i in range(batch_size):
+        np.testing.assert_allclose(np.asarray(step_scale[i]), expected)
 
 
 def test_run_mcmc_for_batch_falls_back_when_laplace_seed_disabled(fitted_fixture):
@@ -236,8 +251,7 @@ def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(
     batch_list = [build_batch(all_data, batch_indices[i], background_subtract) for i in range(n_fit_batches)]
 
     cfg["other"]["mcmc"] = {
-        "num_steps": 40, "burn_in": 20, "thin": 2, "adapt_every": 10,
-        "use_laplace_seed": True, "adapt_shape": False,
+        "num_steps": 40, "burn_in": 20, "thin": 2, "adapt_every": 10, "use_laplace_seed": True,
     }
     key = jax.random.PRNGKey(7)
 
@@ -264,15 +278,14 @@ def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(
     np.testing.assert_allclose(np.asarray(diag_vmap["acceptance_rate"]), np.asarray(manual_accept), rtol=1e-10)
 
 
-def test_seed_step_scale_from_laplace_matches_full_hessian_diagonal(fitted_fixture):
-    # _seed_step_scale_from_laplace computes each active leaf's diagonal Hessian entry via
-    # jvp(grad(loss wrt that leaf alone), ones) -- one extra forward-mode sweep per leaf -- instead of
-    # eqx.filter_hessian's full Hessian (which needs every leaf's tangent direction live simultaneously,
-    # and has been observed to attempt a large allocation on a real multi-lineout fit even restricted to
-    # diff_params and one fit-batch at a time). This is only valid because every off-diagonal entry
-    # (cross-lineout *and* cross-parameter) is structurally zero for this model -- verify that
-    # assumption directly against the ground-truth full Hessian, and that the two approaches produce
-    # numerically identical step scales end-to-end.
+def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixture):
+    # _seed_step_scale_from_laplace now seeds the proposal covariance from the *full* per-lineout Hessian
+    # (via LossFunction.h_loss_wrt_params_per_lineout, itself already validated against eqx.filter_hessian
+    # ground truth in test_laplace.py), not just its diagonal -- this test instead verifies the
+    # regularize-and-Cholesky step _seed_step_scale_from_laplace adds on top: for a well-conditioned
+    # lineout (every normalized eigenvalue comfortably above the _LAPLACE_EIGVAL_FLOOR clip, confirmed
+    # directly below), the resulting proposal covariance should exactly equal rr_factor^2 * inv(H) --
+    # i.e. the eigenvalue-clipping regularization should be a complete no-op when it isn't needed.
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise more than just electron/general leaves
     all_data = fitted_fixture["all_data"]
@@ -297,35 +310,43 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_diagonal(fitted_fixtu
     )
     n = len(jax.tree_util.tree_leaves(diff_params))
     assert len(rows) == n
+    batch_size = cfg["optimizer"]["batch_size"]
+
+    # Ground-truth (batch_size, n, n) per-lineout Hessian block, extracted directly from
+    # eqx.filter_hessian -- confirms cross-lineout terms are zero along the way (the same check the
+    # diagonal-only version of this test made, generalized here to every leaf pair, not just a leaf with
+    # itself), which is what makes a single dense per-lineout block well-defined in the first place.
+    H_true = np.zeros((batch_size, n, n))
     for i, row in enumerate(rows):
         row_leaves = jax.tree_util.tree_leaves(row)
         assert len(row_leaves) == n
         for j, block in enumerate(row_leaves):
             block = np.asarray(block)
-            off_diagonal = block - np.diag(np.diag(block))
-            assert np.allclose(off_diagonal, 0.0, atol=1e-6), (
-                f"leaf {i} x leaf {j} Hessian block has nonzero off-diagonal entries -- the "
-                "grad+jvp(ones) diagonal trick is not valid for this model"
+            off_lineout_diagonal = block - np.diag(np.diag(block))
+            assert np.allclose(off_lineout_diagonal, 0.0, atol=1e-6), (
+                f"leaf {i} x leaf {j} Hessian block has nonzero cross-lineout entries -- "
+                "h_loss_wrt_params_per_lineout's low-memory diagonal-in-lineout trick is not valid here"
             )
+            H_true[:, i, j] = np.diagonal(block)
 
-    init_step_scale = 0.1
-    step_scale = mcmc._seed_step_scale_from_laplace(
-        loss_fn, static_params, batch, diff_params, init_step_scale=init_step_scale
-    )
-    step_scale_leaves = jax.tree_util.tree_leaves(step_scale)
-    assert len(step_scale_leaves) == n
-    for i, row in enumerate(rows):
-        row_leaves = jax.tree_util.tree_leaves(row)
-        h_ii = np.diagonal(np.asarray(row_leaves[i]))
-        expected_var = np.where(h_ii > 0, 1.0 / h_ii, np.nan)
-        expected_scale = (2.38 / np.sqrt(n)) * np.sqrt(expected_var)
-        valid = np.isfinite(expected_scale) & (expected_scale > 0)
-        # Every active leaf in this test is well-conditioned (h_ii > 0 everywhere -- see the off-diagonal
-        # check above), so `valid` should be True everywhere and this fallback branch is never actually
-        # exercised here; it's still computed correctly (matching the flat init_step_scale) so the
-        # assertion stays meaningful if that ever stops being true.
-        expected_scale = np.where(valid, expected_scale, init_step_scale)
-        np.testing.assert_allclose(np.asarray(step_scale_leaves[i]), expected_scale, rtol=1e-6, atol=1e-8)
+    step_scale = mcmc._seed_step_scale_from_laplace(loss_fn, static_params, batch, diff_params)
+    assert step_scale.shape == (batch_size, n, n)
+
+    rr_factor = 2.38 / np.sqrt(n)
+    for i in range(batch_size):
+        d = 1.0 / np.sqrt(np.abs(np.diagonal(H_true[i])))
+        h_norm = H_true[i] * np.outer(d, d)
+        eigvals = np.linalg.eigvalsh(h_norm)
+        assert np.all(eigvals > mcmc._LAPLACE_EIGVAL_FLOOR), (
+            f"lineout {i}'s normalized Hessian has an eigenvalue at/below the regularization floor "
+            f"(min={eigvals.min():.4g} <= {mcmc._LAPLACE_EIGVAL_FLOOR}) -- this test's premise (a "
+            "well-conditioned lineout where regularization is a no-op) doesn't hold for this "
+            "fixture/lineout; see test_seed_step_scale_from_laplace_regularizes_degenerate_brem_c for "
+            "the ill-conditioned case."
+        )
+        expected_sigma = (rr_factor**2) * np.linalg.inv(H_true[i])
+        actual_sigma = np.asarray(step_scale[i]) @ np.asarray(step_scale[i]).T
+        np.testing.assert_allclose(actual_sigma, expected_sigma, rtol=1e-4, atol=1e-8)
 
 
 def test_calibration_draws_collapse_to_identity_when_unconfigured(fitted_fixture):
