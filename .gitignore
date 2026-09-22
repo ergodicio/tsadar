@@ -137,6 +137,8 @@ dmypy.json
 # mflow
 *mlruns/
 mlflow.db
+# Generated ISS140 benchmark archives (the documented CLI output convention).
+results/iss140-*/
 
 # Pyre type checker
 .pyre/
