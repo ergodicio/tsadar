@@ -11,22 +11,40 @@ other:
     num_steps: 8000
     burn_in: 2000
     thin: 5
+    # Chunk size burn-in is reported/checkpointed in (tqdm granularity) -- purely cosmetic, since
+    # adaptation itself (Vihola's Robust Adaptive Metropolis, see mcmc._ram_update) runs every single
+    # step, not once per window.
     adapt_every: 100
     target_accept: 0.234
+    # RAM's vanishing-gain exponent (mcmc._ram_update); within Vihola (2012)'s recommended (0.5, 1] range.
     adapt_gamma: 0.6
+    # Flat, uncorrelated fallback proposal step (logit space), used only when use_laplace_seed is false or
+    # the Laplace/Hessian seed fails structurally -- see mcmc._seed_step_scale_default.
+    init_step_scale: 0.1
     use_laplace_seed: true
     # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
     # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
     # default) means every chain starts at the exact best fit.
     init_dispersion_factor: 2.0
-    # Re-estimates each parameter's *relative* step scale within a lineout from the running burn-in
-    # sample variance, on top of the Robbins-Monro magnitude adaptation above (which alone can only
-    # rescale every parameter of a lineout by the same factor). On by default; set false to match
-    # pre-adapt_shape behavior exactly.
-    adapt_shape: true
     seed: 0
     save_samples: true
     compare_to_laplace: true
+    # Threshold, in robust-SD units (1.4826 * MAD), for flagging one chain's per-lineout posterior mean
+    # as an outlier relative to the other independent chains -- Iglewicz & Hoaglin's standard modified
+    # z-score cutoff. See mcmc_postprocess._mad_flagged_chains; meaningless with calibration_uncertainty.
+    # num_draws == 1 (nothing to compare against).
+    chain_outlier_mad_scale: 3.5
+    # Threshold for a *within*-chain split-R-hat: whether a single chain's own first half and second half
+    # of post-burn-in samples agree, catching a chain that never reached a stationary distribution at all
+    # (invisible to chain_outlier_mad_scale, which only ever compares chains to each other) -- see
+    # mcmc._within_chain_r_hat. More lenient than the usual 1.01 many-chain target since split-R-hat here
+    # only ever compares two halves of one chain.
+    within_chain_r_hat_threshold: 1.1
+    # Hard cap, as a fraction of the chain count, on how many chains this postprocessor will write off
+    # (for either reason above, combined) before giving up on a lineout entirely -- marking its
+    # mean/std/covariance NaN rather than reporting from whatever's left. See
+    # mcmc_postprocess._finalize_chain_selection.
+    max_dropped_chain_fraction: 0.2
   # calibration_uncertainty.num_draws is the number of independent MCMC chains the postprocessor runs
   # and pools -- not just "calibration draws": chains may differ by a perturbed instrument calibration
   # (tsadar/data/calibration.py, via the *_sigma fields below), by a perturbed starting point

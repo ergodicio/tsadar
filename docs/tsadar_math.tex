@@ -1,0 +1,2007 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usepackage{tikz-3dplot}%package for creating 3dplots
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\file}[1]{\texttt{#1}}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\title{Thomson-Scattering Theory and the TSADAR Forward Model}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Collective Thomson scattering measures the spectrum of light scattered by electron-density
+fluctuations in a plasma, and that spectrum is set almost entirely by the electron and ion
+distribution functions. TSADAR fits measured spectra to infer the plasma parameters
+($n_e$, $T_e$, $T_i$, $Z$, flow velocity, and, when the data support it, the electron
+distribution function $f_e$ itself) that produced them. This document works
+through that physics from the kinetic description of a plasma down to the numerical
+choices TSADAR actually makes: how a trial set of plasma parameters becomes a synthetic
+detector spectrum, and how that synthetic spectrum is compared back against data to
+produce the scalar loss the optimizer descends. The first few sections derive the
+collisionless spectral density from the Vlasov equation, largely following Froula,
+Glenzer, Luhmann, and Sheffield's \textit{Plasma Scattering of Electromagnetic Radiation}
+\cite{sheffield2011}; the remaining
+sections follow the code's own computational path -- parameters $\to$ distribution
+functions $\to$ susceptibilities $\to$ dynamic form factor $\to$ instrument-convolved
+spectrum $\to$ loss -- pointing out along the way where a numerical choice in
+\file{tsadar/} is standing in for an idealization in the theory.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{The physics of collective Thomson scattering}\label{sec:physics}
+%======================================================================
+
+\subsection{Why the spectrum carries plasma information}
+
+Thomson scattering is the elastic scattering of a photon off a free electron, the
+low-energy limit of Compton scattering, valid whenever the photon energy is far below the
+electron rest mass ($2\hbar\omega_0 \ll m_ec^2$, always true for optical probes). A single
+electron scatters as a dipole; what makes the technique a plasma diagnostic
+is that a probe beam illuminates not one electron but an ensemble of them, and the
+\emph{ensemble} scatters collectively. The scattered field is the sum of the fields radiated
+by every electron along the line of sight, each with its own Doppler shift set by its
+velocity along the probed direction. The power collected at an observation point is
+therefore proportional to the electron density fluctuation spectrum, not to any single
+particle's motion:
+\begin{equation}\label{eq:Ps}
+  P_s(\mathbf R,\omega_s)\,d\Omega\,d\omega_s =
+  P_i\,r_e^2\,L \left\vert \hat s\times(\hat s\times\hat E_{i0})\right\vert^2
+  \left(1+\frac{2\omega}{\omega_i}\right) n_e\, S(\mathbf k,\omega)\; d\Omega\, d\omega_s,
+\end{equation}
+where $P_i$ is the probe power, $r_e$ the classical electron radius (the coupling constant
+of Thomson scattering), $L$ the length of plasma viewed along the probe, and $\hat s\times
+(\hat s\times\hat E_{i0})$ the usual dipole-radiation projection between the probe
+polarization and the observation direction $\hat s$. The factor $(1+2\omega/\omega_i)$ is a
+first-order relativistic (``head-light'') correction relating the frequency of the emitting
+electron's rest frame to the lab frame; this relativistic correction can be important even if the plasma is not relativistic because electrons at many times the thermal velocity are probed. All of the physics specific to the plasma sits in $S(\mathbf k,\omega)$, the \textbf{dynamic
+structure factor} (equivalently, the spectral density function): the power spectrum of
+electron-density fluctuations at wavevector $\mathbf k$ and frequency $\omega$, normalized
+so that $\int S\,d\omega = 1$ for an uncorrelated (shot-noise-only) plasma.
+
+$P_i$, $L$, and $\Omega$, the solid angle subtended by the collection optics, are geometric and
+radiometric factors that only ever act as overall scale parameters. TSADAR never tries to compute them from first principles. Instead it absorbs them into a handful of fitted nuisance amplitudes (\S\ref{sec:irf}), so everything
+from here on is concerned with getting the \emph{shape} of $S(\mathbf k,\omega)$ right --
+that is what actually constrains $n_e,T_e,T_i,Z,\ldots$.
+
+\subsection{The dynamic structure factor from the Vlasov equation}\label{sec:vlasov}
+
+A plasma is a collection of electrons and ions, and its exact microscopic state is given by
+the Klimontovich distribution -- a sum of delta functions at each particle's phase-space
+location. Averaging over an ensemble of such microscopic realizations gives a smooth,
+differentiable \textbf{distribution function} $f_q(\mathbf r,\mathbf v,t)$ for each species
+$q$, interpretable as the probability of finding a particle of that species at
+$(\mathbf r,\mathbf v)$ at time $t$. Its evolution is governed by the Boltzmann equation;
+dropping collisions leaves the collisionless Vlasov equation,
+\begin{equation}
+  \frac{\partial f_q}{\partial t} + \mathbf v\cdot\nabla_{\mathbf r} f_q
+  + \frac{q}{m_q}\left(\mathbf E + \frac{\mathbf v}{c}\times\mathbf B\right)\cdot\nabla_{\mathbf v} f_q = 0.
+\end{equation}
+Linearizing about a uniform background $f_q = f_{q0}(\mathbf v) + f_{q1}(\mathbf r,\mathbf
+v,t)$, keeping only the self-consistent electrostatic field (no ambient magnetic field, no
+externally driven fields -- the ``collisionless'' assumption behind
+Eq.~\ref{eq:S-general} below), and Fourier transforming in space and time
+($f_{q1}\propto e^{i(\mathbf k\cdot\mathbf r-\omega t)}$) gives a linear response of the
+form $\tilde f_{q1} \propto \mathbf k\cdot\partial f_{q0}/\partial\mathbf v \,/\,(\omega -
+\mathbf k\cdot\mathbf v)$. Substituting into Poisson's equation and solving self-consistently
+for the induced potential defines the longitudinal \textbf{susceptibility} of species $q$,
+\begin{equation}\label{eq:chi-def}
+  \chi_q(\mathbf k,\omega) = -\frac{4\pi q^2}{m_q k^2}\int d^3v\,
+  \frac{\mathbf k\cdot\partial f_{q0}/\partial \mathbf v}{\omega - \mathbf k\cdot\mathbf v - i\gamma},
+  \qquad \gamma\to0^+,
+\end{equation}
+and the total dielectric function $\varepsilon(\mathbf k,\omega) = 1+\chi_e+\chi_i$
+(summing $\chi_i$ over ion species if there is more than one). 
+The location of the resonances, their widths, and how a non-Maxwellian $f_e$ distorts the
+spectrum all trace back to this integral.
+
+Fluctuation-dissipation theory (the derivation is standard and is not repeated here; see
+Froula \textit{et al.} \cite{sheffield2011} or Salpeter \cite{salpeter1960}) relates
+the thermally excited density-fluctuation spectrum to
+these susceptibilities and to the \emph{one-dimensional}, $\mathbf k$-projected
+distribution functions $f_{e,i}^{(1D)}(\omega/k) \equiv \int d^3v\, f_{e,i}(\mathbf
+v)\,\delta(\omega/k - \hat k\cdot\mathbf v)$:
+\begin{equation}\label{eq:S-general}
+  S(\mathbf k,\omega) = \frac{2\pi}{k}\left\vert 1-\frac{\chi_e}{\varepsilon}\right\vert^2
+  f_e^{(1D)}\!\left(\frac{\omega}{k}\right)
+  + \frac{2\pi Z}{k}\left\vert \frac{\chi_e}{\varepsilon}\right\vert^2
+  f_i^{(1D)}\!\left(\frac{\omega}{k}\right).
+\end{equation}
+Physically, the first term is fluctuations in the electron density that are only partially
+screened by the plasma's dielectric response: $1-\chi_e/\varepsilon$ is the electron
+density response left over once the plasma has done its best to Debye-screen a test
+electron. The second term is ion-density fluctuations picked up through the electron susceptibility
+$\chi_e/\varepsilon$.
+
+This is the \textbf{dressed-test-particle} picture of collective scattering. Since the
+Thomson cross section scales as $(e/m)^2$, a bare ion scatters negligibly compared to an
+electron. But a moving ion is always accompanied by a co-moving cloud of shielding
+electrons, and it is that electron cloud, oscillating in phase with the ion-acoustic wave,
+that actually does the scattering. This picture traces to Rostoker \cite{rostoker1964},
+including the underlying result that a plasma's fluctuation spectrum can be built up from a
+superposition of independent dressed particles; it is worked through in detail -- including
+this same $\chi_e$-in-the-ion-feature result -- in Evans \& Katzenstein's review
+\cite{evans1969} and in Froula \textit{et al.} \cite{sheffield2011}.
+
+Using $\varepsilon-\chi_e = 1+\chi_i$, the electron term can equivalently be written
+$\vert 1+\chi_i\vert^2/\vert\varepsilon\vert^2$, the form used directly by the code
+(\S\ref{sec:formfactor}). Both forms are the same physics; one just makes the screening of
+the \emph{electron} feature by the \emph{ions} explicit rather than folding it into
+$\varepsilon$.
+
+\subsection{Collective vs.\ non-collective scattering}
+
+Whether Eq.~\ref{eq:S-general} looks like a smooth bump or a pair of sharp resonances is
+characterized by a single dimensionless number, the \textbf{Salpeter parameter} (also called the
+\textbf{scattering parameter}) \cite{salpeter1960},
+\begin{equation}\label{eq:salpeter}
+  \alpha \equiv \frac{1}{k\lambda_{De}},
+\end{equation}
+comparing the electron Debye length $\lambda_{De}$ -- the scale over which the plasma can
+screen a charge -- against $1/k$, the scale length actually being probed. For $\alpha\ll1$
+the probed scale is much shorter than a Debye length: fluctuations are heavily screened and
+$\varepsilon\to1$. Eq.~\ref{eq:S-general} then collapses to $S(k,\omega) =
+(2\pi/k)f_e^{(1D)}(\omega/k)$, so the spectrum \emph{is} a Doppler-broadened image of the
+electron velocity distribution. This is \textbf{non-collective} scattering.
+
+For $\alpha\gtrsim1$, the probed scale exceeds a Debye length and the plasma supports
+collective oscillations, so the poles of $1/\varepsilon$ produce two families of
+resonances. At high frequency is the electron-plasma wave (EPW, or Langmuir wave) feature,
+with dispersion relation $\omega^2\approx\omega_{pe}^2+3k^2v_{Te}^2$ (Bohm--Gross). At low frequency is the ion-acoustic wave (IAW) feature, with $\omega/k\approx\sqrt{ZT_e/m_i}$.
+
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{TS_spectra_EPW.JPG}
+        \label{fig:img1}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{TS_spectra_IAW.JPG}
+        \label{fig:img2}
+    \end{subfigure}
+    \caption{Schematic breakdown of parameters impact on a Thomson-scattering spectrum, (a) electron plasma wave, (b) ion-acoustic wave.}
+    \label{fig:annotated_spectrum}
+\end{figure}
+
+These dispersion relations give the classic interpretation of a Thomson scattering spectrum as demonstrated in Fig. \ref{fig:annotated_spectrum} where the separation of the EPW is given by density and its width is set by Landau damping, the imaginary part of $\chi_e$, while the separation in the IAW gives $ZT_e$ and its width gives $ZT_e/T_i$. These scalings are good for understanding general trends but are insufficient for any kind of analysis.
+
+One example of the limit of the scaling relations can be seen in the impact of temperature on the EPW peak location. The Bohm--Gross dispersion relation seems to indicate that $\omega^2\approx\omega_{pe}^2$ with $3k^2v_{Te}^2$ as a \emph{correction}. The true relative importance of these terms can be seen by  taking their ratio, 
+\begin{equation}\label{eq:bg-ratio}
+  \frac{3k^2v_{Te}^2}{\omega_{pe}^2} = 3(k\lambda_{De})^2 = \frac{3}{\alpha^2}.
+\end{equation}
+Using
+$v_{Te}=\lambda_{De}\omega_{pe}$, the relative importance of the terms can be described by $\alpha$ alone. For $T_e=1\,\mathrm{keV}$, $n_e=10^{20}\,\mathrm{cm^{-3}}$ (typical of a
+laser-produced coronal plasma), $\omega_{pe}=5.64\times10^{14}\,\mathrm{rad/s}$,
+$v_{Te}=1.33\times10^9\,\mathrm{cm/s}$, and $\lambda_{De}=v_{Te}/\omega_{pe}\approx23.5\,
+\mathrm{nm}$; Eq.~\ref{eq:bg-ratio} then gives
+\begin{center}
+\begin{tabular}{c c c}
+\toprule
+$\alpha$ & $k\lambda_{De}$ & $3k^2v_{Te}^2/\omega_{pe}^2$ \\
+\midrule
+1  & 1.0  & 3.0\ \ (thermal term \emph{dominates}) \\
+2  & 0.5  & 0.75 \\
+3  & 0.33 & 0.33 \\
+5  & 0.2  & 0.12 \\
+10 & 0.1  & 0.03\ \ ($\omega_{pe}$ term dominates) \\
+\bottomrule
+\end{tabular}
+\end{center}
+EPW Thomson-scattering measurements are typically taken with $\alpha\sim1$--$3$: collective
+enough to get a resonance, but not pushed to the deep-collective limit, where the
+peak width becomes instrument-limited and no longer gives a measure of the temperature.
+Over that whole practical range, the thermal term is a $10$--$100\%$ correction to
+$\omega_{pe}^2$, not a small one.
+
+Reliance on the dispersion relations also masks the impact of the distribution function. The dispersion relations are derived kinetically using a Maxwellian distribution function or within the fluid limit where the distribution function is again inherently Maxwellian. This can lead to a misinterpretation of EPW peak width when the distribution function is super-Gaussian (flattened, depleted-tail). The Bohm-Gross dispersion relation only involves the
+distribution's second moment, so a non-Maxwellian $f_e$ with the same $T_e$ leaves the
+\emph{resonance} unchanged. But a super-Gaussian has a shallower slope past a few thermal velocities, so it Landau-damps the
+wave less, producing narrower peaks and a steeper fall-off outside them than a Maxwellian
+plasma at the same bulk temperature would give. Fitting such data with a Maxwellian-only
+model systematically misattributes that narrowing to a lower temperature, plus a
+compensating change in density to keep the resonance in place. Milder, Ivancic, Palastro,
+\& Froula \cite{milder2019} give a statistically-based quantification of exactly this
+effect: fitting synthetic super-Gaussian EPW spectra with a Maxwellian model can misinfer
+$T_e$ by up to $50\%$ and $n_e$ by up to $30\%$. Being able to
+let $f_e$ depart from a Maxwellian in the fit, rather than assuming one, is the entire
+reason TSADAR carries a general electron-distribution-function machinery
+(\S\ref{sec:edf}) allowing the entire spectral shape to be used instead of reduced quantities such as peak position and width.
+
+%======================================================================
+\section{From $(\mathbf k,\omega)$ to the laboratory coordinates}\label{sec:freqk}
+\textit{\file{tsadar/core/physics/form\_factor.py}}
+%======================================================================
+
+Equation~\ref{eq:S-general} is most naturally written in $(\mathbf k,\omega)$, but a
+detector measures wavelength and another free dimension (often space or time but potentialy angle) at a specified location. Converting requires nothing more than photon kinematics. The probe and scattered-light angular frequencies
+follow directly from their vacuum wavelengths,
+\begin{equation}
+  \omega_L = \frac{2\pi c}{\lambda_L}, \qquad
+  \omega_s(\lambda) = \frac{2\pi c}{\lambda}, \qquad
+  \omega \equiv \omega_s-\omega_L,
+\end{equation}
+and the corresponding wavenumbers follow the electromagnetic dispersion relation of an EM-wave propagating through a plasma of density $n_e$ (index of refraction $<1$),
+\begin{equation}
+  \omega^2 = \omega_{pe}^2+k^2c^2 \quad\Longrightarrow\quad
+  k_s = \frac{\sqrt{\omega_s^2-\omega_{pe}^2}}{c}, \qquad
+  k_L = \frac{\sqrt{\omega_L^2-\omega_{pe}^2}}{c}, \qquad
+  \omega_{pe} = \sqrt{\frac{4\pi e^2n_e}{m_e}}.
+\end{equation}
+The probed plasma fluctuation wavevector is the vector difference of the scattered and probe
+wavevectors (Fig. \ref{fig:vectors1}), $\mathbf k = \mathbf k_s-\mathbf k_L$; its
+magnitude follows the law of cosines with scattering angle $\theta$ (the angle between
+$\mathbf k_L$ and $\mathbf k_s$),
+\begin{equation}\label{eq:law-of-cosines}
+  k = \sqrt{k_s^2+k_L^2-2k_sk_L\cos\theta}.
+\end{equation}
+
+\begin{figure}[h!]
+    \centering
+    \tdplotsetmaincoords{60}{120}
+    \begin{tikzpicture}[scale=4,tdplot_main_coords]
+    \pgfsetlinewidth{1pt}
+    %set up some coordinates 
+    %-----------------------
+    \coordinate (O) at (0,0,0);
+    
+    %determine a coordinate (P) using (r,\theta,\phi) coordinates.  This command
+    %also determines (Pxy), (Pxz), and (Pyz): the xy-, xz-, and yz-projections
+    %of the point (P).
+    %syntax: \tdplotsetcoord{Coordinate name without parentheses}{r}{\theta}{\phi}
+    \tdplotsetcoord{k_L}{.9}{0}{0}
+    \tdplotsetcoord{k_s1}{.9}{30}{90}
+    \tdplotsetcoord{k_s2}{.9}{50}{90}
+    %draw figure contents
+    %--------------------
+    
+    %draw the main coordinate system axes
+    \draw[thick,->] (0,0,0) -- (1,0,0) node[anchor=north east]{$\hat{x}$};
+    \draw[thick,->] (0,0,0) -- (0,1,0) node[anchor=north west]{$\hat{y}$};
+    \draw[thick,->] (0,0,0) -- (0,0,1) node[anchor=south]{$\hat{z}$};
+    
+    %draw a vector from origin to point (k) 
+    \draw[-stealth,color=green] (O) -- (k_L) node[anchor=north east]{$k_L$};
+    \draw[-stealth,color=red] (O) -- (k_s1) node[below left =2pt]{$k_{s1}$};
+    \draw[-stealth,color=red] (O) -- (k_s2) node[anchor=north west]{$k_{s2}$};
+    
+    %draw the angle \theta, and label it
+    %syntax: \tdplotdrawarc[coordinate frame, draw options]{center point}{r}{angle}{label options}{label}
+    \tdplotsetthetaplanecoords{90}
+    \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.3}{0}{30}{anchor=north}{$\theta_{s1}$}
+    \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.2}{0}{50}{anchor=north east}{$\theta_{s2}$}
+    %draw projection on xy plane, and a connecting line
+    %\draw[dashed, color=red] (O) -- (f_1xy);
+    %\draw[dashed, color=red] (f_1) -- (f_1xy);
+    
+    %draw a vector from origin to point (k) 
+    \draw[->,dashed,color=black] (k_L) -- (k_s1) node[above left=10pt]{$k_1$};
+    \draw[->,dashed,color=black] (k_L) -- (k_s2) node[above left=4pt]{$k_{2}$};
+    
+    \end{tikzpicture}
+    \caption{Thomson probe vector is shown in green, scattering vectors are shown in red, and k-vectors corresponding to the blueshifted EPW scattering are shown with black-dashed lines. The two scattering vectors represent scattering measured at different scattering angle $\theta_{s1}$ and $\theta_{s2}$.}
+    \label{fig:vectors1}
+\end{figure}
+
+Using these equations, Eq. \ref{eq:Ps} and Eq. \ref{eq:S-general} can be rewritten in the measurement coordinates namely $\lambda_s$ and $\theta$
+
+\begin{equation}\label{Pslambda}
+    P_s(\lambda_s,\theta)=P_s(\textbf{R},\omega_s)\frac{\omega_s^2}{2\pi c}=\frac{P_i r_0^2 L}{4 \pi^2 c}\omega^2_s \left(1+\frac{2\omega}{\omega_i}\right) \left\vert \hat{s} \times \left(\hat{s} \times \hat{E}_{i0}\right)\right\vert^2 n_e S(x,\theta)
+\end{equation}
+
+Here we have left the $\mathbf{R}$ dependence unaltered. We have also introduced the new normalized velocity, $x\equiv \frac{v}{v_{th}}=\frac{\omega}{kv_{th}}$.
+
+The structure factor can be written in terms of $x$,
+\begin{equation}\label{Sx}
+    S(x,\theta)=\frac{2\pi}{k v_{th}} \left\vert 1-\frac{\chi_e (x)}{\epsilon(x)}\right\vert^2 f_{e,1D}(x) +\frac{2\pi Z}{k v_{th}} \left\vert \frac{\chi_e(x)}{\epsilon(x)}\right\vert^2 f_{i,1D}(x).
+\end{equation}
+
+These equations are what TSADAR computes and compares to data.
+
+
+%======================================================================
+\section{Overview of the TSADAR computation}\label{sec:overview}
+%======================================================================
+
+The calculation of a synthetic spectrum from a set of plasma conditions that can be compared against data is called the forward model. The forward model lives in \file{tsadar/core/thomson\_diagnostic.py}
+(\code{ThomsonScatteringDiagnostic.\_\_call\_\_}) and proceeds in six stages, each taken
+up in its own section below:
+\begin{enumerate}
+  \item \textbf{Parameter denormalization} (\S\ref{sec:paramnorm}): the optimizer works in
+    an unconstrained normalized space; a sigmoid/logit reparameterization maps its raw
+    parameters onto bounded physical quantities $n_e,T_e,T_i,Z,\ldots$ and assembles the
+    electron distribution function object.
+  \item \textbf{Dynamic form factor} (\S\ref{sec:edf}--\ref{sec:assemble}): given the
+    denormalized plasma parameters and $f_e$, this evaluates $\chi_e$, $\chi_i$,
+    $\varepsilon$, and $S(k,\omega)$ for the EPW and IAW features (Eq.~\ref{eq:S-general}),
+    optionally layering on top of it a parametric-instability (SRS/SBS) gain calculation
+    that reuses the same susceptibilities.
+  \item \textbf{Gradient and angle averaging} (\S\ref{sec:downstream}): the raw $S(k,\omega)$
+    is averaged over a small set of plasma conditions sampling a density/temperature
+    gradient across the probed volume, and over the finite collection aperture.
+  \item \textbf{Instrument response} (\S\ref{sec:irf}): the theoretical spectrum is
+    convolved with the spectrometer's (and, for imaging data, the collection optics')
+    finite resolution and binned onto actual detector pixels.
+  \item \textbf{Calibration} (\S\ref{sec:calibration}): not strictly part of the forward
+    model that produces the theory curve, but the affine pixel-to-physical-unit maps
+    documented there are what put the \emph{data} being fit onto the same wavelength/angle
+    axes the previous stages compute.
+  \item \textbf{Loss} (\S\ref{sec:loss}): the instrument-convolved theory is compared to
+    the measured data through a configurable per-pixel loss functional, optionally with a
+    full noise-covariance matrix, and reduced to the scalar the optimizer descends.
+\end{enumerate}
+
+%======================================================================
+\section{Parameter normalization}\label{sec:paramnorm}
+\textit{\file{tsadar/core/modules/ts\_params.py}}
+%======================================================================
+
+Every scalar fit parameter ($T_e$, $n_e$, $T_i$, $Z$, $V_a$, species fraction, probe
+wavelength $\lambda$, amplitude nuisance parameters $\mathrm{amp}_{1,2,3}$, gradient
+percentages, drift velocity $u_d$) is carried by the optimizer not as its physical value
+but as an unconstrained real number, for two reasons. First, gradient-based minimizers
+work best when all parameters are of comparable magnitude, and $n_e\sim10^{19}$,
+$T_e\sim1$, and a species fraction $\sim0.1$ do not naturally share a scale. Second, most
+minimizers have no notion of a hard bound: constraints imposed by clamping can produce
+undefined or discontinuous gradients right at the boundary, exactly where the algorithm is
+most likely to want to go. Both problems are solved by fitting in a transformed space that
+approaches its bounds asymptotically and can never reach them.
+
+Let $p$ be the physical value and $[\ell,u]$ its configured bounds, read from the input
+deck's \code{lb}/\code{ub} by each owning parameter class (e.g.\ \code{ElectronParams.\_\_init\_\_});
+the sigmoid/logit pair itself is supplied separately by \code{get\_act\_and\_inv\_act}. Define
+\begin{equation}
+  \text{scale} = u-\ell,\qquad \text{shift}=\ell,\qquad x=\frac{p-\text{shift}}{\text{scale}}\in[0,1].
+\end{equation}
+If the parameter is being actively fit, the optimizer sees a \emph{stabilized logit} of $x$
+rather than $p$ itself,
+\begin{equation}
+  x_n = \ln\!\left(0.01+\frac{x}{1.01-x}\right),
+\end{equation}
+(the $0.01/1.01$ offsets keep $x_n$ finite as $x\to0,1$, rather than diverging exactly at
+the boundary), and the inverse map recovers the physical value from the optimizer's raw
+parameter $x_n$ via a sigmoid,
+\begin{equation}
+  p = \sigma(x_n)\cdot\text{scale}+\text{shift}, \qquad \sigma(x_n)=\frac{1}{1+e^{-x_n}}.
+\end{equation}
+For inactive parameters, or when normalization is turned off, this transform is replaced with the identity map.
+
+The parameters as well as their fit state and normalization/unnormalization function are carried by an instance of the \code{ThomsonParams} class. Within the class each parameter is contained within a class representing its physical association.
+\code{ElectronParams} normalizes $T_e,n_e$ this way and also owns the electron distribution
+function object (\S\ref{sec:edf}); \code{IonParams} normalizes $T_i,Z,V_a$, and species
+fraction; \code{GeneralParams} normalizes $\lambda$, $\mathrm{amp}_{1,2,3}$, the gradient
+percentages, $u_d$, and the two bremsstrahlung-background nuisance parameters
+$\mathrm{brem\_amp}$, $\mathrm{brem\_c}$ (\S\ref{sec:brem}). 
+\code{ThomsonParams.renormalize\_ions} additionally enforces
+$\sum_s\mathrm{fract}_s=1$ by dividing every species fraction by their sum, since fractional
+ion populations are only physically meaningful relative to each other.
+
+%======================================================================
+\section{Electron distribution functions}\label{sec:edf}
+\textit{\file{tsadar/core/modules/distribution\_functions/base.py}, \file{spherical\_harmonics.py}}
+%======================================================================
+
+\subsection{Physical motivation: inverse-bremsstrahlung heating and the Langdon effect}\label{sec:dlm-physics}
+
+As argued in \S\ref{sec:vlasov}, the Vlasov equation's collisionless solution is a
+Maxwellian only when the plasma has had time to relax under binary electron-electron
+collisions and nothing continues to push it away from equilibrium. In laser-produced
+plasmas, something does: the dominant laser absorption mechanism in underdense plasma is
+\textbf{inverse bremsstrahlung}, in which an electron oscillating in the laser's electric
+field collides with an ion and retains some of the momentum gained from the field,
+converting quiver energy into thermal energy. The rate at which an electron absorbs energy
+this way scales as $v^{-3}$ (the electron-ion collision rate), so slow electrons are
+heated preferentially while fast electrons are barely affected. Solving the
+Boltzmann equation with this competition between selective inverse-bremsstrahlung heating
+and electron-electron thermalization (Langdon 1980) gives a steady-state distribution of
+super-Gaussian form,
+\begin{equation}\label{eq:dlm-physics}
+  f_m(v) = C_m\exp\!\left[-\left(\frac{v}{a_mv_{th}}\right)^m\right], \qquad
+  a_m = \sqrt{\frac{3\,\Gamma(3/m)}{\Gamma(5/m)}},
+\end{equation}
+this is the Dum--Langdon--Matte (DLM) distribution named after the three papers that introduced the theory.
+An equation of this form reduces to the ordinary Maxwellian at $m=2$: $3\Gamma(3/2)/\Gamma(5/2)=2$
+exactly, so $a_2=\sqrt2$ and $f_2(v)=\exp[-v^2/(2v_{th}^2)]$, the standard $1$D Maxwellian
+written with $v_{th}=\sqrt{T/m_e}$. 
+
+The order $m$ varies continuously between a Maxwellian ($m=2$, when electron-electron collisions dominate) and a flattened,
+depleted-tail distribution ($m=5$, the theoretical maximum, when inverse-bremsstrahlung
+heating completely dominates). Matte \textit{et al.} used Fokker--Planck simulations to relate $m$ directly to the
+competition between the two processes through the single dimensionless \textbf{Langdon
+parameter} $\alpha = Zv_{\rm osc}^2/v_{th}^2$ (the ratio of the IB heating rate to the e-e thermalization rate), giving the empirical scaling 
+\begin{equation}\label{eq:matte-physics}
+  m(\alpha) = 2+\frac{3}{1+1.66\,\alpha^{-0.724}}.
+\end{equation}
+This is exactly the mechanism responsible for the spectral changes discussed in
+\S\ref{sec:vlasov}: because $m>2$ implies a shallower tail and hence less Landau damping,
+a laser-heated plasma's EPW feature is systematically narrower than a Maxwellian plasma of
+the same bulk temperature would produce, and a fit that is not allowed to explore $m\neq2$
+will misattribute that narrowing to the wrong $n_e,T_e$.
+
+TSADAR represents $f_e(v)$ (1D, isotropic-in-speed) or $f_e(v_x,v_y)$ (2D) on a uniform,
+cell-centered velocity grid $v\in[-6,6]v_{Te}$, with the functional form selected by the
+input deck's \code{fe.dim}/\code{fe.type}. All distribution functions in TSADAR are normalized so their zeroth moment is $1$ and all the higher moments have their usual form divided by density. These normalizations effectively allow density and temperature to be factored out, so any Maxwellian can be represented by the same equation, just with independently tracked density and temperature.
+
+\subsection{The DLM family in TSADAR}\label{sec:dlm}
+
+Following the normalization conventions, the isotropic super-Gaussian of
+Eq.~\ref{eq:dlm-physics}, is
+\begin{equation}
+  x=v/v_{th}, \qquad x_0=\sqrt{\frac{3\,\Gamma(3/m)}{\Gamma(5/m)}}, \qquad
+  f_{\rm DLM}(v) = \exp\!\left[-\vert x/x_0\vert^m\right],
+\end{equation}
+renormalized so $\sum_v f_{\rm DLM}(v)\,\Delta v=1$ (\code{Arbitrary1V.init\_dlm}). Two
+modes are available for how $f_e$ actually participates in the fit. In the
+\code{"dlm"} mode, only the shape parameter $m$ is fit: a precomputed table of $f_{\rm
+DLM}(v;m)$ is bilinearly interpolated onto the working grid at the current $m$
+(\code{DLM1V}), which is far cheaper than regenerating the super-Gaussian on the fly and projecting it into 1D along $k$. 
+
+In the freely-fit \code{"arbitrary"} mode, the
+distribution itself is a set of $\sim\!100$ free parameters -- the numerical analogue of
+letting the fit discover whatever non-Maxwellian shape the data actually demand, rather
+than assuming a super-Gaussian a priori. In this mode, Eq.~\ref{eq:dlm-physics} is only used to initialize the distribution. Fitting $f_e$ directly in linear space is poorly
+conditioned (values of the distribution function at high velocity will likely be 10s or up to $\sim100$ orders of magnitude smaller than near zero velocity), so the array is stored in a transformed
+representation $f_{\rm val}=\sqrt{-\log_{10}f_{\rm DLM}}$ that stays smooth, strictly
+positive, and roughly $O(1)$ in magnitude under gradient-based optimization; the forward
+map back to a distribution is
+\begin{equation}
+  f_e(v) = \frac{10^{-f_{\rm val}(v)^2}}{\sum_v 10^{-f_{\rm val}(v)^2}\,\Delta v}.
+\end{equation}
+Before transforming to real values, $f_{\rm val}$ is passed through a smoothing filter (a Hanning-window convolution, or a
+forward--backward second-order digital Butterworth filter) to keep the optimizer from
+carving unphysical spikes or oscillations into the distribution.
+
+\subsubsection{The Langdon (``Matte'') closure}
+
+\code{set\_fe\_to\_matte} implements Eq.~\ref{eq:matte-physics} directly, so that $m$ need
+not be a free parameter at all but can instead be \emph{derived} from the other fit
+parameters at every iteration. This can be useful when m is poorly constrained on its own or to reduce complexity when Matte is expected to hold. Given the ion charges and fractions,
+\begin{equation}
+  \bar Z=\sum_s\mathrm{fract}_sZ_s, \qquad \overline{Z^2}=\sum_s\mathrm{fract}_sZ_s^2,
+  \qquad Z_{\rm eff}=\overline{Z^2}/\bar Z,
+\end{equation}
+the code's practical form of the Langdon parameter (laser intensity $I$ in $10^{14}$ W/cm$^2$, $T_e$ in keV) is
+\begin{equation}
+  \alpha_L = \frac{0.042\,I\,Z_{\rm eff}}{9\,T_e}.
+\end{equation}
+This is more transparent when written as the ``engineering'' formula it comes from. The
+Langdon parameter's own definition, $\alpha=Zv_{\rm osc}^2/v_{th}^2$, is awkward to
+compute directly, since $v_{\rm osc}$ (the quiver velocity of an electron in the laser
+field) is rarely what's quoted for a shot. From Matte \textit{et al.},
+\begin{equation}\label{eq:langdon-engineering}
+  \alpha = Z\frac{v_{\rm osc}^2}{v_{th}^2} = 0.042\frac{I}{10^{14} \si{W.cm^{-2}}}\frac{\lambda_0^2}{(1.06 \si{\mu m})^2}\frac{1}{k_B T_e (\si{keV})}Z.
+\end{equation}
+The original equation differs from this in two ways. $Z$ has been replaced by $Z_{eff}$ following the generalization of IB heating to plasmas with mixed ion species. And the wavelength dependence has been hardcoded to interpret the input intensity as $3\omega$ light. A laser of another color can be included by calculating its $3\omega$ equivalent intensity ($I_{3\omega, equiv} = I \frac{\lambda^2}{(0.35\si{\mu m})^2}$). 
+$\alpha_L$ is then fed through Eq.~\ref{eq:matte-physics} to get $m$, which is fed in turn into the
+tabulated super-Gaussian interpolant of \S\ref{sec:dlm} to regenerate $f_e$ at the current
+iteration's parameter values.
+
+\subsubsection{2D and anisotropic (``bi-DLM'') distributions}
+
+The isotropic 2D case is the direct Cartesian analogue of Eq.~\ref{eq:dlm-physics},
+\begin{equation}
+  f(v_x,v_y) = \exp\!\left[-\left(\sqrt{x_x^2+x_y^2}/x_0\right)^m\right],
+\end{equation}
+normalized by $\sum f\,\Delta v^2$ (\code{Arbitrary2V.init\_dlm}). Because inverse
+bremsstrahlung heating is driven by a laser with a definite polarization, the heated
+electrons are not, in detail, perfectly isotropic -- there is a preferred (heat-flux)
+direction, and the anisotropic ``bi-DLM'' variant (\code{init\_bidlm}) models a
+distribution with an independent order/temperature along that axis. With $n=m\,m_{\rm asym}$,
+\begin{equation}
+  r_0 = \frac{2\sqrt{\Gamma\!\big(\tfrac{2+m}{m}\big)}}{\sqrt{\Gamma\!\big(\tfrac{4+m}{m}\big)}},
+  \qquad z_0=\sqrt{\frac{3\Gamma(1+1/n)}{\Gamma\!\big(\tfrac{3+n}{n}\big)}},
+\end{equation}
+\begin{equation}
+  f_{3D}(v_x,v_y,v_z) = \exp\!\left[-\left(\frac{\sqrt{v_x^2+v_y^2}}{r_0}\right)^m\right]
+  \exp\!\left[-\left(\frac{\vert v_z\vert/\sqrt{t_{\rm asym}}}{z_0}\right)^n\right],
+\end{equation}
+integrated (trapezoid rule) over $v_y$ to project down to a 2D array, rotated by a
+configured angle, then renormalized by rescaling the velocity axes by
+$\sqrt{\langle v^2\rangle/(2\langle v^0\rangle)}$, the numerical (\code{calc\_moment}) ratio
+of the second to zeroth moment, so the resulting distribution matches the target thermal
+speed. DLM theory itself is developed strictly in
+spherical symmetry, keeping only the isotropic component, so this ansatz agrees with the
+underlying theory only in the trivial case $m_{\rm asym}=1$, $t_{\rm asym}=1$.
+
+\subsection{Anisotropic distributions: the spherical-harmonic expansion}\label{sec:sph}
+
+\begin{figure}[h!]
+    \centering
+    \tdplotsetmaincoords{60}{120}
+    \begin{tikzpicture}[scale=4,tdplot_main_coords]
+    \pgfsetlinewidth{1pt}
+    %set up some coordinates 
+    %-----------------------
+    \coordinate (O) at (0,0,0);
+    
+    %determine a coordinate (P) using (r,\theta,\phi) coordinates.  This command
+    %also determines (Pxy), (Pxz), and (Pyz): the xy-, xz-, and yz-projections
+    %of the point (P).
+    %syntax: \tdplotsetcoord{Coordinate name without parentheses}{r}{\theta}{\phi}
+    \tdplotsetcoord{k}{.9}{0}{0}
+    \tdplotsetcoord{f1}{.9}{115}{0}
+    \tdplotsetcoord{v}{.9}{45}{45}
+    
+    %draw the main coordinate system axes
+    \draw[thick,->] (0,0,0) -- (1,0,0) node[anchor=north east]{$\hat{x}$};
+    \draw[thick,->] (0,0,0) -- (0,1,0) node[anchor=north west]{$\hat{y}$};
+    \draw[thick,->] (0,0,0) -- (0,0,1) node[anchor=south]{$\hat{z}$};
+    
+    %draw a vector from origin to point (k) 
+    \draw[-stealth,color=black] (O) -- (k) node[anchor=north west]{$k$};
+    \draw[-stealth,color=blue] (O) -- (f1) node[anchor=north west]{$f_{1}$};
+    \draw[-stealth,color=red] (O) -- (v) node[anchor=north west]{$\textbf{v}$};
+    
+    \tdplotsetrotatedcoords{90}{90}{180}
+    \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.4}{0}{115}{above right}{$\beta$}
+    %\tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.25}{0}{-45}{above left}{$\xi$}
+    
+    \end{tikzpicture}
+    \caption{The anisotropic component of the distribution function $f_1$ is shown in blue in the coordinate system where $\hat{z}=\hat{k}$.}
+    \label{fig:vectors2}
+\end{figure}
+
+The bi-DLM shape is a convenient parametric guess at anisotropy. \file{spherical\_harmonics.py}
+provides a more general treatment, reachable when \code{fe.type} contains \code{"sph"};
+it is worth deriving physically, since it is exactly the kind of closure classically
+used for the electron heat-flux problem in laser plasmas. Write the 3D distribution as an
+isotropic piece plus a small anisotropic perturbation, $f_e = f_0(v) + \hat{\mathbf
+v}\cdot\mathbf f_1(v)$ -- a first-order Legendre expansion in the angle between $\mathbf v$
+and whatever direction singles out the anisotropy (here, $\mathbf k$, since that is the
+only preferred direction that matters for the susceptibility integral). Choosing
+coordinates with $\hat z\parallel\hat k$ oriented so $\mathbf f_1$ lies in the $x-y$ plane we can describe the direction of $\mathbf f_1$ with a single angle $\beta$ from the $\hat z$ to $\mathbf f_1$. The 1D distribution needed by Eq.~\ref{eq:chi-of-x} is the projection
+of $f_e$ onto $\hat k$:
+\begin{equation}
+  f_e^{(1D)}(k,\omega) = \int d^3v\,\big[f_0+\hat{\mathbf v}\cdot\mathbf f_1\big]\,
+  \delta\!\left(v_z-\frac{\omega}{k}\right)
+  = 2\pi\int_0^\infty v_r\,dv_r\Big[f_0 + \cos\beta\,f_1\Big],
+\end{equation}
+where the azimuthal integral has already been carried out; the isotropic term survives
+unchanged (it has no preferred direction to be projected against), while the anisotropic
+term survives only through its projection onto $\hat k$ -- any component of $\mathbf f_1$
+perpendicular to $\hat k$ integrates to zero by symmetry.
+
+The spherical-harmonic representation itself carries this further and expands the full
+angular dependence rather than truncating at $l=1$:
+\begin{equation}
+  f(v_x,v_y) = f_{00}(v_r)+\sum_{l=1}^{N_l}\sum_{m=0}^{l}f_{l,m}(v_r)\,
+  \operatorname{Re}\!\big[Y_l^m(\theta,\phi)\big], \qquad v_r=\sqrt{v_x^2+v_y^2},
+\end{equation}
+evaluated via \code{jax.scipy.special.sph\_harm\_y} on a radial grid and interpolated onto
+the working Cartesian grid, floored at $10^{-32}$ and renormalized so $\sum f\,\Delta
+v^2=1$. The isotropic term $f_{00}$ is again a radial super-Gaussian, this time normalized
+as a proper spherical-shell density ($\int f_{00}\,4\pi v^2\,dv=1$, with $v_e\equiv1$):
+\begin{equation}
+  v_0=\frac{v_e}{\sqrt{\Gamma(5/m)/(3\Gamma(3/m))}}, \qquad c=\frac{m}{4\pi\Gamma(3/m)},
+  \qquad f_{00}(v_r)=\frac{c}{v_0^3}\exp\!\left[-(v_r/v_0)^m\right].
+\end{equation}
+The anisotropic $f_{l,m}$ coefficients ($l=1,\ldots,N_l$, the $l=1$ term being exactly the
+$\mathbf f_1$ of the projection derivation above) are built by one of three interchangeable
+parameterizations:
+\begin{itemize}
+  \item \textbf{Free-form neural network} (\code{FLM\_NN}): two small MLPs map
+    $v_r\mapsto(\text{log-magnitude},\text{sign})$, combined as
+    \begin{equation}
+      f_{l,m}(v_r) = 10^{-\operatorname{relu}(\mathrm{MLP}_{\rm mag}(v_r))}\,f_{00}(v_r)\,
+      \tanh\!\big(\mathrm{MLP}_{\rm sign}(v_r)\big),
+    \end{equation}
+    bounded in magnitude by $f_{00}$ so the anisotropic piece can never exceed the
+    isotropic one it perturbs.
+  \item \textbf{Mora \& Yahi (1982) heat-flux closure} \cite{mora1982} (\code{FLM\_MY}): a physically
+    motivated closed-form for the $l=1$ term, derived from the electron Fokker--Planck
+    equation for the heat-flux-carrying anisotropy driven by a temperature gradient, as a
+    function of the isotropic super-Gaussian order $m$ (their Eq.~3). With
+    \begin{equation}
+      u(v_r)=v_r\sqrt{\Gamma(5/m)/(3\Gamma(3/m))},
+    \end{equation}
+    \begin{equation}
+      \mathrm{coeff}(v_r) = \left[\frac{m}{2}u^{m}
+      -\frac{5m}{12}\frac{\Gamma(8/m)}{\Gamma(6/m)}u^{m-2}
+      -\frac32\right]v_r^4, \qquad f_{1,m}(v_r)=\mathrm{coeff}(v_r)\cdot dt\cdot f_{00}(v_r),
+    \end{equation}
+    where $dt$ is a fitted scale parameter standing in for the gradient scale length that
+    physically sets the heat-flux amplitude in the Mora--Yahi theory. Only $l=1$, $m=0,1$
+    are implemented.
+  \item \textbf{Free-form radial array} (\code{ArbitraryVr}): an unconstrained numerical
+    anisotropy profile, $f_{l,m}(v_r)=10^{-10\sigma(\mathrm{smooth}(f_{\rm mag}))}
+    \tanh(\mathrm{smooth}(f_{\rm sign}))$, the anisotropic analogue of the freely-fit 1D
+    case in \S\ref{sec:dlm}.
+\end{itemize}
+
+\section{Distribution function projections}\label{sec:projections}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \tdplotsetmaincoords{60}{120}
+        \begin{tikzpicture}[scale=4,tdplot_main_coords]
+        \pgfsetlinewidth{1pt}
+        %set up some coordinates 
+        %-----------------------
+        \coordinate (O) at (0,0,0);
+        
+        %determine a coordinate (P) using (r,\theta,\phi) coordinates.  This command
+        %also determines (Pxy), (Pxz), and (Pyz): the xy-, xz-, and yz-projections
+        %of the point (P).
+        %syntax: \tdplotsetcoord{Coordinate name without parentheses}{r}{\theta}{\phi}
+        \tdplotsetcoord{k_L}{.9}{0}{0}
+        \tdplotsetcoord{k_s1}{.9}{30}{90}
+        \tdplotsetcoord{k_s2}{.9}{50}{90}
+        \tdplotsetcoord{k1}{.9}{120}{90}
+        \tdplotsetcoord{k2}{.9}{140}{90}
+        %draw figure contents
+        %--------------------
+        
+        %draw the main coordinate system axes
+        \draw[thick,->] (0,0,0) -- (1,0,0) node[anchor=north east]{$\hat{x}$};
+        \draw[thick,->] (0,0,0) -- (0,1,0) node[anchor=north west]{$\hat{y}$};
+        \draw[thick,->] (0,0,0) -- (0,0,1) node[anchor=south]{$\hat{z}$};
+        
+        %draw a vector from origin to point (k) 
+        \draw[-stealth,color=green] (O) -- (k_L) node[anchor=north east]{$k_L$};
+        \draw[-stealth,color=red] (O) -- (k_s1) node[below left =2pt]{$k_{s1}$};
+        \draw[-stealth,color=red] (O) -- (k_s2) node[anchor=north west]{$k_{s2}$};
+        \draw[-stealth,color=black] (O) -- (k1) node[anchor=north west]{$k_{1}$};
+        \draw[-stealth,color=black] (O) -- (k2) node[anchor=north west]{$k_{2}$};
+        
+        %draw the angle \theta, and label it
+        %syntax: \tdplotdrawarc[coordinate frame, draw options]{center point}{r}{angle}{label options}{label}
+        \tdplotsetthetaplanecoords{90}
+        \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.3}{0}{30}{anchor=north}{$\theta_{s1}$}
+        \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.2}{0}{50}{below right=3pt}{$\theta_{s2}$}
+        
+        \tdplotsetcoord{f1}{.9}{45}{-20}
+        \draw[-stealth,color=blue] (O) -- (f1) node[anchor=north east]{$f_1$};
+        %draw projection on xy plane, and a connecting line
+        \draw[dashed, color=blue] (O) -- (f1xy);
+        \draw[dashed, color=blue] (f1) -- (f1xy);
+        \tdplotsetthetaplanecoords{160}{0}
+        \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.25}{0}{-45}{above left}{$\xi$}
+        \tdplotdrawarc{(O)}{0.25}{0}{-20}{left=4pt}{$\zeta$}
+        
+        %draw a vector from origin to point (k) 
+        \draw[->,dashed,color=black] (k_L) -- (k_s1) node[above left=10pt]{$k_1$};
+        \draw[->,dashed,color=black] (k_L) -- (k_s2) node[above left=4pt]{$k_{2}$};
+        
+        \tdplotsetrotatedcoords{-30}{-22.5}{0}
+        \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.4}{-80}{90}{above right}{$\beta$}
+        %\tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.25}{0}{-45}{above left}{$\xi$}
+        
+        \end{tikzpicture}
+        \caption{Thomson probe vector is shown in green, scattering vectors are shown in red, and k-vectors corresponding to the blueshifted EPW scattering are shown in black lines. $f_1$ is shown in blue with it's polar angle $\xi$ and it's azimuthal angle $\zeta$. $\beta$ is defined to be the angle between $f_1$ and $k$.}
+        \label{vectors3}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+       \centering
+        \tdplotsetmaincoords{60}{120}
+        \begin{tikzpicture}[scale=4,tdplot_main_coords]
+        \pgfsetlinewidth{1pt}
+        %set up some coordinates 
+        %-----------------------
+        \coordinate (O) at (0,0,0);
+        
+        %determine a coordinate (P) using (r,\theta,\phi) coordinates.  This command
+        %also determines (Pxy), (Pxz), and (Pyz): the xy-, xz-, and yz-projections
+        %of the point (P).
+        %syntax: \tdplotsetcoord{Coordinate name without parentheses}{r}{\theta}{\phi}
+        \tdplotsetcoord{k_L}{.9}{0}{0}
+        \tdplotsetcoord{k_s1}{.7}{30}{90}
+        \tdplotsetcoord{k_s2}{.9}{30}{90}
+        \tdplotsetcoord{k1}{.5}{120}{90}
+        \tdplotsetcoord{k2}{.5}{145}{90}
+        %draw figure contents
+        %--------------------
+        
+        %draw the main coordinate system axes
+        \draw[thick,->] (0,0,0) -- (1,0,0) node[anchor=north east]{$\hat{x}$};
+        \draw[thick,->] (0,0,0) -- (0,1,0) node[anchor=north west]{$\hat{y}$};
+        \draw[thick,->] (0,0,0) -- (0,0,1) node[anchor=south]{$\hat{z}$};
+        
+        %draw a vector from origin to point (k) 
+        \draw[-stealth,color=green] (O) -- (k_L) node[anchor=north east]{$k_L$};
+        \draw[-stealth,color=red] (O) -- (k_s1) node[below left =2pt]{$k_{s1,x1}$};
+        \draw[-stealth,color=red] (O) -- (k_s2) node[anchor=north west]{$k_{s1,x2}$};
+        \draw[-stealth,color=black] (O) -- (k1) node[anchor=north west]{$k_{2}$};
+        \draw[-stealth,color=black] (O) -- (k2) node[anchor=north west]{$k_{1}$};
+        
+        %draw the angle \theta, and label it
+        %syntax: \tdplotdrawarc[coordinate frame, draw options]{center point}{r}{angle}{label options}{label}
+        \tdplotsetthetaplanecoords{90}
+        \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.3}{0}{30}{anchor=north}{$\theta_{s1}$}
+    
+        
+        \tdplotsetcoord{f1}{.9}{45}{-20}
+        \draw[-stealth,color=blue] (O) -- (f1) node[anchor=north east]{$f_1$};
+        %draw projection on xy plane, and a connecting line
+        \draw[dashed, color=blue] (O) -- (f1xy);
+        \draw[dashed, color=blue] (f1) -- (f1xy);
+        \tdplotsetthetaplanecoords{160}{0}
+        
+        %draw a vector from origin to point (k) 
+        \draw[->,dashed,color=black] (k_L) -- (k_s1) node[above left=10pt]{$k_1$};
+        \draw[->,dashed,color=black] (k_L) -- (k_s2) node[above left=4pt]{$k_{2}$};
+        
+        \tdplotsetrotatedcoords{-30}{-22.5}{0}
+        \tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.4}{-80}{90}{above right}{$\beta$}
+        %\tdplotdrawarc[tdplot_rotated_coords]{(O)}{0.25}{0}{-45}{above left}{$\xi$}
+        
+        \end{tikzpicture}
+        \caption{Thomson probe vector is shown in green, scattering vectors are shown in red, and k-vectors corresponding to the blueshifted EPW scattering are shown in black lines. $\beta$ is defined to be the angle between $f_1$ and $k$.}
+        \label{vectors4}
+    \end{subfigure}
+    \caption{Examples of relationship between scattering vector and required projection.}
+    \label{fig:vectors34}
+\end{figure}
+
+The distribution function constructed in 1D, 2D, or 3D must be projected onto the wavevector of the probed fluctuation $\textbf{k}$, as discussed in \S \ref{sec:vlasov} -- the same projection integral introduced in \S\ref{sec:sph}, worked out here in full for both the 1D and 2D cases,
+\begin{equation}\label{fekw}
+    f_{e,1D}(k,\omega)=\int d\textbf{v} f_{e,3D} \delta(v-v_k) \\
+    = \int d\textbf{v} [f_0 +\frac{\textbf{v}}{|v|}\cdot f_{1}] \delta(v-v_k)
+\end{equation}
+Figure \ref{fig:vectors34} shows how the projection depends on the scattering angle $\theta_s$ and the scattered wavelength through $\textbf{k}_s$. Two distinct scattering angles (as shown in fig. \ref{fig:vectors34} (a)) result in distinct k-vectors of probed fluctuations, both in the direction and magnitude of $\textbf{k}$. Dependence on scattering angle means that unique projections are required for each scattering angle either for finite aperture effects or ARTS. What makes these projections significantly more difficult is the additional dependence on scattered wavelength. Figure \ref{fig:vectors34} (b) demonstrates this wavelength dependence, each scattered wavelength measured as part of a spectrum corresponds to a different length $\textbf{k}_s$ pointed in the same direction. The direction is set by the location of the detector while the change in length is due to the change in wavelength. While the $\textbf{k}_s$s are all parallel, the resulting $\textbf{k}$ are not parallel or the same length. So the projection changes with both scattering angle and wavelength meaning each combination of ($\textbf{k}_s$,$\theta_s$) requires a unique projection of the true 3D distribution function. 
+
+
+\subsection{Projecting for 1D distribtuions}
+
+When the distribution function is a spherically symmetric 1D function (i.e. only dependent on the radial coordinate) we can exploit the symmetry to simplify the projections. A 1D spherical symmetric distribution has no dependence on the polar coordinates $(\xi,\zeta)$ and therefore the projection at any $\theta_s$ is the same, only the magnitude of $k$ changes with scattering angle or wavelength. Because of this simplification only a single 1D distribution function needs to be carried by the code as any 1d projection is the same as all the others. For cases where that distribution function is from the DLM family the 1D distribution function has been tabulated as a function of $m$ so the correct 1D distribution can be read from the table instead of generated at every iteration by projecting the distribution from 3D to 1D. When working with the 1D arbitrary distributions, it is the projected 1D distribution that is carried and modified.
+
+\subsection{The sinogram: projecting in 2D}
+
+For the anisotropic 2D path (\S\ref{sec:sph}) each point of the normalized electron velocity grid $x_{ie}$ represents a unique projection that must be performed. As in \S\ref{sec:sph}, choosing coordinates with $\hat{z}=\hat{k}$ so that $f_1$ lies in the $x$-$z$ plane at an angle $\beta$ to the $z$-axis (Figure \ref{fig:vectors2}) makes the integral in eq. \ref{fekw} straightforward to perform in either cylindrical or cartesian coordinates -- how TSADAR actually determines $\beta$ for a given $\mathbf k$ is described below. Rewriting this integral in cylindrical,
+\begin{equation}
+    f_{e,1D}(k,\omega)=\int d\textbf{v} [f_0 +\frac{\textbf{v}}{|v|}\cdot f_{1}] \delta(v-v_k)=
+    \int\limits_0^{2\pi}\int\limits_0^\infty [f_0 +\frac{\textbf{v}}{|v|}\cdot f_{1}] v_r dv_r dv_\theta,
+\end{equation}
+and expanding the dot product,
+\begin{equation}
+    f_{e,1D}(k,\omega)= \int\limits_0^{2\pi}\int\limits_0^\infty [f_0 +\frac{v_r}{|v|}\cos(v_{\phi}) \sin(\beta) f_{1} +\frac{v_z}{|v|} \cos(\beta) f_{1}] v_r dv_r dv_\theta.
+\end{equation}
+
+The first term of this integral gives the isotropic contribution to the one dimensional distribution function. This term does not depend on the directions of $f_1$ or $\textbf{k}$. The third term gives the anisotropic contribution and demonstrates why the dot product is often written as the cosine of the projection angle. The second term integrates to 0 because of the symmetry of the cosine.
+
+Accounting for the change of variable from $v=\omega/k$ to $x=v/v_{th}$, the one-dimensional distribution function is
+
+\begin{equation}\label{fex}
+    f_{e,1D}(x)=v_{th} f_{e,1D}(k,\omega)=2\pi v_{th} \int\limits_0^\infty [f_0 +\frac{v_z}{|v|} \cos(\beta) f_{1}] v_r dv_r.
+\end{equation}
+
+Because $f_e(v_x,v_y)$ is stored on a fixed Cartesian velocity grid whose axes are
+arbitrary lab-frame directions, while $\mathbf k$ points in a different direction for
+essentially every (scattering-angle, wavelength) combination probed, the direction $f_e$
+must be projected along changes from point to point. That direction is set purely by
+$\mathbf k$ itself,
+\begin{equation}\label{eq:beta-def}
+  \beta=\operatorname{atan2}(\hat k_y,\hat k_x), \qquad \hat k\equiv\mathbf k/|\mathbf k|,
+\end{equation}
+the polar angle of $\hat k$ in the $(v_x,v_y)$ plane (\code{\_electron\_resonance} in
+\file{form\_factor.py}). A bulk plasma flow does not rotate this direction: flow shifts
+the point along the projection that must be evaluated -- through the resonance coordinate
+$x_e$, Eq.~\ref{eq:chi-of-x} below -- but a component of flow perpendicular to $\mathbf k$
+cannot change which way $\mathbf k$ itself points, so $\beta$ depends only on the
+scattering geometry and wavelength (\S\ref{sec:freqk}), never on $\mathbf V_a$ or $u_d$.
+
+Numerically, projecting $f_e$ onto $\hat k$ means rotating the 2D array by $-\beta$ and
+summing over the axis perpendicular to $\hat k$ (\code{FormFactor.project}) -- exactly the
+line integral a Radon transform takes at angle $\beta$, and the operation the rest of this
+subsection tabulates in advance.
+
+This $\beta$ is the same angle that appears in the projection integral of \S\ref{sec:sph}
+(Eq.~\ref{fex}, Figures \ref{fig:vectors2}, \ref{fig:vectors34}) -- the angle between
+$\mathbf f_1$ and $\mathbf k$ -- even though nothing here ever computes that angle from
+$\mathbf f_1$ directly. $\mathbf f_1$ is never carried as an independent vector: its
+direction is fixed by construction in the same $(v_x,v_y)$ grid frame $f_e$ itself lives
+on (\code{spherical\_harmonics.py} measures its polar angle from the $v_x$ axis of that
+grid, not from $\mathbf k$). Rotating the whole array so $\hat k$ lines up with a fixed
+grid axis and then summing is exactly equivalent to taking the dot product of $\mathbf f_1$
+with $\hat k$ at every point -- it just gets there by moving $\hat k$ into $f_1$'s frame
+instead of the other way around, which is why $\beta=\operatorname{atan2}(\hat k_y,\hat
+k_x)$ alone, with no reference to $\mathbf f_1$'s own orientation, is enough to reproduce
+the $\cos\beta$ dependence of Eq.~\ref{fex}.
+
+Eq.~\ref{eq:radon-projection} depends on nothing but the angle $\beta$ -- not on
+$T_e,n_e,\lambda$, or which of the $\sim\!10^5$ (gradient-point, wavelength, scattering-angle)
+combinations a given evaluation belongs to. Yet the same handful of distinct angles $\beta$
+recur across all of them (only the scattering angle, and $\lambda$ through the
+wavelength-dependent direction of \S\ref{sec:freqk}, actually change $\beta$), so
+recomputing a fresh rotation and interpolation at every evaluation point is almost entirely
+redundant work.
+
+This is exactly the situation tomography starts from: a \textbf{sinogram} is the table
+produced by taking a 1D projection (line integral) of a 2D image at each of many angles and
+stacking the results as rows, so that later work with the projections doesn't require the
+original image again; a \textbf{Radon transform} is the map from the image to that table.
+TSADAR builds the same kind of table for $f_e$ -- not to reconstruct an image, as tomography
+does, but so that any later query at a given $\beta$ is a cheap row lookup rather than a
+fresh rotation. It tabulates the projection once, over a uniform grid of \code{n\_beta}
+angles spanning a full period (\code{FormFactor.\_build\_sinogram}, default
+\code{n\_beta}$=1024$):
+\begin{equation}\label{eq:radon-projection}
+  \mathrm{proj}[j,\cdot] = f_{1D}(v_\parallel;\ \beta_j), \qquad
+  \beta_j = \frac{2\pi j}{n_\beta}, \qquad j=0,\ldots,n_\beta-1,
+\end{equation}
+together with its derivative $\partial\,\mathrm{proj}/\partial v_\parallel$ (taken once
+per tabulated angle rather than once per evaluation point). Evaluating $\chi_e$ at a
+specific (angle, gradient-point, wavelength) point then reduces to a periodic Catmull-Rom
+interpolation of this precomputed table at the required $\beta$ (and, for the resonant
+point itself, at the required $v_\parallel=x_e$) rather than a fresh 2D rotation -- a linear
+interpolant was tried first but its derivative is only piecewise-constant in $\beta$, too
+coarse to fit against, hence the cubic (Catmull-Rom) stencil. Setting \code{n\_beta}$=0$
+falls back to the exact per-point rotation of Eq.~\ref{eq:radon-projection} directly (no
+tabulation); this exact path is kept specifically as the reference the tabulated one is
+validated against, not as a normal runtime option.
+
+%======================================================================
+\section{Susceptibilities}\label{sec:formfactor}
+\textit{\file{tsadar/core/physics/form\_factor.py}}
+%======================================================================
+
+The vector dependence of the general 3D electron susceptibility (Eq.~\ref{eq:chi-def})
+reduces to the same 1D form used throughout this document by the same
+cylindrical-coordinate construction used above to project $f_e$ (\S\ref{sec:projections}):
+using coordinates with $\hat{z}=\hat{k}$,
+
+\begin{equation}
+    \chi_e(\textbf{k},\omega)=\int\limits_{-\infty}^{\infty}\int\limits_{0}^{2 \pi}\int\limits_{0}^{\infty} v_rdv_r dv_\theta dv_z \frac{4\pi e^2 n_e}{m_e k^2} \frac{\textbf{k} \cdot \frac{\partial f_e}{\partial\textbf{v}}}{\omega-\textbf{k}\cdot\textbf{v}-i\gamma}
+\end{equation}{}
+
+evaluating the dot products
+
+\begin{equation}
+    \chi_e(\textbf{k},\omega)=\int\limits_{-\infty}^{\infty}\int\limits_{0}^{2 \pi}\int\limits_{0}^{\infty} v_rdv_r dv_\theta dv_z \frac{4\pi e^2 n_e}{m_e k^2} \frac{k \frac{\partial f_e}{\partial v_z}}{\omega-kv_z-i\gamma}
+\end{equation}{}
+
+pulling everything outside the integrals
+
+\begin{equation}
+    \chi_e(\textbf{k},\omega)=\frac{4\pi e^2 n_e}{m_e k^2} \int\limits_{-\infty}^{\infty} dv_z \frac{k \frac{\partial}{\partial v_z}\int\limits_{0}^{2 \pi}\int\limits_{0}^{\infty} v_rdv_r dv_\theta f_e}{\omega-kv_z-i\gamma}
+\end{equation}{}
+
+noting the definition of $f_{e0}$
+
+\begin{equation}
+    \chi_e(\textbf{k},\omega)=\frac{4\pi e^2 n_e}{m_e k^2} \int\limits_{-\infty}^{\infty} dv_z \frac{k \frac{\partial}{\partial v_z} f_{e0}(k,\omega)}{\omega-kv_z-i\gamma}
+\end{equation}{}
+
+Now substituting $v=xv_{th}$ and omitting the directional notation since we are down to one dimension.
+
+\begin{equation}
+    \chi_e(x)=\frac{4\pi e^2 n_e}{m_e k^2} \int\limits_{-\infty}^{\infty} v_{th}dx \frac{k/v_{th} \frac{\partial}{\partial x} f_{e0}(x)/v_{th}}{\omega-kxv_{th}-i\gamma}
+\end{equation}{}
+
+canceling k in the integral gives
+
+\begin{equation}
+    \chi_e(x)=\frac{4\pi e^2 n_e}{m_e k^2 v_{th}^2} \int\limits_{-\infty}^{\infty} dx \frac{\frac{\partial}{\partial x} f_{e0}(x)}{\frac{\omega}{kv_{th}}-x-i\gamma}
+\end{equation}{}
+
+The factor of $kv_{th}$ which multiplies $i\gamma$ has be omitted since this integral is evaluated in the limit $\gamma \rightarrow 0$. We can make one more simplification
+
+\begin{equation}\label{chix}
+    \chi_e(x)=\frac{1}{k^2 \lambda_{D}^2} \int\limits_{-\infty}^{\infty} dx \frac{\frac{\partial}{\partial x} f_{e0}(x)}{\frac{\omega}{kv_{th}}-x-i\gamma}
+\end{equation}{}
+
+TSADAR forms $\mathbf k=\mathbf k_s-\mathbf k_L$ as an explicit \emph{2D} (in-plane) vector
+subtraction throughout: \code{vsub}/\code{vdot} in \file{tsadar/utils/vector\_tools.py}
+operate on $(x,y)$ pairs, not general 3-vectors, so even the angularly-resolved path stays
+within the scattering plane rather than doing genuine 3D vector geometry. If the plasma
+itself is flowing with velocity $\mathbf V_a$, the resonance condition sees an additional
+bulk Doppler shift,
+\begin{equation}
+  \omega_{\rm dop} = \omega-\mathbf k\cdot\mathbf V_a,
+\end{equation}
+which is the frequency that actually appears in the susceptibility integrals below --
+$\mathbf V_a$ here is a stand-in for whichever species' flow is relevant: each ion
+species' own $V_a$ for its own term (\S\ref{sec:ionchi}), or the charge-weighted,
+order-independent combination of all species plus the electron drift for the electron term
+(\S\ref{sec:echi}).
+
+The normalized phase velocity that the electron and ion susceptibilities depend on
+(Eq.~\ref{eq:chi-def}, one-dimensional along $\hat k$) is $\omega_{\rm dop}/kv_{th}$ for a
+species of thermal velocity $v_{th}\equiv\sqrt{T/m}$ (the code's convention throughout;
+note the absence of the factor of 2 sometimes used elsewhere, consistent with writing a
+Maxwellian as $e^{-x^2/2}$). Write $x_e\equiv\omega_{\rm dop}/(kv_{Te})$ for the specific
+point $\chi_e$ must be evaluated at -- distinct from $x$ itself, the general
+normalized-velocity variable $f_{e0}$ is defined over (\S\ref{sec:dlm}). Writing
+Eq.~\ref{eq:chi-def} in this normalized variable and pulling out the electron Debye length
+then gives
+\begin{equation}\label{eq:chi-of-x}
+  \chi_e(x_e) = \frac{1}{k^2\lambda_{De}^2}\int_{-\infty}^{\infty}
+  \frac{\partial f_{e0}/\partial x}{x_e - x - i\gamma}\,dx, \qquad
+  k\lambda_{De}\equiv \frac{v_{Te}}{\omega_{pe}}\,k,
+\end{equation}
+where $f_{e0}$ is now the (normalized) 1D electron distribution as a function of $x=v/v_{Te}$
+and the sign convention matches Eq.~\ref{eq:chi-def} once the $i\gamma\to i\gamma\,
+kv_{th}$ rescaling is absorbed (it drops out entirely in the $\gamma\to0$ limit that is
+actually evaluated). The ion susceptibilities take the same form with each species' own
+$v_{Ti,s}$, $\lambda_{Di,s}$, and $x_{i,s}=\omega_{\rm dop}/(\sqrt2\,v_{Ti,s}k)$ (the
+extra $\sqrt2$ is purely a normalization convention carried over from the tabulated
+plasma-dispersion function, \S\ref{sec:ionchi}). This is the point where the physics
+derivation in \S\ref{sec:physics} hands off to the numerics: Eq.~\ref{eq:chi-of-x} is what
+\file{form\_factor.py} actually evaluates, once for the ions (analytically, via a
+tabulated special function) and once for the electrons (numerically, because $f_e$ is
+allowed to be an arbitrary fitted function). The rest of this document works through that
+evaluation and everything downstream of it.
+
+Eq.~\ref{eq:chi-of-x} is a principal-value integral over $f_{e0}$'s derivative, plus a
+resonant (residue) contribution exactly at the pole $x=x_e$. Splitting it this way is the
+Sokhotsky--Plemelj theorem,
+\begin{equation}
+  \lim_{\gamma\to0^+}\int_a^b\frac{f(x)}{x-x_e\mp i\gamma}\,dx
+  = \pm i\pi f(x_e) + \mathcal P\!\int_a^b\frac{f(x)}{x-x_e}\,dx,
+\end{equation}
+applied to Eq.~\ref{eq:chi-of-x} with $f=\partial f_{e0}/\partial x$:
+\begin{equation}\label{eq:chi-im-re}
+  \operatorname{Im}\chi_e = -\frac{\pi}{k^2\lambda_{De}^2}\left.\frac{\partial f_{e0}}{\partial x}\right\vert_{x=x_e},
+  \qquad
+  \operatorname{Re}\chi_e = -\frac{1}{k^2\lambda_{De}^2}\,\mathcal P\!\int_{-\infty}^{\infty}
+  \frac{\partial f_{e0}/\partial x}{x-x_e}\,dx.
+\end{equation}
+The imaginary part -- Landau damping -- is just the distribution's local slope, trivial to
+evaluate numerically; the real part is a genuine principal-value integral with an
+integrable singularity sitting exactly at the point being evaluated, and is the most
+numerically delicate piece of the whole forward model.
+
+\subsection{Ions: Maxwellian by default}\label{sec:ionchi}
+
+TSADAR generally treats the ions as Maxwellian, for simplicity and ease of computation. The
+implementation is, in principle, compatible with the more complete treatment used for the
+electrons (\S\ref{sec:echi}) if that generality is ever needed. Treating the ions as
+Maxwellian allows their susceptibility integral to be done once in closed form via the
+derivative of the plasma dispersion function, $Z'(x)$
+(Fried \& Conte \cite{fried1961}). Rather than evaluate $Z'$ live, the code precomputes it once on a fixed
+grid $x_2\in[-8.2,8.2]$ (step $0.01$, \code{self.xi2} in \code{zprimeMaxw}) and
+thereafter performs 1D linear interpolation -- this same $x_2$ grid is reused in
+\S\ref{sec:ratintn} purely for computational convenience. Beyond the tabulated range, the standard large-argument asymptotic form is
+used instead,
+\begin{equation}
+  \operatorname{Re}Z'(x)\approx\frac{1}{x^2}, \qquad \operatorname{Im}Z'(x)\to0
+  \qquad(\vert x\vert\gg1),
+\end{equation}
+which is simply the statement that far from resonance there are essentially no resonant
+particles left to damp the wave. Per species $s$, with $x_{i,s}=\omega_{\rm
+dop}/(\sqrt2\,v_{Ti,s}k)$,
+\begin{equation}
+  \chi_{i,s} = -\frac{1}{2(k\lambda_{Di,s})^2}\Big[\operatorname{Re}Z'(x_{i,s})
+  +i\operatorname{Im}Z'(x_{i,s})\Big], \qquad \chi_i=\sum_s\chi_{i,s}.
+\end{equation}
+
+
+\subsection{Electrons: Non-Maxwellian by default}\label{sec:echi}
+
+The electron distribution is not restricted to a Maxwellian, so $\operatorname{Re}\chi_e$
+must be evaluated as an actual numerical quadrature for whatever $f_e$ the current fit
+iteration has. $f_e$ itself is stored on a fixed velocity grid (\S\ref{sec:edf}), set once
+at initialization, but the resonant phase velocity it must be evaluated at,
+$x_e=\omega_{\rm dop}/(kv_{Te})$ with $\omega_{\rm dop}=\omega-kV_e$ (unlike the ion term
+below, using the absolute electron flow $V_e$ defined next rather than any single species'
+$V_a$ directly), changes every iteration as $k$, the plasma parameters, and the wavelength
+all shift. So $f_e$ has to be interpolated onto whatever $x_e$ the current iteration needs,
+rather than looked up directly: $f_e(x_e)=\exp[\operatorname{interp}(\log f_e)]$. Log-space
+interpolation is what keeps the potentially tiny, always-positive tails smooth rather than
+piecewise-linear-and-kinked.
+
+Here $\bar V_a=\sum_sZ_s\mathrm{fract}_sV_{a,s}\big/\sum_sZ_s\mathrm{fract}_s$ is the
+charge-weighted ion-fluid flow (\code{\_charge\_weighted\_flow}), order-independent across
+species, and $V_e=\bar V_a+u_d$ is the absolute electron flow used to form $x_e$
+(\code{\_electron\_resonance}). $u_d$ is a single electron-drift parameter shared by the
+whole plasma, defined relative to the (charge-weighted) ion fluid rather than the lab
+frame; $V_a$ is, in the code, stored \emph{per ion species}, and the ion susceptibility
+$\chi_{i,s}$ below uses each species' own $V_a$ directly, since each ion species resonates
+in its own frame -- only the electron term needs a single, order-independent reference
+flow, which is why it goes through $\bar V_a$ rather than any one species' $V_a$.
+$\operatorname{Im}\chi_e$ then follows from a finite difference of $f_e$ on the $x_e$ grid,
+exactly as derived above.
+
+TSADAR evaluates $\operatorname{Re}\chi_e$ with \code{ratintn} (based on code by Ed
+Williams, following Chapman \& Williams). This is a quadrature built specifically for
+integrals of the form $\int f(x)/g(x)\,dx$ where $f,g$ are piecewise-linear on a
+discretized grid and $g$ passes through or near zero -- precisely the situation here,
+where $g=x-x_e$ vanishes at the evaluation point.
+
+\subsubsection{The \code{ratintn} quadrature}\label{sec:ratintn}
+
+% --- Pre-"Fix ratintn principal-value quadrature" description, kept for reference; the
+% --- piecewise-linear r_f/r_fn rule below is no longer the path evaluated for chi_e/chi_i
+% --- (see the replacement text after this comment block).
+%
+% On a subinterval $[x_0,x_1]$, write the piecewise-linear approximations $f_x=f_0+u\,df$,
+% $g_x=g_0+u\,dg$ with $u=(x-x_0)/(x_1-x_0)$, $df=f_1-f_0$, $dg=g_1-g_0$, and define the
+% midpoint values $\bar f=\tfrac12(f_1+f_0)$, $\bar g=\tfrac12(g_1+g_0)$. The integral over
+% the subinterval is
+% \begin{equation}
+%   y = \int_{x_0}^{x_1}\frac{f}{g}\,dx = (x_1-x_0)\int_0^1\frac{\bar f+(u-\tfrac12)df}{\bar g+(u-\tfrac12)dg}\,du,
+% \end{equation}
+% which has a closed form for arbitrary $dg$ (obtained by direct integration, since $f/g$ is
+% a ratio of two linear functions of $u$),
+% \begin{equation}
+%   r_{fn} = \frac{df}{dg}+\big[\bar f\,dg-\bar g\,df\big]\,
+%   \frac{\ln\!\left(\dfrac{\bar g+dg/2}{\bar g-dg/2}\right)}{dg^2},
+% \end{equation}
+% but this expression is numerically unstable exactly where $\bar g\to0$ with $dg$ comparably
+% small -- i.e.\ exactly at the near-pole subinterval that matters most. Taylor-expanding
+% the same integral about $dg=0$ instead (valid, and stable, whenever $\vert dg\vert\ll\bar
+% g$) gives an equally exact alternative,
+% \begin{equation}
+%   r_f = \frac{\bar f}{\bar g}+\big[\bar f\,dg-\bar g\,df\big]\frac{dg}{12\,\bar g^3},
+% \end{equation}
+% and the code selects between the two per subinterval according to whichever is well
+% conditioned there ($r_f$ when $\vert dg\vert<10^{-4}\vert\bar g\vert$, $r_{fn}$
+% otherwise), summing $I=\sum_j r_j\,(x_{j+1}-x_j)$ over all subintervals. Only the real
+% part is returned -- the residue at the pole is accounted for separately, as
+% $\operatorname{Im}\chi_e$ above, exactly per the Sokhotsky--Plemelj split.
+%
+% \emph{Implementation note (not physics):} because JAX's automatic differentiation still
+% propagates gradients through the branch of \code{jnp.where} that was \emph{not} selected,
+% $\bar g$ is clamped away from exactly zero in the unselected branch's denominator, to avoid
+% a $0\times\infty=\mathrm{nan}$ gradient on the rare occasions a floating-point cancellation
+% lands exactly on $0.0$ (which does occur, in practice, on GPU).
+%
+% The 2D susceptibility path (\code{calc\_in\_2D}) uses the identical $\operatorname{Im}
+% \chi_e$/$\operatorname{Re}\chi_e$ formulas, applied to the projected 1D distribution of
+% \S\ref{sec:sph} rather than a native 1D $f_e$. This per-(angle, gradient-point, wavelength)
+% computation is batched/vmapped/sharded across devices for performance; only the
+% \code{"batch\_vmap"} code path is exercised at runtime.
+
+For the affine denominator that appears here, $g(x)=x-x_e$, \code{ratintn} evaluates the
+principal-value integral by \textbf{singularity subtraction against a cubic spline} of
+$f$. A C2 cubic-Hermite spline of $f$ is built on the fixed grid (\code{interpax.approx\_df}),
+giving both $f(x_e)$ and its one-sided divided differences at the pole even when $x_e$
+lands exactly on a grid node. Subtracting $f(x_e)/(x-x_e)$ turns the singular integral into
+an ordinary one plus an analytic logarithm from the piece just subtracted off,
+\begin{equation}
+  \mathcal P\!\int \frac{f(x)}{x-x_e}\,dx = \int \frac{f(x)-f(x_e)}{x-x_e}\,dx
+  + f(x_e)\ln\!\left\vert\frac{x_{\max}-x_e}{x_{\min}-x_e}\right\vert,
+\end{equation}
+where the first term is a plain trapezoidal integral of the now-regular integrand -- except
+on the two grid intervals bracketing $x_e$, where that integrand is replaced by the
+removable divided difference read directly off the spline's cubic coefficients there,
+rather than the $0/0$-prone quotient a literal evaluation would hit. This is smooth and
+differentiable in $x_e$ everywhere, including exactly on a node, without ever displacing
+the pole by an artificial $\epsilon$.
+
+An older piecewise-linear rule is still present in the code (\code{ratcen}) but only as a
+fallback for denominators that are \emph{not} affine in the integration variable or are
+complex -- a case the electron and ion susceptibility integrals here never hit, since their
+denominator is always the affine, real $x-x_e$. On a subinterval $[x_0,x_1]$
+($u=(x-x_0)/(x_1-x_0)$, $df=f_1-f_0$, $dg=g_1-g_0$, $\bar f=\tfrac12(f_1+f_0)$,
+$\bar g=\tfrac12(g_1+g_0)$) it selects, per subinterval, between an exact closed form
+\begin{equation}
+  r_{fn} = \frac{df}{dg}+\big[\bar f\,dg-\bar g\,df\big]\,
+  \frac{\ln\!\left(\dfrac{\bar g+dg/2}{\bar g-dg/2}\right)}{dg^2}
+\end{equation}
+and a Taylor expansion about $dg=0$ valid near a pole,
+\begin{equation}
+  r_f = \frac{\bar f}{\bar g}+\big[\bar f\,dg-\bar g\,df\big]\frac{dg}{12\,\bar g^3},
+\end{equation}
+choosing $r_f$ when $\vert dg\vert<10^{-4}\vert\bar g\vert$ and $r_{fn}$ otherwise. Either
+way, only the real part is returned -- the residue at the pole is accounted for
+separately, as $\operatorname{Im}\chi_e$ above, exactly per the Sokhotsky--Plemelj split.
+
+In practice this quadrature is applied to $f_e$ re-interpolated (log-space, cubic) onto a
+fine fixed grid of 1024 points spanning $\pm8.2$, evaluated at every point of a second
+static grid $x_2$ -- the same fixed grid used to tabulate the Maxwellian $Z'$ function
+in \S\ref{sec:ionchi} (reused here purely for convenience, not for any ion-physics
+reason), \emph{not} the actual per-species, per-iteration ion resonance velocities
+$x_{i,s}$, which only ever appear as interpolation query points into that table and
+never as a grid $\operatorname{Re}\chi_e$ is evaluated on. Only after this fixed-grid
+result is computed once is it interpolated onto the actual $x_e$ needed and scaled by
+$-1/(k\lambda_{De})^2$: evaluating on a shared,
+precomputed grid rather than at each $x_e$ directly is what makes it practical to redo
+this calculation for every (angle, gradient-point, wavelength) combination, at every step
+of the fit.
+
+The 2D susceptibility path (\S\ref{sec:sph}) calls the same \code{ratintn} quadrature
+directly (rather than through the precomputed-operator trick above), on the projected 1D
+distribution at that point's own signed resonance coordinate. This per-(angle,
+gradient-point, wavelength) computation is batched/vmapped/sharded across devices for
+performance; only the \code{"batch\_vmap"} code path is exercised at runtime.
+
+%======================================================================
+\section{Assembling the dynamic form factor}\label{sec:assemble}
+%======================================================================
+
+With $\chi_e$, $\chi_i$, and $\varepsilon=1+\chi_e+\chi_i$ in hand, Eq.~\ref{eq:S-general}
+is assembled directly, generalized to a mixture of ion species (each contributing to the
+ion feature in proportion to its share $\mathrm{fract}_sZ_s^2/\bar Z$ of the total ion
+charge density, evaluated at its own Doppler-shifted resonance and thermal speed):
+\begin{align}
+  \mathrm{SKW}_{\rm ion}(\omega) &= \frac1k\sum_s\frac{\mathrm{fract}_sZ_s^2}{\bar Z\,v_{Ti,s}}\,
+    \vert\chi_e\vert^2\,\frac{e^{-x_{i,s}^2}}{\sqrt{2\pi}}\Big/\vert\varepsilon\vert^2, \\
+  \mathrm{SKW}_{\rm ele}(\omega) &= \frac1k\,\vert1+\chi_i\vert^2\,\frac{f_e(x_e)}{v_{Te}}
+    \Big/\vert\varepsilon\vert^2,
+\end{align}
+using the $\vert1+\chi_i\vert^2$ form of the electron term derived in \S\ref{sec:vlasov}.
+Recall from Eq.~\ref{eq:Ps} that the geometric prefactors $P_i$, $L$, and solid angle are
+not computed from first principles but absorbed into fitted amplitudes, so the physically
+fixed prefactors of Eq.~\ref{eq:Ps} that TSADAR does keep are just $r_e^2$ (confirmed
+directly in the code, where the classical electron radius is multiplied in explicitly),
+the relativistic correction, and $n_e$ itself, which is a fit parameter and must stay in
+the theory curve:
+\begin{equation}
+  P(\omega) = \big[\mathrm{SKW}_{\rm ion}(\omega)+\mathrm{SKW}_{\rm ele}(\omega)\big]
+  \left(1+\frac{2\omega_{\rm dop}}{\omega_L}\right) r_e^2\,n_e.
+\end{equation}
+$P(\omega)$ is only an intermediate quantity, however; before returning,
+\file{form\_factor.py} converts it to the wavelength axis the detector actually reads
+using the Jacobian $d\omega/d\lambda=2\pi c/\lambda^2$,
+\begin{equation}
+  P(\lambda) = P(\omega)\cdot\frac{2\pi c}{\lambda_s^2},
+\end{equation}
+and it is $P(\lambda)$ -- not $P(\omega)$ -- that is the function's actual return value.
+It is also returned with its gradient-point and scattering-angle axes still intact (shape
+$[N_g,N_\lambda,N_\theta]$): \file{form\_factor.py} computes the raw, per-condition,
+per-angle spectrum only, and does none of the averaging over those axes itself -- that is
+the job of the next stage (\S\ref{sec:downstream}).
+
+\subsection{Optional: parametric-instability gain}
+
+If enabled (\code{calc\_gain}), a supplementary physics module calculates the local SBS
+and SRS gain on the Thomson-scattered light, evaluated kinetically at the current plasma
+conditions. It lives in \file{form\_factor.py} because it reuses the same electron and ion
+susceptibilities already computed above, repurposed to describe the resonant energy
+exchange between the two light waves. With
+pump intensity $I_{\rm pump}$, beam diameter $d$, and scattering angle $\theta$:
+\begin{equation}
+  L_{\rm int}=\frac{d}{2\sin\theta}, \qquad n_c=\frac{1.115\times10^{21}}{\lambda[\mu\mathrm m]^2}\ \si{cm^{-3}},
+\end{equation}
+\begin{equation}
+  a_0 = 8.55\times10^{-4}\,\lambda[\mathrm m]\sqrt{I_{\rm pump}}, \qquad
+  j_0=\frac{a_0^2}{\sqrt{1-n_e/n_c}},
+\end{equation}
+\begin{equation}
+  F_\chi=\frac{\chi_e(1+\chi_i)}{1+\chi_e+\chi_i}, \qquad
+  G_D=\frac{k^2}{4k_s}\,j_0\,(-\operatorname{Im}F_\chi), \qquad \bar G_D=\langle G_D\,L_{\rm int}\rangle,
+\end{equation}
+and the spectrum is amplified by $\exp(\bar G_D)$. This is a secondary, optional feature
+layered on top of the base $S(k,\omega)$, not part of the core spectral-density calculation.
+
+%======================================================================
+\section{From a theoretical spectrum to a simulated detector image}\label{sec:downstream}
+\textit{\file{tsadar/core/physics/generate\_spectra.py}, \file{tsadar/core/instrument/irf.py}}
+%======================================================================
+
+\subsection{Gradient averaging}
+
+Nothing about Eq.~\ref{eq:S-general} says $n_e$ and $T_e$ must be uniform in the volume
+being probed, and in a laser-produced plasma they generally are not: the detector's
+integration time is typically $50$--$100\ \si{ps}$, and the probed volume is
+$50$--$100\ \si{\mu m}$ across. A real measurement is therefore effectively a superposition
+of scattering over a range of plasma conditions, not a single $(n_e,T_e)$. TSADAR mimics
+this by evaluating the raw spectrum at \code{num\_grad\_points} values of $(n_e,T_e)$
+sampling a linear gradient across the probed volume and averaging,
+\begin{equation}
+  \overline S(\lambda) = \frac1{N_g}\sum_{g=1}^{N_g}S_g(\lambda).
+\end{equation}
+This is a real, if simplified, physical effect: a genuine 1D hydrodynamic profile has been
+replaced by a linear one. Only this simple linear profile is currently available, though
+alternative profiles could be added. Several experiments do show this kind of gradient
+broadening on the EPW and IAW features, and ignoring it can inflate the inferred
+temperature.
+
+\subsection{Angle averaging: the finite collection aperture}
+
+The same logic applies to angle: a real collection optic subtends a finite solid angle, not
+a single ray, and Eq.~\ref{eq:law-of-cosines} makes clear that different rays within that
+aperture probe slightly different $k$ -- an effect sometimes called $k$-smearing. TSADAR
+handles this as a weighted sum over a discrete set of scattering angles,
+\begin{equation}
+  \overline S(\lambda) = \sum_\theta w(\theta)\,S(\lambda,\theta), \qquad \sum_\theta w(\theta)=1,
+\end{equation}
+with the weights precomputed as a fixed lookup table
+(\file{tsadar/data/calibration.py}, \code{get\_scattering\_angles}) rather than recomputed
+from ray optics at fit time, since the geometry itself never changes during a fit.
+
+\subsection{Instrument response}\label{sec:irf}
+
+Before the theoretical spectrum reaches the detector, it also passes through a physical
+spectral filter placed ahead of the spectrometer, meant to block the much brighter
+elastically-scattered light and ion feature so the (far dimmer) EPW feature isn't swamped
+by it. TSADAR models this notch by attenuating a configured band $[\lambda_-,\lambda_+]$
+around the probe wavelength by $10^{-w}$ for the EPW feature (or, in \code{iawoff} mode,
+zeroing a fixed $\pm3\,$nm band outright). This is a wavelength-domain transmission effect,
+not an angular one, but it belongs here with the rest of the instrument's response rather
+than with the angle averaging above.
+
+No real spectrometer or imaging system is perfect: diffraction, finite source size,
+and aberrations blur the true spectrum before it reaches the detector. TSADAR models this
+as a Gaussian instrument response in wavelength (and, for angularly-resolved data, a
+separable Gaussian in angle as well),
+\begin{equation}
+  g_\sigma(\lambda) = \frac{1}{\sigma\sqrt{2\pi}}\exp\!\left[-\frac{(\lambda-\lambda_0)^2}{2\sigma^2}\right],
+\end{equation}
+centered at the axis midpoint so the convolution does not shift the spectrum. The
+theoretical spectrum is convolved with $g_\sigma$ (peak-height renormalized after
+convolution), optionally split into blue/red-of-probe wings each independently normalized
+and scaled by the fitted nuisance amplitudes $\mathrm{amp}_1$ (blue EPW), $\mathrm{amp}_2$
+(red EPW), $\mathrm{amp}_3$ (IAW). These are the geometric prefactors dropped from
+Eq.~\ref{eq:Ps} in \S\ref{sec:assemble}, recovered empirically rather than computed,
+because the diagnostic's true transfer function drifts over time with debris, optics
+damage, and alignment in ways no fixed calculation would capture. The result is finally
+bin-averaged from the internal fine grid down onto the detector's actual pixel count,
+\begin{equation}
+  \mathrm{Thry}[p] = \frac{1}{n_{\rm bin}}\sum_{j\in\mathrm{bin}(p)}\big(g_\sigma*S\big)[j].
+\end{equation}
+For angularly-resolved (``ATS'') data the same blur is applied separably along the angular
+axis first, with its own independent width, then the wavelength axis. Additive background terms from the background analysis are added after instrument convolution,
+$\mathrm{Thry}\mathrel{+}=\mathrm{noise}$.
+
+\subsection{Optional: bremsstrahlung continuum background}\label{sec:brem}
+\textit{\file{tsadar/core/physics/bremsstrahlung.py}}
+
+Free-free (bremsstrahlung) continuum emission is a real, physical contribution to the
+light collected by the diagnostic that is not part of Thomson scattering at all, and in
+some data can rival the (far weaker) EPW feature in brightness. Its spectral shape follows
+the standard non-relativistic emissivity, with the usual Boltzmann suppression once the
+photon energy exceeds the electron thermal energy,
+\begin{equation}\label{eq:brem}
+  P_{\rm brem}(\lambda) = A\cdot 10^{8}\,\frac{Z\,n_e^2}{\sqrt{T_e}\,\lambda^2}\,
+  \exp\!\left(-\frac{1.24}{\lambda[\mathrm{nm}]\,T_e[\mathrm{keV}]}\right) + C,
+\end{equation}
+where $1.24\ \si{keV.nm}\approx hc$ and $A,C$ are an overall scale and additive offset. When
+\code{config["data"]["background"]["type"]="brem\_model"}, Eq.~\ref{eq:brem} is evaluated
+at the \emph{current fit iteration's} $Z,T_e,n_e$ (not fixed values) and added directly to
+$\mathrm{Thry}$ after instrument convolution and binning, immediately before the additive
+noise term above -- i.e.\ $A,C$ (the fitted $\mathrm{brem\_amp},\mathrm{brem\_c}$ of
+\S\ref{sec:paramnorm}) become two more nuisance parameters fit jointly with everything
+else, and the continuum is constrained by the entire spectral shape (not just the lineout's
+edges) using the same $Z,T_e,n_e$ that set the scattering physics itself. This is a
+different mechanism from the alternative \code{"brem"} choice of
+\code{config["data"]["background"]["bg\_alg"]} (\file{tsadar/data/evaluate\_background.py}):
+that option pre-fits the same functional form via \code{scipy.optimize.curve\_fit} against
+only the edges of the lineout, \emph{before} the main fit, and holds $Z,T_e,n_e$ fixed at
+the input deck's initial values throughout (only $A,C$ are fit there) because, in a
+standalone curve fit with no other constraint on the spectrum, $Z$, $n_e^2$, and $A$ only
+ever appear multiplied together and are not separable. Using both options together would
+double-count the continuum.
+
+%======================================================================
+\section{Data handling}\label{sec:data}
+\textit{\file{tsadar/data/prepare.py}, \file{tsadar/data/load\_ts\_data.py},
+\file{tsadar/data/warpcorr.py}, \file{tsadar/data/correct\_throughput.py},
+\file{tsadar/data/evaluate\_background.py}, \file{tsadar/data/lineouts.py}}
+%======================================================================
+
+Everything in \S\ref{sec:physics}--\S\ref{sec:loss} describes how a set of plasma
+parameters becomes a theoretical spectrum; getting the raw detector image into a form that
+theory can actually be compared against is its own pipeline, run once per shot by
+\code{prepare\_data} before any fitting starts:
+\begin{enumerate}
+  \item \textbf{Load} (\code{load\_ts\_data.loadData}): read the raw CCD/streak image and
+    apply whatever geometric correction that instrument needs (\S\ref{sec:warp}).
+  \item \textbf{Calibrate} (\S\ref{sec:calibration}, \S\ref{sec:downstream}'s angle
+    weights): build the pixel-to-wavelength/space axes and the $k$-smearing weight table.
+  \item \textbf{Correct throughput} (\S\ref{sec:throughput}): divide out the instrument's
+    wavelength-dependent sensitivity.
+  \item \textbf{Handle background} (\S\ref{sec:background}): estimate and subtract, or flag
+    for the forward model to add back in, everything in the collected light that isn't
+    Thomson-scattered signal.
+  \item \textbf{Extract lineouts} (\code{lineouts.get\_lineouts}): sum each fit location
+    over a $2\,\code{dpixel}$-pixel window -- close to, but one pixel narrower than, the
+    $n=2\,\code{dpixel}+1$ that appears in \S\ref{sec:loss}'s noise-covariance matrix -- and
+    divide by the CCD gain $G$ to convert from raw counts to the same physical
+    (photoelectron) units the shot-noise model there assumes.
+\end{enumerate}
+An optional feature-detection pass (\code{feature\_detector.first\_guess}) can run partway
+through step 4, after the shot-background estimate but before lineout extraction, to
+estimate reasonable lineout locations and fit-range bounds directly from the data, sparing
+the input deck from having to specify them by hand; the rest of this section covers steps
+1, 3, and 4.
+
+\subsection{Warp correction}\label{sec:warp}
+
+Streak-camera (\code{"temporal"}) EPW data is swept across the detector by the camera's own
+sweep optics, which are not perfectly linear: the image is geometrically distorted (warped)
+in a way that mixes the spectral and temporal axes near the edges of the frame.
+\code{perform\_warp\_correction} corrects this using a precomputed per-pixel displacement
+map $(\Delta x(i,j),\Delta y(i,j))$, characterizing where each pixel of an undistorted test
+image would have to move to produce the warped one. Dewarping applies that map as a
+\emph{forward} splat rather than the more common backward/gather resampling: for every
+source pixel $(i,j)$ of the warped image, the corrected location it belongs at,
+\begin{equation}
+  (\tilde x,\tilde y) = (i,j) + \big(\Delta x(i,j),\Delta y(i,j)\big),
+\end{equation}
+is computed, and the source pixel's value is bilinearly splat (scatter-added, weighted by
+the fractional distance to each of the 4 neighboring integer pixel locations) onto the
+output image at $(\tilde x,\tilde y)$ -- the inverse of the usual dewarping recipe, which
+would instead gather each \emph{output} pixel's value by interpolating the warped image at
+the corresponding \emph{input} location, but equivalent here since a forward map (not its
+inverse) is what was actually characterized for the instrument. Currently only implemented
+for EPW data at a 5~ns sweep speed (other configured sweep speeds fall back to the 5~ns map
+with a warning rather than failing); angular data instead gets a simple horizontal flip and
+imaging data a fixed $90°$ rotation to fix orientation ($90°\times3$ for the EPW channel,
+a single $90°$ for the IAW channel), since neither of those exhibits the streak camera's
+sweep-induced geometric distortion in the first place.
+
+\subsection{Transmission (throughput) correction}\label{sec:throughput}
+\textit{\file{tsadar/data/correct\_throughput.py}}
+
+Every optical element in the collection path -- lenses, gratings, filters, and the
+photocathode of an image-intensified detector -- has its own wavelength-dependent
+efficiency, and their product is the diagnostic's overall spectral transmission $T(\lambda)$
+(measured, historically, by comparing the instrument's response to a well-characterized
+calibration lamp against the lamp's known spectrum, $T(\lambda)=s_{\rm measured}(\lambda)/
+s_{\rm known}(\lambda)$). Since the forward model of \S\ref{sec:physics}--\ref{sec:assemble}
+computes the \emph{true} scattered power with no wavelength-dependent sensitivity of its
+own, the data must have $T(\lambda)$ divided out before the two can be compared on equal
+footing. \code{correctThroughput} selects a tabulated sensitivity curve appropriate to the
+diagnostic type (angular, temporal, or imaging -- each with its own measured calibration
+file) and shot-number range, interpolates it onto the data's actual calibrated wavelength
+axis $\lambda(\rm px)$ (\S\ref{sec:calibration}), inverts it, and multiplies it elementwise
+into the raw data, $d\mathrel{\times}=1/T(\lambda)$, row by row. Regions where the measured
+sensitivity is unreliable (interpolation out of range, or a near-zero calibration value that
+would blow up its own inverse) are floored to zero or backfilled from the nearest usable
+value rather than left to divide-by-near-zero.
+
+\subsection{Background handling}\label{sec:background}
+\textit{\file{tsadar/data/evaluate\_background.py}, \file{tsadar/data/lineouts.py}}
+
+Collected light that is not Thomson-scattered signal -- bremsstrahlung continuum
+(\S\ref{sec:brem}), stray light, dark current, or Thomson scattering from other beams in a
+multi-beam experiment -- must be accounted for, since the forward model otherwise only
+predicts the Thomson-scattering signal itself. \code{config["data"]["background"]["type"]}
+selects among several complementary strategies for estimating it:
+\begin{itemize}
+  \item \textbf{\code{"Shot"}}: loads a companion background-only shot (same conditions,
+    no probe beam, or probe blocked), throughput-corrects it identically to the foreground
+    (\S\ref{sec:throughput}), and smooths it with a small boxcar convolution to avoid
+    amplifying its own statistical fluctuations into the subtraction -- directly the
+    background-subtraction picture of matching a background shot to the foreground data.
+  \item \textbf{\code{"Fit"}} (\code{bg\_alg}): fits one of several parametric functional
+    forms -- a sum of two exponentials, a power law, one of two low-order rational
+    functions, or the bremsstrahlung shape of Eq.~\ref{eq:brem} with $Z,T_e,n_e$ held fixed
+    at the input deck's initial values (\S\ref{sec:brem}) -- via
+    \code{scipy.optimize.curve\_fit} against only the edges of the same lineout being fit,
+    outside the configured signal domain. For angular data specifically, this mode instead
+    fits an additional quadratic-in-pixel amplitude/shape correction factor (least squares,
+    against a reference row with no real Thomson signal) to compensate for shot-to-shot
+    drift in the background shot's own amplitude and shape.
+  \item \textbf{\code{"pixel"}}: averages a spatial/pixel window of the \emph{same} image at
+    a location assumed to carry no real signal, smooths it, and (for non-angular data)
+    rescales it lineout-by-lineout to best match each lineout's own edge region.
+  \item \textbf{\code{"brem\_model"}}: computes nothing here at all -- the bremsstrahlung
+    background is instead added inside the forward model itself, using the current fit
+    iteration's own $Z,T_e,n_e$ (\S\ref{sec:brem}).
+\end{itemize}
+Whichever of the first three produces \code{noiseE}/\code{noiseI}, a configured constant
+floor (\code{flatbg}) is added on top; the ion background is handled far more simply than
+the electron one throughout (a single scalar level, \code{bgscaleI} times a smoothed,
+masked mean of the lineout), reflecting how much smaller and less structured the IAW
+background typically is compared to the EPW background. The result becomes exactly the
+additive \code{noise} term already introduced in \S\ref{sec:irf}
+($\mathrm{Thry}\mathrel{+}=\mathrm{noise}$): background handling and the forward model meet
+at that single addition, whether \code{noise} came from an estimated/subtracted background
+here or -- for \code{brem\_model} -- is identically zero because the forward model is
+adding its own bremsstrahlung term instead.
+
+%======================================================================
+\section{Calibration}\label{sec:calibration}
+\textit{\file{tsadar/data/lam\_parse.py}, \file{tsadar/data/calibration.py}}
+%======================================================================
+
+The standalone wavelength/frequency axis builder used elsewhere in the data-loading
+pipeline applies the same $\omega\leftrightarrow\lambda$ relation as \S\ref{sec:freqk}.
+Per-shot calibration constants (dispersion, offsets, IRF widths, magnification) are a
+hardcoded lookup table, not a formula -- they come from independent optical
+characterization of each instrument, not from the physics model -- but the
+pixel-to-physical-unit transforms applied with them are simple affine maps,
+\begin{align}
+  \lambda_E(\mathrm{px}) &= \mathrm{px}\cdot D_E+\lambda_{0,E}, &
+  \lambda_I(\mathrm{px}) &= \mathrm{px}\cdot D_I+\lambda_{0,I} &&\text{(spectral dispersion)}, \\
+  x_E(\mathrm{px}) &= (\mathrm{px}-t_{0,E})\,M_E, &
+  x_I(\mathrm{px}) &= (\mathrm{px}-t_{0,I})\,M_I &&\text{(space/time axis)},
+\end{align}
+with an additional target-chamber-center re-centering offset, $x_E\mathrel{-}=
+\mathrm{tcc}_E\cdot M_E$, in imaging mode.
+
+These calibration constants are treated as exactly known throughout everything above, but
+they are themselves measured quantities with their own uncertainty. The MCMC postprocessor
+(\S\ref{sec:uq}) can optionally account for this: rather than perturbing them at every MCMC
+step (which would mean re-running the data-loading pipeline, including the per-shot lookup
+table above, on every step), it pre-draws a small number $K$ of independent realizations of
+$(D_E,D_I,\lambda_{0,E},\lambda_{0,I},\sigma_{{\rm IRF},E},\sigma_{{\rm IRF},I},G)$ from
+independent Gaussians centered on the nominal calibration values (\code{calibration\_uncertainty}
+in the config, one $\sigma$ per quantity), rebuilds the corresponding wavelength axes and
+gain-rescaled data once per realization, and runs one full MCMC chain per realization
+(\S\ref{sec:uq}) -- so calibration uncertainty is marginalized over at the granularity of
+$K$ independent data realizations rather than resampled continuously.
+
+%======================================================================
+\section{The fit objective}\label{sec:loss}
+\textit{\file{tsadar/inverse/loss\_function.py}}
+%======================================================================
+
+With a fully assembled synthetic spectrum for a set of test conditions, the next step is
+to compare it against the data. That is the job of the objective function: quantify the
+goodness-of-fit as a single scalar value that can be minimized.
+\subsection{Per-pixel loss functionals}
+
+Given data $d$, theory $t$, and per-pixel uncertainty $\sigma$ (\code{loss\_functionals}),
+one of several elementwise residuals is selected by configuration:
+\begin{align}
+  \text{l1:}\quad & e=\vert d-t\vert/\sigma, \\
+  \text{l2:}\quad & e=(d-t)^2/\sigma \qquad\text{(a weighted, $\chi^2$-style residual)}, \\
+  \text{log-cosh:}\quad & e=\ln\cosh(d-t), \\
+  \text{poisson:}\quad & e=t-d\ln t \qquad\text{(negative Poisson log-likelihood, up to a $d$-only constant --}\\
+  &\qquad\text{appropriate since the underlying signal is photon-counting statistics)}, \\
+  \text{covar:}\quad & e=d-t \qquad\text{(the quadratic form is applied downstream, below).}
+\end{align}
+
+\subsection{Masking and reduction}
+
+The elementwise loss is masked to the configured fit window(s) for the IAW feature and the
+EPW blue/red wings (\code{calc\_ei\_error}) -- regions with no real signal, filter
+artifacts, or third-harmonic contamination are simply excluded rather than fit -- then
+reduced to a scalar per feature, by default a masked mean. When
+\code{loss\_method="covar"}, a proper correlated-noise $\chi^2$ statistic is used instead,
+\begin{equation}
+  \chi^2 = \frac{\mathbf e^{\!\top}K^{-1}\mathbf e}{N_{\rm pts}-N_{\rm free}},
+\end{equation}
+with $\mathbf e=d-t$ (masked to the fit window), and $K^{-1}\mathbf e$ solved via
+\code{jnp.linalg.solve} rather than an explicit matrix inverse. Both the numerator and
+$N_{\rm free}$ are pooled over the whole batch rather than computed per lineout: $\mathbf
+e^{\!\top}K^{-1}\mathbf e$ is summed over every lineout in the batch, and $N_{\rm free}$ is
+the number of actively fit parameters \emph{times the batch size}, so $\chi^2$ is a single
+batch-wide statistic, not one value per lineout.
+
+\subsection{Noise covariance matrix}
+
+Treating every pixel's noise as independent (an implicit assumption of the l1/l2/poisson
+functionals above) is only correct if the detector's point-spread function is a delta
+function, which it is not: real CCD counting statistics are correlated between neighboring
+pixels once convolved with the sensor's own PSF. Following the method of Swadling
+\textit{et al.} \cite{swadling2022} (``George's RSI reference,'' as the code's own comment
+calls it), \code{calculate\_covariance\_matrix} builds a detector
+noise-covariance matrix from a shot-noise term convolved with the CCD's point-spread
+function, plus an uncorrelated readout-noise term. The per-pixel shot-noise standard
+deviation, given CCD gain $G$ and excess noise factor $F$,
+\begin{equation}
+  \sigma_s = \sqrt{d\cdot G\cdot F^2}\qquad(G=108,\ F^2=1.15,\ \text{hardcoded device constants}),
+\end{equation}
+enters the diagonal matrix $\operatorname{diag}(\sigma_s^2)$, which is then 2D-convolved
+with a Gaussian CCD point-spread function and a readout-noise term added on the diagonal,
+\begin{equation}
+  K = \operatorname{conv2d}\!\big(\operatorname{diag}(\sigma_s^2),\,g\big)+n\,\sigma_{\rm rn}^2\,I,
+  \qquad g(a,b)=\frac{1}{2\pi\sigma_{\rm px}^2}\exp\!\left[-\frac{a^2+b^2}{2\sigma_{\rm px}^2}\right],
+\end{equation}
+with $\sigma_{\rm px}=1.0$, $n=2d_{\rm pixel}+1$ the number of detector pixels summed per
+lineout, and $\sigma_{\rm rn}=17.0$.
+
+\subsection{Total loss}
+
+\begin{equation}
+  L = \alpha_{\rm ion}\,e_{\rm ion}+e_{\rm ele},
+\end{equation}
+where $e_{\rm ion}$ is the (masked, reduced) IAW-feature error, $e_{\rm ele}$ is the
+EPW-feature error (averaged $\tfrac12(e_{\rm blue}+e_{\rm red})$ if both wings are fit),
+and $\alpha_{\rm ion}$ is a configured scale factor balancing the two features -- needed
+because the IAW feature is typically orders of magnitude brighter than the EPW feature
+(\S\ref{sec:vlasov}), so an unweighted sum would let the fit ignore the electron feature
+almost entirely. In \code{multiplex\_ang} mode the same loss is evaluated a second time
+with $f_e$ rotated by a configured angle, modeling a second, angularly offset line of sight
+that shares the same underlying plasma condition, and the two contributions are summed.
+
+\subsection{Optimizers}\label{sec:optimizers}
+\textit{\file{tsadar/inverse/loops.py}}
+
+$L$ is a scalar, but nothing above says how it is minimized; \code{config["optimizer"]["method"]}
+selects among three genuinely different numerical strategies for the 1D (non-angular) case:
+\begin{itemize}
+  \item \code{"l-bfgs-b"}: \code{scipy.optimize.minimize}, a quasi-Newton method that
+    builds up an approximate inverse Hessian from successive gradient evaluations. The
+    gradient itself comes from JAX autodiff (\code{grad\_method="AD"}) or finite differences
+    otherwise. Because the parameters are already unconstrained by the sigmoid
+    reparameterization of \S\ref{sec:paramnorm}, \code{bounds=None} is passed in the normal
+    (activated) case -- the ``-b'' bound-constraint handling this method offers would only
+    be exercised if normalization were turned off and the raw $[0,1]$-bounded parameters
+    optimized directly, but \code{\_1d\_scipy\_loop\_} currently hardcodes activation on, so
+    that branch is presently dead code.
+  \item \code{"lsq"}/\code{"lm"}: Levenberg--Marquardt (\code{optimistix.LevenbergMarquardt}),
+    which minimizes $\sum_i r_i^2$ directly from the residual vector $\mathbf r$ and its
+    Jacobian rather than from the scalar loss and its gradient, exploiting curvature
+    information L-BFGS has to approximate. \code{LossFunction.residuals} builds $\mathbf r$
+    to be exactly the signed, whitened per-pixel deviation whose sum of squares reproduces
+    the l2 loss (each in-range point scaled by $1/\sqrt{\sigma^2 N}$, $N$ = that feature's
+    number of in-range points, folding the mean reduction into a plain sum of squares; the
+    IAW/EPW balance $\alpha_{\rm ion}$ and blue/red averaging are folded in the same way) --
+    so this option requires \code{loss\_method="l2"} and is unavailable for l1/log-cosh/
+    poisson/covar. Levenberg--Marquardt converges quadratically near the optimum and
+    typically needs far fewer iterations than L-BFGS for the same fit, at the cost of a more
+    expensive per-iteration Jacobian solve.
+  \item Anything else is treated as the name of an Optax optimizer and dispatched
+    dynamically via \code{getattr(optax, method)} (e.g.\ \code{"adam"}, or Optax's own
+    \code{"lbfgs"}) -- a first-order stochastic-gradient step (Adam) or another quasi-Newton
+    variant, taken at a configured learning rate for a fixed number of epochs.
+\end{itemize}
+For angularly-resolved (ATS) data, \code{angular\_multiple\_optax} uses a genuinely
+different strategy: rather than one optimizer for every parameter, \code{optax.partition}
+applies \emph{two} independently-configured Optax optimizers to two disjoint groups of
+parameters simultaneously -- every scalar plasma parameter (including the DLM shape order
+$m$) at a fixed \code{param\_learning\_rate}, and, when the electron distribution function
+is itself active, its free-form array parameters on their own cosine-decay learning-rate
+schedule (decaying from \code{learning\_rate\_init} to \code{learning\_rate\_final} over the
+first three-quarters of training, then held flat). This is a direct numerical answer to the
+scale mismatch already noted in \S\ref{sec:regularization}: a step in $n_e$ or $T_e$ and a
+step in a $\sim\!100$-parameter $f_e$ live at completely different natural scales, and
+giving each its own optimizer state and schedule is how TSADAR avoids one dominating the
+other's convergence.
+
+\subsection{Regularization and the normalization problem}\label{sec:regularization}
+
+The forward model deliberately lets $f_e$'s shape and its normalization float somewhat
+independently during optimization: a small step in $n_e$ or $T_e$ corresponds to a large,
+high-dimensional step in a freely-fit $f_e$, so decoupling them is what makes the
+optimization landscape tractable in the first place. The cost is that a raw, freely-fit
+$f_e$ has no guarantee of integrating to a physically sensible density, temperature, or
+zero mean drift at any given iteration. \code{penalties} computes a set of soft
+constraints meant to discourage this (the current \code{calc\_loss} does not add the
+penalty term into the returned total -- it is hardcoded to $0$ -- but the machinery is real
+and documented here since it may be re-enabled):
+\begin{itemize}
+  \item \textbf{Bound-violation penalty}, on parameters already normalized to $[0,1]$
+    (\S\ref{sec:paramnorm}): $\sum_p\max\!\big(0,\ln(\vert p-0.5\vert+0.5)\big)$, a soft
+    log-barrier that only grows once $p$ actually leaves $[0,1]$.
+  \item \textbf{Moment regularization} (\code{\_moment\_loss\_}), enforcing that a freely-fit
+    $f_e$ integrates to physically sensible moments -- density, temperature, and zero mean
+    drift, the same three moments used to identify the constants in the Maxwellian
+    derivation of \S\ref{sec:vlasov}. For a symmetric 1D $f_e$ (only half the domain is
+    stored, hence the factor of 2):
+    \begin{equation}
+      L_{\rm density} = \Big\langle\big(1-2\textstyle\sum_vf_e\,\Delta v\big)^2\Big\rangle,
+      \qquad
+      L_{\rm temp} = \Big\langle\big(1-2\textstyle\sum_vf_e\,v^2\,\Delta v\big)^2\Big\rangle,
+    \end{equation}
+    (dropping the factor of 2 in the non-symmetric case), plus a momentum penalty
+    $L_{\rm mom}=\langle(\sum_vf_e\,v\,\Delta v)^2\rangle$ penalizing nonzero mean drift.
+    The 2D analogues are $L_{\rm density}=\langle(1-\sum f_e\Delta v^2)^2\rangle$ and
+    $L_{\rm temp}=\langle(1-\tfrac12\sum f_e(v_x^2+v_y^2)\Delta v^2)^2\rangle$.
+  \item \textbf{Monotonicity penalty}: penalizes any \emph{increase} of $f_e$ with
+    $\vert v\vert$ -- a soft version of the physical expectation, from \S\ref{sec:vlasov},
+    that a stable distribution function should not be growing outward in its tail,
+    \begin{equation}
+      L_{\rm mono} = \tan\!\left[\min\!\left(\textstyle\sum_v\max\big(0,\operatorname{sign}(v)\,
+      \Delta f_e\big),\ \tfrac\pi2\right)\right],
+    \end{equation}
+    which saturates ($\tan\to\infty$) as its argument approaches $\pi/2$.
+\end{itemize}
+
+%======================================================================
+\section{Uncertainty quantification}\label{sec:uq}
+\textit{\file{tsadar/inverse/postprocess/laplace.py}, \file{tsadar/inverse/postprocess/mcmc.py},
+\file{tsadar/inverse/postprocess/mcmc\_calibration.py}, \file{tsadar/inverse/postprocess/mcmc\_postprocess.py}}
+%======================================================================
+
+Minimizing the loss of \S\ref{sec:loss} produces a single best-fit point, not an estimate
+of how tightly that point is actually constrained by the data. TSADAR offers two
+postprocessing routes to that question, of increasing cost and generality, both built on
+the same underlying likelihood.
+
+\subsection{A shared likelihood}
+
+\code{LossFunction.neg\_log\_likelihood} defines a $-2\log L$ under a Poisson-like noise
+model ($\mathrm{Var}\approx\vert d\vert$, the shot-noise-dominated regime already motivated
+in \S\ref{sec:loss}'s noise-covariance discussion): the same masking, per-feature
+reduction, and loss-functional machinery as \S\ref{sec:loss}, but with the per-pixel
+uncertainty fixed to $\sigma^2=\vert d\vert+10^{-10}$ (the offset only guards against an
+exactly-zero-count pixel) regardless of whichever \code{loss\_method}
+the main optimization was configured with, so that both routes below share one
+well-defined statistical model rather than inheriting the main fit's (potentially
+non-probabilistic, e.g.\ l1) loss choice. It can reduce either to a single scalar for a
+whole batch (matching what the point-estimate optimizer descends) or, when
+\code{per\_lineout=True}, to one value per lineout -- needed below because each lineout's
+posterior is otherwise independent and should not be coupled through a shared reduction.
+
+\subsection{Laplace approximation: curvature at the best-fit point}\label{sec:laplace}
+
+The cheapest estimate of parameter uncertainty comes from the local curvature of the
+likelihood at its optimum. Approximating $-2\log L$ by its second-order Taylor expansion
+around the best fit turns the posterior into a Gaussian, the Laplace approximation, whose
+covariance is the inverse Hessian of $-2\log L$ (up to the standard factor of 2). TSADAR
+takes the JAX-differentiated Hessian of \code{neg\_log\_likelihood} with respect to only
+the \emph{active} leaves of the \code{ThomsonParams} pytree, \code{diff\_params}
+(\code{LossFunction.h\_loss\_wrt\_params}), obtained by partitioning the best-fit weights
+via \code{eqx.partition(ts\_params, get\_filter\_spec(\ldots))} and closing the
+loss over the complementary \code{static\_params} with \code{eqx.combine} before
+differentiating -- the same restriction \S\ref{sec:uq-mcmc}'s step-scale seeding below also
+applies, and for the same reason: differentiating the \emph{entire} pytree instead pulls in
+every fixed array the model carries, including large distribution-function lookup tables,
+and has been observed to attempt a multi-hundred-GB allocation on an ordinary fit. Then, per
+lineout, the $d\times d$ block of the Hessian spanning every active parameter is assembled
+from the diagonal (cross-lineout terms are structurally zero since lineouts in a batch don't
+affect each other) and inverted jointly:
+\begin{equation}
+  \Sigma \approx H^{-1}, \qquad \sigma_p = \operatorname{sign}(\Sigma_{pp})\sqrt{\vert\Sigma_{pp}\vert}
+  \qquad(\code{postprocess.laplace.get\_sigmas}).
+\end{equation}
+Unlike \S\ref{sec:uq-mcmc}'s step-scale seed, which reads only $H$'s diagonal entries (a
+deliberate simplification there, since it only needs an independent per-parameter proposal
+scale, not a joint covariance), $\Sigma$ here is the inverse of the \emph{full} $d\times d$
+active-parameter block, so $\sigma_p$ correctly accounts for correlations between
+simultaneously-fit parameters. Because \code{ThomsonParams.get\_fitted\_params} (whose
+species order the returned columns must match) and \code{diff\_params}' own pytree flatten
+order enumerate species differently (electron/general/ion-$n$ vs.\ electron/ion-$n$/general,
+respectively), the Hessian's rows and columns are permuted by parameter name before this
+inversion.
+
+A true local minimum has a positive-definite Hessian, and hence $\Sigma_{pp}>0$. A negative
+$\Sigma_{pp}$ instead signals that the ``best fit'' isn't actually a clean minimum in that
+parameter's direction -- a saddle, a boundary artifact, or an under-constrained parameter.
+Rather than silently clamping this to a positive number, TSADAR reports $\sigma_p$ itself
+as negative, so a downstream consumer can flag the fit as suspect instead of trusting an
+uncertainty that was never really a curvature in the first place. As with
+\S\ref{sec:uq-mcmc}, the electron distribution function cannot currently be an active fit
+parameter when \code{calc\_sigmas} is requested: its per-lineout representation as a list of
+separate objects rather than one batched array is incompatible with this leaf-based
+approach, and \code{get\_sigmas} raises rather than silently mis-computing.
+
+\subsection{MCMC: sampling the full posterior}\label{sec:uq-mcmc}
+
+The Laplace approximation is local and Gaussian by construction; it says nothing about
+skewed or multimodal posteriors, or about parameters near a bound where the sigmoid
+reparameterization (\S\ref{sec:paramnorm}) makes the unconstrained space badly
+non-Gaussian even if the physical space were well-behaved. \file{postprocess/mcmc.py}
+instead samples the posterior directly with a random-walk Metropolis--Hastings chain, run
+in the same unconstrained/logit space the optimizer already works in (so bounds are
+enforced implicitly by the same sigmoid map, never by rejection), vectorized across every
+lineout in a batch simultaneously:
+\begin{itemize}
+  \item \textbf{Target}: $\log\pi\propto-\tfrac12\cdot\code{neg\_log\_likelihood}$
+    (per lineout) -- i.e.\ the likelihood of \S\ref{sec:vlasov}--\ref{sec:loss} itself,
+    with no additional prior density multiplied in beyond what the bounded
+    reparameterization already implies.
+  \item \textbf{Proposal}: a Gaussian random walk in the unconstrained space, jointly
+    correlated across every active parameter of a lineout (\code{\_propose}: proposal
+    $=$ current $+\,S\,z$, $z\sim\mathcal N(0,I)$, $S$ the lineout's own proposal Cholesky
+    factor) rather than independent per-parameter steps -- letting the walk move
+    efficiently along a real correlated or degenerate ridge instead of proposing
+    independent per-axis moves that almost always land off of it. Since the proposal is
+    symmetric, the Metropolis acceptance ratio is just the posterior-density ratio (no
+    Hastings correction term).
+  \item \textbf{Step-scale seeding}: optionally seeded from the \emph{full} local curvature
+    (not just the diagonal) of \code{neg\_log\_likelihood} taken only with respect to the
+    active parameters (\code{diff\_params}) -- the same diff\_params-only restriction
+    \S\ref{sec:laplace} uses and for the same reason (avoiding the memory blowup a
+    full-pytree Hessian would risk). The resulting per-lineout Hessian block $H$ is turned
+    into a proposal covariance the same way \S\ref{sec:laplace} inverts it for
+    $\Sigma\approx H^{-1}$, scaled by the Roberts--Rosenthal $2.38/\sqrt d$
+    asymptotically-optimal random-walk factor \cite{roberts2001} ($d$ = the number of
+    active scalar parameters) -- but, unlike \S\ref{sec:laplace}, $H$ is not always
+    positive-definite here: a weakly- or jointly-identified parameter (e.g.\ an ion
+    temperature identifiable only in combination with another parameter) can have negative
+    or near-zero curvature at the reported best fit, a saddle rather than a true local
+    minimum in that direction. \code{\_regularized\_proposal\_cholesky} handles this by
+    eigenvalue-clipping $H$ in \emph{normalized} (correlation-scaled) space -- dividing by
+    each parameter's own $\sqrt{\vert H_{ii}\vert}$ before eigendecomposing, so that one
+    small fixed floor is a meaningful "this direction needs regularizing" threshold
+    regardless of how many orders of magnitude the raw diagonal entries span across
+    parameters (a real fit showed roughly $-700$ for one parameter alongside $6\times10^7$
+    for another) -- while preserving $H$'s eigenvectors, i.e.\ \emph{which combinations} of
+    parameters actually form each near-degenerate direction, rather than discarding that
+    structure the way an independent per-parameter fallback would. Falls back to a flat,
+    uncorrelated heuristic scale only if the whole Hessian computation fails structurally.
+
+    Even restricted to \code{diff\_params}, this per-lineout Hessian
+    (\code{LossFunction.h\_loss\_wrt\_params\_per\_lineout}) is assembled with the same
+    low-memory, one-leaf-at-a-time \code{jax.lax.map} sweep \S\ref{sec:laplace} uses, for
+    the same peak-memory and compile-time reasons documented there. A fit's lineouts are
+    also split across many fit-batches, and \code{run\_mcmc\_for\_fit\_batches} vmaps the
+    rest of this sampler across all of them at once for one shared compile -- but this
+    step-scale seed (and, when applicable, the block-partition decision below) is computed
+    sequentially, one fit-batch at a time (\code{\_seed\_step\_scale}, itself jit-compiled
+    so the loop still only compiles once), \emph{before} that vmap: fusing it into the
+    fit-batch vmap has been observed to multiply its memory cost by the fit-batch count.
+  \item \textbf{Adaptation}: burn-in adapts the proposal covariance every single step (not
+    once per window) via Vihola's (2012) Robust Adaptive Metropolis (RAM)
+    \cite{vihola2012}, which replaced an earlier two-part Robbins--Monro-magnitude$+$
+    empirical-shape-re-estimation scheme. Writing $S_{i-1}$ for the current Cholesky
+    factor, $z_i$ for this step's whitened proposal draw (so the proposal was
+    current$+S_{i-1}z_i$), and $\alpha_i\in[0,1]$ for this step's \emph{continuous} MH
+    acceptance probability (not just the realized accept/reject event),
+    \begin{equation}
+      \Sigma_i = S_{i-1}\Big(I+\eta_i(\alpha_i-\text{target})\,
+      \frac{z_iz_i^\top}{\lVert z_i\rVert^2}\Big)S_{i-1}^\top, \qquad
+      S_i=\operatorname{chol}(\Sigma_i),
+    \end{equation}
+    with vanishing-gain schedule $\eta_i=\min\!\big(1,\,d\cdot i^{-\gamma}\big)$
+    ($\gamma\in(0.5,1]$, \code{adapt\_gamma}, default $0.6$). A direction that keeps
+    getting accepted grows on its own; one that keeps getting rejected shrinks -- every
+    direction of the joint proposal adapts simultaneously and independently, with no
+    separate "magnitude" vs.\ "shape" decomposition and no eigenvalue floor of its own:
+    $\alpha_i\in[0,1]$ and $\text{target}\in(0,1)$ bound the inner matrix's one nontrivial
+    eigenvalue strictly above $1-\text{target}>0$, so $\Sigma_i$ stays positive-definite by
+    construction regardless of how poorly the Hessian-seeded $S_0$ was scaled to begin
+    with. The scale is frozen once burn-in ends, for the sampling phase proper.
+  \item \textbf{Sampling}: the post-burn-in chain is run for the configured number of
+    steps and thinned by a configured factor before being returned.
+\end{itemize}
+MCMC is not available when the electron distribution function itself is an active fit
+parameter (\code{check\_fe\_inactive}) -- only the scalar plasma parameters are sampled;
+$f_e$ must be held fixed (e.g.\ at its point-estimate best fit, or via the Matte closure)
+for this postprocessing step.
+
+\subsubsection{Block Metropolis-within-Gibbs}\label{sec:uq-mcmc-block}
+
+A joint proposal (above) draws and accepts/rejects every active parameter of a lineout
+together, from one shared Metropolis decision. That works well when every parameter's own
+local curvature is roughly comparable, but real fits showed a recurring failure mode when
+it isn't: a parameter with substantially negative normalized-Hessian curvature (a genuine
+saddle -- see the step-scale seeding bullet above) gets a hugely oversized regularized
+proposal in its own direction. Because the joint step's accept/reject decision is a single
+coin flip shared by every parameter, that one oversized direction ends up dictating
+whether the whole step is accepted almost regardless of what every other,
+well-conditioned parameter proposed -- starving those other parameters' own RAM adaptation
+of a meaningful, direction-specific learning signal. This was confirmed directly on real
+fitted data: a controlled test that simply deactivated the offending parameter(s) (holding
+them fixed rather than sampling them) recovered clean, fast-mixing convergence in every
+\emph{other} parameter, on multiple lineouts of the same shot.
+
+\code{mcmc.py} addresses this with block Metropolis-within-Gibbs, a standard technique in
+the adaptive-MCMC literature for exactly this kind of curvature heterogeneity (see e.g.\
+Turek, de Valpine, Paciorek \& Anderson-Bergman's automated correlation-based parameter
+blocking \cite{turek2015}, though that work chooses blocks from online posterior-sample
+correlation rather than the Hessian-eigenvalue criterion below, which is this codebase's
+own adaptation of the general technique rather than a method drawn directly from that
+paper). Once per run, every active parameter that participates
+(\code{block\_gibbs\_component\_threshold}, an eigenvector-component-magnitude cutoff)
+in some lineout's substantially negative normalized-Hessian eigendirection
+($\le$~\code{block\_gibbs\_eigval\_threshold}, deliberately a stricter, more negative
+threshold than the eigenvalue-\emph{clipping} floor above -- see \code{\_DEFAULTS} in
+\file{mcmc.py} for why a merely small or marginally negative direction, which clipping
+alone was found to already handle adequately, is not automatically worth block Gibbs'
+extra complexity) is unioned, across every lineout in every fit-batch of the shot, into
+one shot-wide "problem" block; every other active parameter forms the complementary
+"well-conditioned" block. Within one outer MCMC step, the two blocks are then proposed and
+accepted/rejected \emph{separately} -- the well-conditioned block first, then the problem
+block -- each against its own Metropolis decision and its own independently RAM-adapted
+proposal covariance (own dimension, own Roberts--Rosenthal $2.38/\sqrt{d_{\rm block}}$
+scaling), so a poorly-conditioned direction's own adaptation can no longer dominate or
+starve the rest of the lineout's parameters. A single, fixed partition is used for every
+fit-batch in a run (rather than one decided independently per fit-batch) because
+\code{run\_mcmc\_for\_fit\_batches} vmaps every fit-batch's sampler into one compiled
+graph, which requires every fit-batch's arrays to share one shape -- a per-fit-batch block
+size that varied from one fit-batch to the next would break that vmap outright.
+\code{block\_gibbs} (on by default) disables this entirely, restoring the single joint
+proposal described above, when set to \code{false}.
+
+\paragraph{A future alternative: geodesic/Riemannian-manifold-aware sampling.} Block Gibbs
+isolates a near-degenerate direction rather than addressing \emph{why} a naive Euclidean
+random-walk step struggles there in the first place: the Hessian (or Fisher information)
+defines a natural Riemannian metric on parameter space, and that metric's eigenvalue
+spectrum for this kind of physics model is a known, named phenomenon in the
+physics/systems-biology literature -- "sloppy models," an eigenvalue spread of many orders
+of magnitude with roughly log-linear decay \cite{transtrum2011,sethna2015} -- matching
+this codebase's own observed spread directly (roughly seven orders of magnitude across
+active parameters on a real fit). The principled fix in that framework is to move along
+\emph{geodesics} of the Riemannian metric rather than straight Euclidean lines, e.g.\
+Geodesic Monte Carlo \cite{byrne2013} or Riemannian-manifold HMC with the SoftAbs metric
+\cite{betancourt2013}, which \emph{symmetrically} regularizes indefinite curvature rather
+than the one-sided eigenvalue floor \code{\_regularized\_proposal\_cholesky} uses above.
+This is a substantially heavier architectural change than block Gibbs -- gradient-based
+(HMC-style) proposals, and for SoftAbs specifically, third derivatives of the loss -- and
+was set aside in favor of block Gibbs given the latter's direct experimental validation
+already in hand on this codebase's own production data. Recorded here (and in
+\file{mcmc.py}'s own module docstring, next to \code{\_run\_block\_ram\_window}) as a
+documented future direction should block Gibbs prove insufficient on some shot -- e.g.\ a
+lineout whose problem block itself remains poorly-mixing even once isolated.
+
+\subsection{Pooling over calibration uncertainty}
+
+Section~\ref{sec:calibration} already describes how, when configured, $K$ independent
+realizations of the instrument's calibration constants are pre-drawn and used to rebuild
+$K$ corresponding \code{(config, data)} pairs. \code{mcmc\_postprocess.py} builds those $K$
+pairs and hands them to \code{mcmc.run\_mcmc\_pooled}, which runs the full MCMC procedure
+above once per realization (dispatched across a thread pool, one chain per realization) and
+pools the $K$ resulting sets of posterior
+samples into one combined ensemble, so that the reported uncertainty on each plasma
+parameter reflects both the statistical (shot-noise) uncertainty the likelihood already
+captures \emph{and} the systematic uncertainty in the instrument calibration those
+$K$ realizations sample from -- two genuinely different sources of uncertainty that a
+single MCMC chain against fixed calibration constants could not distinguish.
+
+\subsection{Convergence diagnostics: rank-normalized R-hat and per-parameter
+reliability}\label{sec:uq-mcmc-rhat}
+
+Pooling $K\ge2$ independent chains (whether from calibration draws, dispersed starting
+points, or both) makes the classic Gelman--Rubin diagnostic available: the potential scale
+reduction factor $\hat R$, the ratio of a pooled (between-plus-within-chain) variance
+estimate to the within-chain variance, close to $1$ once every chain has mixed to the same
+distribution \cite{gelmanrubin1992}. \code{mcmc\_postprocess.py} uses two variants of it --
+a cross-chain $\hat R$ across all $K$ chains (\code{mcmc.\_max\_r\_hat\_across\_chains}) and
+a per-chain \emph{split} $\hat R$ that treats one chain's own first and second half as two
+chains, catching a chain that never reached a stationary distribution within its own budget
+even when it coincidentally agrees with the others on average
+(\code{mcmc.\_within\_chain\_r\_hat}) -- to decide, per lineout, which posterior-sampling
+chains to trust.
+
+\subsubsection{Rank-normalized, folded, split R-hat}
+
+The classic $\hat R$ formula is known to fail once a chain's variance is very large or
+effectively infinite \cite{vehtari2021}. That is exactly what a genuinely
+weakly-identified parameter looks like in this sampler's own unconstrained/logit space
+(\S\ref{sec:uq-mcmc}): its RAM-adapted proposal step can keep growing throughout burn-in
+with no sign of plateauing, since nothing in the likelihood pulls it back. On a real
+production shot this alone was measured to drive classic cross-chain $\hat R$ above
+$1000$ for such a parameter -- not because the chains disagreed about where the
+\emph{bulk} of the distribution sits, but because a handful of extreme per-chain
+excursions dominate the naive variance ratio.
+
+\code{mcmc.\_rank\_normalized\_r\_hat} replaces the classic formula everywhere in this
+module with the rank-normalized, folded, split $\hat R$ of Vehtari, Gelman, Simpson,
+Carpenter \& B\"urkner \cite{vehtari2021}, the modern default in Stan/ArviZ. Every chain
+is first split into two halves (catching within-chain non-stationarity the same way the
+existing split-$\hat R$ already did); the pooled values across every resulting half-chain
+are then replaced by their rank (ties broken by averaging -- material here, since a
+\emph{rejected} Metropolis--Hastings step repeats the previous sample's exact float value,
+a common source of ties in real MCMC output) and mapped through the inverse-normal
+(``Blom'') transform onto approximately standard-normal scores before the classic formula
+is applied. Two such statistics are computed and the worse one kept: a \emph{bulk}
+$\hat R$ (rank-normalizing the raw split chains, sensitive to disagreement in location)
+and a \emph{tail} $\hat R$ (rank-normalizing the \emph{folded} chains,
+$\vert x-\mathrm{median}(x)\vert$, sensitive to disagreement in spread even when the
+centers agree). Rank-normalizing makes the statistic depend only on each chain's relative
+\emph{ordering}, which stays well-defined and comparably scaled regardless of how extreme
+the raw values get -- on the same production shot, this alone brought the worst
+cross-chain $\hat R$ down from the hundreds/thousands to order $10$.
+
+\subsubsection{One weakly-identified parameter must not veto every other parameter}
+
+A well-scaled $\hat R$ formula alone does not fix the deeper issue: $\hat R$ cannot tell
+``this parameter's posterior is genuinely flat, so chains landing at different values
+within it is correct'' apart from ``these chains have not yet converged.'' Both of the
+$\hat R$ variants above, and the companion MAD-based cross-chain outlier check
+(\S\ref{sec:laplace}'s sibling, \code{mcmc\_postprocess.\_mad\_flagged\_chains}), were
+therefore changed to report their result \emph{per active parameter} rather than reduced,
+as they previously were, to a single worst-case-across-parameters number per lineout --
+under that reduction, one honestly weakly-identified parameter (e.g.\ an ion temperature
+the data barely constrain -- exactly the parameter \S\ref{sec:uq-mcmc-block}'s block
+Metropolis-within-Gibbs isolates) made an entire lineout's summary statistics look
+unreliable even when every \emph{other} parameter converged cleanly: on one real
+production shot this reduction alone flagged 83 of 84 lineouts as unreliable although
+mean sampling acceptance across chains was within a percent of the target rate for every
+one of them.
+
+\code{mcmc\_postprocess.\_finalize\_chain\_selection} accordingly decides, independently
+per lineout and per active parameter, whether that parameter's own bad-chain count (chains
+failing the split-$\hat R$ check, the cross-chain outlier check, or both) exceeds
+\code{max\_dropped\_chain\_fraction} \emph{on its own}. A parameter that does is
+\emph{structurally unreliable} for that lineout -- no subset of chains would satisfy the
+budget using that parameter alone -- and is excluded from voting on which chains to keep,
+rather than being allowed to write off (nearly) every chain and, with it, every other
+parameter's perfectly good summary statistics. Only the remaining, \emph{voting}
+parameters' bad-chain flags are combined (by union) to select which chains feed the
+lineout's mean/standard-deviation/covariance; if even that restricted union still exceeds
+the budget, the lineout is marked unreliable outright (NaN'd) as before, since that
+signals genuine, non-parameter-specific disagreement rather than one flat direction.
+When \emph{no} parameter can vote, every chain is kept and every parameter's own
+(necessarily wide) statistics are reported from the full, unfiltered pool, rather than
+discarding a lineout that has no informative subset to select by in the first place.
+
+Critically, a structurally-unreliable parameter is not hidden: its mean and standard
+deviation are still computed and reported (from whichever chains the voting parameters
+selected, or the full pool), simply without being allowed to influence that selection.
+\code{mcmc\_postprocess} additionally returns which (lineout, parameter) pairs were
+excluded from voting (\code{mcmc\_diagnostics["param\_unreliable"]}) and logs, per active
+parameter, how many lineouts across the shot were affected -- so a wide reported
+uncertainty on a specific parameter can be told apart from a genuinely tight one, and a
+parameter that is weakly identified \emph{everywhere} in a shot (as opposed to one lineout)
+is visible at a glance, rather than left implicit in a single aggregate ``lineouts
+unreliable'' count.
+
+%======================================================================
+\begin{thebibliography}{9}
+%======================================================================
+
+\bibitem{salpeter1960}
+E.~E.~Salpeter,
+\textit{Electron density fluctuations in a plasma},
+Physical Review \textbf{120}, 1528 (1960).
+
+\bibitem{rostoker1964}
+N.~Rostoker,
+\textit{Superposition of dressed test particles},
+Physics of Fluids \textbf{7}, 479 (1964).
+
+\bibitem{evans1969}
+D.~E.~Evans and J.~Katzenstein,
+\textit{Laser light scattering in laboratory plasmas},
+Reports on Progress in Physics \textbf{32}, 207 (1969).
+
+\bibitem{sheffield2011}
+D.~H.~Froula, S.~H.~Glenzer, N.~C.~Luhmann~Jr., and J.~Sheffield,
+\textit{Plasma Scattering of Electromagnetic Radiation: Theory and Measurement Techniques},
+2nd ed. (Academic Press, 2011).
+
+\bibitem{fried1961}
+B.~D.~Fried and S.~D.~Conte,
+\textit{The Plasma Dispersion Function: The Hilbert Transform of the Gaussian},
+(Academic Press, New York, 1961).
+
+\bibitem{mora1982}
+P.~Mora and H.~Yahi,
+\textit{Thermal heat-flux reduction in laser-produced plasmas},
+Physical Review A \textbf{26}, 2259 (1982).
+
+\bibitem{milder2019}
+A.~L.~Milder, S.~T.~Ivancic, J.~P.~Palastro, and D.~H.~Froula,
+\textit{Impact of non-Maxwellian electron velocity distribution functions on inferred
+plasma parameters in collective Thomson scattering},
+Physics of Plasmas \textbf{26}, 022711 (2019).
+
+\bibitem{swadling2022}
+G.~F.~Swadling, C.~Bruulsema, W.~Rozmus, and J.~Katz,
+\textit{Quantitative assessment of fitting errors associated with streak camera noise in
+Thomson scattering data analysis},
+Review of Scientific Instruments \textbf{93}, 043503 (2022).
+
+\bibitem{roberts2001}
+G.~O.~Roberts and J.~S.~Rosenthal,
+\textit{Optimal scaling for various Metropolis-Hastings algorithms},
+Statistical Science \textbf{16}, 351 (2001).
+
+\bibitem{gelmanrubin1992}
+A.~Gelman and D.~B.~Rubin,
+\textit{Inference from Iterative Simulation Using Multiple Sequences},
+Statistical Science \textbf{7}, 457 (1992).
+
+\bibitem{vehtari2021}
+A.~Vehtari, A.~Gelman, D.~Simpson, B.~Carpenter, and P.-C.~B\"urkner,
+\textit{Rank-Normalization, Folding, and Localization: An Improved $\widehat{R}$ for
+Assessing Convergence of MCMC (with Discussion)},
+Bayesian Analysis \textbf{16}, 667 (2021).
+
+\bibitem{vihola2012}
+M.~Vihola,
+\textit{Robust adaptive Metropolis algorithm with coerced acceptance rate},
+Statistics and Computing \textbf{22}, 997 (2012).
+
+\bibitem{turek2015}
+D.~Turek, P.~de Valpine, C.~J.~Paciorek, and C.~Anderson-Bergman,
+\textit{Automated Parameter Blocking for Efficient Markov Chain Monte Carlo Sampling},
+arXiv:1503.05621 (2015).
+
+\bibitem{byrne2013}
+S.~Byrne and M.~Girolami,
+\textit{Geodesic Monte Carlo on Embedded Manifolds},
+arXiv:1301.6064 (2013).
+
+\bibitem{betancourt2013}
+M.~Betancourt,
+\textit{A General Metric for Riemannian Manifold Hamiltonian Monte Carlo},
+arXiv:1212.4693 (2013).
+
+\bibitem{transtrum2011}
+M.~K.~Transtrum, B.~B.~Machta, and J.~P.~Sethna,
+\textit{Geometry of nonlinear least squares with applications to sloppy models and
+optimization},
+Physical Review E \textbf{83}, 036701 (2011).
+
+\bibitem{sethna2015}
+M.~K.~Transtrum, B.~B.~Machta, K.~S.~Brown, B.~C.~Daniels, C.~R.~Myers, and J.~P.~Sethna,
+\textit{Perspective: Sloppiness and Emergent Theories in Physics, Biology, and Beyond},
+Journal of Chemical Physics \textbf{143}, 010901 (2015); arXiv:1501.07668.
+
+\end{thebibliography}
+
+\end{document}

@@ -442,7 +442,7 @@ def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
         inds = np.arange(batch_size)
         batches = [[build_batch(all_data_k, inds, cfg["data"]["background"]["bg_subtract"])] for _, all_data_k in draws]
         key = jax.random.PRNGKey(mcmc_key_seed)
-        pooled, static_params, _, _ = mcmc.run_mcmc_pooled(cfg_run, loss_fns, [ts_params], batches, key)
+        pooled, static_params, _, _, _ = mcmc.run_mcmc_pooled(cfg_run, loss_fns, [ts_params], batches, key)
         filter_spec = get_filter_spec(cfg_run["parameters"], ts_params)
         static_i = jax.tree_util.tree_map(lambda x: x[0], eqx.filter(static_params, eqx.is_array))
         static_i = eqx.combine(static_i, eqx.filter(static_params, eqx.is_array, inverse=True))
@@ -517,25 +517,51 @@ def test_run_mcmc_pooled_reports_r_hat_with_multiple_chains(fitted_fixture):
         [build_batch(fitted_fixture["all_data"], inds, cfg["data"]["background"]["bg_subtract"])] for _ in draws
     ]
 
+    filter_spec = get_filter_spec(cfg["parameters"], ts_params)
+    n_active = len(jax.tree_util.tree_leaves(eqx.partition(ts_params, filter_spec)[0]))
+
     key = jax.random.PRNGKey(21)
-    _, _, _, max_r_hat = mcmc.run_mcmc_pooled(cfg, loss_fns, [ts_params], batches, key)
+    _, _, _, max_r_hat, within_chain_r_hat = mcmc.run_mcmc_pooled(cfg, loss_fns, [ts_params], batches, key)
 
     assert max_r_hat is not None
     max_r_hat = np.asarray(max_r_hat)
-    assert max_r_hat.shape == (1, batch_size)  # one fit-batch
+    assert max_r_hat.shape == (1, batch_size, n_active)  # one fit-batch, per active parameter
     assert np.all(np.isfinite(max_r_hat))
-    assert np.all(max_r_hat >= 1.0 - 1e-6)
+    # R-hat (classic or rank-normalized) is an *estimator*, not an exact identity -- it can dip slightly
+    # below 1.0 by chance, especially for a chain this short (num_steps=300 in this fast test); a loose
+    # sanity bound catches a genuinely broken computation (e.g. a sign error, or values wildly off scale)
+    # without being fragile to normal small-sample noise.
+    assert np.all(max_r_hat >= 0.5)
+
+    # within_chain_r_hat is meaningful even with multiple chains -- it never compares different chains to
+    # each other, only a chain to itself (see _within_chain_r_hat's docstring) -- so it's populated here
+    # for all 3 chains, not None the way max_r_hat would be with only 1.
+    within_chain_r_hat = np.asarray(within_chain_r_hat)
+    assert within_chain_r_hat.shape == (3, 1, batch_size, n_active)  # 3 chains, one fit-batch, per parameter
+    assert np.all(np.isfinite(within_chain_r_hat))
+    assert np.all(within_chain_r_hat >= 0.5)  # see max_r_hat's assertion above for why not a strict >= 1.0
 
 
 def test_run_mcmc_pooled_r_hat_is_none_with_a_single_chain(fitted_fixture):
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["other"]["mcmc"] = {"num_steps": 100, "burn_in": 50, "thin": 2, "adapt_every": 10}
     key = jax.random.PRNGKey(0)
-    _, _, _, max_r_hat = mcmc.run_mcmc_pooled(
+    batch_size = cfg["optimizer"]["batch_size"]
+    ts_params = fitted_fixture["fitted_weights"][0]
+    filter_spec = get_filter_spec(cfg["parameters"], ts_params)
+    n_active = len(jax.tree_util.tree_leaves(eqx.partition(ts_params, filter_spec)[0]))
+    _, _, _, max_r_hat, within_chain_r_hat = mcmc.run_mcmc_pooled(
         cfg,
         [fitted_fixture["loss_fn"]],
-        [fitted_fixture["fitted_weights"][0]],
+        [ts_params],
         [[fitted_fixture["batch"]]],
         key,
     )
     assert max_r_hat is None
+
+    # Unlike max_r_hat, within_chain_r_hat only ever compares a chain to itself, so a single chain (K=1)
+    # is not a degenerate case for it the way it is for cross-chain R-hat.
+    within_chain_r_hat = np.asarray(within_chain_r_hat)
+    assert within_chain_r_hat.shape == (1, 1, batch_size, n_active)
+    assert np.all(np.isfinite(within_chain_r_hat))
+    assert np.all(within_chain_r_hat >= 0.5)  # see the multi-chain test's assertion for why not a strict >= 1.0

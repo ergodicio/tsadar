@@ -459,14 +459,21 @@ def save_sigmas_params_mcmc(config, all_params, sigmas, all_axes, td):
     return save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigmas_mcmc.nc")
 
 
-def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None):
+def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None, n_chains_dropped=None, lineout_unreliable=None):
     """
     Plots a histogram of per-lineout MCMC acceptance rates, so a user can tell at a glance whether the
     sampler's step-size adaptation actually converged (rates clustered near
     config["other"]["mcmc"]["target_accept"], not pinned at 0 or 1) or not. When max_r_hat is given (only
-    meaningful with >= 2 independent chains -- see mcmc.run_mcmc_pooled), adds a second panel with a
-    histogram of per-lineout worst-case Gelman-Rubin R-hat, so convergence across chains can be checked
-    at the same glance.
+    meaningful with >= 2 independent chains -- see mcmc.run_mcmc_pooled), adds a panel with a histogram of
+    per-lineout worst-case Gelman-Rubin R-hat, so convergence across chains can be checked at the same
+    glance. When n_chains_dropped is also given, adds a further panel with a histogram of how many chains
+    mcmc_postprocess._finalize_chain_selection wrote off from each lineout's summary statistics (mean/std/
+    covariance) -- for either failing mcmc._within_chain_r_hat (never reached a stationary distribution on
+    its own) or being flagged by mcmc_postprocess._mad_flagged_chains (settled somewhere different from
+    the rest) -- so it's visible at a glance whether a clean-looking R-hat/sigma was helped along by that
+    filtering rather than genuine convergence. When lineout_unreliable is also given, adds a final panel
+    showing how many lineouts had too many chains written off to trust any subset at all (mean/std/
+    covariance NaN'd for those -- see _finalize_chain_selection).
 
     Args:
         config: configuration dictionary created from the input decks
@@ -474,15 +481,20 @@ def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None):
             lineout, averaged across independent chains.
         td: temporary directory that will be uploaded to mlflow
         max_r_hat: optional array of shape (num_lineouts,), the worst-case (max over active parameters)
-            Gelman-Rubin R-hat for each lineout, or None (no second panel) whenever fewer than 2
-            independent chains were run. May contain NaN for lineouts with no active parameters --
-            filtered out before histogramming.
+            Gelman-Rubin R-hat for each lineout, computed from every chain before any chain filtering, or
+            None (no panel) whenever fewer than 2 independent chains were run. May contain NaN for
+            lineouts with no active parameters -- filtered out before histogramming.
+        n_chains_dropped: optional array of shape (num_lineouts,), the number of chains
+            _finalize_chain_selection wrote off from that lineout's summary statistics, or None (no panel)
+            whenever there were no active parameters to test convergence on.
+        lineout_unreliable: optional boolean array of shape (num_lineouts,), True where too many chains
+            were written off to trust any subset -- see _finalize_chain_selection -- or None (no panel).
 
     Returns:
         None: the plot is saved to td/plots and logged to MLflow via the usual artifact upload.
     """
     target = config.get("other", {}).get("mcmc", {}).get("target_accept", 0.234)
-    ncols = 2 if max_r_hat is not None else 1
+    ncols = 1 + (max_r_hat is not None) + (n_chains_dropped is not None) + (lineout_unreliable is not None)
     fig, axes = plt.subplots(1, ncols, figsize=(5 * ncols, 4), squeeze=False)
     ax = axes[0][0]
     ax.hist(np.asarray(acceptance_rate), bins=30)
@@ -492,18 +504,41 @@ def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None):
     ax.set_title("MCMC sampling-phase acceptance rate")
     ax.legend()
     ax.grid()
+    next_col = 1
 
     if max_r_hat is not None:
         r_hat = np.asarray(max_r_hat)
         r_hat = r_hat[np.isfinite(r_hat)]
-        ax = axes[0][1]
+        ax = axes[0][next_col]
+        next_col += 1
         ax.hist(r_hat, bins=30)
         ax.axvline(1.01, color="r", linestyle="--", label="target R-hat = 1.01")
         ax.set_xlabel("max R-hat across active parameters")
         ax.set_ylabel("number of lineouts")
-        ax.set_title("MCMC chain convergence (Gelman-Rubin)")
+        ax.set_title("MCMC chain convergence (Gelman-Rubin)\nbefore chain filtering")
         ax.legend()
         ax.grid()
+
+    if n_chains_dropped is not None:
+        dropped = np.asarray(n_chains_dropped)
+        ax = axes[0][next_col]
+        next_col += 1
+        max_dropped = int(dropped.max()) if dropped.size else 0
+        ax.hist(dropped, bins=np.arange(max_dropped + 2) - 0.5)
+        ax.set_xlabel("chains written off from summary stats")
+        ax.set_ylabel("number of lineouts")
+        ax.set_title("MCMC chain filtering")
+        ax.grid()
+
+    if lineout_unreliable is not None:
+        unreliable = np.asarray(lineout_unreliable)
+        ax = axes[0][next_col]
+        next_col += 1
+        counts = [int(np.sum(~unreliable)), int(np.sum(unreliable))]
+        ax.bar(["reliable", "unreliable"], counts)
+        ax.set_ylabel("number of lineouts")
+        ax.set_title("MCMC lineout reliability\n(too many chains written off)")
+        ax.grid(axis="y")
 
     fig.savefig(os.path.join(td, "plots", "mcmc_acceptance_rate.png"), bbox_inches="tight")
     plt.close(fig)
