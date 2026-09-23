@@ -20,9 +20,12 @@ From an environment containing the package and test dependencies::
 
 The output directory must be new. The smoke preset fits all four EDF models for
 two gradient evaluations each, using one elliptic truth, one noise seed, three
-angles, and eight wavelength bins. Truth uses 32 velocity cells per direction;
-fits use 16. The interval is 470--515 nm, avoiding the far-tail interpolation
-error encountered with this deliberately coarse grid on a wider interval.
+angles, and eight wavelength bins. Truth uses 64 velocity cells per direction;
+fits use 32. The inversion grid uses 16 sinogram angles, 128 root-scan panels,
+and 16 integration panels; truth doubles each resolution. These resolutions
+avoid the negative photon signals found on the earlier 16-cell inversion grid.
+The interval is 470--515 nm, avoiding the far-tail interpolation error encountered
+with this deliberately coarse grid on a wider interval.
 This exercises the complete path, including automatic differentiation and the
 detector SVD. Its recovery scores are not a scientific ranking or a convergence
 claim. The smoke test belongs to ordinary CPU PR CI.
@@ -217,7 +220,12 @@ The local result directory contains:
 * ``status.json`` records running, failed, or complete state and timestamps.
   ``runs.json`` is updated after each completed fit, and ``summary.json`` after all
   configured runs finish. Nonfinite predictions, gradients, or invalid photon
-  spectra fail the run rather than being removed from scores.
+  spectra fail the run rather than being removed from scores. Raw photon signals
+  on both truth grids and at every fitted iterate must be finite and nonnegative
+  at every detector pixel, including held-out angles and wedges. This check uses
+  zero tolerance and no clipping, before background addition or pixel masking.
+  Zero signal is allowed; any negative value fails even if the background would
+  make the total counts positive.
 
 MLflow is optional. When enabled, each run name contains the actual fit model,
 truth, seed and photon level; histories, best metrics, configurations, observed

@@ -11,6 +11,7 @@ import pytest
 
 jax.config.update("jax_enable_x64", True)
 
+from tsadar.benchmarks import arts2d
 from tsadar.benchmarks.arts2d import (
     BenchmarkSpec,
     _blank_batch,
@@ -223,27 +224,38 @@ def test_seed_aggregation_uses_paired_differences_and_no_single_run_interval():
         summarize_runs(records + records[:1], spec)
 
 
-def test_failed_spectrum_cannot_be_hidden_by_production_pixel_masking(tmp_path):
-    spec = BenchmarkSpec.smoke()
+@pytest.mark.parametrize("bad_value", [np.nan, -1e-12], ids=["nan", "negative"])
+@pytest.mark.parametrize(
+    "pixel", [(0, 0), (1, 0), (0, 3)], ids=["train", "heldout-angle", "heldout-wedge"]
+)
+def test_failed_spectrum_cannot_be_hidden_by_production_pixel_masking(
+    tmp_path, bad_value, pixel
+):
+    spec = replace(BenchmarkSpec.smoke(), steps=1)
     config = make_config(spec)
     initial, _, _, _ = initialize_model(config, spec.initialization_seed)
     velocity = np.asarray(initial.electron.distribution_functions.vx)
     shape = (len(spec.angles_deg), spec.detector_bins)
-    mask = make_detector_mask(*shape, heldout_angles=spec.heldout_angles)
+    mask = make_detector_mask(
+        *shape,
+        heldout_angles=spec.heldout_angles,
+        heldout_wedges=spec.heldout_wedges,
+    )
     batch = dict(
         _blank_batch(spec),
         e_data=jnp.ones(shape),
         e_variance=jnp.ones(shape),
         e_mask=jnp.asarray(mask),
+        noise_e=jnp.full(shape, spec.background_counts),
     )
     angles = np.asarray(spec.angles_deg)
     loss = LossFunction(
         config, {"sa": angles, "angAxis": angles, "weights": np.eye(len(angles))}, batch
     )
-    bad_spectrum = (
-        jnp.ones(shape).at[1, 0].set(jnp.nan)
-    )  # even an unobserved model pixel must fail
-    with pytest.raises(FloatingPointError, match="nonfinite"):
+    # Even a tiny negative raw signal must fail, despite a positive background
+    # or a held-out pixel that the production likelihood excludes from fitting.
+    bad_spectrum = jnp.ones(shape).at[pixel].set(bad_value)
+    with pytest.raises(FloatingPointError, match="nonfinite|nonnegative"):
         fit_model(
             spec,
             config,
@@ -259,6 +271,34 @@ def test_failed_spectrum_cannot_be_hidden_by_production_pixel_masking(tmp_path):
     assert not (tmp_path / "failed-fit").exists()
 
 
+@pytest.mark.parametrize("bad_value", [np.nan, -1e-12], ids=["nan", "negative"])
+@pytest.mark.parametrize("grid", ["refined", "inversion-grid"])
+def test_invalid_truth_spectrum_fails_before_scoring(
+    tmp_path, monkeypatch, bad_value, grid
+):
+    spec = BenchmarkSpec.smoke()
+
+    def injected_forward(config, geometry, batch):
+        nvx = config["parameters"]["electron"]["fe"]["nvx"]
+        velocity = np.linspace(-6 + 6 / nvx, 6 - 6 / nvx, nvx)
+        spectrum = jnp.ones((len(spec.angles_deg), spec.detector_bins))
+        is_refined = nvx != spec.nvx
+        if is_refined == (grid == "refined"):
+            spectrum = spectrum.at[spec.heldout_angles[0], 0].set(bad_value)
+        return lambda edf: spectrum, velocity
+
+    monkeypatch.setattr(arts2d, "build_forward", injected_forward)
+    output = tmp_path / "failed-benchmark"
+    message = f"invalid {grid} truth spectrum"
+    with pytest.raises(FloatingPointError, match=message):
+        run_benchmark(spec, output)
+    status = json.loads((output / "status.json").read_text())
+    assert status["state"] == "failed" and message in status["error"]
+    assert not (output / "runs.json").exists()
+    assert not (output / "summary.json").exists()
+    assert not list(output.rglob("best_weights.eqx"))
+
+
 def test_production_arts2d_benchmark_smoke(tmp_path):
     """All four real EDFs, refined truth, detector, likelihood, AD, optimizer and SVD."""
     spec = BenchmarkSpec.smoke()
@@ -269,10 +309,20 @@ def test_production_arts2d_benchmark_smoke(tmp_path):
     shared = output / "elliptic-counts-1000"
     case = np.load(shared / "case.npz")
     assert case["truth_edf"].shape != case["refined_truth_edf"].shape
+    for name in ("clean_signal", "coarse_truth_signal"):
+        assert np.all(np.isfinite(case[name])) and np.all(case[name] >= 0)
     assert np.all(case["train"] != case["heldout"])
     svd = np.load(shared / "subspaces.npz")
     assert np.all(np.isfinite(svd["jacobian"])) and int(svd["rank"]) > 0
-    np.testing.assert_allclose(svd["jacobian"].sum(axis=1), 0, atol=1e-10)
+    # Summation roundoff grows with row magnitude and velocity-grid resolution.
+    # Measure cancellation relative to each row's L1 norm.
+    jacobian = svd["jacobian"]
+    row_scale = np.maximum(np.abs(jacobian).sum(axis=1), 1.0)
+    np.testing.assert_allclose(
+        jacobian.sum(axis=1) / row_scale,
+        0,
+        atol=32 * np.finfo(jacobian.dtype).eps,
+    )
     assert json.loads((output / "status.json").read_text())["state"] == "complete"
     data = np.load(shared / "seed-0/observations.npy")
     for record in records:

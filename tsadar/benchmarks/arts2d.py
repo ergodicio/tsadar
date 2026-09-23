@@ -101,13 +101,13 @@ class BenchmarkSpec:
             heldout_wedges=((3, 4),),
             wavelength_bounds_nm=(470.0, 515.0),
             detector_bins=8,
-            nvx=16,
+            nvx=32,
             nvr=16,
             nvz=32,
             harmonic_degree=1,
-            n_beta=8,
-            root_scan_panels=64,
-            integration_panels=8,
+            n_beta=16,
+            root_scan_panels=128,
+            integration_panels=16,
             regular_order=4,
             root_order=8,
             max_roots=4,
@@ -550,8 +550,10 @@ def fit_model(
         )
         # Production loss deliberately excludes invalid pixels. A numerical model
         # failure must instead invalidate this controlled benchmark, including at
-        # held-out pixels. Check before its sanitized prediction can conceal NaNs.
-        total = jnp.where(jnp.all(jnp.isfinite(signal)), total, jnp.nan)
+        # held-out pixels. Require finite, nonnegative raw photon signals before
+        # background addition or sanitized predictions can conceal a failure.
+        valid_signal = jnp.all(jnp.isfinite(signal) & (signal >= 0))
+        total = jnp.where(valid_signal, total, jnp.nan)
         return total, (edf, predicted, diagnostics["profiled_gains"][0])
 
     evaluate = eqx.filter_jit(objective)
@@ -581,7 +583,8 @@ def fit_model(
             np.all(np.isfinite(np.asarray(a))) for a in aux
         ):
             raise FloatingPointError(
-                f"nonfinite production benchmark evaluation at step {step}"
+                f"invalid production benchmark evaluation at step {step}: "
+                "outputs must be finite and raw photon signals nonnegative"
             )
         if first_evaluation_seconds is None:
             first_evaluation_seconds = time.perf_counter() - start
@@ -860,7 +863,7 @@ def _run_benchmark(spec, output, *, mlflow_experiment=None):
             raise FloatingPointError(
                 "invalid refined truth spectrum; inspect the quadrature resolution"
             )
-        if not np.all(np.isfinite(coarse_reference)):
+        if not np.all(np.isfinite(coarse_reference)) or np.any(coarse_reference < 0):
             raise FloatingPointError("invalid inversion-grid truth spectrum")
         for photons in spec.peak_counts:
             shared = output / f"{truth_name}-counts-{photons:.17g}"
