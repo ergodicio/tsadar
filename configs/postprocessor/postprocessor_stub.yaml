@@ -2,6 +2,14 @@ mlflow:
   experiment: shot_day_10_22_25
   run: s116773-mcmc-stat-only-laplaceseed
 
+optimizer:
+  # Only read by this standalone MCMC postprocessor's reconstructed loss_fn -- the point estimate in
+  # fitted_weights.eqx was already produced under the source run's own optimizer.loss_method (l2) and is
+  # loaded unchanged, never re-optimized here. This only changes what neg_log_likelihood MCMC samples
+  # against (and what the Laplace/Hessian seed is computed from), per NOISE_MODEL_SESSION_HANDOFF.md
+  # Phase 5 -- does NOT touch the point-estimate optimizer (that's Phase 6, still deliberately deferred).
+  loss_method: covar
+
 other:
   # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
   # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to

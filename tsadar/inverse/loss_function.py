@@ -158,6 +158,10 @@ class LossFunction:
 
         if cfg["optimizer"]["loss_method"] == "covar":
                 self.sig_px = 1.0 #this is device specific and can be left hardcoded
+                # TODO: measured dark-frame (frame 1) std for shot 116773 is ~65-73 ADU (EPW) / ~64 ADU
+                # (IAW), i.e. well above this hardcoded value -- pending confirmation of the right way to
+                # map that measurement onto sig_rn (accounting for frame0-frame1 differencing), see
+                # NOISE_MODEL_SESSION_HANDOFF.md Phase 0/2.
                 self.sig_rn = 17.0 # this is from the background of the camera and should be derived from the data image
                 self.n = 2 * cfg["data"]["dpixel"] + 1
                 self.G = 108
@@ -489,20 +493,15 @@ class LossFunction:
             per_lineout: if True, sums only over the wavelength/pixel axis and returns shape
                 (batch_size,) -- one value per lineout, needed for independent per-lineout MH
                 accept/reject. If False (default), reduces to a single scalar for the whole batch, as
-                _loss_for_hess_fn_ has always returned. Not supported for loss_method="covar", whose
-                error reduction is not per-lineout separable; per_lineout=True raises in that case.
-                Also not supported for angular data, whose noise-whitened objective
-                (_angular_data_objective) is likewise not separable per lineout.
+                _loss_for_hess_fn_ has always returned. For loss_method="covar", per_lineout=True
+                returns the raw (non-dof-normalized) per-lineout quadratic form -- see
+                _feature_error_'s per_lineout docstring. Not supported for angular data, whose
+                noise-whitened objective (_angular_data_objective) is not separable per lineout.
 
         Note: uses jnp.nansum rather than a plain sum, since calc_ei_error masks out-of-fit-range
         points to nan (see calc_ei_error/_feature_error_) -- summing those directly would propagate nan
         into every lineout's value.
         """
-        if per_lineout and self.cfg["optimizer"]["loss_method"] == "covar":
-            raise NotImplementedError(
-                "neg_log_likelihood(per_lineout=True) is not supported for loss_method='covar': its "
-                "error reduction is a single covariance-weighted quadratic form, not separable per lineout."
-            )
         if self.is_angular:
             if per_lineout:
                 raise NotImplementedError(
@@ -522,6 +521,7 @@ class LossFunction:
             lamAxisE,
             uncert=[jnp.abs(batch["i_data"]) + 1e-10, jnp.abs(batch["e_data"]) + 1e-10],
             reduce_func=reduce_func,
+            per_lineout=per_lineout,
         )
 
         return i_error + e_error
@@ -530,7 +530,7 @@ class LossFunction:
         weights = eqx.combine(static_params, diff_params)
         return self.neg_log_likelihood(weights, batch, per_lineout=False)
 
-    def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean):
+    def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean, per_lineout=False):
         """
         Calculates the error metrics for ion and electron spectral fits based on theoretical and experimental data.
         This function computes the error between measured and theoretical spectra for both ion (IAW) and electron (EPW)
@@ -544,6 +544,8 @@ class LossFunction:
             lamAxisE (array-like): Wavelength axis for the electron spectrum.
             uncert (tuple or list): Tuple or list containing uncertainty arrays for ion and electron data, respectively.
             reduce_func (callable, optional): Function to reduce the error array to a scalar (e.g., jnp.mean, jnp.sum). Defaults to jnp.mean.
+            per_lineout (bool, optional): For loss_method=="covar" only -- return one quadratic-form
+                value per lineout instead of the dof-normalized batch scalar. See _feature_error_.
         Returns:
             tuple:
                 i_error (float): Reduced error metric for the ion feature (IAW).
@@ -570,8 +572,9 @@ class LossFunction:
                 (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
                 & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
             )
-            # covar_source is i_data here (not ThryI) -- matches the original per-branch behavior below.
-            error, sqd = self._feature_error_(i_data, ThryI, uncert[0], mask, i_data, reduce_func)
+            # covar_source is ThryI (model prediction, not raw data) -- avoids the Neyman/Pearson bias
+            # and the near-zero-data variance blowup; matches the EPW branches below.
+            error, sqd = self._feature_error_(i_data, ThryI, uncert[0], mask, ThryI, reduce_func, per_lineout)
             i_error += error
             sqdev["ion"] = sqd
 
@@ -579,7 +582,7 @@ class LossFunction:
             mask = (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"]) & (
                 lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"]
             )
-            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func)
+            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout)
             e_error += error
             sqdev["ele"] = sqd
 
@@ -587,7 +590,7 @@ class LossFunction:
             mask = (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"]) & (
                 lamAxisE < self.cfg["data"]["fit_rng"]["red_max"]
             )
-            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func)
+            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout)
             e_error += error
 
             if self.cfg["data"]["fit_EPWb"]:
@@ -597,13 +600,25 @@ class LossFunction:
 
         return i_error, e_error, sqdev
 
-    def _feature_error_(self, data, thry, uncert, mask, covar_source, reduce_func):
+    def _feature_error_(self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False):
         """
         Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
         functional, masks to the feature's fit range, and reduces either via reduce_func or, for
         loss_method=="covar", via the covariance-weighted quadratic form. covar_source is the array
-        calculate_covariance_matrix is built from -- i_data for the ion branch, ThryE for both electron
-        branches, matching each branch's original behavior.
+        calculate_covariance_matrix is built from -- ThryI for the ion branch, ThryE for both electron
+        branches, i.e. always the forward-model prediction rather than the raw (noisy) data, to avoid
+        the Neyman/Pearson bias and the near-zero-data variance blowup (see
+        NOISE_MODEL_SESSION_HANDOFF.md Phase 1).
+
+        per_lineout (loss_method=="covar" only): return one quadratic-form value per lineout (shape
+            (num_lineouts,)) -- the raw residual^T @ K^-1 @ residual with no degrees-of-freedom
+            normalization, needed for MCMC's independent per-lineout accept/reject. This intentionally
+            differs from the per_lineout=False path below (used by the point-estimate loss), which
+            divides by (finite pixels - free params) to behave like a reduced-chi2 metric: the same
+            split already exists between calc_loss's mean-like point-estimate reduction and
+            neg_log_likelihood's sum-like actual -2*log-likelihood for the other loss methods (see
+            neg_log_likelihood's docstring). Ignored for non-covar methods, where reduce_func already
+            encodes the desired reduction.
 
         Returns:
             tuple: (error, sqdev) where sqdev is nan_to_num(masked _error_), matching what calc_ei_error
@@ -614,11 +629,16 @@ class LossFunction:
 
         if self.cfg["optimizer"]["loss_method"] == "covar":
             k = self.calculate_covariance_matrix(covar_source)
-            norm = jnp.sum(jnp.isfinite(_error_)) - self.num_free_params
-            print(norm)
+            finite_count = jnp.sum(jnp.isfinite(_error_))
             _error_ = jnp.nan_to_num(_error_)
-            x = jnp.linalg.solve(k, _error_[..., None]).squeeze(-1)
-            error = jnp.sum(jnp.vecdot(_error_, x)) / norm
+            c, lower = jax.scipy.linalg.cho_factor(k)
+            x = jax.scipy.linalg.cho_solve((c, lower), _error_[..., None]).squeeze(-1)
+            quad = jnp.vecdot(_error_, x)  # shape (num_lineouts,): one quadratic form per lineout
+            if per_lineout:
+                error = quad
+            else:
+                norm = finite_count - self.num_free_params
+                error = jnp.sum(quad) / norm
         else:
             error = reduce_func(_error_)
 
@@ -1434,16 +1454,27 @@ class LossFunction:
         constant readout-noise term (self.n * self.sig_rn**2) is added on the diagonal.
 
         Args:
-            data: array of shape (num_lineouts, num_pixels) used to estimate the shot noise. Note this is
-                computed from the signal itself, not the forward model, per the comment below -- a known
-                simplification, not yet the model-based noise estimate the method calls for.
+            data: array of shape (num_lineouts, num_pixels) used to estimate the shot noise. Callers now
+                pass the forward-model prediction (ThryI/ThryE), not the raw (noisy) data -- see
+                NOISE_MODEL_SESSION_HANDOFF.md Phase 1. This avoids the Neyman/Pearson variance bias and
+                the near-zero/negative-data sqrt() blowup that raw background-subtracted data can produce.
+                Floored to >=1e-10 (not 0) before the sqrt below: even with a model prediction, tiny
+                negative excursions (observed directly on real shot 116773 data: ~15% of a lineout's
+                pixels at O(1e-13), floating-point noise around a near-zero continuum, not a physically
+                meaningful negative signal) would otherwise NaN the sqrt and, via the convolution below,
+                the entire lineout's covariance matrix -- confirmed to actually happen on real data, not
+                just a theoretical edge case. A floor of exactly 0 fixes the *value* but not the
+                *gradient* -- d/dx sqrt(x) diverges as x->0+, so any pixel sitting at the floor still
+                NaNs the gradient (confirmed: L-BFGS-B given the gradient makes zero progress from a
+                real fitted point where this floor is active). 1e-10 keeps sqrt's derivative finite
+                there while being physically negligible, matching the epsilon already used for the l2
+                method's uncert = |data| + 1e-10.
 
         Returns:
             k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
             each lineout.
         """
-        # Calculate noise (here it is done with the signal but it should be done with the model)
-        sig_s = jnp.sqrt(data * self.G * self.F2)
+        sig_s = jnp.sqrt(jnp.clip(data, 1e-10, None) * self.G * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])
         #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
