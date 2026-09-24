@@ -16,6 +16,9 @@ leaves rather than one (batch_size,)-shaped leaf -- incompatible with this modul
 leaf-broadcast-based proposal/accept-reject without a further per-lineout destacking step, which is left
 as a documented follow-on. run_mcmc_for_batch raises NotImplementedError if "fe" is active.
 """
+import os
+import pickle
+import tempfile
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
@@ -24,9 +27,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import mlflow
 import numpy as np
 import scipy.stats
 from jax import random as jr
+from mlflow.tracking import MlflowClient
 from tqdm import trange
 
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
@@ -1556,12 +1561,53 @@ def _within_chain_r_hat(per_draw_samples: List) -> np.ndarray:
     return np.stack(per_chain_r_hat, axis=0)  # (num_chains, num_fit_batches, batch_size, n_active)
 
 
+def _checkpoint_draw(run_id: Optional[str], draw_index: int, samples, static, diagnostics) -> None:
+    """Saves one calibration draw's raw (samples, diagnostics) to a local pickle and uploads it to the
+    active mlflow run as soon as that draw finishes -- not just once at the very end alongside the final
+    pooled artifacts. Without this, a run that dies partway through (walltime, OOM, an unrelated crash)
+    loses every completed draw's results along with the incomplete ones, since mlflow_postprocess's only
+    other write happens after ALL K draws finish and the summary/plots are built (see
+    mcmc_postprocess.mcmc_postprocess). Cheap insurance: this is the exact same object each draw already
+    holds in memory, just written out a little earlier than it otherwise would be.
+
+    Deliberately does NOT pickle `static` (accepted as a parameter but unused, kept for call-site
+    symmetry with the (samples, static, diagnostics) triple run_mcmc_for_fit_batches returns): it holds
+    every non-fitted leaf of ThomsonParams, including things like an electron distribution function's
+    closures (e.g. DLM1V's activation lambda), which plain pickle cannot serialize at all -- confirmed
+    directly (AttributeError: Can't pickle local object). static_params is identical across every draw
+    for a fixed config anyway (see run_mcmc_pooled's docstring) and fully reconstructible from the
+    already-known fitted_weights.eqx + get_filter_spec, so there's nothing lost by leaving it out of a
+    per-draw checkpoint meant for inspecting the sampled posterior, not for standalone deserialization.
+
+    Uses MlflowClient().log_artifact(run_id, ...) rather than the fluent mlflow.log_artifact() so this is
+    safe to call from a worker thread (see run_mcmc_pooled's ThreadPoolExecutor) without depending on
+    mlflow's ambient/fluent active-run state being consistent across threads -- run_id is captured once in
+    the main thread before dispatching. A no-op if run_id is None, so this stays safe to call from
+    contexts with no active mlflow run (e.g. direct unit tests of run_mcmc_pooled).
+    """
+    if run_id is None:
+        return
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, f"draw_{draw_index:02d}.pkl")
+            with open(path, "wb") as f:
+                pickle.dump({"samples": samples, "diagnostics": diagnostics}, f)
+            MlflowClient().log_artifact(run_id, path, artifact_path="draw_checkpoints")
+        print(f"[checkpoint] draw {draw_index + 1} saved to draw_checkpoints/draw_{draw_index:02d}.pkl", flush=True)
+    except Exception as e:
+        # Checkpointing is best-effort insurance, not the run's actual purpose -- a checkpoint failure
+        # (e.g. a transient upload error) should never take down the sampler itself.
+        print(f"[checkpoint] draw {draw_index + 1} checkpoint FAILED (non-fatal, continuing): "
+              f"{type(e).__name__}: {e}", flush=True)
+
+
 def run_mcmc_pooled(
     config: Dict,
     loss_fns_by_draw: List[LossFunction],
     ts_params_list: List[ThomsonParams],
     batches_by_draw: List[List[Dict]],
     key: jax.Array,
+    checkpoint_run_id: Optional[str] = None,
 ) -> Tuple[object, object, List[Dict], object, object]:
     """
     Runs run_mcmc_for_fit_batches independently for each of the K independent chains (own PRNG subkey
@@ -1590,6 +1636,10 @@ def run_mcmc_pooled(
         batches_by_draw: length-K list, each a length-num_fit_batches list of batch dicts (one per
             fit-batch, built against that chain's possibly-rescaled data).
         key: PRNG key; split once per chain.
+        checkpoint_run_id: if given, the active mlflow run's id -- each draw's raw (samples, static,
+            diagnostics) is pickled and uploaded to that run (under draw_checkpoints/) as soon as that
+            draw finishes, rather than only once at the very end alongside the final pooled artifacts.
+            See _checkpoint_draw. None (the default) skips checkpointing entirely.
 
     Returns:
         pooled_samples: diff_params-shaped pytree, leaves shaped (num_fit_batches, K * num_kept, batch_size, ...).
@@ -1617,6 +1667,7 @@ def run_mcmc_pooled(
             samples, static, diagnostics = run_mcmc_for_fit_batches(
                 config, loss_fn, ts_params_list, batch_list, draw_key, progress_desc=progress_desc, pbar_position=draw_index
             )
+        _checkpoint_draw(checkpoint_run_id, draw_index, samples, static, diagnostics)
         return progress_desc, samples, static, diagnostics
 
     with ThreadPoolExecutor(max_workers=max(len(devices), 1)) as pool:

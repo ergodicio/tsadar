@@ -293,8 +293,16 @@ def mcmc_postprocess(
         batches_by_draw.append([build_batch(all_data_k, inds, background_subtract) for inds in batch_indices])
 
     key = jax.random.PRNGKey(int(mcmc_cfg["seed"]))
+    # Captured once here (not inside run_mcmc_pooled) so each calibration draw's raw results can be
+    # uploaded to THIS run as soon as that draw finishes -- see mcmc._checkpoint_draw's docstring for why:
+    # otherwise a run that dies partway through (walltime, OOM, an unrelated crash) loses every completed
+    # draw's results along with the incomplete ones.
+    active_run = mlflow.active_run()
+    checkpoint_run_id = active_run.info.run_id if active_run is not None else None
     pooled_diff_params, static_params, diagnostics_by_draw, max_r_hat_by_batch, within_chain_r_hat_by_batch = (
-        mcmc.run_mcmc_pooled(config, loss_fns_by_draw, fitted_weights, batches_by_draw, key)
+        mcmc.run_mcmc_pooled(
+            config, loss_fns_by_draw, fitted_weights, batches_by_draw, key, checkpoint_run_id=checkpoint_run_id
+        )
     )
 
     static_array_part = eqx.filter(static_params, eqx.is_array)

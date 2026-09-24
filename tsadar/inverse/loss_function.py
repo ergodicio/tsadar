@@ -522,7 +522,13 @@ class LossFunction:
 
         def _nll_of_diff(dp):
             weights = eqx.combine(static_params, dp)
-            return self.neg_log_likelihood(weights, batch, per_lineout=False)
+            if self.is_angular:
+                # see _loss_for_hess_fn_'s identical branch: angular's per_lineout=False is already the
+                # right (non-dof-normalized) objective, and per_lineout=True isn't supported for it.
+                return self.neg_log_likelihood(weights, batch, per_lineout=False)
+            # per_lineout=True, summed -- see _loss_for_hess_fn_'s docstring for why per_lineout=False
+            # (dof-normalized for loss_method="covar") is the wrong thing to differentiate for a Hessian.
+            return jnp.sum(self.neg_log_likelihood(weights, batch, per_lineout=True))
 
         flat_diff, treedef = jax.tree_util.tree_flatten(diff_params)
         n = len(flat_diff)
@@ -605,7 +611,23 @@ class LossFunction:
 
     def _loss_for_hess_fn_(self, diff_params, static_params, batch):
         weights = eqx.combine(static_params, diff_params)
-        return self.neg_log_likelihood(weights, batch, per_lineout=False)
+        if self.is_angular:
+            # angular's neg_log_likelihood(per_lineout=False) delegates to calc_loss/_angular_data_objective
+            # directly (a purpose-built, already-unnormalized-in-the-relevant-sense objective) rather than
+            # calc_ei_error's covar branch, so it isn't subject to the dof-normalization bug below and
+            # per_lineout=True isn't supported for it anyway -- see neg_log_likelihood's docstring.
+            return self.neg_log_likelihood(weights, batch, per_lineout=False)
+        # Use per_lineout=True's raw (non-dof-normalized) per-lineout value, summed, rather than
+        # per_lineout=False directly: for loss_method="covar", per_lineout=False divides by
+        # (finite_pixels - free_params) for the point-estimate loss's reduced-chi2-style scale (see
+        # _feature_error_'s docstring) -- appropriate for that use, but WRONG for a Hessian, which needs
+        # the curvature of the actual -2*log-likelihood MCMC samples against (_log_posterior already uses
+        # per_lineout=True for exactly this reason). Differentiating the dof-normalized scalar instead
+        # silently divided this Hessian by norm (confirmed on real data: a ~350-1400x systematic
+        # discrepancy against a finite-difference cross-check), inflating the Laplace-seeded MCMC proposal
+        # step scale by ~sqrt(norm) and throwing chains into unphysical starting points. No-op for l2 and
+        # every other method, where per_lineout=False was already an unnormalized sum equal to this.
+        return jnp.sum(self.neg_log_likelihood(weights, batch, per_lineout=True))
 
     def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean, per_lineout=False):
         """
