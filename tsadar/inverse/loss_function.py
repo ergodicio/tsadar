@@ -185,6 +185,9 @@ class LossFunction:
 
         self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
 
+        if cfg["optimizer"]["loss_method"] == "covar":
+            self._init_covar_pixel_indices(cfg, dummy_batch)
+
         # Set by _1d_scipy_loop_ (loops.py) before use, via ravel_pytree(diff_params) -- the unraveling
         # function matching that particular fit's parameter pytree structure. Declared here so it's a
         # known attribute rather than one only ever assigned from outside the class.
@@ -199,6 +202,80 @@ class LossFunction:
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
         self._h_func_per_lineout_ = filter_jit(self._h_loss_wrt_params_per_lineout_impl)
         self.array_loss = filter_jit(self.post_loss)
+
+    def _init_covar_pixel_indices(self, cfg, dummy_batch):
+        """Precomputes, once, the fixed pixel-index window (and in-range submask within it)
+        calculate_covariance_matrix needs for each fit-range feature (IAW / EPW-blue / EPW-red), so the
+        covar loss method's Cholesky factorization operates on a small window instead of the full raw
+        pixel count (e.g. ~150-200 (+ padding) vs 1024 -- confirmed on real shot 116773 data to be the
+        dominant cost of loss_method="covar" being ~3x slower per call than l2, see
+        NOISE_MODEL_SESSION_HANDOFF.md).
+
+        The window is padded by the CCD spread function's own half-width (self.g's radius) on each side
+        of the true in-range span, and includes the interior gap for IAW's non-contiguous mask ([iaw_min,
+        iaw_cf_min] U [iaw_cf_max, iaw_max]) rather than trying to window each side separately. This
+        matters for correctness, not just speed: the PSF convolution the old full-1024-pixel
+        calculate_covariance_matrix did naturally correlated each in-range pixel with its true neighbors,
+        including ones just outside the fit-range boundary -- confirmed directly that gathering to ONLY
+        the true in-range pixels (no padding) shifted the resulting NLL by ~0.6% (dropping that
+        cross-boundary correlation) at lineout 1825's real fitted point. Since self.g has zero support
+        beyond its own half-width, padding by exactly that half-width reproduces the full-array result
+        exactly (up to floating point) while still shrinking the matrix drastically.
+
+        Safe to compute once (not per call) because the experimental wavelength axis ts_diag returns
+        (lamAxisE/lamAxisI) is a property of the DATA's own fixed calibration (computed in
+        data.prepare.prepare_data, before any fitting), not of the weights being evaluated -- confirmed
+        directly: lamAxisE is bit-identical across widely different values of the "lam" parameter. The
+        in-range mask therefore never changes across MCMC steps, optimizer iterations, or lineouts within
+        a batch (the axis has no per-lineout dependence either). The one case this does NOT cover is
+        independent across calibration-uncertainty draws with a dispersed axis (EPWDispersion_sigma etc.)
+        -- each such draw gets its own LossFunction instance (see
+        mcmc_postprocess._build_loss_fn_for_draw), so it recomputes its own indices here correctly; this
+        method must never be called once and reused across LossFunction instances.
+
+        Args:
+            cfg: this LossFunction's own config (same object as self.cfg).
+            dummy_batch: batch used for __init__'s other setup (i_norm/e_norm etc.) -- any batch built
+                against this run's data works equally well here, since the axis doesn't depend on which
+                lineouts happen to be in it.
+
+        Sets, per feature, a (window_idx, in_range_submask) pair: self.covar_blue_idx/covar_blue_mask,
+        self.covar_red_idx/covar_red_mask, self.covar_iaw_idx/covar_iaw_mask. window_idx are the (padded)
+        pixel indices to gather; in_range_submask (same length as window_idx) is True only at the
+        positions that are genuinely in the fit range, used to zero the residual there (matching the old
+        nan_to_num(masked, 0) behavior) without shrinking the matrix further.
+        """
+        from ..core.modules.ts_params import ThomsonParams
+
+        # Use dummy_batch's own lineout count, not cfg["optimizer"]["batch_size"] -- callers may pass a
+        # batch sized differently from the configured fit-batch size (e.g. a single-lineout refit).
+        nominal_params = ThomsonParams(cfg["parameters"], dummy_batch["e_data"].shape[0], activate=True)
+        _, _, lamAxisE, lamAxisI = self.ts_diag(nominal_params, dummy_batch)
+        lamAxisE = np.asarray(lamAxisE)[0]
+        lamAxisI_arr = np.asarray(lamAxisI)
+        lamAxisI_arr = lamAxisI_arr[0] if lamAxisI_arr.ndim > 1 else lamAxisI_arr
+        fr = cfg["data"]["fit_rng"]
+        half_width = self.g.shape[0] // 2
+
+        def _windowed(true_mask_1d, num_pixels):
+            true_idx = np.where(true_mask_1d)[0]
+            lo = max(int(true_idx.min()) - half_width, 0)
+            hi = min(int(true_idx.max()) + half_width + 1, num_pixels)
+            window_idx = np.arange(lo, hi)
+            in_range_submask = true_mask_1d[window_idx]
+            return jnp.asarray(window_idx), jnp.asarray(in_range_submask)
+
+        self.covar_blue_idx, self.covar_blue_mask = _windowed(
+            (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"]), lamAxisE.shape[0]
+        )
+        self.covar_red_idx, self.covar_red_mask = _windowed(
+            (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"]), lamAxisE.shape[0]
+        )
+        self.covar_iaw_idx, self.covar_iaw_mask = _windowed(
+            ((lamAxisI_arr > fr["iaw_min"]) & (lamAxisI_arr < fr["iaw_cf_min"]))
+            | ((lamAxisI_arr > fr["iaw_cf_max"]) & (lamAxisI_arr < fr["iaw_max"])),
+            lamAxisI_arr.shape[0],
+        )
 
     def _validated_angular_objective(self, supplied):
         """Return the complete ARTS objective config or reject unsupported choices."""
@@ -574,7 +651,10 @@ class LossFunction:
             )
             # covar_source is ThryI (model prediction, not raw data) -- avoids the Neyman/Pearson bias
             # and the near-zero-data variance blowup; matches the EPW branches below.
-            error, sqd = self._feature_error_(i_data, ThryI, uncert[0], mask, ThryI, reduce_func, per_lineout)
+            error, sqd = self._feature_error_(
+                i_data, ThryI, uncert[0], mask, ThryI, reduce_func, per_lineout,
+                covar_idx=getattr(self, "covar_iaw_idx", None), covar_submask=getattr(self, "covar_iaw_mask", None),
+            )
             i_error += error
             sqdev["ion"] = sqd
 
@@ -582,7 +662,10 @@ class LossFunction:
             mask = (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"]) & (
                 lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"]
             )
-            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout)
+            error, sqd = self._feature_error_(
+                e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
+                covar_idx=getattr(self, "covar_blue_idx", None), covar_submask=getattr(self, "covar_blue_mask", None),
+            )
             e_error += error
             sqdev["ele"] = sqd
 
@@ -590,7 +673,10 @@ class LossFunction:
             mask = (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"]) & (
                 lamAxisE < self.cfg["data"]["fit_rng"]["red_max"]
             )
-            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout)
+            error, sqd = self._feature_error_(
+                e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
+                covar_idx=getattr(self, "covar_red_idx", None), covar_submask=getattr(self, "covar_red_mask", None),
+            )
             e_error += error
 
             if self.cfg["data"]["fit_EPWb"]:
@@ -600,7 +686,9 @@ class LossFunction:
 
         return i_error, e_error, sqdev
 
-    def _feature_error_(self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False):
+    def _feature_error_(
+        self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False, covar_idx=None, covar_submask=None
+    ):
         """
         Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
         functional, masks to the feature's fit range, and reduces either via reduce_func or, for
@@ -620,28 +708,53 @@ class LossFunction:
             neg_log_likelihood's docstring). Ignored for non-covar methods, where reduce_func already
             encodes the desired reduction.
 
+        covar_idx/covar_submask (loss_method=="covar" only): precomputed fixed (padded) pixel-index
+            window and in-range submask within it for this feature (one of self.covar_blue_idx/
+            covar_red_idx/covar_iaw_idx and the matching _mask, set once in _init_covar_pixel_indices) --
+            gathering data/thry/covar_source down to just this window before building the covariance
+            matrix keeps the Cholesky factorization to a small window (~150-200 pixels + padding) instead
+            of the full raw pixel count (e.g. 1024), which profiling confirmed is the dominant cost of
+            this loss method. The window is padded by the PSF kernel's half-width beyond the true in-range
+            span so the convolution still sees each in-range pixel's true neighbors (confirmed: without
+            this padding, dropping the cross-boundary correlation shifted the NLL by ~0.6% on real data);
+            covar_submask then zeroes the residual at the padding-only positions, exactly like the old
+            nan_to_num(masked, 0) behavior, so they still contribute to K but not to the quadratic form.
+            Both not optional in practice whenever loss_method=="covar" (calc_ei_error always passes them
+            there); kept as parameters rather than reading self.covar_* directly so each of the three call
+            sites (IAW/EPW-blue/EPW-red) stays explicit about which window it means.
+
         Returns:
             tuple: (error, sqdev) where sqdev is nan_to_num(masked _error_), matching what calc_ei_error
             stored for each branch before this was factored out.
         """
-        _error_ = self.loss_functionals(data, thry, uncert, method=self.cfg["optimizer"]["loss_method"])
-        _error_ = jnp.where(mask, _error_, jnp.nan)
-
         if self.cfg["optimizer"]["loss_method"] == "covar":
-            k = self.calculate_covariance_matrix(covar_source)
-            finite_count = jnp.sum(jnp.isfinite(_error_))
-            _error_ = jnp.nan_to_num(_error_)
+            data_g = jnp.take(data, covar_idx, axis=-1)
+            thry_g = jnp.take(thry, covar_idx, axis=-1)
+            covar_g = jnp.take(covar_source, covar_idx, axis=-1)
+            # zero the padding-only positions' residual (they're not genuinely in-range) while keeping
+            # them in K so the convolution still sees them as real neighbors of the true in-range pixels.
+            _error_small = jnp.where(covar_submask, data_g - thry_g, 0.0)
+
+            k = self.calculate_covariance_matrix(covar_g)
             c, lower = jax.scipy.linalg.cho_factor(k)
-            x = jax.scipy.linalg.cho_solve((c, lower), _error_[..., None]).squeeze(-1)
-            quad = jnp.vecdot(_error_, x)  # shape (num_lineouts,): one quadratic form per lineout
+            x = jax.scipy.linalg.cho_solve((c, lower), _error_small[..., None]).squeeze(-1)
+            quad = jnp.vecdot(_error_small, x)  # shape (num_lineouts,): one quadratic form per lineout
             if per_lineout:
                 error = quad
             else:
-                norm = finite_count - self.num_free_params
+                # covar_submask's true count is the per-lineout in-range pixel count; multiply by the
+                # batch size (data.shape[0]) to match finite_count's old semantics (total finite entries
+                # summed across the whole batch, not just one lineout).
+                norm = jnp.sum(covar_submask) * data.shape[0] - self.num_free_params
                 error = jnp.sum(quad) / norm
-        else:
-            error = reduce_func(_error_)
+            # scatter back into a full-pixel-size array for callers (e.g. plotting/diagnostics) that
+            # still expect sqdev shaped like the raw data.
+            sqdev = jnp.zeros_like(data).at[..., covar_idx].set(_error_small)
+            return error, sqdev
 
+        _error_ = self.loss_functionals(data, thry, uncert, method=self.cfg["optimizer"]["loss_method"])
+        _error_ = jnp.where(mask, _error_, jnp.nan)
+        error = reduce_func(_error_)
         return error, jnp.nan_to_num(_error_)
 
     def _angular_variance(self, batch):
@@ -1474,6 +1587,20 @@ class LossFunction:
             k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
             each lineout.
         """
+        # PERF TODO: this builds/factorizes a (num_pixels x num_pixels) matrix using the FULL pixel
+        # array (e.g. 1024), not just the ~150-200 pixels actually inside the fit range (mask, applied
+        # by the caller in _feature_error_, only zeroes the off-range *residual* -- it never shrinks K
+        # itself) -- confirmed directly to be a real, not just theoretical, cost: profiling on real shot
+        # 116773 data showed this Cholesky-dominated path running ~3x slower per gradient call than the
+        # l2 method, and a full production MCMC run only reached ~7 steps/s on GPU vs. the ~50 steps/s
+        # previously seen (though that gap likely also includes lost multi-GPU parallelism across
+        # calibration draws -- no such sharding exists anywhere in this codebase currently; unconfirmed
+        # whether/how it existed for earlier runs). A real fix needs a NEW static-masking algorithm, not
+        # a quick slice here: the in-range pixel mask depends on lamAxisE/lamAxisI, which depend on the
+        # actively-fitted weights (e.g. "lam"), so its size isn't known until trace time -- JAX requires
+        # static shapes, so shrinking K needs precomputed indices fixed ahead of the jit trace (e.g. from
+        # a one-time nominal-parameter forward pass), and that precomputation has to handle the mask
+        # potentially differing PER LINEOUT within a batch, not just per run/config -- not yet designed.
         sig_s = jnp.sqrt(jnp.clip(data, 1e-10, None) * self.G * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])
