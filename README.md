@@ -60,6 +60,13 @@ The second command runs the scheduled high-resolution reference lane. See the
 [physics-validation guide](docs/source/physics_validation.rst) for the invariant
 inventory, tolerance rationale, and contribution checklist.
 
+### ARTS2D recovery benchmark
+
+Run `python -m tsadar.benchmarks.arts2d --preset smoke --output results/iss140-smoke`
+for a CPU check of four EDF parameterizations, held-out prediction, and a common
+noise-weighted detector Jacobian/SVD. The [benchmark guide](docs/source/arts2d_recovery_benchmark.rst)
+defines the controlled inputs, artifacts, and multi-seed GPU experiment.
+
 ### Windows note
 If cloning onto Windows you may need `git config --global core.protectNTFS false`.
 
@@ -72,4 +79,3 @@ gradient-based methods can be applied to solve this many parameter optimization 
 
 ## Citation
 1. Milder, A. L., Joglekar, A. S., Rozmus, W. & Froula, D. H. Qualitative and quantitative enhancement of parameter estimation for model-based diagnostics using automatic differentiation with an application to inertial fusion. Mach. Learn.: Sci. Technol. 5, 015026 (2024).
-
