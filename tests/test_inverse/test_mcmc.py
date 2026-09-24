@@ -288,8 +288,17 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixtur
     # i.e. the eigenvalue-clipping regularization should be a complete no-op when it isn't needed.
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise more than just electron/general leaves
-    all_data = fitted_fixture["all_data"]
-    sa = fitted_fixture["sa"]
+    # fitted_fixture's shared data was prepared with load_ion_spec/fit_IAW off (EPW-only for this shot),
+    # so Z -- which only enters the forward model through the IAW spectrum -- has zero effect on the
+    # loss there: its diagonal Hessian entry sits at ~0 (a genuinely flat, unidentifiable direction, not
+    # merely "poorly conditioned"), which is what produced the large negative normalized eigenvalue this
+    # test used to fail on. Re-prepare a private copy of the data with IAW loaded and fit so Z is
+    # actually constrained by the data, instead of mutating the module-scoped fixture shared by every
+    # other test in this file.
+    cfg["data"]["load_ion_spec"] = True
+    cfg["data"]["fit_IAW"] = True
+    with mlflow.start_run():
+        all_data, sa, _ = prepare.prepare_data(cfg, cfg["data"]["shotnum"])
     sample_indices = np.arange(cfg["optimizer"]["batch_size"])
 
     with mlflow.start_run():
