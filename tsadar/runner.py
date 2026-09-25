@@ -6,12 +6,6 @@ from typing import Dict, Tuple
 import mlflow, tempfile, yaml
 import multiprocessing as mp
 
-# The fit loop's per-epoch mlflow.log_metrics call (loops.py's _log_optimizer_step) blocks on an HTTP
-# round trip to the tracking server every epoch -- on a slow/remote server this dominates wall time and
-# starves the GPU. Async logging offloads those calls to a background thread; mlflow.start_run's __exit__
-# (end_run) drains the queue before the run closes, so nothing is dropped.
-mlflow.config.enable_async_logging(True)
-
 from .inverse import fitter
 from .forward import calc_series
 from .utils import misc
