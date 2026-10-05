@@ -57,7 +57,9 @@ def _isotropic_3d_constants(shape):
     return v0, normalization
 
 
+@pytest.mark.physics
 def test_maxwellian_3d_marginal_is_analytic_2d_maxwellian():
+    """P-MARGINAL-01: a Maxwellian 3-V marginal equals exp(-u²/2)/(2π)."""
     model = _harmonic_model(2.0)
     marginal = np.asarray(model())
     vx, vy = np.meshgrid(np.asarray(model.vx), np.asarray(model.vx))
@@ -100,7 +102,9 @@ def test_endpoint_shape_initializers_have_nonzero_marginal_gradient(shape, inwar
 
 
 @pytest.mark.parametrize("shape, relative_tolerance", [(3.0, 4e-6), (5.0, 5e-8)])
+@pytest.mark.physics
 def test_nonmaxwellian_3d_marginal_matches_adaptive_integration(shape, relative_tolerance):
+    """P-MARGINAL-02: non-Maxwellian marginals agree with independent adaptive vz integration."""
     model = _harmonic_model(shape)
     marginal = np.asarray(model())
     vx = np.asarray(model.vx)
@@ -121,7 +125,9 @@ def test_nonmaxwellian_3d_marginal_matches_adaptive_integration(shape, relative_
         )
 
 
+@pytest.mark.physics
 def test_anisotropic_marginal_matches_refined_quadrature_and_stays_smoothly_positive():
+    """P-MARGINAL-03: anisotropic vz integration preserves positivity and projected density."""
     model = _harmonic_model(3.0, nvx=64, nvz=128, dtx=4e-4, dty=-7e-4)
     marginal = model()
     f3 = model.get_3d_distribution()
@@ -163,7 +169,9 @@ def test_anisotropic_marginal_matches_refined_quadrature_and_stays_smoothly_posi
 
 @pytest.mark.parametrize("shape", [2.0, 3.0, 5.0])
 @pytest.mark.parametrize("factory", [_harmonic_model, _native_marginal])
+@pytest.mark.physics
 def test_reduced_edf_normalization_and_temperature_moment_do_not_drift(factory, shape):
+    """P-MOMENT-01: normalization, zero mean, and in-plane thermal second moment equal 1, 0, 2."""
     model = factory(shape, nvx=128)
     moments = model.get_in_plane_moments()
 
@@ -175,7 +183,9 @@ def test_reduced_edf_normalization_and_temperature_moment_do_not_drift(factory, 
     )
 
 
+@pytest.mark.physics
 def test_every_in_plane_projection_matches_direct_3d_integration():
+    """P-MARGINAL-04: every in-plane Radon projection commutes with marginalization over vz."""
     model = _harmonic_model(3.0, nvx=128)
     marginal = model()
     vx = np.asarray(model.vx)

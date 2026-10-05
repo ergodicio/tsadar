@@ -324,7 +324,9 @@ class SphericalHarmonics(DistributionFunction2V):
         polar_theta, azimuth_phi, radius = jnp.broadcast_arrays(
             polar_theta, azimuth_phi, radius
         )
-        values = vmap(sph_harm_y, in_axes=(None, None, 0, 0))(
+        # JAX cannot infer n_max from a traced degree array inside a compiled fit.
+        # The loop's Python degree is known at trace time; pass it explicitly.
+        values = vmap(partial(sph_harm_y, n_max=degree), in_axes=(None, None, 0, 0))(
             jnp.asarray([degree]),
             jnp.asarray([order]),
             polar_theta.reshape(-1, order="C"),

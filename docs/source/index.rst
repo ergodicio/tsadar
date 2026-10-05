@@ -28,6 +28,8 @@ Table of Contents
    Background Algorithms<bg_algorithms>
    Forward<forward_pass>
    Fundamentals of Thomson Scattering<TS_fundamentals>
+   Physics Validation<physics_validation>
+   ARTS2D Recovery Benchmark<arts2d_recovery_benchmark>
    FAQ
    contributing
    math
