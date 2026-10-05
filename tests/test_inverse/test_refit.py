@@ -2,6 +2,7 @@ import time
 import multiprocessing as mp
 import yaml
 import mlflow
+import pytest
 from flatten_dict import flatten, unflatten
 from numpy.testing import assert_allclose
 from jax import config
@@ -12,7 +13,10 @@ from tsadar.inverse import fitter
 from tsadar.utils import misc
 
 
-def test_refit():
+# batch_size=1 puts the two lineouts in separate batches, so the refit of the second reads its start
+# from, and writes its result to, a different batch
+@pytest.mark.parametrize("batch_size", [2, 1])
+def test_refit(batch_size):
     # Regression test for the refit_bad_fits path (postprocess.py), which is otherwise never exercised by
     # the other inverse tests since they all run with other.refit = false. Forces every lineout to be flagged
     # as "bad" so refit_bad_fits actually attempts a refit, guarding against the pytree-structure mismatch
@@ -32,6 +36,7 @@ def test_refit():
     defaults.update(flatten(inputs))
     config = unflatten(defaults)
 
+    config["optimizer"]["batch_size"] = batch_size
     config["other"]["refit"] = True
     config["other"]["refit_thresh"] = -1.0  # losses are non-negative, so this flags every lineout as "bad"
 
@@ -59,4 +64,4 @@ def test_refit():
 
 
 if __name__ == "__main__":
-    test_refit()
+    test_refit(2)

@@ -2,7 +2,6 @@
 individually poor-fit lineouts, and produces the resulting plots and saved parameter values."""
 from typing import Dict, List, Tuple
 from collections import defaultdict
-from flatten_dict import flatten, unflatten
 import json
 
 import time, tempfile, mlflow, os, copy
@@ -310,8 +309,10 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
 
         def extract(x):
             # i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
+            # keeps the batch axis so the result is a valid batch_size=1 ThomsonParams
+            prev = (i - 1) % true_batch_size
             if isinstance(x, list) or len(np.shape(x)) > 0:
-                return x[(i - 1) % true_batch_size]
+                return x[prev : prev + 1]
             else:
                 return x
 
@@ -330,29 +331,16 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         prev_weights = jax.tree.map(
             extract, prev_weights, is_leaf=lambda x: isinstance(x, list) and not isinstance(x[0], IonParams)
         )
-        prev_weights = prev_weights.get_unnormed_params()
-        prev_weights = jax.tree.map(lambda x: {"val": x}, prev_weights)
-        if config["parameters"]["electron"]["fe"]["type"].casefold() == "dlm":
-            prev_weights["electron"]["fe"] = {"params": {"m": prev_weights["electron"].pop("m")}}
-        else:
-            # Arbitrary1V always rebuilds fval from params.init_m and has no config-driven override
-            # for "f" (get_unnormed_params()'s key here), so there's nothing to carry over for it.
-            prev_weights["electron"].pop("f", None)
-
-        temp_params = flatten(temp_cfg["parameters"])
-        temp_params.update(flatten(prev_weights))
-        temp_cfg["parameters"] = unflatten(temp_params)
-        # temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights
-        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, np.array([i]), 1)
+        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, np.array([i]), 1, previous_weights=[prev_weights])
 
         inds = np.array([i])
         batch = build_batch(all_data, inds, config["data"]["background"]["bg_subtract"])
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
 
         if loss < losses_init[i]:
-            fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
+            fitted_weights[i // true_batch_size] = jax.tree.map(
                 insert,
-                fitted_weights[(i - 1) // true_batch_size],
+                fitted_weights[i // true_batch_size],
                 new_weights[0],
                 is_leaf=lambda x: isinstance(x, list) and not isinstance(x[0], IonParams),
             )

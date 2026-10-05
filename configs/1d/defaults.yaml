@@ -1,29 +1,32 @@
 data:
-  absolute_timing: true
-  background:
-    bg_alg: brem
-    bg_alg_domain:
-    - 260
-    - 320
-    - 730
-    - 900
-    bg_alg_params:
-    - 0.4
-    - -100
-    bg_smoothing_window: 11
-    bg_subtract: false
-    report_background: true
-    slice: 900
-    type: pixel
-  bgscaleE: 1.0
-  bgscaleI: 0.1
-  bgshotmult: 1
-  dpixel: 3
-  ele_lam_shift: 0.0
-  ele_t0: 0
   fit_EPWb: true
   fit_EPWr: true
   fit_IAW: false
+  load_ele_spec: true
+  load_ion_spec: false
+  absolute_timing: true
+  background:
+    bg_alg: rat11
+    bg_alg_domain:
+    - 250
+    - 300
+    - 700
+    - 900
+    bg_alg_params:
+    - -16
+    - 200000
+    - 170
+    bg_smoothing_window: 11
+    bg_subtract: true
+    slice: 900
+    type: pixel
+    report_background: True
+  bgscaleE: 1.0
+  bgscaleI: 0.1
+  bgshotmult: 1
+  dpixel: 2
+  ele_lam_shift: 0.0
+  ele_t0: 0
   fit_rng:
     blue_max: 510
     blue_min: 450
@@ -45,34 +48,37 @@ data:
     skip: 50
     start: 400
     type: pixel
-  load_ele_spec: true
-  load_ion_spec: false
   probe_beam: P9
   shotDay: false
   shotnum: 101675
 feature_detector:
-  buffer:
-    lineout_end: 0
-    lineout_start: 0
-    spectral_end: 0
-    spectral_start: 0
   estimate_lineouts_epw: false
   estimate_lineouts_iaw: false
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 mlflow:
   experiment: experiment-1
   run: run-1
 optimizer:
-  batch_size: 4
+  batch_size: 6
   grad_method: AD
   hessian: false
   jit: true
   learning_rate_final: 0.0001
   learning_rate_init: 0.01
-  loss_method: covar
+  loss_method: l2
   method: adam
   moment_loss: false
-  num_epochs: 1000
+  num_epochs: 300
   num_mins: 1
+  patience: 500
+  min_delta: 1.0e-8
+  seed: 0
+  sensitivity_tol: 0.0
+  validate_active_leaves: true
   param_learning_rate: 0.01
   param_method: adam
   parameter_norm: true
@@ -83,32 +89,18 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
-  CCDsize:
-  - 1024
-  - 1024
-  Ipump_14: 0.0
-  ang_res_unit: 10
-  beam_diam_um: 100
-  calc_sigmas: false
-  calibration_uncertainty:
-    EPWDispersion_sigma: 0.0
-    EPWoffset_sigma: 0.0
-    IAWDispersion_sigma: 0.0
-    IAWoffset_sigma: 0.0
-    gain_sigma: 0.0
-    num_draws: 1
-    seed: 0
-    spect_stddev_ele_sigma: 0.0
-    spect_stddev_ion_sigma: 0.0
   detector_specs:
-    EPWDispersion: 0.4143
-    EPWoffset: 315.0
-    IAWDispersion: 0.00659
-    IAWoffset: 350.0
     norm: 0
+    EPWDispersion: 0.4143
+    IAWDispersion: 0.00659
+    EPWoffset: 315.0
+    IAWoffset: 350.0
     widIRF:
       spect_stddev_ele: 1.3
       spect_stddev_ion: 0.015
+  ang_res_unit: 10
+  calc_sigmas: false
+  CCDsize: [1024, 1024]
   expandedions: false
   extraoptions:
     spectype: temporal
@@ -120,23 +112,15 @@ other:
   - 24
   - 528
   iawoff: 0
-  include_gains: false
   lam_res_unit: 5
-  mcmc:
-    adapt_every: 50
-    adapt_gamma: 0.6
-    burn_in: 3000
-    compare_to_laplace: false
-    init_step_scale: 0.1
-    num_steps: 8000
-    save_samples: true
-    seed: 0
-    target_accept: 0.234
-    thin: 5
-    use_laplace_seed: true
-  points_per_pixel: 10
+  points_per_pixel: 1
   refit: false
   refit_thresh: 0.25
+  Ipump_14: 0.0
+  beam_diam_um: 100
+  include_gains: false
+  # upper limit on the gain exponent when include_gains is true
+  gain_cap: 100
 parameters:
   electron:
     Te:
@@ -180,12 +164,6 @@ parameters:
       num_grad_points: 1
       ub: 10.0
       val: 0.0
-    Va:
-      active: false
-      angle: 0.0
-      lb: -20.5
-      ub: 20.5
-      val: 0.0
     amp1:
       active: true
       lb: 0.01
@@ -227,6 +205,12 @@ parameters:
       lb: 0.001
       ub: 1.0
       val: 0.12
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: 0.0
     Z:
       active: false
       lb: 0.5

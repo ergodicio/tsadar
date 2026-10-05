@@ -1,6 +1,6 @@
 mlflow:
-  experiment: shot_day_10_22_25
-  run: s116773-mcmc-stat-only-laplaceseed
+  experiment: experiment-1
+  run: run-1
 
 optimizer:
   # likelihood the MCMC chains sample; the point estimate in fitted_weights.eqx is not re-optimized
@@ -37,6 +37,12 @@ other:
     within_chain_r_hat_threshold: 1.1
     # maximum fraction of chains that may be dropped before a lineout is marked unreliable
     max_dropped_chain_fraction: 0.2
+    # sample substantially-negative-curvature parameters in their own block
+    block_gibbs: true
+    # normalized-Hessian eigenvalue at or below which a direction is assigned to the problem block
+    block_gibbs_eigval_threshold: -0.1
+    # minimum |eigenvector component| for a parameter to count as part of a flagged direction
+    block_gibbs_component_threshold: 0.3
   # num_draws is the number of independent chains; the *_sigma fields perturb the calibration per chain
   calibration_uncertainty:
     num_draws: 50

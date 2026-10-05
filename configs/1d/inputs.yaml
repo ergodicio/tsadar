@@ -1,29 +1,33 @@
 data:
-  background:
-    slice: 800
-    type: pixel
   fit_EPWb: true
   fit_EPWr: true
-  fit_IAW: true
-  lineouts:
-    end: 300
-    skip: 25
-    start: 2400
-    type: ps
+  fit_IAW: false
   load_ele_spec: true
-  load_ion_spec: true
+  load_ion_spec: false
+  background:
+    slice: 900
+    type: pixel
+  lineouts:
+    end: 2400
+    skip: 50
+    start: 500
+    type: ps
   shotnum: 116773
+
 machine: gpu
+
 mlflow:
-  experiment: shot_day_10_22_25
-  run: s116773-matte-scaling30_150IRF_Ticap_covar_wgain
+  experiment: inverse-thomson-scattering
+  run: EPW example s116773
+
 other:
-  Ipump_14: 1.58
+  Ipump_14: 0
   beam_diam_um: 100
   calc_sigmas: false
-  include_gains: true
+  include_gains: false
   refit: false
   refit_thresh: 5.0
+
 parameters:
   electron:
     Te:
@@ -32,14 +36,14 @@ parameters:
       ub: 2.0
       val: 0.8
     fe:
-      active: false
+      active: true
       dim: 1
       nvx: 320
       params:
         m:
-          intens: 3.0
+          intens: 5.0
           lb: 1.9
-          matte: true
+          matte: false
           ub: 5.0
           val: 2.5
       type: dlm
@@ -66,24 +70,14 @@ parameters:
       ub: 3.75
       val: 1.0
     amp3:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
-    brem_amp:
-      active: false
-      lb: 0.0
-      ub: 1.0
-      val: 0.4
-    brem_c:
-      active: false
-      lb: 0.0
-      ub: 1.0
-      val: 0.4
     lam:
       active: true
-      lb: 526.0
-      ub: 527.0
+      lb: 525.0
+      ub: 528.0
       val: 526.5
     ne_gradient:
       active: false
@@ -92,32 +86,33 @@ parameters:
       ub: 15.0
       val: 0.0
     ud:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.0
       ub: 20.0
       val: 0.0
+  
   ion-1:
     A:
       active: false
       val: 83.8
     Ti:
-      active: true
+      active: false
       lb: 0.01
       same: false
-      ub: 0.6
+      ub: 2.0
       val: 0.3
     Va:
-      active: true
+      active: false
       angle: 0.0
       lb: -20.5
       ub: 20.5
       val: -2.0
     Z:
-      active: true
+      active: false
       lb: 6.0
       ub: 36.0
-      val: 26.0
+      val: 24.0
     fract:
       active: false
       val: 1.0

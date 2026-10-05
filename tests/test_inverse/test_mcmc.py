@@ -252,8 +252,9 @@ def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(
 
 
 def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixture):
-    # for a well-conditioned lineout (every normalized eigenvalue above _LAPLACE_EIGVAL_FLOOR) the
-    # proposal covariance should equal rr_factor^2 * inv(H), i.e. the regularization is a no-op
+    # the proposal covariance should equal rr_factor^2 * inv(H_reg), with H_reg the Hessian from
+    # eqx.filter_hessian after flooring the eigenvalues of its normalized form; for a well-conditioned
+    # lineout that is rr_factor^2 * inv(H)
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise more than just electron/general leaves
     # the shared fixture is EPW-only, which leaves Z unconstrained; re-prepare a private copy of the
@@ -305,15 +306,13 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixtur
     for i in range(batch_size):
         d = 1.0 / np.sqrt(np.abs(np.diagonal(H_true[i])))
         h_norm = H_true[i] * np.outer(d, d)
-        eigvals = np.linalg.eigvalsh(h_norm)
-        assert np.all(eigvals > mcmc._LAPLACE_EIGVAL_FLOOR), (
-            f"lineout {i}'s normalized Hessian has an eigenvalue at/below the regularization floor "
-            f"(min={eigvals.min():.4g} <= {mcmc._LAPLACE_EIGVAL_FLOOR}) -- this test's premise (a "
-            "well-conditioned lineout where regularization is a no-op) doesn't hold for this "
-            "fixture/lineout; see test_seed_step_scale_from_laplace_regularizes_degenerate_brem_c for "
-            "the ill-conditioned case."
-        )
-        expected_sigma = (rr_factor**2) * np.linalg.inv(H_true[i])
+        eigvals, eigvecs = np.linalg.eigh(0.5 * (h_norm + h_norm.T))
+        scaled_eigvecs = eigvecs * d[:, None]
+        expected_sigma = (rr_factor**2) * (
+            scaled_eigvecs / np.maximum(eigvals, mcmc._LAPLACE_EIGVAL_FLOOR)
+        ) @ scaled_eigvecs.T
+        if np.all(eigvals > mcmc._LAPLACE_EIGVAL_FLOOR):
+            np.testing.assert_allclose(expected_sigma, (rr_factor**2) * np.linalg.inv(H_true[i]), rtol=1e-6)
         actual_sigma = np.asarray(step_scale[i]) @ np.asarray(step_scale[i]).T
         np.testing.assert_allclose(actual_sigma, expected_sigma, rtol=1e-4, atol=1e-8)
 

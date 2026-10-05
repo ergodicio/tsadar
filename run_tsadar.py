@@ -14,7 +14,7 @@ config.update(
     ),
 )
 config.update("jax_persistent_cache_min_compile_time_secs", 5)
-config.update("jax_debug_nans", True)
+# config.update("jax_debug_nans", True)
 # config.update("jax_disable_jit", True)
 
 from tsadar.runner import run, run_job, load_and_make_folders

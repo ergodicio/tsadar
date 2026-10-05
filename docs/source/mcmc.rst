@@ -158,7 +158,9 @@ Configuration
 All configuration lives under ``other.mcmc`` and ``other.calibration_uncertainty`` in the input deck --
 see :doc:`defaults` for the full field-by-field reference. Every field is optional. A field that is
 omitted takes the sampler's built-in default (``num_steps: 8000``, ``burn_in: 3000``), and a warning
-lists every field that was defaulted.
+lists every field that was defaulted. These options are not part of ``configs/1d/defaults.yaml``,
+since the postprocessor never runs as part of a fit; ``configs/postprocessor/postprocessor_stub.yaml``
+lists all of them and is the deck to copy and pass with ``--overrides``.
 
 Outputs
 --------
