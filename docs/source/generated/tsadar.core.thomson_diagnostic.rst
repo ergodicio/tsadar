@@ -1,17 +1,8 @@
-tsadar.core.thomson\_diagnostic
+﻿tsadar.core.thomson\_diagnostic
 ===============================
 
 .. automodule:: tsadar.core.thomson_diagnostic
 
-   
-   
-   
-
-   
-   
-   
-
-   
    
    .. rubric:: Classes
 
@@ -19,11 +10,3 @@ tsadar.core.thomson\_diagnostic
    
       ThomsonScatteringDiagnostic
    
-   
-
-   
-   
-   
-
-
-

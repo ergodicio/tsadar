@@ -3,81 +3,41 @@ mlflow:
   run: s116773-mcmc-stat-only-laplaceseed
 
 optimizer:
-  # Only read by this standalone MCMC postprocessor's reconstructed loss_fn -- the point estimate in
-  # fitted_weights.eqx was already produced under the source run's own optimizer.loss_method (l2) and is
-  # loaded unchanged, never re-optimized here. This only changes what neg_log_likelihood MCMC samples
-  # against (and what the Laplace/Hessian seed is computed from), per NOISE_MODEL_SESSION_HANDOFF.md
-  # Phase 5 -- does NOT touch the point-estimate optimizer (that's Phase 6, still deliberately deferred).
+  # likelihood the MCMC chains sample; the point estimate in fitted_weights.eqx is not re-optimized
   loss_method: covar
 
 data:
   background:
-    # Required whenever loss_method: covar -- LossFunction.__init__ raises otherwise. The covar noise
-    # model's shot-noise term needs the TOTAL photon count per pixel; subtracting background first
-    # collapses the model floor to near-zero in signal-free wing pixels, which let chains get trapped in
-    # different local optima depending on how much spurious signal they predicted there (confirmed on
-    # real data: fixed a ~25-unit cross-draw spread on lineout 2400's Va parameter down to ~4). The
-    # source fit itself (l2, fitted_weights.eqx) is unaffected -- this only changes the reconstructed
-    # loss_fn/batch this postprocessor builds. See NOISE_MODEL_SESSION_HANDOFF.md.
+    # required by loss_method: covar
     bg_subtract: false
 
 other:
-  # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
-  # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
-  # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
-  # nothing about fitting or the existing Hessian-based postprocessor.
+  # options of the MCMC uncertainty postprocessor, see docs/source/mcmc.rst
   mcmc:
-    # num_steps is TOTAL steps including burn-in (run_mcmc_for_batch computes n_sample_steps = num_steps -
-    # burn_in) -- 30000/10000 here means 10000 burn-in steps followed by 20000 post-burn-in sampling steps,
-    # up from 2000/6000. Bumped alongside calibration_uncertainty.num_draws (20->50) to address residual
-    # chain-trapping found on the bg_subtract=False rerun: most flagged lineouts showed a smooth, weakly-
-    # identified Va/lam posterior (not a bug), but a few (e.g. lineout 14) showed a genuine 4/20-chain split
-    # along that same degenerate ridge -- longer burn-in gives RAM's adaptive proposal covariance more
-    # windows to discover the ridge's true width before sampling locks in, rather than adapting to whatever
-    # local neighborhood a chain's dispersed start happened to land in.
+    # num_steps is the total number of steps including burn_in
     num_steps: 30000
     burn_in: 10000
     thin: 5
-    # Chunk size burn-in is reported/checkpointed in (tqdm granularity) -- purely cosmetic, since
-    # adaptation itself (Vihola's Robust Adaptive Metropolis, see mcmc._ram_update) runs every single
-    # step, not once per window.
+    # burn-in chunk size (progress-bar granularity only)
     adapt_every: 100
     target_accept: 0.234
-    # RAM's vanishing-gain exponent (mcmc._ram_update); within Vihola (2012)'s recommended (0.5, 1] range.
+    # RAM gain decay exponent, in (0.5, 1]
     adapt_gamma: 0.6
-    # Flat, uncorrelated fallback proposal step (logit space), used only when use_laplace_seed is false or
-    # the Laplace/Hessian seed fails structurally -- see mcmc._seed_step_scale_default.
+    # flat logit-space proposal step used when there is no Laplace seed
     init_step_scale: 0.1
     use_laplace_seed: true
-    # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
-    # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
-    # default) means every chain starts at the exact best fit.
+    # multiplier on the seeded step scale used to disperse each chain's starting point
     init_dispersion_factor: 2.0
     seed: 0
     save_samples: true
     compare_to_laplace: true
-    # Threshold, in robust-SD units (1.4826 * MAD), for flagging one chain's per-lineout posterior mean
-    # as an outlier relative to the other independent chains -- Iglewicz & Hoaglin's standard modified
-    # z-score cutoff. See mcmc_postprocess._mad_flagged_chains; meaningless with calibration_uncertainty.
-    # num_draws == 1 (nothing to compare against).
+    # chains whose mean is further than this many robust SDs from the median of the chains are flagged
     chain_outlier_mad_scale: 3.5
-    # Threshold for a *within*-chain split-R-hat: whether a single chain's own first half and second half
-    # of post-burn-in samples agree, catching a chain that never reached a stationary distribution at all
-    # (invisible to chain_outlier_mad_scale, which only ever compares chains to each other) -- see
-    # mcmc._within_chain_r_hat. More lenient than the usual 1.01 many-chain target since split-R-hat here
-    # only ever compares two halves of one chain.
+    # split R-hat above which a single chain is flagged as not stationary
     within_chain_r_hat_threshold: 1.1
-    # Hard cap, as a fraction of the chain count, on how many chains this postprocessor will write off
-    # (for either reason above, combined) before giving up on a lineout entirely -- marking its
-    # mean/std/covariance NaN rather than reporting from whatever's left. See
-    # mcmc_postprocess._finalize_chain_selection.
+    # maximum fraction of chains that may be dropped before a lineout is marked unreliable
     max_dropped_chain_fraction: 0.2
-  # calibration_uncertainty.num_draws is the number of independent MCMC chains the postprocessor runs
-  # and pools -- not just "calibration draws": chains may differ by a perturbed instrument calibration
-  # (tsadar/data/calibration.py, via the *_sigma fields below), by a perturbed starting point
-  # (other.mcmc.init_dispersion_factor above), by both, or -- with neither configured -- only by their
-  # own independent MH random-walk noise from an identical start. num_draws=1 (the default) runs a
-  # single chain, matching every other config. See inverse/postprocess/mcmc_calibration.py.
+  # num_draws is the number of independent chains; the *_sigma fields perturb the calibration per chain
   calibration_uncertainty:
     num_draws: 50
     seed: 0

@@ -1,11 +1,6 @@
-"""Standalone MCMC postprocessor entry point: mirrors postprocess_runner.py, but runs the alternate
-Metropolis-Hastings MCMC uncertainty postprocessor (inverse.postprocess.mcmc_postprocess) instead of the
-Hessian/Laplace one, against an already-completed fit's saved results -- loaded either from a local run
-directory or a remote MLflow run (by id or URL), without redoing the fit.
-
-Kept as a sibling file to postprocess_runner.py (importing its shared reconstruction/config-loading
-helpers) rather than folded into it, so that module's single responsibility -- replaying the original
-Laplace postprocessor -- stays focused.
+"""Standalone MCMC postprocessor entry point: runs inverse.postprocess.mcmc_postprocess against an
+already-completed fit's saved results, loaded from a local run directory or a remote MLflow run, without
+redoing the fit. Shares its reconstruction and config-loading helpers with postprocess_runner.py.
 """
 import os
 import tempfile
@@ -29,27 +24,16 @@ def run_mcmc_postprocess(
     config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None, overrides: Optional[Dict] = None
 ) -> Dict:
     """
-    MCMC analogue of postprocess_runner.run_postprocess: reconstructs everything the MCMC postprocessor
-    needs from a saved config + fitted_weights.eqx (rather than re-fitting), and runs it inside a
-    brand-new mlflow run - this never resumes or mutates the run the fit originally came from, it only
-    reads its artifacts.
-
-    1D (non-angular) fits only, and the electron distribution function ("fe") must be inactive -- see
-    inverse/postprocess/mcmc.py's module docstring for why; both raise NotImplementedError immediately.
+    Reconstructs the fit state from a saved config + fitted_weights.eqx and runs the MCMC postprocessor
+    inside a new mlflow run. The run the fit came from is only read.
 
     Args:
         config (Dict): The exact (merged) config the original fit used.
         fitted_weights_path (str): Local path to a fitted_weights.eqx saved by fitter._save_fit_artifacts.
-        source_run_id (Optional[str]): The mlflow run id the artifacts came from, if any - logged as a tag
-            on the new run for traceability, but the source run itself is never touched.
-        overrides (Optional[Dict]): the --overrides stub deck this run was actually launched with, if any
-            (see run_mcmc_postprocess_local/_remote). Saved as its own overrides.yaml artifact at the
-            start of the run -- same save-the-deck-at-run-start pattern runner.load_and_make_folders uses
-            for defaults.yaml/inputs.yaml on an ordinary fit -- so the exact stub that produced this run
-            can always be recovered and reused later (`--overrides <downloaded file> --run <this run's
-            id>`), even if the original file passed on the command line is later moved, edited, or lost.
-            See git history/PR discussion for a production regression that was hard to pin down partly
-            because the actual overrides deck used to launch the run could no longer be located.
+        source_run_id (Optional[str]): The mlflow run id the artifacts came from, if any, logged as a tag
+            on the new run.
+        overrides (Optional[Dict]): the --overrides stub deck this run was launched with, if any. Saved as
+            an overrides.yaml artifact on the new run.
     Returns:
         Dict: The final_params produced by inverse.postprocess.mcmc_postprocess.mcmc_postprocess.
     """
@@ -90,19 +74,13 @@ def run_mcmc_postprocess(
 
 def run_mcmc_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) -> Dict:
     """
-    Runs the MCMC postprocessor on a fit whose artifacts already sit in a local directory - e.g. a copy
-    of an mlflow run's artifact folder. Accepts either config layout _load_merged_config understands: a
-    single config.yaml, or defaults.yaml + inputs.yaml. Either way, fitted_weights.eqx must also be
-    present.
+    Runs the MCMC postprocessor on a fit whose artifacts sit in a local directory. The directory must
+    contain fitted_weights.eqx and either config.yaml or defaults.yaml + inputs.yaml.
 
     Args:
-        overrides: optional partial config (same nesting as inputs.yaml -- typically a small, dedicated
-            stub deck containing only the MCMC-relevant keys being changed, e.g.
-            config["other"]["mcmc"]) deep-merged on top of the saved config in memory, without touching
-            the files on disk. See postprocess_runner.run_postprocess_local's docstring for why this is
-            deliberately not sourced from the live repo deck automatically, and for the reconstruction-
-            critical fields (data.lineouts, optimizer.batch_size, parameters.*.active, etc.) that should
-            not be overridden this way.
+        dir_path: path to the artifact directory.
+        overrides: optional partial config (same nesting as inputs.yaml) deep-merged on top of the saved
+            config in memory. See postprocess_runner.run_postprocess_local.
     """
     config = _load_merged_config(dir_path)
     if overrides:
@@ -118,15 +96,12 @@ def run_mcmc_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) 
 
 def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None) -> Dict:
     """
-    Runs the MCMC postprocessor on a fit tracked by mlflow, identified by a bare run id or a run URL
-    (e.g. from https://continuum.ergodic.io/experiments/...). Only reads the source run's artifacts - the
-    results of this replay are logged to a new run, so the source run's record is left untouched.
-
-    Supports both config artifact layouts: a single config.yaml (app-originated runs) or
-    defaults.yaml + inputs.yaml (CLI/cluster runs) -- see postprocess_runner.run_postprocess_remote.
+    Runs the MCMC postprocessor on a fit tracked by mlflow, identified by a run id or a run URL. The
+    source run is only read; results are logged to a new run.
 
     Args:
-        overrides: see run_mcmc_postprocess_local -- applied identically here, in memory only.
+        run_id_or_url: mlflow run id or URL of the fit.
+        overrides: see run_mcmc_postprocess_local.
     """
     run_id = _extract_run_id(run_id_or_url)
 

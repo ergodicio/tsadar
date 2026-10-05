@@ -1,20 +1,9 @@
 """Queues run_mcmc_postprocessor.py as a Slurm batch job, mirroring queue_tsadar.py's cluster submission
 for the fit/forward entry point (run_tsadar.py).
 
-Unlike queue_tsadar.py, this never creates the mlflow run up front: run_mcmc_postprocess_local/remote
-(invoked by run_mcmc_postprocessor.py once the job actually starts) create their own new run against the
-completed fit's saved artifacts, so there is nothing to pre-create here. The only thing this script needs
-before submitting is which Slurm partition to use, auto-detected the same way queue_tsadar.py does -- from
-the "machine" field of the target's config -- read locally for --dir or downloaded (config only, not
-fitted_weights.eqx) for --run.
-
-Still mirrors queue_tsadar.py/runner.load_and_make_folders in one respect: an --overrides stub is copied
-to an immutable, uniquely-named location at queue time (_stash_overrides below) before the job is
-submitted, and that stashed copy's path -- not the original -- is what gets passed to
-run_mcmc_postprocessor.py on the compute node. Since a queued job can sit in the Slurm queue for a long
-time before it actually runs, without this a user who edits the stub deck to queue a second job would
-silently change what the first, still-queued job runs. The copy lives under BASE_TEMPDIR so it resolves
-from the compute node the same way the original repo-relative path was required to.
+The Slurm partition is taken from the "machine" field of the target fit's config. An --overrides stub is
+copied to a unique location under BASE_TEMPDIR at queue time, so later edits to the stub do not affect a
+job that is still queued.
 """
 import argparse, os, shutil, tempfile, time
 
@@ -30,13 +19,8 @@ else:
 
 
 def _stash_overrides(overrides_path: str) -> str:
-    """Copies the --overrides stub deck to a freshly created, uniquely-named directory under BASE_TEMPDIR
-    at queue time, and returns the copy's path. Mirrors runner.load_and_make_folders' stash-the-deck-at-
-    queue-time pattern for ordinary fits (queue_tsadar.py): the point is to freeze the exact content of the
-    stub this job was queued with, so the live file (e.g. configs/postprocessor/postprocessor_stub.yaml)
-    can immediately be edited and reused to queue another job without that edit reaching back into a job
-    still sitting in the Slurm queue. Deliberately never cleaned up here -- the compute node needs to be
-    able to read it whenever the job actually starts, which may be long after this process exits.
+    """Copies the --overrides stub deck to a new, uniquely-named directory under BASE_TEMPDIR and returns
+    the copy's path. The copy is left in place for the queued job to read.
     """
     stash_dir = tempfile.mkdtemp(dir=BASE_TEMPDIR, prefix="mcmc_overrides_")
     stashed_path = os.path.join(stash_dir, os.path.basename(overrides_path))

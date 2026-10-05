@@ -1,43 +1,41 @@
 data:
-  fit_EPWb: true
-  fit_EPWr: true
-  fit_IAW: false
-  load_ele_spec: true
-  load_ion_spec: false
   absolute_timing: true
   background:
     bg_alg: brem
     bg_alg_domain:
-    - 230
-    - 300
-    - 660
-    - 720
+    - 260
+    - 320
+    - 730
+    - 900
     bg_alg_params:
     - 0.4
     - -100
     bg_smoothing_window: 11
-    bg_subtract: true
+    bg_subtract: false
+    report_background: true
     slice: 900
     type: pixel
-    report_background: True
   bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 3
   ele_lam_shift: 0.0
   ele_t0: 0
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: false
   fit_rng:
     blue_max: 510
-    blue_min: 435
+    blue_min: 450
     forward_epw_end: 700
     forward_epw_start: 400
     forward_iaw_end: 528
     forward_iaw_start: 524
-    iaw_cf_max: 263.3
-    iaw_cf_min: 263.2
-    iaw_max: 263.7
-    iaw_min: 262.8
-    red_max: 650
+    iaw_cf_max: 526.6
+    iaw_cf_min: 526.4
+    iaw_max: 527.0
+    iaw_min: 526.0
+    red_max: 625
     red_min: 545
   ion_loss_scale: 1.0
   ion_t0_shift: 0
@@ -47,17 +45,19 @@ data:
     skip: 50
     start: 400
     type: pixel
+  load_ele_spec: true
+  load_ion_spec: false
   probe_beam: P9
   shotDay: false
   shotnum: 101675
 feature_detector:
+  buffer:
+    lineout_end: 0
+    lineout_start: 0
+    spectral_end: 0
+    spectral_start: 0
   estimate_lineouts_epw: false
   estimate_lineouts_iaw: false
-  buffer:
-    lineout_start: 0
-    lineout_end: 0
-    spectral_start: 0
-    spectral_end: 0
 mlflow:
   experiment: experiment-1
   run: run-1
@@ -66,18 +66,13 @@ optimizer:
   grad_method: AD
   hessian: false
   jit: true
-  learning_rate_final: 0.001
+  learning_rate_final: 0.0001
   learning_rate_init: 0.01
-  loss_method: l2
-  method: lsq
+  loss_method: covar
+  method: adam
   moment_loss: false
-  num_epochs: 400
+  num_epochs: 1000
   num_mins: 1
-  patience: 500
-  min_delta: 1.0e-8
-  seed: 0
-  sensitivity_tol: 0.0
-  validate_active_leaves: true
   param_learning_rate: 0.01
   param_method: adam
   parameter_norm: true
@@ -88,18 +83,32 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
+  CCDsize:
+  - 1024
+  - 1024
+  Ipump_14: 0.0
+  ang_res_unit: 10
+  beam_diam_um: 100
+  calc_sigmas: false
+  calibration_uncertainty:
+    EPWDispersion_sigma: 0.0
+    EPWoffset_sigma: 0.0
+    IAWDispersion_sigma: 0.0
+    IAWoffset_sigma: 0.0
+    gain_sigma: 0.0
+    num_draws: 1
+    seed: 0
+    spect_stddev_ele_sigma: 0.0
+    spect_stddev_ion_sigma: 0.0
   detector_specs:
-    norm: 0
     EPWDispersion: 0.4143
-    IAWDispersion: 0.00449
     EPWoffset: 315.0
-    IAWoffset: 261.6
+    IAWDispersion: 0.00659
+    IAWoffset: 350.0
+    norm: 0
     widIRF:
       spect_stddev_ele: 1.3
       spect_stddev_ion: 0.015
-  ang_res_unit: 10
-  calc_sigmas: false
-  CCDsize: [1024, 1024]
   expandedions: false
   extraoptions:
     spectype: temporal
@@ -111,56 +120,23 @@ other:
   - 24
   - 528
   iawoff: 0
+  include_gains: false
   lam_res_unit: 5
-  points_per_pixel: 4
+  mcmc:
+    adapt_every: 50
+    adapt_gamma: 0.6
+    burn_in: 3000
+    compare_to_laplace: false
+    init_step_scale: 0.1
+    num_steps: 8000
+    save_samples: true
+    seed: 0
+    target_accept: 0.234
+    thin: 5
+    use_laplace_seed: true
+  points_per_pixel: 10
   refit: false
   refit_thresh: 0.25
-  Ipump_14: 0.0
-  beam_diam_um: 100
-  # Upper limit on the gain exponent G in exp(G) when include_gains is true. The linear gain model
-  # breaks down for large gains, and an unresolved resonance can otherwise overflow exp() and NaN the fit.
-  gain_cap: 100
-  # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
-  # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
-  # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
-  # nothing about fitting or the existing Hessian-based postprocessor.
-  mcmc:
-    num_steps: 80
-    burn_in: 30
-    thin: 5
-    adapt_every: 10
-    target_accept: 0.234
-    adapt_gamma: 0.6
-    use_laplace_seed: false
-    # Multiplier on the seeded step scale, used to perturb each independent chain's own starting point
-    # before burn-in (see calibration_uncertainty.num_draws below for the chain-count knob). 0.0 (the
-    # default) means every chain starts at the exact best fit.
-    init_dispersion_factor: 0.0
-    # Re-estimates each parameter's *relative* step scale within a lineout from the running burn-in
-    # sample variance, on top of the Robbins-Monro magnitude adaptation above (which alone can only
-    # rescale every parameter of a lineout by the same factor). On by default; set false to match
-    # pre-adapt_shape behavior exactly.
-    adapt_shape: true
-    seed: 0
-    save_samples: true
-    compare_to_laplace: false
-  # calibration_uncertainty.num_draws is the number of independent MCMC chains the postprocessor runs
-  # and pools -- not just "calibration draws": chains may differ by a perturbed instrument calibration
-  # (tsadar/data/calibration.py, via the *_sigma fields below), by a perturbed starting point
-  # (other.mcmc.init_dispersion_factor above), by both, or -- with neither configured -- only by their
-  # own independent MH random-walk noise from an identical start. num_draws=1 (the default) runs a
-  # single chain, matching every other config. See inverse/postprocess/mcmc_calibration.py.
-  calibration_uncertainty:
-    num_draws: 1
-    seed: 0
-    EPWDispersion_sigma: 0.0
-    IAWDispersion_sigma: 0.0
-    EPWoffset_sigma: 0.0
-    IAWoffset_sigma: 0.0
-    spect_stddev_ion_sigma: 0.0
-    spect_stddev_ele_sigma: 0.0
-    gain_sigma: 0.0
-  include_gains: false
 parameters:
   electron:
     Te:
@@ -204,6 +180,12 @@ parameters:
       num_grad_points: 1
       ub: 10.0
       val: 0.0
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: 0.0
     amp1:
       active: true
       lb: 0.01
@@ -245,12 +227,6 @@ parameters:
       lb: 0.001
       ub: 1.0
       val: 0.12
-    Va:
-      active: false
-      angle: 0.0
-      lb: -20.5
-      ub: 20.5
-      val: 0.0
     Z:
       active: false
       lb: 0.5
@@ -263,9 +239,9 @@ plotting:
   data_cbar_l: 0
   data_cbar_u: data
   detailed_breakdown: false
-  ele_window_end: 660
+  ele_window_end: 625
   ele_window_start: 425
-  ion_window_end: 264
-  ion_window_start: 262.5
+  ion_window_end: 528
+  ion_window_start: 525
   n_sigmas: 3
   rolling_std_width: 5

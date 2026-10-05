@@ -73,9 +73,7 @@ def test_check_fe_inactive_passes_when_fe_inactive():
 
 
 def test_run_mcmc_for_batch_acceptance_rate_near_target(fitted_fixture):
-    # With the Laplace-seeded proposal scale, acceptance should land close to the configured target on a
-    # well-conditioned problem -- this is the sampler's core correctness check: the RWM kernel and its
-    # Robbins-Monro step-size adaptation are actually working, not just running without crashing.
+    # with the Laplace-seeded proposal, acceptance should land near the configured target
     cfg = copy.deepcopy(fitted_fixture["config"])
     target = 0.234
     cfg["other"]["mcmc"] = {
@@ -103,27 +101,10 @@ def test_run_mcmc_for_batch_acceptance_rate_near_target(fitted_fixture):
 
 
 def test_seed_step_scale_from_laplace_regularizes_degenerate_brem_c(fitted_fixture):
-    # brem_c (the forward-model bremsstrahlung background's additive offset -- see
-    # tsadar.core.physics.bremsstrahlung.brem_spectrum, where it enters as a pure "+ offset" term) is
-    # documented, by the commit that introduced brem_amp/brem_c as active-fittable parameters (e6bee35f),
-    # as part of a "fully degenerate" set with Z/Te/ne: a uniform additive shift is easily absorbed
-    # elsewhere, so its own diagonal curvature is weak and can be pushed non-positive away from a fully
-    # converged optimum. Starting it at val=0.7 (rather than the deck's usual, better-behaved 0.4) and
-    # letting it fit alongside everything else reproduces a *genuine* non-positive diagonal Hessian entry
-    # for it in this dataset (confirmed directly: h_ii is consistently around -45 to -80 for both
-    # lineouts at the resulting fitted point) -- i.e. this exercises the real eigenvalue-clipping
-    # regularization branch of _seed_step_scale_from_laplace, not a well-conditioned parameter whose
-    # acceptance rate happens to suffer for an unrelated reason.
-    #
-    # The old diagonal-only Laplace seeding used a flat per-entry fallback for a leaf like this; the
-    # full-covariance version has no such fallback -- an individually-degenerate leaf's row/column is
-    # regularized in place instead (see _regularized_proposal_cholesky), preserving whatever coupling it
-    # has to every other leaf rather than discarding it. This checks the resulting proposal covariance is
-    # still valid (positive-definite) for every lineout despite brem_c's non-positive curvature, that
-    # brem_c's own marginal variance comes out larger than a well-conditioned leaf's (a genuinely
-    # poorly-constrained parameter reported as such, not silently clamped to some arbitrary flat number),
-    # plus an end-to-end sanity check that the sampler still runs to completion with this genuinely
-    # degenerate parameter active.
+    # brem_c is degenerate with Z/Te/ne; starting it at 0.7 gives it a non-positive diagonal Hessian
+    # entry at the fitted point, which exercises the eigenvalue-clipping branch of the Laplace seed. The
+    # proposal covariance must stay positive-definite, brem_c's variance must come out larger than a
+    # well-conditioned parameter's, and the sampler must still run to completion.
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["data"]["background"]["type"] = "brem_model"
     cfg["parameters"]["general"]["brem_amp"] = {"active": True, "lb": 0.0, "ub": 1.0, "val": 0.4}
@@ -196,9 +177,7 @@ def test_seed_step_scale_from_laplace_regularizes_degenerate_brem_c(fitted_fixtu
 
 
 def test_seed_step_scale_default_has_no_hessian_dependency(fitted_fixture):
-    # _seed_step_scale_default takes no loss_fn/batch -- confirming it has no Hessian dependency -- and
-    # returns a flat, uncorrelated init_step_scale per leaf/lineout as a diagonal Cholesky factor, in the
-    # same logit space diff_params lives in.
+    # the default seed needs no loss_fn/batch and returns init_step_scale * I per lineout
     ts_params = fitted_fixture["fitted_weights"][0]
     filter_spec = get_filter_spec(fitted_fixture["config"]["parameters"], ts_params)
     diff_params, _ = eqx.partition(ts_params, filter_spec)
@@ -225,15 +204,9 @@ def test_run_mcmc_for_batch_falls_back_when_laplace_seed_disabled(fitted_fixture
 
 
 def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(fitted_fixture):
-    # run_mcmc_for_fit_batches seeds the Laplace step scale sequentially, one fit-batch at a time, via
-    # _seed_step_scale, *before* vmapping the rest of run_mcmc_for_batch across every fit-batch (see
-    # _seed_step_scale's docstring: fusing that Hessian computation into the fit-batch vmap itself has
-    # been observed to multiply its memory cost by the fit-batch count on real multi-lineout shots).
-    # fitted_fixture's own config only ever produces a single fit-batch, so this test builds its own
-    # 3-fit-batch fit (reusing the same tiny dataset by wrapping indices) specifically to exercise that
-    # n_fit_batches > 1 path, and checks the vmapped result is bit-identical to manually looping
-    # run_mcmc_for_batch per fit-batch with the same per-batch PRNG key and a precomputed step_scale --
-    # i.e. the precompute-then-vmap refactor changes *how* this is computed, not the result.
+    # builds a 3-fit-batch fit (wrapping the indices of the small dataset) to exercise the
+    # n_fit_batches > 1 path, and checks the vmapped result is identical to looping run_mcmc_for_batch per
+    # fit-batch with the same PRNG key and a precomputed step_scale
     cfg = copy.deepcopy(fitted_fixture["config"])
     all_data = fitted_fixture["all_data"]
     sa = fitted_fixture["sa"]
@@ -279,22 +252,12 @@ def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(
 
 
 def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixture):
-    # _seed_step_scale_from_laplace now seeds the proposal covariance from the *full* per-lineout Hessian
-    # (via LossFunction.h_loss_wrt_params_per_lineout, itself already validated against eqx.filter_hessian
-    # ground truth in test_laplace.py), not just its diagonal -- this test instead verifies the
-    # regularize-and-Cholesky step _seed_step_scale_from_laplace adds on top: for a well-conditioned
-    # lineout (every normalized eigenvalue comfortably above the _LAPLACE_EIGVAL_FLOOR clip, confirmed
-    # directly below), the resulting proposal covariance should exactly equal rr_factor^2 * inv(H) --
-    # i.e. the eigenvalue-clipping regularization should be a complete no-op when it isn't needed.
+    # for a well-conditioned lineout (every normalized eigenvalue above _LAPLACE_EIGVAL_FLOOR) the
+    # proposal covariance should equal rr_factor^2 * inv(H), i.e. the regularization is a no-op
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise more than just electron/general leaves
-    # fitted_fixture's shared data was prepared with load_ion_spec/fit_IAW off (EPW-only for this shot),
-    # so Z -- which only enters the forward model through the IAW spectrum -- has zero effect on the
-    # loss there: its diagonal Hessian entry sits at ~0 (a genuinely flat, unidentifiable direction, not
-    # merely "poorly conditioned"), which is what produced the large negative normalized eigenvalue this
-    # test used to fail on. Re-prepare a private copy of the data with IAW loaded and fit so Z is
-    # actually constrained by the data, instead of mutating the module-scoped fixture shared by every
-    # other test in this file.
+    # the shared fixture is EPW-only, which leaves Z unconstrained; re-prepare a private copy of the
+    # data with the IAW loaded and fit so Z is constrained
     cfg["data"]["load_ion_spec"] = True
     cfg["data"]["fit_IAW"] = True
     with mlflow.start_run():
@@ -321,10 +284,7 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixtur
     assert len(rows) == n
     batch_size = cfg["optimizer"]["batch_size"]
 
-    # Ground-truth (batch_size, n, n) per-lineout Hessian block, extracted directly from
-    # eqx.filter_hessian -- confirms cross-lineout terms are zero along the way (the same check the
-    # diagonal-only version of this test made, generalized here to every leaf pair, not just a leaf with
-    # itself), which is what makes a single dense per-lineout block well-defined in the first place.
+    # per-lineout Hessian blocks from eqx.filter_hessian; also checks the cross-lineout terms are zero
     H_true = np.zeros((batch_size, n, n))
     for i, row in enumerate(rows):
         row_leaves = jax.tree_util.tree_leaves(row)
@@ -400,22 +360,9 @@ def test_calibration_draws_perturb_gain_and_rescale_data(fitted_fixture):
 
 
 def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
-    # The whole point of the calibration-draw design: pooling chains run under different calibration
-    # realizations should, in expectation, produce a pooled posterior at least as wide as a single chain
-    # at the nominal calibration (law of total variance: pooled_var = avg(within-chain var) + between-
-    # chain var, and between-chain var >= 0 whenever the draws shift the best fit at all).
-    #
-    # For gain specifically, that between-chain shift is real but small: LossFunction normalizes each
-    # lineout's e_data by its own max (loss_function.py's e_input_norm), which cancels almost all of a
-    # pure multiplicative gain perturbation's effect on the recovered amp1 (confirmed by rebuilding a
-    # draw's LossFunction from its own perturbed config and getting a bit-for-bit identical result to
-    # reusing the nominal one). That leaves this test comparing two noisy std estimates (each from only
-    # ~100 post-burn-in samples) whose gap is on the same order as the sampling noise itself -- a single
-    # fixed-seed point comparison isn't reliable and did fail for some seeds despite the effect being
-    # real and positive on average. Averaging std_with - std_no over several independent (mcmc key,
-    # calibration rng) seed pairs is the statistically appropriate fix here, not a bigger gain_sigma
-    # (the cancellation above means that wouldn't move the needle much) or much longer chains (would
-    # help but is a far more expensive way to buy the same robustness).
+    # pooling chains run under different calibration realizations should give a posterior at least as
+    # wide as a single chain at the nominal calibration. For gain the shift is small (the per-lineout
+    # normalization cancels most of it), so the comparison is averaged over several seed pairs.
     cfg = fitted_fixture["config"]
     sa = fitted_fixture["sa"]
     ts_params = fitted_fixture["fitted_weights"][0]
@@ -429,10 +376,7 @@ def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
         draws = mcmc_calibration.draw_calibration_realizations(
             cfg_run, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(cal_rng_seed)
         )
-        # Build a real LossFunction for every draw except the one(s) draw_calibration_realizations left
-        # untouched (config_k/all_data_k literally the same objects as nominal) -- mirrors
-        # mcmc_postprocess.py's reuse_nominal check, not a hardcoded "draw 0" special case (every draw
-        # index, including 0, gets its own independent calibration perturbation).
+        # build a LossFunction for every draw whose calibration was perturbed, as mcmc_postprocess does
         from tsadar.inverse.loss_function import LossFunction
 
         loss_fns = []
@@ -536,10 +480,7 @@ def test_run_mcmc_pooled_reports_r_hat_with_multiple_chains(fitted_fixture):
     max_r_hat = np.asarray(max_r_hat)
     assert max_r_hat.shape == (1, batch_size, n_active)  # one fit-batch, per active parameter
     assert np.all(np.isfinite(max_r_hat))
-    # R-hat (classic or rank-normalized) is an *estimator*, not an exact identity -- it can dip slightly
-    # below 1.0 by chance, especially for a chain this short (num_steps=300 in this fast test); a loose
-    # sanity bound catches a genuinely broken computation (e.g. a sign error, or values wildly off scale)
-    # without being fragile to normal small-sample noise.
+    # R-hat is an estimator and can dip slightly below 1 for a short chain, so the bound is loose
     assert np.all(max_r_hat >= 0.5)
 
     # within_chain_r_hat is meaningful even with multiple chains -- it never compares different chains to

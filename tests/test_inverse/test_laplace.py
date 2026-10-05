@@ -60,13 +60,8 @@ def fitted_fixture():
 
 
 def test_calc_sigmas_does_not_fall_back_and_is_fast(fitted_fixture):
-    # calc_sigmas used to attempt a Hessian over the *entire* parameter tree -- including the electron
-    # distribution function's fixed interpolation table -- which is a multi-GB-to-multi-hundred-GB
-    # allocation even on an ordinary fit (see loss_function.LossFunction.h_loss_wrt_params's docstring).
-    # The fix restricts the Hessian to diff_params only, so this should complete in well under a minute
-    # (generously bounded here) and, crucially, must not silently fall back to calc_sigma=False the way
-    # the old, broken get_sigmas (which indexed a Hessian shaped like the full ThomsonParams tree with
-    # plain dict brackets, and would always raise) always did.
+    # the Hessian is taken with respect to diff_params only, so calc_sigma must complete quickly and
+    # must not fall back to calc_sigma=False
     cfg = fitted_fixture["config"]
     all_data = fitted_fixture["all_data"]
     sa = fitted_fixture["sa"]
@@ -86,11 +81,8 @@ def test_calc_sigmas_does_not_fall_back_and_is_fast(fitted_fixture):
 
 
 def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
-    # Regression check for the column-ordering fix: fitted_params' (species, key) order (electron,
-    # general, ion-1, ... -- from ThomsonParams.get_unnormed_params) does not match diff_params' own
-    # pytree flatten order (electron, ions, general -- from ThomsonParams' declared field order), so
-    # get_sigmas has to permute. Verify its output against an independent getattr-based recomputation of
-    # the same joint covariance that doesn't go through that permutation logic at all.
+    # fitted_params order (electron, general, ions) differs from diff_params order (electron, ions,
+    # general), so get_sigmas has to permute; compare against an independent recomputation
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True
     all_data = fitted_fixture["all_data"]
@@ -134,14 +126,8 @@ def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
 
 
 def test_h_loss_wrt_params_per_lineout_matches_full_hessian_diagonal(fitted_fixture):
-    # h_loss_wrt_params_per_lineout exists specifically to avoid ever materializing h_loss_wrt_params's
-    # dense (batch_size, batch_size) blocks -- which, for every (leaf_a, leaf_b) pair, are all-zero off
-    # the lineout diagonal (different lineouts don't interact in the forward model), but computing and
-    # discarding them anyway is what's been observed to attempt an 18+GiB allocation on a real production
-    # shot's compare_to_laplace=True path (recalculate_with_chosen_weights). Verify both halves of that
-    # claim directly against eqx.filter_hessian ground truth: the dense off-diagonal actually is
-    # (numerically) zero for every leaf pair, not just same-leaf pairs, and h_loss_wrt_params_per_lineout's
-    # cheap per-lineout diagonal exactly reproduces the dense version's diagonal.
+    # against eqx.filter_hessian: the cross-lineout blocks are zero for every leaf pair, and
+    # h_loss_wrt_params_per_lineout reproduces the lineout diagonal of the dense Hessian
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise a genuine cross-parameter (Te/ne vs Z) pair
     all_data = fitted_fixture["all_data"]
@@ -194,10 +180,7 @@ def test_h_loss_wrt_params_per_lineout_matches_full_hessian_diagonal(fitted_fixt
 
 
 def test_get_sigmas_raises_when_fe_active():
-    # Mirrors postprocess.mcmc.check_fe_inactive's restriction: the electron distribution function's
-    # per-lineout parameters are stored as a list of separate objects rather than one array with a batch
-    # axis, which this leaf-diagonal approach doesn't handle. Must raise clearly rather than silently
-    # mis-computing or crashing on an unrelated KeyError.
+    # an active electron distribution function must raise rather than be mis-computed
     fitted_params = {"electron": {"Te": None, "m": None}, "general": {}, "ion-1": {}}
     with pytest.raises(NotImplementedError):
         get_sigmas(None, None, fitted_params, batch_size=2)

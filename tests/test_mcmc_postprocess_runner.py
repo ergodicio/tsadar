@@ -15,11 +15,8 @@ from tsadar.postprocess_runner import _load_merged_config, _reconstruct_fit_stat
 
 
 def _mcmc_test_config():
-    # Same fixture test_postprocess_runner.py uses, adapted for the MCMC postprocessor: "fe" must be
-    # inactive (see inverse/postprocess/mcmc.py's module docstring), and a short chain keeps the test
-    # fast -- correctness of the sampler itself (acceptance rate near target, agreement with the
-    # Hessian-based sigma on a well-conditioned problem) is covered by tests/test_inverse/test_mcmc.py,
-    # not here; this test is about the artifact-producing wiring end to end.
+    # same fixture as test_postprocess_runner.py with "fe" inactive and a short chain; this tests the
+    # artifact wiring, the sampler itself is covered by tests/test_inverse/test_mcmc.py
     with open("tests/configs/time_test_defaults.yaml", "r") as fi:
         defaults_cfg = yaml.safe_load(fi)
     with open("tests/configs/time_test_inputs.yaml", "r") as fi:
@@ -64,11 +61,8 @@ def test_run_mcmc_postprocess_local():
 
 
 def test_mcmc_postprocess_writes_expected_artifacts():
-    # Guards the wiring (manifest, sigmas_mcmc.nc, mcmc_covariance.nc all present), the same way
-    # test_utils/test_manifest.py::test_postprocess_logs_a_manifest_with_the_artifacts guards
-    # postprocess.postprocess -- called directly inside a known run context (rather than through
-    # run_mcmc_postprocess_local, which opens its own run whose id isn't otherwise returned) so the
-    # produced artifacts can be inspected without needing to rediscover which run they landed in.
+    # checks the manifest, sigmas_mcmc.nc and mcmc_covariance.nc are logged; called inside a known
+    # run so the artifacts can be inspected
     from tsadar.inverse.postprocess.mcmc_postprocess import mcmc_postprocess
 
     with tempfile.TemporaryDirectory() as td:

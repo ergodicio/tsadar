@@ -6,13 +6,8 @@ from tsadar.utils.plotting.plotters import save_sigmas_params
 
 
 def test_save_sigmas_params_preserves_column_order_across_species():
-    # Regression test: save_sigmas_params used to build each species' column index via a fresh
-    # enumerate() per species, resetting to 0 every time -- so every species after the first silently
-    # pulled an earlier species' sigma column instead of its own (e.g. "general"'s amp1 landing on
-    # "electron"'s Te column) whenever more than one species had active parameters, the normal case.
-    # sigmas' columns are ordered species-major across all_params combined (matching
-    # postprocess.laplace.get_sigmas/postprocess.mcmc._active_param_keys), so the fix must use one
-    # running index across that whole combined order, not one reset per species.
+    # regression test: the sigma column index must run across all species combined rather than
+    # restarting at 0 for each species
     num_lineouts = 4
     all_params = {
         "electron": {"Te": np.zeros(num_lineouts), "ne": np.zeros(num_lineouts)},
@@ -36,13 +31,8 @@ def test_save_sigmas_params_preserves_column_order_across_species():
 
 
 def test_save_sigmas_params_skips_uncounted_distribution_function_entry():
-    # Regression test: ts_params.get_fitted_params always includes the electron "fe" entry in
-    # all_params (see its docstring: "f", "fe", "flm" are always included), regardless of whether
-    # fe.active is True, but never counts it in num_params -- so sigmas (sized by num_params) has no
-    # column for it. get_final_params already knows to skip "fe"/"f"/"flm" when building its own table;
-    # save_sigmas_params must do the same or its combined running index walks one past sigmas' last real
-    # column (IndexError: index N is out of bounds for axis 1 with size N) for any fit where fe is
-    # reported but inactive -- the common case for a Te/ne-only 1D fit.
+    # regression test: the electron "fe" entry is always present in all_params but is not counted in
+    # num_params, so it has no sigma column and must be skipped
     num_lineouts = 4
     all_params = {
         "electron": {"Te": np.zeros(num_lineouts), "ne": np.zeros(num_lineouts), "fe": np.zeros((num_lineouts, 64))},

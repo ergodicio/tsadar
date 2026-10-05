@@ -442,10 +442,7 @@ class GeneralParams(eqx.Module):
     brem_c_shift: float
     act_funs: Dict[str, Callable]
 
-    # brem_amp/brem_c (the forward-model bremsstrahlung background's scale and offset, see
-    # tsadar.core.physics.bremsstrahlung) are optional: most decks don't use the brem_model background
-    # type, so they default to an inactive, zero-valued no-op rather than requiring every input deck in the
-    # repo to define them.
+    # brem_amp/brem_c (scale and offset of the forward-model bremsstrahlung background) default to inactive
     _OPTIONAL_DEFAULTS = {
         "brem_amp": {"active": False, "lb": 0.0, "ub": 1.0, "val": 0.0},
         "brem_c": {"active": False, "lb": 0.0, "ub": 1.0, "val": 0.0},

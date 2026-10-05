@@ -52,18 +52,8 @@ def _extract_run_id(run_id_or_url: str) -> str:
 
 def _resolve_artifact_uri(run_id: str) -> str:
     """
-    Resolves an mlflow run's artifact root URI once, via the public mlflow.get_run() API, so that
-    downloading several artifacts from the same run doesn't re-resolve the run once per file.
-
-    mlflow.artifacts.download_artifacts(run_id=..., artifact_path=...) internally constructs a fresh
-    RunsArtifactRepository per call, and RunsArtifactRepository.__init__ does its own store.get_run(run_id)
-    REST round-trip - so downloading N files the old way cost N+ redundant round-trips just to resolve the
-    same run over and over. Resolving once here and downloading through the resulting absolute
-    artifact_uri (as opposed to the runs:/<id>/... scheme) bypasses that per-file re-resolution.
-
-    Note a real, intentional behavior change: a genuinely nonexistent run_id now fails immediately here
-    with a clear "run not found" error from mlflow.get_run(), instead of the old per-file flow's confusing
-    sequence (the config.yaml probe fails -> falls back to defaults.yaml/inputs.yaml -> that fails too).
+    Resolves an mlflow run's artifact root URI once, so that downloading several artifacts from the same
+    run does not re-resolve the run for every file. Raises if the run does not exist.
     """
     return mlflow.get_run(run_id).info.artifact_uri
 
@@ -71,9 +61,7 @@ def _resolve_artifact_uri(run_id: str) -> str:
 def _download_run_artifact(base_artifact_uri: str, fname: str, dst_path: str) -> None:
     """
     Downloads one file from a run's artifacts, given that run's artifact root URI (from
-    _resolve_artifact_uri). Joined with posixpath.join rather than os.path.join since mlflow artifact
-    paths are always POSIX-style regardless of the local platform (this repo runs on both Windows and
-    Linux/NERSC).
+    _resolve_artifact_uri). mlflow artifact paths are POSIX-style on every platform.
     """
     mlflow.artifacts.download_artifacts(artifact_uri=posixpath.join(base_artifact_uri, fname), dst_path=dst_path)
 
@@ -142,13 +130,8 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
 
     is_angular = "angular" in config["other"]["extraoptions"]["spectype"]
     if is_angular:
-        # All three mutations mirror side effects multirun_angular_optax applies to config during
-        # the original fit, which the freshly-loaded config here never went through: forcing
-        # batch_size to 1 (angular fits are always run unbatched, and get_sigmas below indexes a
-        # hessian shaped for batch_size=1), the lineout start/end conversion (needed so the batch
-        # built from all_data below matches the range actually fit), and, if multiple minimizations
-        # ran, replaying the nvx/window-length growth (needed so the ThomsonParams skeleton has the
-        # same shape as the saved checkpoint).
+        # replay the config changes multirun_angular_optax makes during the original fit: unbatched
+        # fitting, the lineout start/end conversion, and the nvx/window-length growth
         config["optimizer"]["batch_size"] = 1
         apply_ang_res_unit(config)
         checkpoint_refinements = config["optimizer"].get(
@@ -171,9 +154,7 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
         all_params, num_params = unbatch_fitted_params(config, fitted_weights)
 
     if is_angular:
-        # Matches the batch multirun_angular_optax normalizes against (the lineout-range slice),
-        # not the first batch_size raw rows -- using the latter would compute different i_norm/e_norm
-        # than the original fit whenever the raw data's first rows differ from the fitted range.
+        # normalize against the lineout-range slice, as the original fit did
         sample = build_angular_batch(config, all_data)
         if isinstance(config["data"]["shotnum"], list):
             sample = sample["b1"]
@@ -248,16 +229,11 @@ def run_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) -> Di
     config.yaml, or defaults.yaml + inputs.yaml. Either way, fitted_weights.eqx must also be present.
 
     Args:
-        overrides: optional partial config (same nesting as inputs.yaml -- typically a small, dedicated
-            stub deck containing only the postprocessing-relevant keys being changed, e.g.
-            config["plotting"] or config["other"]["mcmc"]) deep-merged on top of the saved config in
-            memory, without touching the files on disk. Deliberately not sourced from the live repo deck
-            (e.g. configs/1d/*.yaml) automatically: that would make old runs' replays depend on whatever
-            that file currently contains, which drifts with unrelated day-to-day edits made for new fits.
-            Overriding fields the reconstruction itself depends on (data.lineouts, optimizer.batch_size,
-            parameters.*.active, etc.) will likely break replay against the saved fitted_weights.eqx, since
-            that file was serialized against the original config's shapes -- only override things that
-            affect postprocessing/plotting, not the fit itself.
+        dir_path: path to the artifact directory.
+        overrides: optional partial config (same nesting as inputs.yaml) deep-merged on top of the saved
+            config in memory. Only override fields that affect postprocessing or plotting; fields the
+            reconstruction depends on (data.lineouts, optimizer.batch_size, parameters.*.active, ...) must
+            match the saved fitted_weights.eqx.
     """
     config = _load_merged_config(dir_path)
     if overrides:
@@ -277,13 +253,11 @@ def run_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None)
     https://continuum.ergodic.io/experiments/...). Only reads the source run's artifacts - the results of
     this replay are logged to a new run, so the source run's record is left untouched.
 
-    Supports both config artifact layouts: a single config.yaml (app-originated runs, via
-    runner.run_for_app) or defaults.yaml + inputs.yaml (CLI/cluster runs, via runner.load_and_make_folders).
-    Which one a given run has is only known by trying, since app runs never log defaults.yaml/inputs.yaml
-    at all - config.yaml is tried first and, only if that's absent, falls back to the defaults/inputs pair.
+    Supports both config artifact layouts: a single config.yaml (tried first) or defaults.yaml + inputs.yaml.
 
     Args:
-        overrides: see run_postprocess_local -- applied identically here, in memory only.
+        run_id_or_url: mlflow run id or URL of the fit.
+        overrides: see run_postprocess_local.
     """
     run_id = _extract_run_id(run_id_or_url)
 

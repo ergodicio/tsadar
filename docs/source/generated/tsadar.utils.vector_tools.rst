@@ -1,13 +1,8 @@
-tsadar.utils.vector\_tools
+﻿tsadar.utils.vector\_tools
 ==========================
 
 .. automodule:: tsadar.utils.vector_tools
 
-   
-   
-   
-
-   
    
    .. rubric:: Functions
 
@@ -20,15 +15,3 @@ tsadar.utils.vector\_tools
       vdot
       vsub
    
-   
-
-   
-   
-   
-
-   
-   
-   
-
-
-

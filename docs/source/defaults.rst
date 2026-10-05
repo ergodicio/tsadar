@@ -248,7 +248,7 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
 - ``moment_loss`` is the legacy shorthand for unit-strength density, temperature, and momentum priors. For ARTS fits it is applied to the positive physical EDF (not its internal parameterization) and is equivalent to enabling the three corresponding ``angular_objective.regularization`` weights.
 
-- ``loss_method`` metric minimized in order to match data; ``l2`` is recommended but ``l1``, ``log-cosh``, and ``poisson`` are also available
+- ``loss_method`` metric minimized in order to match data; ``l2`` is recommended but ``l1``, ``log-cosh``, ``poisson``, and ``covar`` are also available. ``covar`` uses a correlated detector-noise covariance (see :doc:`math`) and requires ``bg_subtract: false``, which is enforced with a warning.
 
 - ``angular_objective`` configures the ARTS detector likelihood, gain nuisances, contamination model, and EDF priors. ARTS requires ``loss_method: l2`` because this section supplies its more specific likelihood:
 
@@ -314,6 +314,8 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``include_gains`` is a boolean determining whether to compute the SRS and SBS amplification of the Thomson scattered light. Having ``include_gains`` set to True will require the pump intensity and beam diameter to be specified in the ``other:`` section of the input deck.
 
+- ``gain_cap`` upper limit on the gain exponent when ``include_gains`` is true. Prevents an unresolved resonance from overflowing the exponential. Default is 100.
+
 - ``Ipump_14`` is the intensity relevant to computing the SRS and SBS amplification in units of :math:`10^{14}` W/cm\ :sup:`-2`. This is likely the probe beam intensity for most experiments at that is the beam that is overlapped with the scattering volume, but for some experiments it may differ.
 
 - ``beam_diam_um`` is the beam diameter in microns of the beam that pumps SRS and SBS, again this is likely the probe beam diameter. This is used in conjunction with the scattering angle to compute the gain length for the SRS and SBS amplification.
@@ -335,25 +337,35 @@ The ``other:`` section includes options specifying the types of data that are be
 
     - ``thin`` keep only every ``thin``-th post-burn-in sample, to reduce the size of the saved posterior and its autocorrelation.
 
-    - ``adapt_every`` number of steps per burn-in adaptation window; the proposal step scale is rescaled once per window based on the acceptance rate observed over that window.
+    - ``adapt_every`` number of steps per burn-in chunk. This only sets how often the progress bar updates; the proposal is adapted on every burn-in step.
 
     - ``target_accept`` target per-lineout acceptance rate that burn-in adaptation aims for. 0.234 is the standard asymptotically-optimal rate for random-walk Metropolis.
 
-    - ``adapt_gamma`` decay exponent for the Robbins-Monro step-scale adaptation; larger values make later burn-in windows adapt more slowly, which helps the step scale settle down rather than oscillate.
+    - ``adapt_gamma`` decay exponent of the adaptation gain, in (0.5, 1]. Larger values make the adaptation die away faster.
 
-    - ``init_step_scale`` fallback initial proposal step scale, in the same unconstrained/logit space the optimizer fits in. Used whenever ``use_laplace_seed`` is false, or when the Laplace-based seed below fails.
+    - ``init_step_scale`` flat proposal step, in the same unconstrained/logit space the optimizer fits in, shared by every parameter. Used whenever ``use_laplace_seed`` is false, or when the Laplace-based seed below fails.
 
-    - ``use_laplace_seed`` boolean; if true, seed the initial per-parameter, per-lineout proposal step scale from a Laplace/Hessian approximation at the best fit (using the Roberts-Rosenthal 2.38/:math:`\sqrt{d}` optimal-scaling factor), falling back to ``init_step_scale`` if that Hessian is degenerate.
+    - ``use_laplace_seed`` boolean; if true, seed each lineout's initial proposal covariance from the full Hessian of the likelihood at the best fit (scaled by the Roberts-Rosenthal 2.38/:math:`\sqrt{d}` factor and regularized where the Hessian is not positive-definite), falling back to ``init_step_scale`` if the Hessian cannot be computed.
 
     - ``init_dispersion_factor`` multiplier on the seeded step scale, used to perturb each independent chain's own starting point before burn-in begins -- see ``calibration_uncertainty.num_draws`` below for what controls how many chains are run. ``0.0`` (the default) means every chain starts at the exact best fit, matching single-chain behavior exactly. Set this above 0 when running several chains (``num_draws`` > 1) so they don't all start from the same point -- useful on its own for a more thorough posterior exploration, and required for a meaningful R-hat when the calibration sigmas below are all left at 0.
-
-    - ``adapt_shape`` boolean; if true (the default), burn-in also re-estimates each parameter's *relative* step scale within a lineout from the running sample variance seen so far, on top of the Robbins-Monro magnitude adaptation above. The RM update rescales every active parameter of a lineout by the same factor (there is only one joint accept/reject decision per lineout per step), so on its own it can only correct the *overall* proposal scale -- it cannot fix a lineout where, say, ``Te``'s step is relatively too large and ``ne``'s is relatively too small, which happens whenever ``use_laplace_seed``'s per-parameter balance is off (e.g. a degenerate Hessian entry falling back to the same flat ``init_step_scale`` as every other parameter). Set to false to match pre-``adapt_shape`` behavior exactly.
 
     - ``seed`` PRNG seed for the MCMC chain(s).
 
     - ``save_samples`` boolean; if true the full thinned, pooled posterior samples are saved as an artifact (``binary/mcmc_samples.nc``) in addition to the per-lineout mean/std/covariance summary.
 
     - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default, mainly to keep this postprocessor's own footprint minimal -- as of 0.3.0 the underlying Hessian is restricted to only the active fit parameters (see ``calc_sigmas`` above), so this is no longer the large-memory-allocation risk it once was. A failure here (e.g. a degenerate Hessian, or the electron distribution function being active) is still caught and simply disables the comparison rather than failing the run.
+
+    - ``chain_outlier_mad_scale`` threshold, in robust standard deviations (1.4826 x MAD), beyond which a chain's posterior mean for a parameter is flagged as an outlier relative to the other chains. Only used with more than one chain.
+
+    - ``within_chain_r_hat_threshold`` split R-hat above which a single chain is flagged as not having reached a stationary distribution.
+
+    - ``max_dropped_chain_fraction`` largest fraction of chains that may be excluded from a lineout's summary statistics. If more would be excluded the lineout is marked unreliable and its mean/std/covariance are reported as NaN.
+
+    - ``block_gibbs`` boolean; if true (the default), parameters that lie along a direction of substantially negative curvature are proposed and adapted in a separate block from the rest. Requires ``use_laplace_seed``.
+
+    - ``block_gibbs_eigval_threshold`` eigenvalue of the normalized Hessian at or below which a direction is treated as a problem direction for ``block_gibbs``.
+
+    - ``block_gibbs_component_threshold`` minimum eigenvector component for a parameter to be counted as part of a problem direction.
 
 - ``calibration_uncertainty`` is a container for options controlling how many independent MCMC chains the standalone postprocessor runs and pools, and (optionally) how instrument-calibration uncertainty is propagated into them -- see :doc:`mcmc`. Like ``mcmc`` above, these fields are only read by the standalone MCMC postprocessor.
 

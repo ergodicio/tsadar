@@ -438,17 +438,8 @@ def save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigma
 
     """
     coords = ((all_axes["x_label"], np.array(all_axes["epw_x"][config["data"]["lineouts"]["pixelE"]])),)
-    # i must be a single running index across every species' keys combined, matching sigmas' own
-    # column order (species-major, then key, the same combined order fitted_params/active_keys are
-    # built in -- see get_sigmas/postprocess.mcmc._active_param_keys) -- NOT reset per species. Every
-    # species after the first previously restarted enumerate() at 0, silently pulling an earlier
-    # species' column instead of its own (e.g. "general"'s amp1 pulling "electron"'s Te column) for any
-    # config with more than one active species, which is the common case.
-    #
-    # "fe"/"f"/"flm" are excluded to match get_final_params: get_fitted_params always includes the
-    # electron distribution-function entry in all_params regardless of whether fe.active is True, but
-    # never counts it in num_params (see ts_params.get_fitted_params) -- sigmas is sized by num_params,
-    # so leaving these in ordered_names walks past sigmas' last real column.
+    # one running column index across all species, matching the column order of sigmas; the
+    # distribution-function entries are not counted in num_params and have no column
     ordered_names = [
         (series, k) for series in all_params.keys() for k in all_params[series].keys() if k not in ("fe", "f", "flm")
     ]
@@ -468,34 +459,19 @@ def save_sigmas_params_mcmc(config, all_params, sigmas, all_axes, td):
 
 def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None, n_chains_dropped=None, lineout_unreliable=None):
     """
-    Plots a histogram of per-lineout MCMC acceptance rates, so a user can tell at a glance whether the
-    sampler's step-size adaptation actually converged (rates clustered near
-    config["other"]["mcmc"]["target_accept"], not pinned at 0 or 1) or not. When max_r_hat is given (only
-    meaningful with >= 2 independent chains -- see mcmc.run_mcmc_pooled), adds a panel with a histogram of
-    per-lineout worst-case Gelman-Rubin R-hat, so convergence across chains can be checked at the same
-    glance. When n_chains_dropped is also given, adds a further panel with a histogram of how many chains
-    mcmc_postprocess._finalize_chain_selection wrote off from each lineout's summary statistics (mean/std/
-    covariance) -- for either failing mcmc._within_chain_r_hat (never reached a stationary distribution on
-    its own) or being flagged by mcmc_postprocess._mad_flagged_chains (settled somewhere different from
-    the rest) -- so it's visible at a glance whether a clean-looking R-hat/sigma was helped along by that
-    filtering rather than genuine convergence. When lineout_unreliable is also given, adds a final panel
-    showing how many lineouts had too many chains written off to trust any subset at all (mean/std/
-    covariance NaN'd for those -- see _finalize_chain_selection).
+    Plots a histogram of per-lineout MCMC acceptance rates. Further panels are added for the per-lineout
+    worst-case R-hat, the number of chains dropped from each lineout's summary statistics, and the number
+    of lineouts marked unreliable, when those are given.
 
     Args:
         config: configuration dictionary created from the input decks
         acceptance_rate: array of shape (num_lineouts,), the sampling-phase acceptance rate for each
-            lineout, averaged across independent chains.
+            lineout, averaged across chains.
         td: temporary directory that will be uploaded to mlflow
-        max_r_hat: optional array of shape (num_lineouts,), the worst-case (max over active parameters)
-            Gelman-Rubin R-hat for each lineout, computed from every chain before any chain filtering, or
-            None (no panel) whenever fewer than 2 independent chains were run. May contain NaN for
-            lineouts with no active parameters -- filtered out before histogramming.
-        n_chains_dropped: optional array of shape (num_lineouts,), the number of chains
-            _finalize_chain_selection wrote off from that lineout's summary statistics, or None (no panel)
-            whenever there were no active parameters to test convergence on.
-        lineout_unreliable: optional boolean array of shape (num_lineouts,), True where too many chains
-            were written off to trust any subset -- see _finalize_chain_selection -- or None (no panel).
+        max_r_hat: optional array of shape (num_lineouts,), the maximum R-hat over active parameters for
+            each lineout before chain filtering. NaN entries are ignored.
+        n_chains_dropped: optional array of shape (num_lineouts,), the number of chains dropped per lineout.
+        lineout_unreliable: optional boolean array of shape (num_lineouts,), True for unreliable lineouts.
 
     Returns:
         None: the plot is saved to td/plots and logged to MLflow via the usual artifact upload.
@@ -592,19 +568,9 @@ def plot_sigma_comparison(config, all_params, laplace_sigmas_ds, mcmc_sigmas_ds,
 
 
 def _color_corner_by_chain(fig, samples: np.ndarray, num_chains: int) -> None:
-    """Diagnostic overlay for plot_corner: scatters each chain's own points, colored separately, onto
-    every off-diagonal axis of an existing corner.corner figure -- so chains that never mixed with each
-    other (see mcmc.run_mcmc_pooled) show up as visually separated clusters instead of blending into
-    what the pooled density/marginal histograms alone might make look like one converged posterior.
-    Those contours/histograms are left untouched (computed from the full pooled sample regardless of
-    chain identity, so still meaningful either way) -- this only replaces plot_corner's own uniformly-
-    colored raw-point layer (disabled by its caller via plot_datapoints=False).
-
-    samples' leading axis must be num_chains contiguous, equal-length blocks, one per chain, in the
-    same concatenation order mcmc_postprocess.py pools them (draw 0's samples first, then draw 1's, ...).
-    Cycles through a 20-color map rather than a legend -- with up to ~20 chains, a per-chain legend
-    entry on every panel would be more clutter than signal; what matters here is whether the colors
-    separate into distinct clumps or overlap, not which color is which chain.
+    """Scatters each chain's points in its own color onto the off-diagonal axes of an existing
+    corner.corner figure, so chains that did not mix appear as separate clusters. samples' leading axis
+    must be num_chains contiguous, equal-length blocks, one per chain.
     """
     n = samples.shape[1]
     axes = np.asarray(fig.axes).reshape((n, n))
@@ -621,40 +587,25 @@ def _color_corner_by_chain(fig, samples: np.ndarray, num_chains: int) -> None:
 def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: str, num_chains: int = 1) -> None:
     """
     Corner plot (pairwise joint posteriors below the diagonal, 1D marginal histograms on it) for one
-    lineout's MCMC-sampled parameters, via the `corner` package.
-
-    Standalone and reusable: also callable outside a live mcmc_postprocess run to regenerate a corner
-    plot for any lineout not covered by that run's default (capped, evenly-spaced) subset -- every
-    lineout's full posterior is preserved in binary/mcmc_samples.nc whenever
-    config["other"]["mcmc"]["save_samples"] is true (the default), so slice out the (num_samples,
-    n_params) block for the desired lineout from that file and pass it here.
+    lineout's MCMC-sampled parameters, via the `corner` package. Can also be called on samples read back
+    from binary/mcmc_samples.nc.
 
     Args:
-        samples: array of shape (num_samples, n_params), physical (denormalized) posterior draws for one
-            lineout, columns matching param_names.
+        samples: array of shape (num_samples, n_params), physical posterior draws for one lineout, columns
+            matching param_names.
         param_names: names for each column of samples, used as axis labels.
-        lineout_value: the lineout's value (config["data"]["lineouts"]["val"] entry), used only for the
-            plot title/filename.
-        td: directory to save the plot under (td/plots/corner); if reused standalone, pass any directory
-            that already has a plots/corner subfolder or create one first.
-        num_chains: number of independent MCMC chains pooled (in order) into samples' leading axis --
-            see mcmc.run_mcmc_pooled/mcmc_postprocess.py. 1 (default) reproduces the original single-
-            color behavior exactly; > 1 recolors each chain's own points separately (see
-            _color_corner_by_chain) so chains that failed to mix are visible directly on the plot,
-            instead of needing a one-off script to notice a high R-hat is actually several stuck chains.
+        lineout_value: the lineout's value, used for the plot title and filename.
+        td: directory to save the plot under (td/plots/corner).
+        num_chains: number of chains pooled, in order, into samples' leading axis. When > 1 each chain's
+            points are colored separately (see _color_corner_by_chain).
 
     Returns:
-        None: the plot is saved to td/plots/corner and, when called from within an active mlflow run
-            (e.g. mcmc_postprocess), logged via that run's usual artifact upload.
+        None: the plot is saved to td/plots/corner.
     """
     os.makedirs(os.path.join(td, "plots", "corner"), exist_ok=True)
     samples = np.asarray(samples)
 
-    # corner.corner raises outright if any column has exactly zero dynamic range (e.g. a lineout whose
-    # chain never accepted a single proposal during the sampling phase -- see mcmc.py's acceptance-rate
-    # diagnostics for why that can happen). A degenerate/flat posterior is itself useful information to
-    # see on the plot, not a reason to lose the whole run's corner plots, so widen zero-width columns by
-    # a small epsilon instead of leaving range unset.
+    # corner.corner raises on a column with zero range, so widen those by a small epsilon
     mins = samples.min(axis=0)
     maxs = samples.max(axis=0)
     span = maxs - mins

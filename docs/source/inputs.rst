@@ -153,6 +153,8 @@ on how to perform the fit.
 
 - ``include_gains`` is a boolean determining whether to compute the SRS and SBS amplification of the Thomson scattered light. Having ``include_gains`` set to True will require the pump intensity and beam diameter to be specified in the ``other:`` section of the input deck.
 
+- ``gain_cap`` upper limit on the gain exponent when ``include_gains`` is true. Default is 100.
+
 - ``Ipump_14`` is the intensity relevant to computing the SRS and SBS amplification in units of :math:`10^{14}` W/cm\ :sup:`-2`. This is likely the probe beam intensity for most experiments at that is the beam that is overlapped with the scattering volume, but for some experiments it may differ.
 
 - ``beam_diam_um`` is the beam diameter in microns of the beam that pumps SRS and SBS, again this is likely the probe beam diameter. This is used in conjunction with the scattering angle to compute the gain length for the SRS and SBS amplification.

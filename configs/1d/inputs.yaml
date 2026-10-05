@@ -1,57 +1,53 @@
 data:
-  fit_EPWb: true
-  fit_EPWr: true
-  fit_IAW: true
-  load_ele_spec: false
-  load_ion_spec: true
   background:
     slice: 800
     type: pixel
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: true
   lineouts:
-    end: 1500
-    skip: 200
-    start: 2700
+    end: 300
+    skip: 25
+    start: 2400
     type: ps
-  shotnum: 117918
-
+  load_ele_spec: true
+  load_ion_spec: true
+  shotnum: 116773
 machine: gpu
-
 mlflow:
-  experiment: test
-  run: s117918-calibration-test
-
+  experiment: shot_day_10_22_25
+  run: s116773-matte-scaling30_150IRF_Ticap_covar_wgain
 other:
   Ipump_14: 1.58
   beam_diam_um: 100
   calc_sigmas: false
-  include_gains: false
+  include_gains: true
   refit: false
   refit_thresh: 5.0
-
 parameters:
   electron:
     Te:
       active: true
       lb: 0.01
-      ub: 5.0
-      val: 0.7
+      ub: 2.0
+      val: 0.8
     fe:
       active: false
       dim: 1
       nvx: 320
       params:
         m:
-          intens: 6.5
+          intens: 3.0
           lb: 1.9
           matte: true
           ub: 5.0
           val: 2.5
       type: dlm
     ne:
-      active: false
+      active: true
       lb: 0.03
       ub: 2.0
-      val: 0.6
+      val: 0.5
   general:
     Te_gradient:
       active: false
@@ -60,12 +56,12 @@ parameters:
       ub: 10.0
       val: 0.0
     amp1:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: false
+      active: true
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -85,10 +81,10 @@ parameters:
       ub: 1.0
       val: 0.4
     lam:
-      active: false
+      active: true
       lb: 526.0
       ub: 527.0
-      val: 263.25
+      val: 526.5
     ne_gradient:
       active: false
       lb: 0.0
@@ -101,16 +97,15 @@ parameters:
       lb: -20.0
       ub: 20.0
       val: 0.0
-  
   ion-1:
     A:
       active: false
-      val: 63.55
+      val: 83.8
     Ti:
       active: true
       lb: 0.01
       same: false
-      ub: 2.0
+      ub: 0.6
       val: 0.3
     Va:
       active: true
@@ -121,9 +116,8 @@ parameters:
     Z:
       active: true
       lb: 6.0
-      ub: 27.1
-      val: 19.0
+      ub: 36.0
+      val: 26.0
     fract:
       active: false
-      val: 0.58
-  
+      val: 1.0

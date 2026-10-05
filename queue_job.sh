@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -A m4434_g
 #SBATCH -C gpu
-#SBATCH -q shared
-#SBATCH -t 1:00:00
+#SBATCH -q debug
+#SBATCH -t 0:30:00
 #SBATCH -n 1
 #SBATCH -c 32
 #SBATCH --gpus-per-task=1

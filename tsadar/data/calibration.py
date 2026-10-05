@@ -423,8 +423,8 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
                 stddev["spect_stddev_ion"] = 0.0289
                 stddev["spect_stddev_ele"] = 1.364
             else:
-                stddev["spect_stddev_ion"] = 0.0289# 0.0192 #0.0174
-                stddev["spect_stddev_ele"] = 1.091
+                stddev["spect_stddev_ion"] = 0.0240#0.0289 #0.0192 #0.0174
+                stddev["spect_stddev_ele"] = 1.227#1.364 #1.091
 
             #print("used 0.668 nm irf")
             # Sweep speed calculated from 5 Ghz comb (should be updated, date unknown)

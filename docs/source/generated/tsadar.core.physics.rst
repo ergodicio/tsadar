@@ -1,34 +1,18 @@
-tsadar.core.physics
+﻿tsadar.core.physics
 ===================
 
 .. automodule:: tsadar.core.physics
 
    
-   
-   
-
-   
-   
-   
-
-   
-   
-   
-
-   
-   
-   
-
-
-
 .. rubric:: Modules
 
 .. autosummary::
    :toctree:
    :recursive:
 
-   tsadar.core.physics.form_factor
-   tsadar.core.physics.generate_spectra
-   tsadar.core.physics.irf
-   tsadar.core.physics.ratintn
-
+   bremsstrahlung
+   form_factor
+   generate_spectra
+   interpolation
+   ratintn
+   resonance_quadrature

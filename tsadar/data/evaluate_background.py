@@ -130,10 +130,7 @@ def get_lineout_bg(
     if config["data"]["background"]["type"].casefold() not in ["fit", "shot", "pixel", "brem_model"]:
         raise NotImplementedError("Background type must be: 'Fit', 'Shot', 'Pixel', or 'brem_model'")
 
-    # brem_model defers the background to the forward model -- nothing to compute here. Shaped like
-    # elecData/ionData (not just one value per lineout) when that channel is loaded, so it broadcasts
-    # correctly whether or not bg_subtract also happens to be enabled (subtracting all-zero is a no-op
-    # either way); matches the zeros-per-lineout convention used elsewhere for an unloaded channel.
+    # brem_model defers the background to the forward model, so a zero background is returned here
     if config["data"]["background"]["type"].casefold() == "brem_model":
         n_lineouts = len(config["data"]["lineouts"]["val"])
         noiseE = np.zeros((n_lineouts, elecData.shape[1])) if config["data"]["load_ele_spec"] else np.zeros(n_lineouts)
@@ -173,14 +170,10 @@ def get_lineout_bg(
                     return (a * x + b) / (x + c)
 
                 def brem(x, a, c):
-                    # Full bremsstrahlung model, kept for reference (lam in nm, Te in keV, 1.24 = hc in keV*nm):
+                    # Full bremsstrahlung model (lam in nm, Te in keV, 1.24 = hc in keV*nm):
                     # lambda lam, a, c, Z, Te, ne: 10**8*Z*ne**2/Te**0.5/lam**2*np.exp(-1.24/(lam*Te))*a + c
-                    #
-                    # Z, Te, and ne only ever appear multiplied together with the scale a, so curve_fit can't
-                    # separate them -- fitting all five leaves the Jacobian singular and curve_fit never
-                    # converges. They are fixed at the input deck's initial plasma conditions here; only the
-                    # overall scale and offset are actually fit. x is the pixel index (matching the other
-                    # bg_alg's), converted to wavelength via axisyE.
+                    # Z, Te and ne are not separable from the scale a, so they are fixed at the input deck
+                    # values and only a and c are fit. x is the pixel index, converted to wavelength via axisyE.
                     Z = config["parameters"]["ion-1"]["Z"]["val"]
                     Te = config["parameters"]["electron"]["Te"]["val"]
                     ne = config["parameters"]["electron"]["ne"]["val"]

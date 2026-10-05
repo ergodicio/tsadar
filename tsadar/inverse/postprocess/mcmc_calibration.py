@@ -1,16 +1,8 @@
-"""Calibration-uncertainty draws for the MCMC postprocessor: pre-draws a small number of independent
-realizations of the instrument calibration values (gain, spectral IRF widths, dispersion, offset) and
-builds a (config, all_data) pair per realization, so mcmc_postprocess.py can run one MCMC chain per
-realization and pool the results -- see the module docstring in mcmc.py and the plan this implements for
-why calibration values are perturbed this way rather than resampled at MCMC-step granularity.
-
-Deliberately does not touch tsadar/data/calibration.py, tsadar/data/prepare.py, or
-tsadar/data/lineouts.py: get_calibrations is a large, actively-maintained per-shot-number lookup table,
-and every quantity perturbed here is a simple, branch-agnostic post-transform of its *output*
-(axisyE/axisyI, detector_specs, gain) -- threading stochastic perturbation through the lookup table
-itself would multiply bug surface for no benefit, and re-running the I/O-heavy prepare_data/get_lineouts
-per draw would multiply real disk/compute cost for zero physical benefit, since none of that work
-actually depends on the perturbed values.
+"""Calibration-uncertainty draws for the MCMC postprocessor: draws independent realizations of the
+instrument calibration values (gain, spectral IRF widths, dispersion, offset) and builds a
+(config, all_data) pair per realization, so mcmc_postprocess.py can run one chain per realization and
+pool the results. The perturbations are applied to the outputs of the data pipeline rather than by
+re-running it.
 """
 import copy
 from typing import Dict, List, Tuple
@@ -35,12 +27,8 @@ _MIN_IRF_WIDTH = 1e-6
 
 
 def _nominal_dispersion_offset(axis: np.ndarray) -> Tuple[float, float]:
-    """Recovers (dispersion, offset) from a calibrated wavelength axis built as
-    `axisy * dispersion + offset` with `axisy = np.arange(1, N+1)` (see
-    calibration.get_calibrations, which builds axisyE/axisyI exactly this way). Exact and
-    branch-agnostic: works regardless of which of get_calibrations' per-shot-number branches produced
-    the axis, since it only looks at the axis values themselves.
-    """
+    """Recovers (dispersion, offset) from a wavelength axis built as `axisy * dispersion + offset` with
+    `axisy = np.arange(1, N+1)` (see calibration.get_calibrations)."""
     dispersion = float(axis[1] - axis[0])
     offset = float(axis[0] - dispersion)
     return dispersion, offset
@@ -59,43 +47,26 @@ def draw_calibration_realizations(
     config: Dict, all_data: Dict, all_axes: Dict, rng: np.random.Generator
 ) -> List[Tuple[Dict, Dict]]:
     """
-    Returns a list of K (config_k, all_data_k) pairs, K = config["other"]["calibration_uncertainty"]["num_draws"].
-    K is also the number of independent MCMC chains mcmc_postprocess.py will run and pool -- calibration
-    perturbation is one (optional, sigma-gated) source of variation between those chains; starting-point
-    dispersion (config["other"]["mcmc"]["init_dispersion_factor"]) is another, independent one. Chains
-    can differ by either, both, or (with every *_sigma at 0.0 and no dispersion) neither but their own MH
-    random-walk noise -- see mcmc.py's module docstring.
+    Returns a list of K (config_k, all_data_k) pairs, K = config["other"]["calibration_uncertainty"]["num_draws"],
+    one per MCMC chain. When num_draws <= 1, or every *_sigma is 0, the unperturbed (config, all_data) pair
+    is returned (repeated K times) without copying.
 
-    Collapses to exactly [(config, all_data)] -- the identical objects, no copy, no RNG draw -- whenever
-    num_draws <= 1. When num_draws > 1 but every configured *_sigma is 0.0, there is nothing to actually
-    perturb, so the same (config, all_data) pair is repeated num_draws times (again no copy/RNG draw) --
-    K still comes out to num_draws, it just isn't the calibration that varies between those chains. A
-    deck that never configured calibration uncertainty at all (num_draws left at its <=1 default) behaves
-    exactly as before either way.
-
-    Otherwise draws K independent realizations from Normal(nominal, sigma) for each configured quantity
-    and builds K (config_k, all_data_k) pairs:
-      - EPWDispersion'/EPWoffset' -> config_k["other"]["lamrangE"], recomputed from
-        axisyE' = np.arange(1, CCDsize[0]+1) * EPWDispersion' + EPWoffset' -- an exact reproduction of
-        calibration.get_calibrations' own construction (calibration.py:587-589), not an approximation.
-      - IAWDispersion'/IAWoffset' -> config_k["other"]["lamrangI"], analogously.
-      - spect_stddev_ion'/spect_stddev_ele' -> config_k["other"]["detector_specs"]["widIRF"][...],
-        floored at _MIN_IRF_WIDTH to keep the IRF convolution well-defined.
-      - gain' -> config_k["other"]["gain"], with all_data_k's e_data/i_data/noiseE/noiseI/e_amps/i_amps
-        rescaled by (old_gain / new_gain) -- the exact inverse of the division lineouts.get_lineouts
-        already applies (tsadar/data/lineouts.py:147-175), reproducing what re-running prepare_data with
-        that gain would have produced without repeating the (slow) data extraction.
+    Otherwise each configured quantity is drawn from Normal(nominal, sigma):
+      - EPW/IAW dispersion and offset: config_k["other"]["lamrangE"/"lamrangI"] are recomputed from the
+        perturbed wavelength axis.
+      - spect_stddev_ion/spect_stddev_ele: config_k["other"]["detector_specs"]["widIRF"], floored at
+        _MIN_IRF_WIDTH.
+      - gain: config_k["other"]["gain"], with all_data_k's e_data/i_data/noiseE/noiseI/e_amps/i_amps
+        rescaled by old_gain / new_gain.
 
     Args:
         config: the merged input-deck config for the fit being post-processed.
-        all_data: the data dict prepare_data produced for that fit (only e_data/i_data/noiseE/noiseI/
-            e_amps/i_amps are read/rescaled; every other key is passed through unchanged).
-        all_axes: the calibrated axes dict prepare_data produced (epw_y/iaw_y are read to recover the
-            nominal dispersion/offset).
-        rng: a numpy random Generator, so callers control reproducibility via its seed.
+        all_data: the data dict prepare_data produced for that fit.
+        all_axes: the calibrated axes dict prepare_data produced.
+        rng: a numpy random Generator.
 
     Returns:
-        List[Tuple[Dict, Dict]]: length K (or 1 in the collapsed case).
+        List[Tuple[Dict, Dict]] of length K.
     """
     sigmas = _sigmas(config)
     num_draws = int(_calibration_cfg(config).get("num_draws", 1))
@@ -103,9 +74,7 @@ def draw_calibration_realizations(
     if num_draws <= 1:
         return [(config, all_data)]
     if not any(sigma > 0.0 for sigma in sigmas.values()):
-        # Nothing to perturb, but the caller still wants num_draws independent chains (e.g. purely for
-        # dispersed-start / R-hat purposes) -- reuse the same (unperturbed) config/data object num_draws
-        # times; no RNG draw or deepcopy needed since nothing is actually changing between them.
+        # nothing to perturb: reuse the same config/data for every chain
         return [(config, all_data)] * num_draws
 
     nominal_epw_disp, nominal_epw_off = _nominal_dispersion_offset(np.asarray(all_axes["epw_y"]))

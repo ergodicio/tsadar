@@ -41,26 +41,37 @@ samples every lineout's posterior simultaneously rather than looping over them.
 
 The run proceeds in two phases:
 
-1. **Burn-in**, split into ``adapt_every``-sized windows. After each window, the per-lineout proposal
-   step scale is rescaled (Robbins-Monro adaptation) toward the window's observed acceptance rate,
-   targeting ``target_accept``.
-2. **Sampling**, at the step scale burn-in converged to. Every ``thin``-th post-burn-in sample is kept.
+1. **Burn-in.** The per-lineout proposal covariance is adapted on every step with Robust Adaptive
+   Metropolis (RAM, Vihola 2012), which grows the proposal along directions that are accepted more often
+   than ``target_accept`` and shrinks it along directions that are accepted less often. ``adapt_every``
+   only sets the chunk size the progress bar advances in.
+2. **Sampling**, with the proposal frozen at what burn-in converged to. Every ``thin``-th post-burn-in
+   sample is kept.
 
-The initial step scale can optionally be seeded from a Laplace/Hessian approximation at the best fit
-(``use_laplace_seed: true``), which tends to reach a well-mixing step scale faster than starting from a
-flat guess -- see ``init_step_scale`` and ``use_laplace_seed`` in :doc:`defaults`.
+Proposals are jointly correlated across a lineout's active parameters. With ``use_laplace_seed: true``
+the initial proposal covariance is taken from the full Hessian of the likelihood at the best fit, which
+lets the chain move along correlated or degenerate directions from the start. Where that Hessian is not
+positive-definite (a weakly identified parameter can have negative curvature at the reported best fit)
+its eigenvalues are clipped. Otherwise the proposal starts from the flat ``init_step_scale``.
 
-Robbins-Monro adaptation only ever rescales *all* of a lineout's active parameters by the same factor,
-since there is only one joint accept/reject decision per lineout per step -- it cannot correct a lineout
-where the *relative* balance between parameters is wrong (e.g. ``Te``'s proposal step is too large
-relative to ``ne``'s for that lineout), which can happen whenever the Laplace seed's per-parameter
-balance is itself off. ``adapt_shape`` (on by default) addresses this separately: each burn-in window
-also re-estimates the relative step-scale proportions across a lineout's active parameters from the
-running sample variance seen so far, leaving the RM-controlled overall magnitude untouched. A histogram
-of per-lineout acceptance rates alone can't distinguish "step size genuinely mistuned" from "relative
-balance between parameters is wrong" -- both look like poor mixing -- but if turning ``adapt_shape`` on
-narrows or removes a near-zero acceptance mode that persists even with ample ``burn_in``, the relative
-balance was the culprit.
+A parameter with strongly negative curvature gets a very wide proposal, and because a joint step has a
+single accept/reject decision, that one parameter can dominate the acceptance of every step. With
+``block_gibbs: true`` (the default) such parameters are detected from the Hessian and sampled in their
+own block, with their own accept/reject decision and their own adapted proposal, separately from the
+remaining parameters.
+
+The derivations, and the reasoning behind these choices, are in the math document linked from
+:doc:`math`.
+
+Likelihood
+~~~~~~~~~~~
+
+The chains sample the likelihood defined by ``optimizer.loss_method``. ``covar`` is recommended for this
+postprocessor even when the fit itself used ``l2``: the ``l2`` likelihood takes its per-pixel variance
+from the data, which is unreliable wherever the data are close to zero, while ``covar`` builds a
+correlated detector-noise covariance from the model. Set it in the overrides deck (see below). ``covar``
+requires ``data.background.bg_subtract: false`` so that the noise model sees the total signal; this is
+enforced with a warning.
 
 Multiple chains
 ~~~~~~~~~~~~~~~~
@@ -88,11 +99,29 @@ uncertainty and between-chain calibration uncertainty. With dispersion on, chain
 from different starting points, which is also the more standard way of guarding against R-hat
 under-detecting non-convergence when chains happen to start from the same point.
 
-Whenever ``num_draws > 1``, the postprocessor also reports a per-lineout Gelman-Rubin R-hat (the
-worst-mixing active parameter's R-hat, across all chains) alongside the acceptance-rate diagnostic --
-values well above ~1.01-1.1 mean the chains have not mixed to the same distribution, and results for
-that lineout should not be trusted without investigation (e.g. more steps, or a larger
-``init_dispersion_factor``).
+Convergence checks
+~~~~~~~~~~~~~~~~~~~
+
+Three checks decide which chains contribute to a lineout's reported mean, standard deviation and
+covariance. All use the rank-normalized, folded, split R-hat of Vehtari et al. (2021) where an R-hat is
+needed.
+
+- **Within-chain.** Each chain's first and second halves are compared. A chain whose split R-hat for a
+  parameter exceeds ``within_chain_r_hat_threshold`` has not reached a stationary distribution.
+- **Cross-chain outliers** (``num_draws > 1``). A chain whose posterior mean for a parameter is more than
+  ``chain_outlier_mad_scale`` robust standard deviations from the median of all chains has settled
+  somewhere different from the rest.
+- **Drop budget.** Chains flagged by either check are excluded from the summary statistics. If more than
+  ``max_dropped_chain_fraction`` of the chains would be excluded, the lineout is marked unreliable and its
+  summary is reported as NaN.
+
+The checks are made per parameter. A parameter that is weakly identified, so that most chains disagree on
+it, is not allowed to exclude chains on behalf of the other parameters; its own mean and standard
+deviation are still reported, and it is listed in ``mcmc_diagnostics["param_unreliable"]`` and in the
+``param_unreliable.<param>_<species>`` metrics. The raw samples of every chain are always saved.
+
+With ``num_draws > 1`` the diagnostics plot also shows the per-lineout cross-chain R-hat of the
+worst-mixing parameter, computed before any chains are excluded.
 
 Running it
 -----------
@@ -108,6 +137,16 @@ that has already finished (so its ``fitted_weights.eqx`` and input decks are ava
    # against a run already tracked in mlflow, by run id or run URL
    python run_mcmc_postprocessor.py --run <run_id_or_url>
 
+A small YAML deck of settings to change (same nesting as the input deck) can be merged on top of the
+fit's saved config with ``--overrides``; ``configs/postprocessor/postprocessor_stub.yaml`` is an example.
+Only override settings that affect postprocessing, not ones the saved weights depend on (lineouts, batch
+size, which parameters are active). ``queue_mcmc_postprocessor.py`` takes the same arguments and submits
+the run as a Slurm job.
+
+.. code-block:: bash
+
+   python run_mcmc_postprocessor.py --run <run_id_or_url> --overrides configs/postprocessor/postprocessor_stub.yaml
+
 Either form reconstructs the original fit's state (config, data, best-fit weights) without re-running
 the optimizer, then runs the sampler and logs its results to a **new** mlflow run -- the source run is
 only ever read, never modified. The new run is tagged with ``source_run_id`` when starting from
@@ -117,11 +156,9 @@ Configuration
 --------------
 
 All configuration lives under ``other.mcmc`` and ``other.calibration_uncertainty`` in the input deck --
-see :doc:`defaults` for the full field-by-field reference. Every field is optional and defaults to a
-small, fast smoke-test configuration (``configs/1d/defaults.yaml`` ships ``num_steps: 80``,
-``burn_in: 30``); for production uncertainty estimates, raise ``num_steps``/``burn_in`` substantially
-(the module's own internal defaults, used whenever ``other.mcmc`` is omitted entirely, are
-``num_steps: 8000``, ``burn_in: 3000``).
+see :doc:`defaults` for the full field-by-field reference. Every field is optional. A field that is
+omitted takes the sampler's built-in default (``num_steps: 8000``, ``burn_in: 3000``), and a warning
+lists every field that was defaulted.
 
 Outputs
 --------
@@ -145,10 +182,20 @@ few MCMC-specific ones, all logged to its own mlflow run:
        per lineout. Only written when ``save_samples`` is true.
    * - ``plots/mcmc_acceptance_rate.png``
      - Histogram of per-lineout sampling-phase acceptance rates, to check burn-in adaptation actually
-       converged near ``target_accept`` rather than pinning at 0 or 1.
+       converged near ``target_accept`` rather than pinning at 0 or 1. With several chains, further
+       panels show the cross-chain R-hat, the number of chains excluded per lineout, and the number of
+       lineouts marked unreliable.
+   * - ``plots/corner/corner_lineout_<value>.png``
+     - Corner plots of the posterior for an evenly spaced subset of lineouts, showing the chains the
+       summary statistics were computed from, colored by chain.
+   * - ``draw_checkpoints/draw_<k>.pkl``
+     - Each chain's raw samples and diagnostics, uploaded as soon as that chain finishes.
+   * - ``overrides.yaml``
+     - The overrides deck the run was launched with, if any.
    * - ``plots/mcmc_sigma_comparison_<param>_<species>.png``
      - Per parameter, the MCMC sigma as a function of lineout; also overlaid against the Laplace/Hessian
        sigma when ``compare_to_laplace`` succeeded.
 
 The returned ``final_params`` (posterior mean per parameter) also carries an ``mcmc_diagnostics`` entry
-with the per-lineout acceptance rate and the number of calibration draws actually pooled.
+with the per-lineout acceptance rate, the number of chains pooled, the cross-chain R-hat, the number of
+chains excluded per lineout, and the per-lineout and per-parameter reliability flags.

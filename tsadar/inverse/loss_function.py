@@ -158,10 +158,8 @@ class LossFunction:
 
         if cfg["optimizer"]["loss_method"] == "covar":
                 self.sig_px = 1.0 #this is device specific and can be left hardcoded
-                # TODO: measured dark-frame (frame 1) std for shot 116773 is ~65-73 ADU (EPW) / ~64 ADU
-                # (IAW), i.e. well above this hardcoded value -- pending confirmation of the right way to
-                # map that measurement onto sig_rn (accounting for frame0-frame1 differencing), see
-                # NOISE_MODEL_SESSION_HANDOFF.md Phase 0/2.
+                # TODO: sig_rn should be measured per detector; the dark-frame std for shot 116773 is
+                # ~65-73 ADU (EPW) / ~64 ADU (IAW)
                 self.sig_rn = 17.0 # this is from the background of the camera and should be derived from the data image
                 self.n = 2 * cfg["data"]["dpixel"] + 1
                 self.G = 108
@@ -196,54 +194,25 @@ class LossFunction:
         self._loss_ = filter_jit(self.__loss__)
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
         ## this will be replaced with jacobian params jacobian inverse
-        # filter_hessian differentiates wrt the first positional arg (diff_params) only, leaving
-        # static_params (every fixed/non-fitted array, e.g. the electron distribution function's
-        # interpolation table) out of the Hessian entirely -- see h_loss_wrt_params's docstring.
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
         self._h_func_per_lineout_ = filter_jit(self._h_loss_wrt_params_per_lineout_impl)
         self.array_loss = filter_jit(self.post_loss)
 
     def _init_covar_pixel_indices(self, cfg, dummy_batch):
-        """Precomputes, once, the fixed pixel-index window (and in-range submask within it)
-        calculate_covariance_matrix needs for each fit-range feature (IAW / EPW-blue / EPW-red), so the
-        covar loss method's Cholesky factorization operates on a small window instead of the full raw
-        pixel count (e.g. ~150-200 (+ padding) vs 1024 -- confirmed on real shot 116773 data to be the
-        dominant cost of loss_method="covar" being ~3x slower per call than l2, see
-        NOISE_MODEL_SESSION_HANDOFF.md).
+        """Precomputes the pixel window used by the covar loss for each fit-range feature (IAW, EPW-blue,
+        EPW-red), so the covariance matrix is built and factorized on that window instead of the full
+        detector. The window spans the fit range padded by the half-width of the CCD spread function
+        self.g, which keeps the result identical to the full-array calculation.
 
-        The window is padded by the CCD spread function's own half-width (self.g's radius) on each side
-        of the true in-range span, and includes the interior gap for IAW's non-contiguous mask ([iaw_min,
-        iaw_cf_min] U [iaw_cf_max, iaw_max]) rather than trying to window each side separately. This
-        matters for correctness, not just speed: the PSF convolution the old full-1024-pixel
-        calculate_covariance_matrix did naturally correlated each in-range pixel with its true neighbors,
-        including ones just outside the fit-range boundary -- confirmed directly that gathering to ONLY
-        the true in-range pixels (no padding) shifted the resulting NLL by ~0.6% (dropping that
-        cross-boundary correlation) at lineout 1825's real fitted point. Since self.g has zero support
-        beyond its own half-width, padding by exactly that half-width reproduces the full-array result
-        exactly (up to floating point) while still shrinking the matrix drastically.
-
-        Safe to compute once (not per call) because the experimental wavelength axis ts_diag returns
-        (lamAxisE/lamAxisI) is a property of the DATA's own fixed calibration (computed in
-        data.prepare.prepare_data, before any fitting), not of the weights being evaluated -- confirmed
-        directly: lamAxisE is bit-identical across widely different values of the "lam" parameter. The
-        in-range mask therefore never changes across MCMC steps, optimizer iterations, or lineouts within
-        a batch (the axis has no per-lineout dependence either). The one case this does NOT cover is
-        independent across calibration-uncertainty draws with a dispersed axis (EPWDispersion_sigma etc.)
-        -- each such draw gets its own LossFunction instance (see
-        mcmc_postprocess._build_loss_fn_for_draw), so it recomputes its own indices here correctly; this
-        method must never be called once and reused across LossFunction instances.
+        The wavelength axes depend only on the calibration, so the windows are computed once per
+        LossFunction instance.
 
         Args:
-            cfg: this LossFunction's own config (same object as self.cfg).
-            dummy_batch: batch used for __init__'s other setup (i_norm/e_norm etc.) -- any batch built
-                against this run's data works equally well here, since the axis doesn't depend on which
-                lineouts happen to be in it.
+            cfg: configuration dictionary.
+            dummy_batch: any batch built from this run's data.
 
-        Sets, per feature, a (window_idx, in_range_submask) pair: self.covar_blue_idx/covar_blue_mask,
-        self.covar_red_idx/covar_red_mask, self.covar_iaw_idx/covar_iaw_mask. window_idx are the (padded)
-        pixel indices to gather; in_range_submask (same length as window_idx) is True only at the
-        positions that are genuinely in the fit range, used to zero the residual there (matching the old
-        nan_to_num(masked, 0) behavior) without shrinking the matrix further.
+        Sets self.covar_{blue,red,iaw}_idx (the pixel indices of each window) and
+        self.covar_{blue,red,iaw}_mask (True at the window positions that are inside the fit range).
         """
         from ..core.modules.ts_params import ThomsonParams
 
@@ -443,24 +412,13 @@ class LossFunction:
 
     def h_loss_wrt_params(self, diff_params, static_params, batch):
         """
-        Computes the Hessian of the loss with respect to only the active fitted parameters (diff_params),
-        using the JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__. Used by
-        postprocessing to derive parameter uncertainties from the curvature of the loss (see
-        postprocess.laplace.get_sigmas).
-
-        Deliberately differentiates wrt diff_params only, not the full weights pytree (mirroring
-        postprocess.mcmc._seed_step_scale_from_laplace's identical restriction): hessian-ing the full
-        parameter tree pulls in every fixed array the model carries, including large distribution-function
-        lookup tables that are never actually being fit, and has been observed to attempt a >150GB
-        allocation on an ordinary fit. Callers should partition their ThomsonParams via
-        eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params)) to obtain diff_params/
-        static_params before calling this.
+        Computes the Hessian of the loss with respect to the active fitted parameters (diff_params) only,
+        using the JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__.
 
         Args:
-            diff_params: the active/fitted leaves to differentiate wrt (typically the best-fit weights'
-                diff partition), evaluated at their current values.
-            static_params: the complementary (non-fitted) partition of the same ThomsonParams, recombined
-                with diff_params via eqx.combine before evaluating the loss.
+            diff_params: the active leaves to differentiate with respect to, from
+                eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params)).
+            static_params: the complementary partition of the same ThomsonParams.
             batch (Dict): batch of data to evaluate the loss against.
 
         Returns:
@@ -471,47 +429,19 @@ class LossFunction:
 
     def h_loss_wrt_params_per_lineout(self, diff_params, static_params, batch):
         """
-        Low-memory alternative to h_loss_wrt_params, for callers (postprocess.laplace.get_sigmas) that
-        only ever need each lineout's own (active-parameter x active-parameter) Hessian block, never the
-        cross-lineout terms.
-
-        h_loss_wrt_params's full forward-over-reverse Hessian is dense in the batch axis: each
-        (leaf_a, leaf_b) entry comes back shaped (batch_size, batch_size), even though every lineout in a
-        fit-batch is modeled independently of every other (different lineouts share no parameters and
-        don't interact in the forward model), so every off-batch-diagonal entry is structurally zero --
-        confirmed directly against eqx.filter_hessian ground truth by this module's own test suite (see
-        tests/test_inverse/test_laplace.py). Computing and discarding that dense (batch_size, batch_size)
-        block per parameter pair is exactly what has been observed to attempt an 18+GiB allocation on a
-        real production shot's compare_to_laplace=True path (recalculate_with_chosen_weights): memory
-        there scales as O((n_active * batch_size)^2), when only O(n_active^2 * batch_size) is ever used.
-
-        Derivation: let rows be diff_params' active leaves stacked into one (n_active, batch_size) array
-        and L(rows) = neg_log_likelihood summed over the whole batch. g = grad(L) is itself (n_active,
-        batch_size) (reverse-mode gives every leaf's gradient in one backward pass). For a fixed column
-        b, jvp(g, tangent=e_b) -- e_b being 1 on row b, 0 elsewhere, i.e. a tangent of 1 in every lineout's
-        b-th leaf simultaneously -- gives, at [a, i]: sum_j d^2L/d(leaf_a[i]) d(leaf_b[j]). Since only j=i
-        survives (lineout independence), that sum equals exactly H_{a,b}[i, i], the one entry per lineout
-        that get_sigmas actually uses -- for every row a at once, from a single extra forward-mode sweep.
-        So only n_active jvp calls (one per column b) are needed, each producing the full (n_active,
-        batch_size) per-lineout Hessian column in one shot, rather than n_active^2 or a single dense
-        n_active*batch_size-dimensional sweep.
-
-        Leaves are looped over via jax.lax.map (compiled once regardless of n_active) rather than a
-        Python loop, mirroring postprocess.mcmc._seed_step_scale_from_laplace's identical reasoning: an
-        unrolled Python for loop under this function's own eqx.filter_jit would retrace/recompile the
-        full per-column differentiation graph once per active leaf.
+        Per-lineout Hessian of the negative log-likelihood with respect to diff_params: for each lineout,
+        the (n_active x n_active) block of second derivatives. Cross-lineout terms, which are zero, are
+        never formed, so memory scales as n_active^2 * batch_size. Computed with one forward-over-reverse
+        sweep per active leaf (see docs/tsadar_math.tex).
 
         Args:
-            diff_params: the active leaves to differentiate wrt, as passed to h_loss_wrt_params. Every
-                leaf must share one (batch_size,) shape/dtype (true of every currently-supported fit
-                parameter), mirroring _seed_step_scale_from_laplace's identical requirement.
+            diff_params: the active leaves to differentiate with respect to. Every leaf must have the
+                same (batch_size,) shape and dtype.
             static_params: as in h_loss_wrt_params.
             batch (Dict): batch of data to evaluate the loss against.
 
         Returns:
-            The same nested diff_params-shaped-pytree-of-pytrees structure h_loss_wrt_params returns,
-            except each leaf/"block" has shape (batch_size,) -- that lineout's own H_{a,b}[i, i] entry --
-            instead of the dense, mostly-structurally-zero (batch_size, batch_size).
+            The same nested structure h_loss_wrt_params returns, with each block of shape (batch_size,).
         """
         return self._h_func_per_lineout_(diff_params, static_params, batch)
 
@@ -562,28 +492,17 @@ class LossFunction:
 
     def neg_log_likelihood(self, weights, batch: Dict, per_lineout: bool = False):
         """
-        -2*log-likelihood under a Poisson-like noise model (Var ~= |data|) for 1D data, matching
-        the convention postprocess.get_sigmas' Hessian-based uncertainty already uses; for angular
-        (ARTS2D) data, delegates to calc_loss/_angular_data_objective instead, whose noise model
-        (_angular_variance) is purpose-built for that detector rather than the generic |data|
-        approximation. Factored out of _loss_for_hess_fn_ so the Hessian/Laplace uncertainty and
-        the MCMC sampler (inverse/postprocess/mcmc.py) derive uncertainty from one shared,
-        consistent likelihood.
+        -2*log-likelihood shared by the Hessian/Laplace uncertainty and the MCMC sampler. For 1D data this
+        is the configured loss functional summed (not averaged) over the fit range, with per-pixel
+        variance |data| for the l2 method or the full noise covariance for the covar method. Angular data
+        delegates to calc_loss.
 
         Args:
-            weights: full ThomsonParams (or diff+static already combined) to evaluate at.
+            weights: full ThomsonParams to evaluate at.
             batch (Dict): batch of data, as built by loops.build_batch.
-            per_lineout: if True, sums only over the wavelength/pixel axis and returns shape
-                (batch_size,) -- one value per lineout, needed for independent per-lineout MH
-                accept/reject. If False (default), reduces to a single scalar for the whole batch, as
-                _loss_for_hess_fn_ has always returned. For loss_method="covar", per_lineout=True
-                returns the raw (non-dof-normalized) per-lineout quadratic form -- see
-                _feature_error_'s per_lineout docstring. Not supported for angular data, whose
-                noise-whitened objective (_angular_data_objective) is not separable per lineout.
-
-        Note: uses jnp.nansum rather than a plain sum, since calc_ei_error masks out-of-fit-range
-        points to nan (see calc_ei_error/_feature_error_) -- summing those directly would propagate nan
-        into every lineout's value.
+            per_lineout: if True, returns one value per lineout, shape (batch_size,). If False (default),
+                returns a single scalar for the batch, which for the covar method is normalized by the
+                degrees of freedom. Not supported for angular data.
         """
         if self.is_angular:
             if per_lineout:
@@ -612,21 +531,9 @@ class LossFunction:
     def _loss_for_hess_fn_(self, diff_params, static_params, batch):
         weights = eqx.combine(static_params, diff_params)
         if self.is_angular:
-            # angular's neg_log_likelihood(per_lineout=False) delegates to calc_loss/_angular_data_objective
-            # directly (a purpose-built, already-unnormalized-in-the-relevant-sense objective) rather than
-            # calc_ei_error's covar branch, so it isn't subject to the dof-normalization bug below and
-            # per_lineout=True isn't supported for it anyway -- see neg_log_likelihood's docstring.
             return self.neg_log_likelihood(weights, batch, per_lineout=False)
-        # Use per_lineout=True's raw (non-dof-normalized) per-lineout value, summed, rather than
-        # per_lineout=False directly: for loss_method="covar", per_lineout=False divides by
-        # (finite_pixels - free_params) for the point-estimate loss's reduced-chi2-style scale (see
-        # _feature_error_'s docstring) -- appropriate for that use, but WRONG for a Hessian, which needs
-        # the curvature of the actual -2*log-likelihood MCMC samples against (_log_posterior already uses
-        # per_lineout=True for exactly this reason). Differentiating the dof-normalized scalar instead
-        # silently divided this Hessian by norm (confirmed on real data: a ~350-1400x systematic
-        # discrepancy against a finite-difference cross-check), inflating the Laplace-seeded MCMC proposal
-        # step scale by ~sqrt(norm) and throwing chains into unphysical starting points. No-op for l2 and
-        # every other method, where per_lineout=False was already an unnormalized sum equal to this.
+        # the Hessian needs the unnormalized -2*log-likelihood; the per_lineout=False scalar is
+        # normalized by the degrees of freedom for the covar method
         return jnp.sum(self.neg_log_likelihood(weights, batch, per_lineout=True))
 
     def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean, per_lineout=False):
@@ -714,40 +621,22 @@ class LossFunction:
         """
         Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
         functional, masks to the feature's fit range, and reduces either via reduce_func or, for
-        loss_method=="covar", via the covariance-weighted quadratic form. covar_source is the array
-        calculate_covariance_matrix is built from -- ThryI for the ion branch, ThryE for both electron
-        branches, i.e. always the forward-model prediction rather than the raw (noisy) data, to avoid
-        the Neyman/Pearson bias and the near-zero-data variance blowup (see
-        NOISE_MODEL_SESSION_HANDOFF.md Phase 1).
+        loss_method=="covar", via the covariance-weighted quadratic form residual^T K^-1 residual.
 
-        per_lineout (loss_method=="covar" only): return one quadratic-form value per lineout (shape
-            (num_lineouts,)) -- the raw residual^T @ K^-1 @ residual with no degrees-of-freedom
-            normalization, needed for MCMC's independent per-lineout accept/reject. This intentionally
-            differs from the per_lineout=False path below (used by the point-estimate loss), which
-            divides by (finite pixels - free params) to behave like a reduced-chi2 metric: the same
-            split already exists between calc_loss's mean-like point-estimate reduction and
-            neg_log_likelihood's sum-like actual -2*log-likelihood for the other loss methods (see
-            neg_log_likelihood's docstring). Ignored for non-covar methods, where reduce_func already
-            encodes the desired reduction.
-
-        covar_idx/covar_submask (loss_method=="covar" only): precomputed fixed (padded) pixel-index
-            window and in-range submask within it for this feature (one of self.covar_blue_idx/
-            covar_red_idx/covar_iaw_idx and the matching _mask, set once in _init_covar_pixel_indices) --
-            gathering data/thry/covar_source down to just this window before building the covariance
-            matrix keeps the Cholesky factorization to a small window (~150-200 pixels + padding) instead
-            of the full raw pixel count (e.g. 1024), which profiling confirmed is the dominant cost of
-            this loss method. The window is padded by the PSF kernel's half-width beyond the true in-range
-            span so the convolution still sees each in-range pixel's true neighbors (confirmed: without
-            this padding, dropping the cross-boundary correlation shifted the NLL by ~0.6% on real data);
-            covar_submask then zeroes the residual at the padding-only positions, exactly like the old
-            nan_to_num(masked, 0) behavior, so they still contribute to K but not to the quadratic form.
-            Both not optional in practice whenever loss_method=="covar" (calc_ei_error always passes them
-            there); kept as parameters rather than reading self.covar_* directly so each of the three call
-            sites (IAW/EPW-blue/EPW-red) stays explicit about which window it means.
+        Args:
+            data: measured spectrum, (num_lineouts, num_pixels).
+            thry: modeled spectrum, same shape.
+            uncert: per-pixel uncertainty used by the non-covar loss functionals.
+            mask: boolean fit-range mask.
+            covar_source: array the noise covariance is built from (the model prediction).
+            reduce_func: reduction applied for the non-covar methods.
+            per_lineout: covar only. If True, returns the quadratic form per lineout with no normalization;
+                if False, the sum over lineouts divided by (in-range pixels - free parameters).
+            covar_idx, covar_submask: covar only. Pixel window and in-range mask for this feature, from
+                _init_covar_pixel_indices.
 
         Returns:
-            tuple: (error, sqdev) where sqdev is nan_to_num(masked _error_), matching what calc_ei_error
-            stored for each branch before this was factored out.
+            tuple: (error, sqdev) where sqdev is the residual array with out-of-range points set to zero.
         """
         if self.cfg["optimizer"]["loss_method"] == "covar":
             data_g = jnp.take(data, covar_idx, axis=-1)
@@ -764,9 +653,7 @@ class LossFunction:
             if per_lineout:
                 error = quad
             else:
-                # covar_submask's true count is the per-lineout in-range pixel count; multiply by the
-                # batch size (data.shape[0]) to match finite_count's old semantics (total finite entries
-                # summed across the whole batch, not just one lineout).
+                # in-range pixels summed over the whole batch
                 norm = jnp.sum(covar_submask) * data.shape[0] - self.num_free_params
                 error = jnp.sum(quad) / norm
             # scatter back into a full-pixel-size array for callers (e.g. plotting/diagnostics) that
@@ -1582,47 +1469,20 @@ class LossFunction:
     
     def calculate_covariance_matrix(self, data):
         """
-        Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following the
-        method described in George's RSI. For each lineout, the shot-noise standard deviation is estimated
-        from `data` (self.G/self.F2 are device-specific gain/noise-factor constants set in __init__ when
-        loss_method=="covar"), placed on the diagonal, convolved with the CCD spread function self.g, and a
-        constant readout-noise term (self.n * self.sig_rn**2) is added on the diagonal.
+        Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following Swadling
+        et al., Rev. Sci. Instrum. 93, 043503 (2022). The shot-noise variance (signal times the gain self.G
+        and excess-noise factor self.F2) is placed on the diagonal and convolved with the CCD spread
+        function self.g, and a readout-noise term (self.n * self.sig_rn**2) is added on the diagonal.
 
         Args:
-            data: array of shape (num_lineouts, num_pixels) used to estimate the shot noise. Callers now
-                pass the forward-model prediction (ThryI/ThryE), not the raw (noisy) data -- see
-                NOISE_MODEL_SESSION_HANDOFF.md Phase 1. This avoids the Neyman/Pearson variance bias and
-                the near-zero/negative-data sqrt() blowup that raw background-subtracted data can produce.
-                Floored to >=1e-10 (not 0) before the sqrt below: even with a model prediction, tiny
-                negative excursions (observed directly on real shot 116773 data: ~15% of a lineout's
-                pixels at O(1e-13), floating-point noise around a near-zero continuum, not a physically
-                meaningful negative signal) would otherwise NaN the sqrt and, via the convolution below,
-                the entire lineout's covariance matrix -- confirmed to actually happen on real data, not
-                just a theoretical edge case. A floor of exactly 0 fixes the *value* but not the
-                *gradient* -- d/dx sqrt(x) diverges as x->0+, so any pixel sitting at the floor still
-                NaNs the gradient (confirmed: L-BFGS-B given the gradient makes zero progress from a
-                real fitted point where this floor is active). 1e-10 keeps sqrt's derivative finite
-                there while being physically negligible, matching the epsilon already used for the l2
-                method's uncert = |data| + 1e-10.
+            data: array of shape (num_lineouts, num_pixels) the shot noise is estimated from. Callers pass
+                the model prediction. Values are floored at 1e-10 to keep the square root and its gradient
+                finite.
 
         Returns:
             k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
             each lineout.
         """
-        # PERF TODO: this builds/factorizes a (num_pixels x num_pixels) matrix using the FULL pixel
-        # array (e.g. 1024), not just the ~150-200 pixels actually inside the fit range (mask, applied
-        # by the caller in _feature_error_, only zeroes the off-range *residual* -- it never shrinks K
-        # itself) -- confirmed directly to be a real, not just theoretical, cost: profiling on real shot
-        # 116773 data showed this Cholesky-dominated path running ~3x slower per gradient call than the
-        # l2 method, and a full production MCMC run only reached ~7 steps/s on GPU vs. the ~50 steps/s
-        # previously seen (though that gap likely also includes lost multi-GPU parallelism across
-        # calibration draws -- no such sharding exists anywhere in this codebase currently; unconfirmed
-        # whether/how it existed for earlier runs). A real fix needs a NEW static-masking algorithm, not
-        # a quick slice here: the in-range pixel mask depends on lamAxisE/lamAxisI, which depend on the
-        # actively-fitted weights (e.g. "lam"), so its size isn't known until trace time -- JAX requires
-        # static shapes, so shrinking K needs precomputed indices fixed ahead of the jit trace (e.g. from
-        # a one-time nominal-parameter forward pass), and that precomputation has to handle the mask
-        # potentially differing PER LINEOUT within a batch, not just per run/config -- not yet designed.
         sig_s = jnp.sqrt(jnp.clip(data, 1e-10, None) * self.G * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])

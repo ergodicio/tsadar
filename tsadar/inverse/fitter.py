@@ -110,20 +110,9 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     if config["optimizer"]["loss_method"] == "covar" and config["data"]["background"]["bg_subtract"]:
         warnings.warn(
-            "loss_method=='covar' requires data.background.bg_subtract=false. The covar noise model's "
-            "shot-noise term (calculate_covariance_matrix) is derived from the TOTAL photon count at each "
-            "pixel, not a background-subtracted residual -- with bg_subtract=true, the model floor in "
-            "signal-free wing regions collapses toward just the read-noise floor, and the resulting "
-            "variance blowup lets fits favor whichever candidate happens to inflate the local variance "
-            "rather than the candidate that actually matches the data (confirmed directly: flipping "
-            "bg_subtract to false reduced a trapped chain's cross-draw spread on a real lineout's Va "
-            "parameter from 25.4 to 4.4, all other settings unchanged -- see "
-            "NOISE_MODEL_SESSION_HANDOFF.md). Forcing data.background.bg_subtract to false (build_batch "
-            "adds the background back into both the data and the model instead, via "
-            "batch['noise_e']/['noise_i']) -- this must happen here, before load_data_for_fitting/"
-            "build_batch run, since build_batch bakes bg_subtract into the data/noise split "
-            "irreversibly and some callers (e.g. postprocess_runner) build that batch before a "
-            "LossFunction ever exists to catch this too late."
+            "loss_method=='covar' requires data.background.bg_subtract=false: the shot-noise term of the "
+            "noise covariance is computed from the total signal at each pixel, not a background-subtracted "
+            "one. Setting data.background.bg_subtract to false."
         )
         config["data"]["background"]["bg_subtract"] = False
 

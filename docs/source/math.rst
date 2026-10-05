@@ -1,6 +1,18 @@
 Implementation of Thomson Scattering
 -------------------------------------
 
+.. note::
+
+   **Work in progress.** A full write-up of the theory and of the numerical choices TSADAR makes, from the
+   kinetic description of the plasma through the forward model, the fit objective, and the Laplace and
+   MCMC uncertainty estimates, is in :doc:`math_full`. It is still being written and reviewed. The
+   sections below summarize the conventions most often needed when reading the code.
+
+.. toctree::
+   :maxdepth: 1
+
+   math_full
+
 Electron susceptibility convention
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -24,6 +24,12 @@
 \begin{document}
 \maketitle
 
+\begin{center}
+\fbox{\parbox{0.9\textwidth}{\textbf{Work in progress.} This document is under active
+development. Sections may be incomplete or lag behind the code, and it has not yet been
+fully reviewed; where the two disagree, the code is authoritative.}}
+\end{center}
+
 \begin{abstract}
 \noindent
 Collective Thomson scattering measures the spectrum of light scattered by electron-density
@@ -1175,8 +1181,15 @@ pump intensity $I_{\rm pump}$, beam diameter $d$, and scattering angle $\theta$:
   F_\chi=\frac{\chi_e(1+\chi_i)}{1+\chi_e+\chi_i}, \qquad
   G_D=\frac{k^2}{4k_s}\,j_0\,(-\operatorname{Im}F_\chi), \qquad \bar G_D=\langle G_D\,L_{\rm int}\rangle,
 \end{equation}
-and the spectrum is amplified by $\exp(\bar G_D)$. This is a secondary, optional feature
-layered on top of the base $S(k,\omega)$, not part of the core spectral-density calculation.
+and the spectrum is amplified by $\exp[\min(\bar G_D,G_{\max})]$. The cap $G_{\max}$
+(\code{config["other"]["gain\_cap"]}, default $100$) is needed for two reasons. The linear
+gain model is not valid for large gains in the first place, and where
+$1+\chi_e+\chi_i\to0$ at a single grid point $\bar G_D$ can become very large. This has
+been seen at the ion-acoustic resonance, which the EPW wavelength grid under-resolves and
+which lies outside the EPW fit range. Once $\bar G_D\gtrsim709$ the exponential overflows
+in double precision, and the instrument convolution that follows turns the whole lineout
+into NaN. This is a secondary, optional feature layered on top of the base $S(k,\omega)$,
+not part of the core spectral-density calculation.
 
 %======================================================================
 \section{From a theoretical spectrum to a simulated detector image}\label{sec:downstream}
@@ -1459,35 +1472,90 @@ reduced to a scalar per feature, by default a masked mean. When
 \begin{equation}
   \chi^2 = \frac{\mathbf e^{\!\top}K^{-1}\mathbf e}{N_{\rm pts}-N_{\rm free}},
 \end{equation}
-with $\mathbf e=d-t$ (masked to the fit window), and $K^{-1}\mathbf e$ solved via
-\code{jnp.linalg.solve} rather than an explicit matrix inverse. Both the numerator and
+with $\mathbf e=d-t$ (masked to the fit window), and $K^{-1}\mathbf e$ obtained from a
+Cholesky factorization of $K$ rather than an explicit matrix inverse. Both the numerator and
 $N_{\rm free}$ are pooled over the whole batch rather than computed per lineout: $\mathbf
 e^{\!\top}K^{-1}\mathbf e$ is summed over every lineout in the batch, and $N_{\rm free}$ is
 the number of actively fit parameters \emph{times the batch size}, so $\chi^2$ is a single
-batch-wide statistic, not one value per lineout.
+batch-wide statistic, not one value per lineout. This normalized form is what the
+point-estimate optimizer minimizes. The uncertainty routines of \S\ref{sec:uq} use the
+unnormalized quadratic form of each lineout instead (\S\ref{sec:uq-likelihood}).
 
-\subsection{Noise covariance matrix}
+\subsection{Noise covariance matrix}\label{sec:covar}
 
 Treating every pixel's noise as independent (an implicit assumption of the l1/l2/poisson
 functionals above) is only correct if the detector's point-spread function is a delta
 function, which it is not: real CCD counting statistics are correlated between neighboring
 pixels once convolved with the sensor's own PSF. Following the method of Swadling
-\textit{et al.} \cite{swadling2022} (``George's RSI reference,'' as the code's own comment
-calls it), \code{calculate\_covariance\_matrix} builds a detector
+\textit{et al.} \cite{swadling2022}, \code{calculate\_covariance\_matrix} builds a detector
 noise-covariance matrix from a shot-noise term convolved with the CCD's point-spread
-function, plus an uncorrelated readout-noise term. The per-pixel shot-noise standard
-deviation, given CCD gain $G$ and excess noise factor $F$,
+function, plus an uncorrelated readout-noise term.
+
+\paragraph{Shot noise from the model.} The per-pixel shot-noise variance, given CCD gain
+$G$ and excess noise factor $F$, is
 \begin{equation}
-  \sigma_s = \sqrt{d\cdot G\cdot F^2}\qquad(G=108,\ F^2=1.15,\ \text{hardcoded device constants}),
+  \sigma_s^2 = \max(t,\,10^{-10})\cdot G\cdot F^2
+  \qquad(G=108,\ F^2=1.15,\ \text{hardcoded device constants}),
 \end{equation}
-enters the diagonal matrix $\operatorname{diag}(\sigma_s^2)$, which is then 2D-convolved
-with a Gaussian CCD point-spread function and a readout-noise term added on the diagonal,
+where $t$ is the forward model's prediction for that pixel, not the measured count $d$.
+Estimating the variance from the data biases a $\chi^2$ fit even at high counts
+\cite{humphrey2009}, and it fails outright wherever the (dark-frame- or
+background-subtracted) data happen to sit near zero: the variance collapses there and any
+ordinary model--data mismatch is weighted enormously. Because $K$ depends on $t$ it is
+rebuilt at every evaluation of the loss, as in Ref.~\cite{swadling2022}. The floor is
+needed because a model prediction can still dip to tiny negative values, at the level of
+floating-point noise around a near-zero continuum, which would turn the square root into
+NaN. The floor is $10^{-10}$ rather than $0$ because the derivative of $\sqrt{x}$ diverges
+as $x\to0^+$, so a pixel sitting at a floor of exactly zero would still give a NaN
+gradient.
+
+\paragraph{Covariance.} The diagonal matrix $\operatorname{diag}(\sigma_s^2)$ is
+2D-convolved with a Gaussian CCD point-spread function and a readout-noise term is added
+on the diagonal,
 \begin{equation}
   K = \operatorname{conv2d}\!\big(\operatorname{diag}(\sigma_s^2),\,g\big)+n\,\sigma_{\rm rn}^2\,I,
   \qquad g(a,b)=\frac{1}{2\pi\sigma_{\rm px}^2}\exp\!\left[-\frac{a^2+b^2}{2\sigma_{\rm px}^2}\right],
 \end{equation}
 with $\sigma_{\rm px}=1.0$, $n=2d_{\rm pixel}+1$ the number of detector pixels summed per
-lineout, and $\sigma_{\rm rn}=17.0$.
+lineout, and $\sigma_{\rm rn}=17.0$. The kernel $g$ is tabulated on
+$[-5\sigma_{\rm px},5\sigma_{\rm px}]$. The Gaussian log-determinant term
+$\ln\det K$ is not included in the objective, although $K$ depends on the model.
+
+\paragraph{Background must not be subtracted.} The shot noise is set by the \emph{total}
+count on each pixel, signal plus background. The covar method therefore requires
+\code{config["data"]["background"]["bg\_subtract"]} to be false, in which case the
+estimated background of \S\ref{sec:background} is added to the model (the additive
+\code{noise} term of \S\ref{sec:irf}) instead of being subtracted from the data. With
+subtraction enabled the model in signal-free wings falls to nearly zero, the variance
+there collapses to the readout floor, and the fit is rewarded for predicting spurious
+signal that inflates the local variance. In MCMC runs on one shot this showed up as chains
+trapped in different local optima; turning subtraction off reduced the spread between
+chains of one lineout's flow-velocity parameter from about $25$ to about $4$ with every
+other setting unchanged. \code{fitter.\_validate\_inputs\_} sets \code{bg\_subtract} to
+false, with a warning, whenever \code{loss\_method="covar"}.
+
+\paragraph{Pixel window.} $K$ only needs to be built where the residual is nonzero. For
+each feature (IAW, EPW blue, EPW red) the data, the model and the covariance source are
+gathered to a fixed window of pixels that spans the fit range padded on each side by the
+half-width of $g$ (for the IAW the window also covers the excluded central gap). The
+residual is set to zero at the padding pixels, so they contribute to $K$ through the
+convolution but not to the quadratic form. Because $g$ has no support beyond its
+half-width, this reproduces the full-detector result while reducing the matrix from the
+full pixel count (e.g.\ $1024$) to roughly $150$--$200$ pixels; without the padding the
+quadratic form was observed to shift by about $0.6\%$. Factorizing the full matrix was the
+dominant cost of the method, about three times slower per evaluation than l2. The
+wavelength axes are fixed by the calibration and do not depend on the fitted parameters,
+so the windows are computed once per \code{LossFunction}
+(\code{\_init\_covar\_pixel\_indices}); each calibration draw of \S\ref{sec:uq} builds its
+own.
+
+\paragraph{Open items.} $G$, $F^2$, $\sigma_{\rm px}$ and $\sigma_{\rm rn}$ are placeholders
+that have not been measured for each detector. For comparison, Ref.~\cite{swadling2022}
+reports $G\approx135$, $F^2\approx1.05$ and $\sigma_{\rm px}\approx1.0$ px for its camera,
+and the dark-frame standard deviation measured on one streaked shot was about $65$--$73$
+ADU (EPW) and $64$ ADU (IAW), well above the value of $\sigma_{\rm rn}$ used here. How the
+unconditional dark-frame subtraction applied when the data are loaded maps onto
+$\sigma_{\rm rn}$ has not been settled.
 
 \subsection{Total loss}
 
@@ -1598,20 +1666,39 @@ of how tightly that point is actually constrained by the data. TSADAR offers two
 postprocessing routes to that question, of increasing cost and generality, both built on
 the same underlying likelihood.
 
-\subsection{A shared likelihood}
+\subsection{A shared likelihood}\label{sec:uq-likelihood}
 
-\code{LossFunction.neg\_log\_likelihood} defines a $-2\log L$ under a Poisson-like noise
-model ($\mathrm{Var}\approx\vert d\vert$, the shot-noise-dominated regime already motivated
-in \S\ref{sec:loss}'s noise-covariance discussion): the same masking, per-feature
-reduction, and loss-functional machinery as \S\ref{sec:loss}, but with the per-pixel
-uncertainty fixed to $\sigma^2=\vert d\vert+10^{-10}$ (the offset only guards against an
-exactly-zero-count pixel) regardless of whichever \code{loss\_method}
-the main optimization was configured with, so that both routes below share one
-well-defined statistical model rather than inheriting the main fit's (potentially
-non-probabilistic, e.g.\ l1) loss choice. It can reduce either to a single scalar for a
-whole batch (matching what the point-estimate optimizer descends) or, when
-\code{per\_lineout=True}, to one value per lineout -- needed below because each lineout's
-posterior is otherwise independent and should not be coupled through a shared reduction.
+\code{LossFunction.neg\_log\_likelihood} defines the $-2\log L$ used by both routes. It
+reuses the masking and loss functional of \S\ref{sec:loss} for the configured
+\code{loss\_method}, but \emph{sums} over the in-range pixels instead of averaging, and
+does not apply the IAW/EPW weighting of the total loss:
+\begin{itemize}
+  \item \textbf{l2}: $\sum(d-t)^2/\sigma^2$ with $\sigma^2=\vert d\vert+10^{-10}$, a
+    Poisson-like variance taken from the data (the offset only guards against an
+    exactly-zero-count pixel).
+  \item \textbf{covar}: $\mathbf e^{\!\top}K^{-1}\mathbf e$ for each feature, with $K$ the
+    model-based noise covariance of \S\ref{sec:covar} and no degrees-of-freedom
+    normalization.
+\end{itemize}
+It can reduce either to a single scalar for a whole batch or, when
+\code{per\_lineout=True}, to one value per lineout. The per-lineout form is what the
+sampler and the Hessian use, because each lineout's posterior is independent and should
+not be coupled through a shared reduction. For the covar method the batch scalar is the
+degrees-of-freedom-normalized $\chi^2$ of \S\ref{sec:loss}, which is the right scale for
+the optimizer but not a likelihood: differentiating it instead of the per-lineout sum
+divides the Hessian by $N_{\rm pts}-N_{\rm free}$ (a factor of several hundred to over a
+thousand on a real shot) and so inflates a Laplace-seeded proposal step by its square
+root. For angular data \code{neg\_log\_likelihood} delegates to the angular objective,
+which is not separable per lineout.
+
+The covar form is the one intended for MCMC. With the data-based l2 variance, the
+likelihood is dominated by the few pixels where background-subtracted data are closest to
+zero: on one lineout the ten worst pixels of the EPW red feature carried $49\%$ of that
+feature's total, and every lineout's chains moved $7{,}000$--$34{,}000$ log-posterior
+units away from the point estimate within the first few hundred burn-in steps. The
+postprocessor can sample the covar likelihood around a point estimate that was fit with
+l2 (the override deck sets \code{optimizer.loss\_method}); the point estimate is then
+close to, but not exactly, the mode of the sampled posterior.
 
 \subsection{Laplace approximation: curvature at the best-fit point}\label{sec:laplace}
 
@@ -1635,15 +1722,33 @@ affect each other) and inverted jointly:
   \Sigma \approx H^{-1}, \qquad \sigma_p = \operatorname{sign}(\Sigma_{pp})\sqrt{\vert\Sigma_{pp}\vert}
   \qquad(\code{postprocess.laplace.get\_sigmas}).
 \end{equation}
-Unlike \S\ref{sec:uq-mcmc}'s step-scale seed, which reads only $H$'s diagonal entries (a
-deliberate simplification there, since it only needs an independent per-parameter proposal
-scale, not a joint covariance), $\Sigma$ here is the inverse of the \emph{full} $d\times d$
-active-parameter block, so $\sigma_p$ correctly accounts for correlations between
-simultaneously-fit parameters. Because \code{ThomsonParams.get\_fitted\_params} (whose
+$\Sigma$ is the inverse of the \emph{full} $d\times d$ active-parameter block, so
+$\sigma_p$ accounts for correlations between simultaneously-fit parameters. The same
+Hessian seeds the MCMC proposal of \S\ref{sec:uq-mcmc}. Because \code{ThomsonParams.get\_fitted\_params} (whose
 species order the returned columns must match) and \code{diff\_params}' own pytree flatten
 order enumerate species differently (electron/general/ion-$n$ vs.\ electron/ion-$n$/general,
 respectively), the Hessian's rows and columns are permuted by parameter name before this
 inversion.
+
+\paragraph{Computing the per-lineout Hessian.} A direct Hessian of the batch-summed
+likelihood with respect to the active leaves is dense in the batch axis: every pair of
+parameters $(a,b)$ yields a $B\times B$ block ($B$ the batch size), of which only the
+diagonal is nonzero because lineouts do not interact. Memory then scales as
+$(N_{\rm active}B)^2$ while only $N_{\rm active}^2B$ numbers are used, and forming it has
+been observed to request more than $18$~GiB on a production shot.
+\code{h\_loss\_wrt\_params\_per\_lineout} avoids this. Stack the active leaves into an
+$N_{\rm active}\times B$ array $\theta$ and let $L(\theta)$ be $-2\log L$ summed over the
+batch, with gradient $g=\nabla L$ from one reverse-mode pass. For a fixed parameter $b$,
+take the forward-mode directional derivative of $g$ along the tangent $e_b$ that is $1$ on
+row $b$ (in every lineout at once) and $0$ elsewhere:
+\begin{equation}
+  \big[\partial_{e_b}g\big]_{a,i}
+  = \sum_{j}\frac{\partial^2L}{\partial\theta_{a,i}\,\partial\theta_{b,j}}
+  = \frac{\partial^2L}{\partial\theta_{a,i}\,\partial\theta_{b,i}} = H^{(i)}_{ab},
+\end{equation}
+since only $j=i$ survives. One Jacobian--vector product per active parameter therefore
+gives a full column of every lineout's Hessian, $N_{\rm active}$ products in total. The
+loop over $b$ uses \code{jax.lax.map} so that it is compiled once rather than unrolled.
 
 A true local minimum has a positive-definite Hessian, and hence $\Sigma_{pp}>0$. A negative
 $\Sigma_{pp}$ instead signals that the ``best fit'' isn't actually a clean minimum in that
@@ -1699,8 +1804,22 @@ lineout in a batch simultaneously:
     parameters (a real fit showed roughly $-700$ for one parameter alongside $6\times10^7$
     for another) -- while preserving $H$'s eigenvectors, i.e.\ \emph{which combinations} of
     parameters actually form each near-degenerate direction, rather than discarding that
-    structure the way an independent per-parameter fallback would. Falls back to a flat,
-    uncorrelated heuristic scale only if the whole Hessian computation fails structurally.
+    structure the way an independent per-parameter fallback would. Explicitly, with
+    $D=\operatorname{diag}(1/\sqrt{\vert H_{ii}\vert})$ and the eigendecomposition
+    $DHD=Q\Lambda Q^\top$,
+    \begin{equation}
+      \Sigma_0=\Big(\frac{2.38}{\sqrt d}\Big)^{2}\,D\,Q\,
+      \operatorname{diag}\!\Big(\frac{1}{\max(\lambda_k,\lambda_{\rm floor})}\Big)\,Q^\top D,
+      \qquad S_0=\operatorname{chol}(\Sigma_0),\qquad \lambda_{\rm floor}=10^{-3}.
+    \end{equation}
+    In normalized units a well-conditioned, uncorrelated direction has $\lambda=1$, so a
+    clipped direction is given a proposal about $30$ times wider ($1/\sqrt{10^{-3}}$) than
+    a typical one. This is deliberately generous: an unconstrained parameter should come
+    out with a large uncertainty, and the sigmoid map bounds how far a logit-space step can
+    move it in physical units. If \code{use\_laplace\_seed} is off, or the Hessian
+    computation fails, the seed is instead the flat $S_0=\code{init\_step\_scale}\cdot I$.
+    \code{init\_step\_scale} is a plain logit-space step shared by every parameter; it is
+    not scaled by a parameter's position or physical range.
 
     Even restricted to \code{diff\_params}, this per-lineout Hessian
     (\code{LossFunction.h\_loss\_wrt\_params\_per\_lineout}) is assembled with the same
@@ -1732,7 +1851,12 @@ lineout in a batch simultaneously:
     $\alpha_i\in[0,1]$ and $\text{target}\in(0,1)$ bound the inner matrix's one nontrivial
     eigenvalue strictly above $1-\text{target}>0$, so $\Sigma_i$ stays positive-definite by
     construction regardless of how poorly the Hessian-seeded $S_0$ was scaled to begin
-    with. The scale is frozen once burn-in ends, for the sampling phase proper.
+    with. The earlier scheme normalized the shape estimate to unit determinant, which
+    forced the regularization of one near-degenerate direction to inflate every
+    well-constrained direction with it; RAM has no such coupling. The update uses the
+    acceptance \emph{probability} $\alpha_i$, not the realized accept/reject outcome, and
+    the step counter $i$ runs over the whole burn-in. The scale is frozen once burn-in
+    ends, for the sampling phase proper.
   \item \textbf{Sampling}: the post-burn-in chain is run for the configured number of
     steps and thinned by a configured factor before being returned.
 \end{itemize}
@@ -1766,11 +1890,9 @@ own adaptation of the general technique rather than a method drawn directly from
 paper). Once per run, every active parameter that participates
 (\code{block\_gibbs\_component\_threshold}, an eigenvector-component-magnitude cutoff)
 in some lineout's substantially negative normalized-Hessian eigendirection
-($\le$~\code{block\_gibbs\_eigval\_threshold}, deliberately a stricter, more negative
-threshold than the eigenvalue-\emph{clipping} floor above -- see \code{\_DEFAULTS} in
-\file{mcmc.py} for why a merely small or marginally negative direction, which clipping
-alone was found to already handle adequately, is not automatically worth block Gibbs'
-extra complexity) is unioned, across every lineout in every fit-batch of the shot, into
+($\le$~\code{block\_gibbs\_eigval\_threshold}, default $-0.1$, deliberately a stricter,
+more negative threshold than the eigenvalue-\emph{clipping} floor above) is unioned,
+across every lineout in every fit-batch of the shot, into
 one shot-wide "problem" block; every other active parameter forms the complementary
 "well-conditioned" block. Within one outer MCMC step, the two blocks are then proposed and
 accepted/rejected \emph{separately} -- the well-conditioned block first, then the problem
@@ -1784,6 +1906,21 @@ graph, which requires every fit-batch's arrays to share one shape -- a per-fit-b
 size that varied from one fit-batch to the next would break that vmap outright.
 \code{block\_gibbs} (on by default) disables this entirely, restoring the single joint
 proposal described above, when set to \code{false}.
+
+The two thresholds were set from observed cases. Clipping has to catch every
+non-positive or merely small eigenvalue to keep the proposal covariance valid, but
+blocking should only trigger for a genuine saddle. The ion temperature whose isolation
+was confirmed to restore convergence had normalized eigenvalues of about $-1.2$ to $-1.6$.
+A mildly negative eigenvalue of $-0.02$ to $-0.05$ on an under-converged test fit instead
+made block Gibbs converge \emph{more} slowly, within a short burn-in, than the regularized
+joint proposal. The default of $-0.1$ sits between the two. The component cutoff
+\code{block\_gibbs\_component\_threshold} (default $0.3$) is applied to the entries of the
+unit-norm eigenvector, so a flagged parameter accounts for at least $0.3^2=9\%$ of that
+direction. It is deliberately permissive: leaving a real participant in the
+well-conditioned block lets it dominate that block's acceptance in the same way, whereas
+blocking a parameter that is well-conditioned in some lineouts only costs a little
+efficiency. When nothing is flagged, or every parameter is, the single joint proposal is
+used.
 
 \paragraph{A future alternative: geodesic/Riemannian-manifold-aware sampling.} Block Gibbs
 isolates a near-degenerate direction rather than addressing \emph{why} a naive Euclidean
@@ -1801,8 +1938,7 @@ than the one-sided eigenvalue floor \code{\_regularized\_proposal\_cholesky} use
 This is a substantially heavier architectural change than block Gibbs -- gradient-based
 (HMC-style) proposals, and for SoftAbs specifically, third derivatives of the loss -- and
 was set aside in favor of block Gibbs given the latter's direct experimental validation
-already in hand on this codebase's own production data. Recorded here (and in
-\file{mcmc.py}'s own module docstring, next to \code{\_run\_block\_ram\_window}) as a
+already in hand on this codebase's own production data. Recorded here as a
 documented future direction should block Gibbs prove insufficient on some shot -- e.g.\ a
 lineout whose problem block itself remains poorly-mixing even once isolated.
 
@@ -1820,6 +1956,13 @@ captures \emph{and} the systematic uncertainty in the instrument calibration tho
 $K$ realizations sample from -- two genuinely different sources of uncertainty that a
 single MCMC chain against fixed calibration constants could not distinguish.
 
+$K$ (\code{calibration\_uncertainty.num\_draws}) is the number of chains whether or not any
+calibration $\sigma$ is nonzero. With every $\sigma$ at zero the chains share the nominal
+calibration and differ only in their random numbers and, if
+\code{init\_dispersion\_factor}~$=c>0$, in their starting point: each chain starts from the
+best fit displaced by one draw $c\,S_0z$, $z\sim\mathcal N(0,I)$, of its own seeded
+proposal. Dispersed starts are what make the diagnostics below meaningful.
+
 \subsection{Convergence diagnostics: rank-normalized R-hat and per-parameter
 reliability}\label{sec:uq-mcmc-rhat}
 
@@ -1833,7 +1976,9 @@ a per-chain \emph{split} $\hat R$ that treats one chain's own first and second h
 chains, catching a chain that never reached a stationary distribution within its own budget
 even when it coincidentally agrees with the others on average
 (\code{mcmc.\_within\_chain\_r\_hat}) -- to decide, per lineout, which posterior-sampling
-chains to trust.
+chains to trust. A chain is flagged for a parameter when its split $\hat R$ exceeds
+\code{within\_chain\_r\_hat\_threshold} (default $1.1$, more lenient than the $1.01$ usually
+quoted for many chains because only two half-chains are compared).
 
 \subsubsection{Rank-normalized, folded, split R-hat}
 
@@ -1865,13 +2010,34 @@ centers agree). Rank-normalizing makes the statistic depend only on each chain's
 the raw values get -- on the same production shot, this alone brought the worst
 cross-chain $\hat R$ down from the hundreds/thousands to order $10$.
 
+\subsubsection{Cross-chain outlier detection}\label{sec:uq-mcmc-mad}
+
+A chain can be stationary and still have settled in a different region from the others,
+for example at another point along a degenerate ridge; a random-walk sampler does not
+cross between well-separated modes. \code{mcmc\_postprocess.\_mad\_flagged\_chains}
+tests for this per lineout and per parameter. With $\mu_c$ the posterior mean of chain
+$c$,
+\begin{equation}
+  m=\operatorname{median}_c\,\mu_c,\qquad
+  \mathrm{MAD}=\operatorname{median}_c\,\vert\mu_c-m\vert,\qquad
+  \text{chain $c$ is flagged if}\quad \frac{\vert\mu_c-m\vert}{1.4826\,\mathrm{MAD}}>s ,
+\end{equation}
+where $1.4826\,\mathrm{MAD}$ is the usual normal-consistent robust standard deviation and
+$s$ is \code{chain\_outlier\_mad\_scale}. The default $s=3.5$ is the modified $z$-score
+cutoff of Iglewicz and Hoaglin \cite{iglewicz1993}. The MAD is exactly zero whenever more
+than half the chains agree exactly, so it is floored at a tiny positive number; an
+agreeing chain then still has zero deviation and a divergent one is still flagged. A
+posterior with several well-populated modes inflates its own MAD and is rarely flagged,
+which is intended: the test targets one or two stray chains. Flagged chains are never
+deleted from the saved samples, only excluded from the summary statistics as described
+next.
+
 \subsubsection{One weakly-identified parameter must not veto every other parameter}
 
 A well-scaled $\hat R$ formula alone does not fix the deeper issue: $\hat R$ cannot tell
 ``this parameter's posterior is genuinely flat, so chains landing at different values
 within it is correct'' apart from ``these chains have not yet converged.'' Both of the
-$\hat R$ variants above, and the companion MAD-based cross-chain outlier check
-(\S\ref{sec:laplace}'s sibling, \code{mcmc\_postprocess.\_mad\_flagged\_chains}), were
+$\hat R$ variants above, and the outlier check of \S\ref{sec:uq-mcmc-mad}, were
 therefore changed to report their result \emph{per active parameter} rather than reduced,
 as they previously were, to a single worst-case-across-parameters number per lineout --
 under that reduction, one honestly weakly-identified parameter (e.g.\ an ion temperature
@@ -1885,7 +2051,7 @@ one of them.
 \code{mcmc\_postprocess.\_finalize\_chain\_selection} accordingly decides, independently
 per lineout and per active parameter, whether that parameter's own bad-chain count (chains
 failing the split-$\hat R$ check, the cross-chain outlier check, or both) exceeds
-\code{max\_dropped\_chain\_fraction} \emph{on its own}. A parameter that does is
+\code{max\_dropped\_chain\_fraction} (default $0.2$) \emph{on its own}. A parameter that does is
 \emph{structurally unreliable} for that lineout -- no subset of chains would satisfy the
 budget using that parameter alone -- and is excluded from voting on which chains to keep,
 rather than being allowed to write off (nearly) every chain and, with it, every other
@@ -1894,6 +2060,8 @@ parameters' bad-chain flags are combined (by union) to select which chains feed 
 lineout's mean/standard-deviation/covariance; if even that restricted union still exceeds
 the budget, the lineout is marked unreliable outright (NaN'd) as before, since that
 signals genuine, non-parameter-specific disagreement rather than one flat direction.
+Keeping the least-bad subset of chains in that case was tried and rejected, because it
+hides exactly the lineouts where most chains failed together.
 When \emph{no} parameter can vote, every chain is kept and every parameter's own
 (necessarily wide) statistics are reported from the full, unfiltered pool, rather than
 discarding a lineout that has no informative subset to select by in the first place.
@@ -1908,6 +2076,42 @@ uncertainty on a specific parameter can be told apart from a genuinely tight one
 parameter that is weakly identified \emph{everywhere} in a shot (as opposed to one lineout)
 is visible at a glance, rather than left implicit in a single aggregate ``lineouts
 unreliable'' count.
+
+\subsection{Implementation notes}\label{sec:uq-impl}
+
+These points do not change the algorithm but explain how \file{mcmc.py} and
+\file{mcmc\_postprocess.py} are organized.
+\begin{itemize}
+  \item \textbf{Thinning inside the scan.} Collecting every step and slicing afterwards
+    would hold the whole unthinned chain in memory, which for long chains is the largest
+    allocation of the run. The sampling scan instead nests an uncollected inner scan of
+    \code{thin} steps inside an outer scan that stores only the last state of each group,
+    so the stored output is already thinned. The number of sampling steps is rounded up to
+    a multiple of \code{thin}.
+  \item \textbf{Compiled windows.} Burn-in and sampling are run in chunks of
+    \code{adapt\_every} steps, purely for progress reporting; RAM adapts on every step and
+    its step counter is passed into each chunk as an array so the gain schedule continues
+    across chunks without retriggering compilation. The chunk functions are wrapped in
+    \code{eqx.filter\_jit}. Without it each call retraces the forward model in Python even
+    though the compiled kernel is reused, which was measured at roughly $0.8$--$0.9$~s per
+    call and most of the wall time on a small fit (about $15$ times slower overall).
+  \item \textbf{Chains in parallel.} Each chain has its own \code{LossFunction}, since a
+    calibration draw changes the wavelength axes and instrument response, so chains
+    cannot be vmapped together. They are dispatched to a thread pool, one chain per
+    worker, assigned round-robin to the available devices, which is what keeps more than
+    one GPU busy.
+  \item \textbf{Checkpoints.} Each chain's samples and diagnostics are uploaded to the
+    mlflow run under \code{draw\_checkpoints/} as soon as that chain finishes, so a run that
+    is killed partway keeps its completed chains.
+  \item \textbf{Parameter order.} The sampler orders parameters by pytree traversal
+    (electron, ions, general) while the reported tables follow the configuration's order
+    (electron, general, ions). The $\hat R$ arrays are permuted into the latter before they
+    are combined with the outlier flags; \code{laplace.get\_sigmas} applies the same
+    permutation to the Hessian.
+  \item \textbf{Defaulted options.} A warning lists every \code{other.mcmc} field that was
+    left at its built-in default, because a misspelled or renamed key is otherwise ignored
+    silently.
+\end{itemize}
 
 %======================================================================
 \begin{thebibliography}{9}
@@ -1954,6 +2158,16 @@ G.~F.~Swadling, C.~Bruulsema, W.~Rozmus, and J.~Katz,
 \textit{Quantitative assessment of fitting errors associated with streak camera noise in
 Thomson scattering data analysis},
 Review of Scientific Instruments \textbf{93}, 043503 (2022).
+
+\bibitem{humphrey2009}
+P.~J.~Humphrey, W.~Liu, and D.~A.~Buote,
+\textit{$\chi^2$ and Poissonian data: biases even in the high-count regime and how to avoid them},
+Astrophysical Journal \textbf{693}, 822 (2009).
+
+\bibitem{iglewicz1993}
+B.~Iglewicz and D.~C.~Hoaglin,
+\textit{How to Detect and Handle Outliers}
+(ASQC Quality Press, Milwaukee, 1993).
 
 \bibitem{roberts2001}
 G.~O.~Roberts and J.~S.~Rosenthal,

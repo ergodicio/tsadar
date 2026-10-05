@@ -104,11 +104,7 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             try:
-                # Hessian restricted to only the active fit parameters (diff_params) -- see
-                # LossFunction.h_loss_wrt_params's docstring for why the full parameter tree must never
-                # be differentiated here (it pulls in every fixed array the model carries, e.g. the
-                # electron distribution function's interpolation table, and has been observed to attempt
-                # a >150GB allocation on an ordinary fit).
+                # Hessian with respect to the active fit parameters (diff_params) only
                 ts_params = fitted_weights[i_batch]
                 filter_spec = get_filter_spec(config["parameters"], ts_params)
                 diff_params, static_params = eqx.partition(ts_params, filter_spec)
@@ -131,15 +127,8 @@ def recalculate_with_chosen_weights(
 
 
 def _named_diff_leaves(diff_params) -> List[Tuple[str, str]]:
-    """Returns the (species, key) name of every active leaf of a diff_params pytree (as produced by
-    eqx.partition(ts_params, get_filter_spec(...))), in the same order as jax.tree_util.tree_leaves(
-    diff_params) -- i.e. the same order get_sigmas' Hessian `rows` come back in.
-
-    Names mirror get_filter_spec's own species/key convention: species is "electron"/"general"/
-    "ion-<n>" (1-based); key strips diff_params' "normed_" prefix (get_filter_spec never prefixes
-    "fract"). This is the inverse of get_filter_spec's getattr-based navigation, recovered here via
-    tree_flatten_with_path since diff_params carries no other record of which (species, key) each leaf
-    came from.
+    """(species, key) name of every active leaf of a diff_params pytree, in jax.tree_util.tree_leaves
+    order. species is "electron"/"general"/"ion-<n>" (1-based) and key has the "normed_" prefix removed.
     """
     names = []
     for path, _leaf in jax.tree_util.tree_flatten_with_path(diff_params)[0]:
@@ -161,37 +150,20 @@ def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.nd
     non-optimal points, to represent this in the final result the uncertainty of those values are
     reported as negative.
 
-    hess must be the Hessian of the loss wrt diff_params ONLY (see LossFunction.h_loss_wrt_params_
-    per_lineout) -- never the full ThomsonParams tree, which pulls in every fixed array the model
-    carries (e.g. the electron distribution function's interpolation table) and has been observed to
-    attempt a >150GB allocation on an ordinary fit.
-
     Args:
-        hess: per-lineout Hessian of the loss wrt diff_params, as returned by LossFunction.
-            h_loss_wrt_params_per_lineout (NOT the dense h_loss_wrt_params -- see that function's
-            docstring for why the dense cross-lineout terms this deliberately skips are structurally
-            zero and safe to omit). Has diff_params' pytree structure at the outer level; each "leaf"
-            there is itself a diff_params-shaped subtree, but unlike h_loss_wrt_params, each of *its*
-            leaves/"blocks" is already just the (batch_size,) per-lineout diagonal entry rather than a
-            dense (batch_size, batch_size) matrix.
-        diff_params: the same diff_params pytree the Hessian was taken wrt (only active leaves; every
-            other leaf is None, per eqx.partition).
-        fitted_params: nested dict as returned by ThomsonParams.get_fitted_params(config["parameters"])
-            -- gives the exact (species, key) columns and order the returned array must match, since
-            that's what plotters.save_sigmas_params/save_sigmas_fe assume of `all_params`.
+        hess: per-lineout Hessian of the loss wrt diff_params, as returned by
+            LossFunction.h_loss_wrt_params_per_lineout.
+        diff_params: the diff_params pytree the Hessian was taken with respect to.
+        fitted_params: nested dict as returned by ThomsonParams.get_fitted_params; sets the columns and
+            order of the returned array.
         batch_size: int- number of lineouts in a batch
 
     Returns:
         sigmas: batch_size x number_of_parameters array with the uncertainty values for each parameter,
-            columns ordered to match fitted_params (species-major, then key, in fitted_params' own
-            iteration order).
+            columns ordered to match fitted_params.
 
     Raises:
-        NotImplementedError: if any electron distribution-function parameter ("fe"/"f"/"flm"/"m") is
-            active. Those are stored as a list of separate per-lineout objects rather than one array with
-            a batch axis (see ElectronParams.init_dists), which this leaf-diagonal approach does not
-            handle -- mirroring postprocess.mcmc's identical fe-active restriction (see its module
-            docstring).
+        NotImplementedError: if any electron distribution-function parameter is active.
     """
     for species, params in fitted_params.items():
         unsupported = set(params.keys()) & {"fe", "f", "flm", "m"}
@@ -223,10 +195,7 @@ def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.nd
         raise ValueError(f"fitted_params names not found among diff_params' active leaves: {missing}")
 
     blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[k1][k2][i] is d^2L/d(leaf k1[i]) d(leaf k2[i])
-    # Permutation from ordered_names' (fitted_params') order into rows'/blocks' (diff_params') order --
-    # the two need not agree, since ThomsonParams.get_unnormed_params() (which fitted_params is ultimately
-    # derived from) lists species as electron/general/ion-<n>, while diff_params' own pytree flatten order
-    # follows ThomsonParams' declared field order, electron/ions/general.
+    # permutation from fitted_params order (electron/general/ions) to diff_params order (electron/ions/general)
     perm = [name_to_row_index[name] for name in ordered_names]
 
     for i in range(batch_size):
@@ -491,9 +460,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         json.dump(objective_terms, file, indent=2, sort_keys=True)
     mlflow.log_metrics({f"arts2d_{key}": value for key, value in objective_terms.items()})
 
-    # Calculate sigmas if needed. Hessian restricted to only the active fit parameters (diff_params) --
-    # see LossFunction.h_loss_wrt_params's docstring for why the full parameter tree must never be
-    # differentiated here.
+    # Calculate sigmas if needed, from the Hessian with respect to the active fit parameters only
     sigmas = None
     if config["other"]["calc_sigmas"]:
         try:
