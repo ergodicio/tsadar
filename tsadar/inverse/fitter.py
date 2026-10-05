@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import time
+import warnings
 from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
@@ -106,6 +107,25 @@ def _validate_inputs_(config: Dict) -> Dict:
         config["optimizer"].get("save_state_freq", 0)
     ) < 1:
         raise ValueError("optimizer:save_state_freq must be at least 1 when save_state is enabled")
+
+    if config["optimizer"]["loss_method"] == "covar" and config["data"]["background"]["bg_subtract"]:
+        warnings.warn(
+            "loss_method=='covar' requires data.background.bg_subtract=false. The covar noise model's "
+            "shot-noise term (calculate_covariance_matrix) is derived from the TOTAL photon count at each "
+            "pixel, not a background-subtracted residual -- with bg_subtract=true, the model floor in "
+            "signal-free wing regions collapses toward just the read-noise floor, and the resulting "
+            "variance blowup lets fits favor whichever candidate happens to inflate the local variance "
+            "rather than the candidate that actually matches the data (confirmed directly: flipping "
+            "bg_subtract to false reduced a trapped chain's cross-draw spread on a real lineout's Va "
+            "parameter from 25.4 to 4.4, all other settings unchanged -- see "
+            "NOISE_MODEL_SESSION_HANDOFF.md). Forcing data.background.bg_subtract to false (build_batch "
+            "adds the background back into both the data and the model instead, via "
+            "batch['noise_e']/['noise_i']) -- this must happen here, before load_data_for_fitting/"
+            "build_batch run, since build_batch bakes bg_subtract into the data/noise split "
+            "irreversibly and some callers (e.g. postprocess_runner) build that batch before a "
+            "LossFunction ever exists to catch this too late."
+        )
+        config["data"]["background"]["bg_subtract"] = False
 
     # check boundries for linouts and fit ranges to ensure they are ordered properly
     if config["data"]["lineouts"]["start"] == config["data"]["lineouts"]["end"]:

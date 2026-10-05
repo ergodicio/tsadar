@@ -420,7 +420,11 @@ class FormFactor:
             GD = (k**2)/4/ks * j0 * -jnp.imag(Fchi)
             GDl = jnp.mean(GD * interaction_length_cm, axis=-1)
             # formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
-            formfactor = formfactor * jnp.exp(GDl)
+            # Cap the gain exponent (other.gain_cap in the deck). The linear gain model is not valid for
+            # large gains anyway, and where epsilon -> 0 at a single grid point (seen at the ion-acoustic
+            # resonance, which the EPW grid under-resolves and the EPW fit discards) GDl can exceed ~709,
+            # so exp() overflows to inf and the instrument convolution NaNs the whole lineout.
+            formfactor = formfactor * jnp.exp(jnp.minimum(GDl, self.calc_gain['gain_cap']))
 
 
         return formfactor, jnp.squeeze(lams, axis=-1)

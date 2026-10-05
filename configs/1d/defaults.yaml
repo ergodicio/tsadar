@@ -33,10 +33,10 @@ data:
     forward_epw_start: 400
     forward_iaw_end: 528
     forward_iaw_start: 524
-    iaw_cf_max: 526.6
-    iaw_cf_min: 526.4
-    iaw_max: 527.0
-    iaw_min: 526.0
+    iaw_cf_max: 263.3
+    iaw_cf_min: 263.2
+    iaw_max: 263.7
+    iaw_min: 262.8
     red_max: 650
     red_min: 545
   ion_loss_scale: 1.0
@@ -69,7 +69,7 @@ optimizer:
   learning_rate_final: 0.001
   learning_rate_init: 0.01
   loss_method: l2
-  method: adam
+  method: lsq
   moment_loss: false
   num_epochs: 400
   num_mins: 1
@@ -91,9 +91,9 @@ other:
   detector_specs:
     norm: 0
     EPWDispersion: 0.4143
-    IAWDispersion: 0.00659
+    IAWDispersion: 0.00449
     EPWoffset: 315.0
-    IAWoffset: 350.0
+    IAWoffset: 261.6
     widIRF:
       spect_stddev_ele: 1.3
       spect_stddev_ion: 0.015
@@ -117,6 +117,9 @@ other:
   refit_thresh: 0.25
   Ipump_14: 0.0
   beam_diam_um: 100
+  # Upper limit on the gain exponent G in exp(G) when include_gains is true. The linear gain model
+  # breaks down for large gains, and an unresolved resonance can otherwise overflow exp() and NaN the fit.
+  gain_cap: 100
   # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
   # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
   # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
@@ -262,7 +265,7 @@ plotting:
   detailed_breakdown: false
   ele_window_end: 660
   ele_window_start: 425
-  ion_window_end: 528
-  ion_window_start: 525
+  ion_window_end: 264
+  ion_window_start: 262.5
   n_sigmas: 3
   rolling_std_width: 5

@@ -10,14 +10,33 @@ optimizer:
   # Phase 5 -- does NOT touch the point-estimate optimizer (that's Phase 6, still deliberately deferred).
   loss_method: covar
 
+data:
+  background:
+    # Required whenever loss_method: covar -- LossFunction.__init__ raises otherwise. The covar noise
+    # model's shot-noise term needs the TOTAL photon count per pixel; subtracting background first
+    # collapses the model floor to near-zero in signal-free wing pixels, which let chains get trapped in
+    # different local optima depending on how much spurious signal they predicted there (confirmed on
+    # real data: fixed a ~25-unit cross-draw spread on lineout 2400's Va parameter down to ~4). The
+    # source fit itself (l2, fitted_weights.eqx) is unaffected -- this only changes the reconstructed
+    # loss_fn/batch this postprocessor builds. See NOISE_MODEL_SESSION_HANDOFF.md.
+    bg_subtract: false
+
 other:
   # Only read by the standalone MCMC uncertainty postprocessor (run_mcmc_postprocessor.py /
   # tsadar.mcmc_postprocess_runner) -- never by a normal fit. All fields are optional and default to
   # what's shown here if this whole section (or any individual field) is omitted, so removing it changes
   # nothing about fitting or the existing Hessian-based postprocessor.
   mcmc:
-    num_steps: 8000
-    burn_in: 2000
+    # num_steps is TOTAL steps including burn-in (run_mcmc_for_batch computes n_sample_steps = num_steps -
+    # burn_in) -- 30000/10000 here means 10000 burn-in steps followed by 20000 post-burn-in sampling steps,
+    # up from 2000/6000. Bumped alongside calibration_uncertainty.num_draws (20->50) to address residual
+    # chain-trapping found on the bg_subtract=False rerun: most flagged lineouts showed a smooth, weakly-
+    # identified Va/lam posterior (not a bug), but a few (e.g. lineout 14) showed a genuine 4/20-chain split
+    # along that same degenerate ridge -- longer burn-in gives RAM's adaptive proposal covariance more
+    # windows to discover the ridge's true width before sampling locks in, rather than adapting to whatever
+    # local neighborhood a chain's dispersed start happened to land in.
+    num_steps: 30000
+    burn_in: 10000
     thin: 5
     # Chunk size burn-in is reported/checkpointed in (tqdm granularity) -- purely cosmetic, since
     # adaptation itself (Vihola's Robust Adaptive Metropolis, see mcmc._ram_update) runs every single
@@ -60,7 +79,7 @@ other:
   # own independent MH random-walk noise from an identical start. num_draws=1 (the default) runs a
   # single chain, matching every other config. See inverse/postprocess/mcmc_calibration.py.
   calibration_uncertainty:
-    num_draws: 20
+    num_draws: 50
     seed: 0
     EPWDispersion_sigma: 0
     IAWDispersion_sigma: 0

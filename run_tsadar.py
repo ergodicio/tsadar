@@ -18,7 +18,6 @@ config.update("jax_debug_nans", True)
 # config.update("jax_disable_jit", True)
 
 from tsadar.runner import run, run_job, load_and_make_folders
-from tsadar.utils.misc import export_run
 
 
 if __name__ == "__main__":
@@ -35,6 +34,3 @@ if __name__ == "__main__":
     else:
         #    run_id, config = load_and_make_folders(args.cfg)
         run_id = run(args.cfg, mode=args.mode)
-
-    if "MLFLOW_EXPORT" in os.environ:
-        export_run(run_id)

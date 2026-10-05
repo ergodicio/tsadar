@@ -179,9 +179,14 @@ class FitModel:
         n_beta = config["other"].get("n_beta", DEFAULT_N_BETA)
 
         if 'include_gains' in config["other"] and config["other"]["include_gains"]:
-            calc_gain = {'calc': config["other"]["include_gains"], 'Ipump': config["other"]["Ipump_14"], 'beam_diam_um': config["other"]["beam_diam_um"]}
+            calc_gain = {
+                'calc': config["other"]["include_gains"],
+                'Ipump': config["other"]["Ipump_14"],
+                'beam_diam_um': config["other"]["beam_diam_um"],
+                'gain_cap': config["other"].get("gain_cap", 100.0),
+            }
         else:
-            calc_gain = {'calc': False, 'Ipump': 0, 'beam_diam_um': 0}
+            calc_gain = {'calc': False, 'Ipump': 0, 'beam_diam_um': 0, 'gain_cap': 100.0}
 
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],

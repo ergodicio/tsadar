@@ -39,6 +39,41 @@ def _active_param_keys(cfg_params: Dict) -> List[Tuple[str, str]]:
     return keys
 
 
+def _pytree_active_keys(cfg_params: Dict, diff_params) -> List[Tuple[str, str]]:
+    """(species, key) for each leaf of diff_params, in diff_params' OWN natural pytree traversal order
+    (electron, then ions[0], ions[1].., then general) -- NOT _active_param_keys' cfg-dict-insertion order.
+    This is the order mcmc._within_chain_r_hat's n_active axis is actually in, since that function operates
+    directly on jax.tree_util.tree_leaves(samples)/tree_flatten_with_path, never on active_keys.
+
+    Needed to realign that axis with active_keys before combining it with _mad_flagged_chains' output (see
+    mcmc_postprocess's use of _finalize_chain_selection): _physical_samples_for_fit_batch builds its arrays
+    by indexing get_unnormed_params()'s dict with active_keys, so its columns are already in active_keys
+    order; mcmc._within_chain_r_hat's are not. Combining the two column-for-column while their orders
+    differ silently mislabels every downstream per-parameter diagnostic -- confirmed on a real run: cfg
+    order (electron, general, ion-1) vs. pytree order (electron, ions, general) scrambled 7 of 10 columns,
+    reporting amp1 as unreliable for 83/84 lineouts when the real culprit (both by column position and by
+    directly checking the corner plots, which use active_keys order and looked fine for amp1) was Ti.
+
+    Args:
+        cfg_params: config["parameters"], in the same dict-insertion order _active_param_keys traverses.
+        diff_params: any pytree with the same active-leaf structure/order _within_chain_r_hat consumes
+            (e.g. pooled_diff_params, or one draw's own samples) -- only its tree structure is used.
+
+    Returns:
+        List[Tuple[str, str]], length == number of active leaves, ordered to match that pytree traversal.
+    """
+    ion_species_in_order = [species for species in cfg_params if "ion" in species]
+    paths = jax.tree_util.tree_flatten_with_path(diff_params)[0]
+    keys = []
+    for path, _ in paths:
+        top = path[0].name
+        leaf_name = path[-1].name
+        key = leaf_name[len("normed_") :] if leaf_name.startswith("normed_") else leaf_name
+        species = ion_species_in_order[path[1].idx] if top == "ions" else top
+        keys.append((species, key))
+    return keys
+
+
 def _physical_samples_for_fit_batch(static_array_part, static_nonarray_part, pooled_diff_params, fit_batch_index, active_keys):
     """Reconstructs physical (denormalized) posterior samples for one fit-batch, for exactly the active
     scalar parameters. Returns an array of shape (num_pooled, this_batch_size, n_active), columns ordered
@@ -304,6 +339,15 @@ def mcmc_postprocess(
             config, loss_fns_by_draw, fitted_weights, batches_by_draw, key, checkpoint_run_id=checkpoint_run_id
         )
     )
+
+    if within_chain_r_hat_by_batch is not None and n_active > 0:
+        # within_chain_r_hat_by_batch's last axis is in pooled_diff_params' own pytree traversal order
+        # (electron, ions, general), not active_keys' cfg-dict order -- realign it before it's ever sliced/
+        # compared per-parameter below (_mad_flagged_chains' output IS already in active_keys order, via
+        # _physical_samples_for_fit_batch's dict lookups). See _pytree_active_keys' docstring.
+        pytree_keys = _pytree_active_keys(config["parameters"], pooled_diff_params)
+        reorder = [pytree_keys.index(k) for k in active_keys]
+        within_chain_r_hat_by_batch = np.asarray(within_chain_r_hat_by_batch)[..., reorder]
 
     static_array_part = eqx.filter(static_params, eqx.is_array)
     static_nonarray_part = eqx.filter(static_params, eqx.is_array, inverse=True)

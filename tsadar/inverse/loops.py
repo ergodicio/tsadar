@@ -106,6 +106,13 @@ def _log_optimizer_step(
     *, current_loss: float, checkpoint: OptimizationCheckpoint, learning_rate: float,
     grad, step: int, stage: int, seed: int,
 ) -> None:
+    # synchronous=False rather than the global mlflow.config.enable_async_logging switch: that switch
+    # also defers mlflow.set_tag/set_tags, which breaks _run_'s contract (ergodicio/tsadar#115) that the
+    # canonical tags and status="running" are queryable the instant fitting starts, before this function
+    # is ever called. Scoping the async behavior to just this per-epoch metrics call keeps that
+    # synchronous while still taking the HTTP round trip off the epoch loop's critical path -- mlflow
+    # queues it on a background thread; mlflow.start_run's __exit__ (end_run) drains the queue before the
+    # run closes, so nothing is dropped.
     mlflow.log_metrics(
         {
             "epoch loss": current_loss,
@@ -118,6 +125,7 @@ def _log_optimizer_step(
             "optimizer.seed": float(seed),
         },
         step=step,
+        synchronous=False,
     )
 
 

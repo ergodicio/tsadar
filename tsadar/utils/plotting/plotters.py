@@ -444,7 +444,14 @@ def save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigma
     # species after the first previously restarted enumerate() at 0, silently pulling an earlier
     # species' column instead of its own (e.g. "general"'s amp1 pulling "electron"'s Te column) for any
     # config with more than one active species, which is the common case.
-    ordered_names = [(series, k) for series in all_params.keys() for k in all_params[series].keys()]
+    #
+    # "fe"/"f"/"flm" are excluded to match get_final_params: get_fitted_params always includes the
+    # electron distribution-function entry in all_params regardless of whether fe.active is True, but
+    # never counts it in num_params (see ts_params.get_fitted_params) -- sigmas is sized by num_params,
+    # so leaving these in ordered_names walks past sigmas' last real column.
+    ordered_names = [
+        (series, k) for series in all_params.keys() for k in all_params[series].keys() if k not in ("fe", "f", "flm")
+    ]
     sigmas_ds = xr.Dataset(
         {k + "_" + series: xr.DataArray(sigmas[:, i], coords=coords) for i, (series, k) in enumerate(ordered_names)}
     )

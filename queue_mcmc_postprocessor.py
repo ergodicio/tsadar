@@ -7,8 +7,16 @@ completed fit's saved artifacts, so there is nothing to pre-create here. The onl
 before submitting is which Slurm partition to use, auto-detected the same way queue_tsadar.py does -- from
 the "machine" field of the target's config -- read locally for --dir or downloaded (config only, not
 fitted_weights.eqx) for --run.
+
+Still mirrors queue_tsadar.py/runner.load_and_make_folders in one respect: an --overrides stub is copied
+to an immutable, uniquely-named location at queue time (_stash_overrides below) before the job is
+submitted, and that stashed copy's path -- not the original -- is what gets passed to
+run_mcmc_postprocessor.py on the compute node. Since a queued job can sit in the Slurm queue for a long
+time before it actually runs, without this a user who edits the stub deck to queue a second job would
+silently change what the first, still-queued job runs. The copy lives under BASE_TEMPDIR so it resolves
+from the compute node the same way the original repo-relative path was required to.
 """
-import argparse, os, tempfile, time
+import argparse, os, shutil, tempfile, time
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 
@@ -19,6 +27,21 @@ if "BASE_TEMPDIR" in os.environ:
     BASE_TEMPDIR = os.environ["BASE_TEMPDIR"]
 else:
     BASE_TEMPDIR = None
+
+
+def _stash_overrides(overrides_path: str) -> str:
+    """Copies the --overrides stub deck to a freshly created, uniquely-named directory under BASE_TEMPDIR
+    at queue time, and returns the copy's path. Mirrors runner.load_and_make_folders' stash-the-deck-at-
+    queue-time pattern for ordinary fits (queue_tsadar.py): the point is to freeze the exact content of the
+    stub this job was queued with, so the live file (e.g. configs/postprocessor/postprocessor_stub.yaml)
+    can immediately be edited and reused to queue another job without that edit reaching back into a job
+    still sitting in the Slurm queue. Deliberately never cleaned up here -- the compute node needs to be
+    able to read it whenever the job actually starts, which may be long after this process exits.
+    """
+    stash_dir = tempfile.mkdtemp(dir=BASE_TEMPDIR, prefix="mcmc_overrides_")
+    stashed_path = os.path.join(stash_dir, os.path.basename(overrides_path))
+    shutil.copy2(overrides_path, stashed_path)
+    return stashed_path
 
 
 def _resolve_machine(args) -> str:
@@ -93,13 +116,17 @@ if __name__ == "__main__":
         help=(
             "Path to a small YAML stub deck (same nesting as inputs.yaml) with just the postprocessing "
             "keys to change (e.g. config['other']['mcmc']), deep-merged on top of the original fit's "
-            "saved config. Passed straight through to run_mcmc_postprocessor.py on the compute node, so "
-            "the path must also resolve there (e.g. a repo-relative path, not a local absolute one)."
+            "saved config. Copied to an immutable, uniquely-named location under BASE_TEMPDIR at queue "
+            "time (see _stash_overrides), so this file can be freely edited afterwards to queue another "
+            "job -- the job just queued always runs with the content this file had right now."
         ),
     )
     args = parser.parse_args()
 
     os.system("uv sync --extra gpu,hdf")
+
+    if args.overrides:
+        args.overrides = _stash_overrides(args.overrides)
 
     machine = _resolve_machine(args)
     _queue_run_(machine, args)

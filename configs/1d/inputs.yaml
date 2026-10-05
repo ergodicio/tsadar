@@ -2,23 +2,23 @@ data:
   fit_EPWb: true
   fit_EPWr: true
   fit_IAW: true
-  load_ele_spec: true
+  load_ele_spec: false
   load_ion_spec: true
   background:
     slice: 800
     type: pixel
   lineouts:
-    end: 300
-    skip: 25
-    start: 2400
+    end: 1500
+    skip: 200
+    start: 2700
     type: ps
-  shotnum: 116774
+  shotnum: 117918
 
 machine: gpu
 
 mlflow:
-  experiment: shot_day_10_22_25
-  run: s116774-revisit-nantest
+  experiment: test
+  run: s117918-calibration-test
 
 other:
   Ipump_14: 1.58
@@ -33,7 +33,7 @@ parameters:
     Te:
       active: true
       lb: 0.01
-      ub: 2.0
+      ub: 5.0
       val: 0.7
     fe:
       active: false
@@ -48,7 +48,7 @@ parameters:
           val: 2.5
       type: dlm
     ne:
-      active: true
+      active: false
       lb: 0.03
       ub: 2.0
       val: 0.6
@@ -60,12 +60,12 @@ parameters:
       ub: 10.0
       val: 0.0
     amp1:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
@@ -85,10 +85,10 @@ parameters:
       ub: 1.0
       val: 0.4
     lam:
-      active: true
+      active: false
       lb: 526.0
       ub: 527.0
-      val: 526.5
+      val: 263.25
     ne_gradient:
       active: false
       lb: 0.0
@@ -105,7 +105,7 @@ parameters:
   ion-1:
     A:
       active: false
-      val: 83.8
+      val: 63.55
     Ti:
       active: true
       lb: 0.01
@@ -121,8 +121,9 @@ parameters:
     Z:
       active: true
       lb: 6.0
-      ub: 26.1
-      val: 25.9
+      ub: 27.1
+      val: 19.0
     fract:
       active: false
-      val: 1.0
+      val: 0.58
+  
