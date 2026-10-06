@@ -106,7 +106,8 @@ def _log_optimizer_step(
     *, current_loss: float, checkpoint: OptimizationCheckpoint, learning_rate: float,
     grad, step: int, stage: int, seed: int,
 ) -> None:
-    # logged asynchronously to keep the HTTP round trip out of the epoch loop; tags stay synchronous
+    # logged asynchronously to keep the HTTP round trip out of the epoch loop; tags stay synchronous.
+    # end_run waiting for the queued writes depends on the mlflow floor in pyproject.toml.
     mlflow.log_metrics(
         {
             "epoch loss": current_loss,
