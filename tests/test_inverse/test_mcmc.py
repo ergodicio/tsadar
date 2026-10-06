@@ -666,3 +666,26 @@ def test_l2_likelihood_sums_the_two_epw_wings(fitted_fixture):
     nll = np.asarray(loss_fn.neg_log_likelihood(weights, batch, per_lineout=True))
     np.testing.assert_allclose(nll, expected, rtol=1e-8)
     assert loss_fn._averages_wings(jnp.nanmean) and not loss_fn._averages_wings(jnp.nansum)
+
+
+def test_log_jacobian_includes_an_active_ion_fraction(fitted_fixture):
+    from tsadar.core.modules.ts_params import ThomsonParams
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    batch_size = cfg["optimizer"]["batch_size"]
+
+    def _diff_params(config):
+        ts_params = ThomsonParams(config["parameters"], batch_size, activate=True)
+        return eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))[0]
+
+    without = jax.tree_util.tree_leaves(_diff_params(cfg))
+    cfg["parameters"]["ion-1"]["fract"]["active"] = True
+    diff_params = _diff_params(cfg)
+    leaves = jax.tree_util.tree_leaves(diff_params)
+    assert len(leaves) == len(without) + 1
+
+    s = 1.0 / (1.0 + np.exp(-np.stack([np.asarray(leaf) for leaf in leaves], axis=-1)))
+    np.testing.assert_allclose(np.asarray(mcmc._log_jacobian(diff_params)), np.sum(np.log(s) + np.log(1.0 - s), axis=-1))
+    np.testing.assert_allclose(
+        np.asarray(mcmc._log_jacobian_curvature(diff_params)), np.stack([np.diag(2.0 * row * (1.0 - row)) for row in s])
+    )

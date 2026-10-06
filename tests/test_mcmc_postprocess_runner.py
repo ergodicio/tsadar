@@ -87,6 +87,7 @@ def test_mcmc_postprocess_writes_expected_artifacts():
 
         binary_files = {f.path for f in client.list_artifacts(run_id, "binary")}
         assert "binary/mcmc_covariance.nc" in binary_files
+        assert "binary/mcmc_reliability.nc" in binary_files
 
         with tempfile.TemporaryDirectory() as dl:
             local_path = mlflow.artifacts.download_artifacts(

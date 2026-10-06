@@ -55,6 +55,7 @@ KNOWN_ROLES = {
     "binary/sigma-params.nc": ROLE_UNCERTAINTY,
     "sigmas_mcmc.nc": ROLE_UNCERTAINTY,
     "binary/mcmc_covariance.nc": ROLE_UNCERTAINTY,
+    "binary/mcmc_reliability.nc": ROLE_UNCERTAINTY,
     "binary/mcmc_samples.nc": ROLE_UNCERTAINTY,
     "angular_objective_diagnostics.npz": ROLE_DIAGNOSTICS,
     "angular_objective_terms.json": ROLE_DIAGNOSTICS,

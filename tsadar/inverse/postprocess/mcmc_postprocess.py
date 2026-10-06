@@ -416,6 +416,18 @@ def mcmc_postprocess(
         covariance_ds.to_netcdf(os.path.join(td, "binary", "mcmc_covariance.nc"))
 
         if n_active > 0:
+            # which reported values failed the convergence checks, on the same coordinates as the sigmas
+            reliability_ds = xr.Dataset(
+                {
+                    "param_unreliable": (("lineout", "param"), param_unreliable.astype(np.uint8)),
+                    "lineout_unreliable": (("lineout",), lineout_unreliable.astype(np.uint8)),
+                    "n_chains_dropped": (("lineout",), n_chains_dropped),
+                },
+                coords={"lineout": np.array(config["data"]["lineouts"]["val"]), "param": param_names},
+            )
+            reliability_ds.to_netcdf(os.path.join(td, "binary", "mcmc_reliability.nc"))
+
+        if n_active > 0:
             # corner plots for an evenly-spaced subset of lineouts
             n_corner_lineouts = min(8, total_lineouts)
             corner_targets = set(np.linspace(0, total_lineouts - 1, n_corner_lineouts, dtype=int).tolist())

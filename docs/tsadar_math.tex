@@ -1896,7 +1896,12 @@ lineout in a batch simultaneously:
     $1/[(p-\mathrm{lb})(\mathrm{ub}-p)]$ that piles weight onto the bounds. The default
     $\pi_0$ is uniform on $[\mathrm{lb},\mathrm{ub}]$ for every parameter. The prior is
     selected by name (\code{other.mcmc.prior}) from a registry in \file{mcmc.py}, so
-    another prior can be added without touching the likelihood or the Jacobian.
+    another prior can be added without touching the likelihood or the Jacobian. The sum
+    runs over every active parameter, which are exactly the leaves the optimizer fits. An
+    active ion fraction is one of them: it is fitted as the logit of a raw fraction in
+    $(0,1)$, and the raw fractions of all species are then divided by their sum. The
+    uniform prior therefore applies to each raw fraction, not to the normalized
+    composition.
   \item \textbf{Proposal}: a Gaussian random walk in the unconstrained space, jointly
     correlated across every active parameter of a lineout (\code{\_propose}: proposal
     $=$ current $+\,S\,z$, $z\sim\mathcal N(0,I)$, $S$ the lineout's own proposal Cholesky

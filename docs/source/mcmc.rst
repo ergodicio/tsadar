@@ -183,6 +183,10 @@ few MCMC-specific ones, all logged to its own mlflow run:
    * - ``sigmas_mcmc.nc``
      - Per-lineout posterior standard deviation of each active parameter -- the MCMC analogue of
        ``sigmas.nc``, kept under a different name so both can coexist if ``compare_to_laplace`` is used.
+   * - ``binary/mcmc_reliability.nc``
+     - Per lineout and parameter, whether that parameter failed the convergence checks
+       (``param_unreliable``); per lineout, whether it was marked unreliable overall and how many
+       chains were dropped. Same lineout and parameter coordinates as the sigmas.
    * - ``binary/mcmc_covariance.nc``
      - Per-lineout posterior covariance matrix across all active parameters.
    * - ``binary/mcmc_samples.nc``

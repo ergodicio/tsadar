@@ -79,31 +79,22 @@ def _log_prior_fn(config: Dict) -> Callable:
     return _LOG_PRIORS[name]
 
 
-def _logit_leaves(diff_params) -> List[Tuple[int, jnp.ndarray]]:
-    """(index, leaf) of the active leaves sampled in logit coordinates, i.e. every "normed_" leaf. The
-    index is the leaf's position in jax.tree_util.tree_leaves(diff_params)."""
-    paths = jax.tree_util.tree_flatten_with_path(diff_params)[0]
-    return [(i, leaf) for i, (path, leaf) in enumerate(paths) if path[-1].name.startswith("normed_")]
-
-
 def _log_jacobian(diff_params) -> jnp.ndarray:
     """Per-lineout log-Jacobian of the map from the sampled logit coordinates to the physical parameters,
-    up to a constant: sum over parameters of log(s) + log(1 - s), with s = sigmoid(z)."""
+    up to a constant: sum of log(s) + log(1 - s), with s = sigmoid(z), over the active leaves. Every
+    active leaf (the diff_params selected by get_filter_spec) is fitted through a sigmoid, including the
+    ion fractions."""
     total = 0.0
-    for _, z in _logit_leaves(diff_params):
+    for z in jax.tree_util.tree_leaves(diff_params):
         total = total + jax.nn.log_sigmoid(z) + jax.nn.log_sigmoid(-z)
     return total
 
 
 def _log_jacobian_curvature(diff_params) -> jnp.ndarray:
-    """Hessian of -_log_jacobian with respect to the stacked leaves: a (batch_size, n_active, n_active)
-    diagonal matrix with entries 2 s (1 - s) for the logit-coordinate leaves and 0 otherwise."""
-    leaves = jax.tree_util.tree_leaves(diff_params)
-    diag = [jnp.zeros_like(leaf) for leaf in leaves]
-    for i, z in _logit_leaves(diff_params):
-        s = jax.nn.sigmoid(z)
-        diag[i] = 2.0 * s * (1.0 - s)
-    return jax.vmap(jnp.diag)(jnp.stack(diag, axis=-1))
+    """Hessian of -_log_jacobian with respect to the stacked active leaves: a
+    (batch_size, n_active, n_active) diagonal matrix with entries 2 s (1 - s)."""
+    s = jax.nn.sigmoid(jnp.stack(jax.tree_util.tree_leaves(diff_params), axis=-1))
+    return jax.vmap(jnp.diag)(2.0 * s * (1.0 - s))
 
 
 def _mcmc_cfg(config: Dict) -> Dict:
