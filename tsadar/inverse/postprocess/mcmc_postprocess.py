@@ -76,6 +76,30 @@ def _physical_samples_for_fit_batch(static_array_part, static_nonarray_part, poo
     return np.stack([np.asarray(physical[species][key_name]) for species, key_name in active_keys], axis=-1)
 
 
+def _failed_chains(stacked: np.ndarray, num_chains: int, r_hat: np.ndarray, threshold: float) -> np.ndarray:
+    """Flags, per chain, lineout and active parameter, the chains that did not converge on their own:
+    split R-hat above threshold or not finite, or a chain that never moved.
+
+    Args:
+        stacked: (num_chains * num_kept, batch_size, n_active) physical samples, chains concatenated in order.
+        num_chains: number of chains pooled into stacked.
+        r_hat: (num_chains, batch_size, n_active) split R-hat of each chain.
+        threshold: largest acceptable split R-hat.
+
+    Returns:
+        failed: (num_chains, batch_size, n_active) boolean.
+    """
+    total, batch_size, n_active = stacked.shape
+    by_chain = stacked.reshape(num_chains, total // num_chains, batch_size, n_active)
+    frozen = np.ptp(by_chain, axis=1) == 0
+    return frozen | ~(np.asarray(r_hat) <= threshold)
+
+
+def _reorder_columns(values: np.ndarray, from_keys: List[Tuple[str, str]], to_keys: List[Tuple[str, str]]) -> np.ndarray:
+    """Reorders the last axis of values from the parameter order from_keys to the order to_keys."""
+    return np.asarray(values)[..., [from_keys.index(key) for key in to_keys]]
+
+
 def _mad_flagged_chains(stacked: np.ndarray, num_chains: int, mad_scale: float) -> np.ndarray:
     """Flags, per lineout and active parameter, the chains whose posterior mean is more than mad_scale
     robust standard deviations (1.4826 * MAD) from the median of all chains' means.
@@ -264,7 +288,9 @@ def mcmc_postprocess(
         physical_by_fit_batch.append(stacked)
 
         if n_active > 0:
-            bad_within = np.asarray(within_chain_r_hat_by_batch[:, b, :, :]) > mcmc_cfg["within_chain_r_hat_threshold"]
+            bad_within = _failed_chains(
+                stacked, num_chains, within_chain_r_hat_by_batch[:, b, :, :], mcmc_cfg["within_chain_r_hat_threshold"]
+            )
             bad_outlier = (
                 _mad_flagged_chains(stacked, num_chains, mcmc_cfg["chain_outlier_mad_scale"])
                 if num_chains > 1
@@ -338,6 +364,15 @@ def mcmc_postprocess(
             _, _, _, laplace_sigmas = recalculate_with_chosen_weights(
                 config, sa, sample_indices, all_data, loss_fn, True, fitted_weights, n_active
             )
+            # the Laplace columns follow get_fitted_params order, the MCMC tables follow active_keys
+            fitted_params, _ = fitted_weights[0].get_fitted_params(config["parameters"])
+            laplace_keys = [
+                (species, key)
+                for species, params in fitted_params.items()
+                for key in params
+                if key not in ("fe", "f", "flm")
+            ]
+            laplace_sigmas = _reorder_columns(laplace_sigmas, laplace_keys, active_keys)
         except Exception as e:
             print(f"Could not compute Laplace/Hessian sigmas for comparison, skipping: {e}")
             laplace_sigmas = None

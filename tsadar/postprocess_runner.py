@@ -111,6 +111,40 @@ class ReconstructedFitState:
     loss_fn: LossFunction
 
 
+# GeneralParams leaves added after tsadar 0.3.0; checkpoints saved before that do not contain them
+_LEGACY_ABSENT_GENERAL_LEAVES = (
+    "normed_brem_amp",
+    "normed_brem_c",
+    "brem_amp_scale",
+    "brem_amp_shift",
+    "brem_c_scale",
+    "brem_c_shift",
+)
+
+
+def _load_fitted_weights(fitted_weights_path: str, skeleton):
+    """
+    Deserializes a fitted_weights.eqx into skeleton (a ThomsonParams, or a list of them). A checkpoint
+    saved before the bremsstrahlung parameters existed is loaded into the older layout, and those
+    parameters keep the inactive defaults skeleton was built with.
+    """
+    try:
+        return eqx.tree_deserialise_leaves(fitted_weights_path, skeleton)
+    except Exception as current_layout_error:
+
+        def _absent(tree):
+            params = tree if isinstance(tree, list) else [tree]
+            return [getattr(p.general, name) for p in params for name in _LEGACY_ABSENT_GENERAL_LEAVES]
+
+        defaults = _absent(skeleton)
+        legacy_skeleton = eqx.tree_at(_absent, skeleton, replace=[None] * len(defaults))
+        try:
+            loaded = eqx.tree_deserialise_leaves(fitted_weights_path, legacy_skeleton)
+        except Exception:
+            raise current_layout_error
+        return eqx.tree_at(_absent, loaded, replace=defaults, is_leaf=lambda x: x is None)
+
+
 def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> ReconstructedFitState:
     """
     Reconstructs everything a postprocessor needs from a saved config + fitted_weights.eqx (rather than
@@ -146,7 +180,7 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
             ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
             for _ in range(num_batches)
         ]
-    fitted_weights = eqx.tree_deserialise_leaves(fitted_weights_path, skeleton)
+    fitted_weights = _load_fitted_weights(fitted_weights_path, skeleton)
 
     if is_angular:
         all_params, num_params = None, None

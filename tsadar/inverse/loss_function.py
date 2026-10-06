@@ -220,31 +220,42 @@ class LossFunction:
         # batch sized differently from the configured fit-batch size (e.g. a single-lineout refit).
         nominal_params = ThomsonParams(cfg["parameters"], dummy_batch["e_data"].shape[0], activate=True)
         _, _, lamAxisE, lamAxisI = self.ts_diag(nominal_params, dummy_batch)
-        lamAxisE = np.asarray(lamAxisE)[0]
-        lamAxisI_arr = np.asarray(lamAxisI)
-        lamAxisI_arr = lamAxisI_arr[0] if lamAxisI_arr.ndim > 1 else lamAxisI_arr
         fr = cfg["data"]["fit_rng"]
         half_width = self.g.shape[0] // 2
 
-        def _windowed(true_mask_1d, num_pixels):
+        def _windowed(true_mask_1d, num_pixels, feature):
             true_idx = np.where(true_mask_1d)[0]
+            if true_idx.size == 0:
+                raise ValueError(
+                    f"loss_method 'covar': the {feature} fit range selects no pixels on the calibrated "
+                    "wavelength axis. Check data.fit_rng, or disable fitting of this feature."
+                )
             lo = max(int(true_idx.min()) - half_width, 0)
             hi = min(int(true_idx.max()) + half_width + 1, num_pixels)
             window_idx = np.arange(lo, hi)
             in_range_submask = true_mask_1d[window_idx]
             return jnp.asarray(window_idx), jnp.asarray(in_range_submask)
 
-        self.covar_blue_idx, self.covar_blue_mask = _windowed(
-            (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"]), lamAxisE.shape[0]
-        )
-        self.covar_red_idx, self.covar_red_mask = _windowed(
-            (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"]), lamAxisE.shape[0]
-        )
-        self.covar_iaw_idx, self.covar_iaw_mask = _windowed(
-            ((lamAxisI_arr > fr["iaw_min"]) & (lamAxisI_arr < fr["iaw_cf_min"]))
-            | ((lamAxisI_arr > fr["iaw_cf_max"]) & (lamAxisI_arr < fr["iaw_max"])),
-            lamAxisI_arr.shape[0],
-        )
+        # windows are only built for the features calc_ei_error fits; a disabled channel has no axis
+        if cfg["data"]["fit_EPWb"] or cfg["data"]["fit_EPWr"]:
+            lamAxisE = np.asarray(lamAxisE)[0]
+        if cfg["data"]["fit_EPWb"]:
+            self.covar_blue_idx, self.covar_blue_mask = _windowed(
+                (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"]), lamAxisE.shape[0], "EPW blue"
+            )
+        if cfg["data"]["fit_EPWr"]:
+            self.covar_red_idx, self.covar_red_mask = _windowed(
+                (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"]), lamAxisE.shape[0], "EPW red"
+            )
+        if cfg["data"]["fit_IAW"]:
+            lamAxisI_arr = np.asarray(lamAxisI)
+            lamAxisI_arr = lamAxisI_arr[0] if lamAxisI_arr.ndim > 1 else lamAxisI_arr
+            self.covar_iaw_idx, self.covar_iaw_mask = _windowed(
+                ((lamAxisI_arr > fr["iaw_min"]) & (lamAxisI_arr < fr["iaw_cf_min"]))
+                | ((lamAxisI_arr > fr["iaw_cf_max"]) & (lamAxisI_arr < fr["iaw_max"])),
+                lamAxisI_arr.shape[0],
+                "IAW",
+            )
 
     def _validated_angular_objective(self, supplied):
         """Return the complete ARTS objective config or reject unsupported choices."""

@@ -55,7 +55,7 @@ def draw_calibration_realizations(
       - EPW/IAW dispersion and offset: config_k["other"]["lamrangE"/"lamrangI"] are recomputed from the
         perturbed wavelength axis.
       - spect_stddev_ion/spect_stddev_ele: config_k["other"]["detector_specs"]["widIRF"], floored at
-        _MIN_IRF_WIDTH.
+        _MIN_IRF_WIDTH when perturbed.
       - gain: config_k["other"]["gain"], with all_data_k's e_data/i_data/noiseE/noiseI/e_amps/i_amps
         rescaled by old_gain / new_gain.
 
@@ -91,13 +91,16 @@ def draw_calibration_realizations(
         epw_off = rng.normal(nominal_epw_off, sigmas["EPWoffset_sigma"]) if sigmas["EPWoffset_sigma"] > 0 else nominal_epw_off
         iaw_disp = rng.normal(nominal_iaw_disp, sigmas["IAWDispersion_sigma"]) if sigmas["IAWDispersion_sigma"] > 0 else nominal_iaw_disp
         iaw_off = rng.normal(nominal_iaw_off, sigmas["IAWoffset_sigma"]) if sigmas["IAWoffset_sigma"] > 0 else nominal_iaw_off
-        spect_stddev_ion = max(
-            rng.normal(nominal_spect_stddev_ion, sigmas["spect_stddev_ion_sigma"]) if sigmas["spect_stddev_ion_sigma"] > 0 else nominal_spect_stddev_ion,
-            _MIN_IRF_WIDTH,
+        # only a perturbed width is floored; a nominal width (including 0, which bypasses the IRF) is kept
+        spect_stddev_ion = (
+            max(rng.normal(nominal_spect_stddev_ion, sigmas["spect_stddev_ion_sigma"]), _MIN_IRF_WIDTH)
+            if sigmas["spect_stddev_ion_sigma"] > 0
+            else nominal_spect_stddev_ion
         )
-        spect_stddev_ele = max(
-            rng.normal(nominal_spect_stddev_ele, sigmas["spect_stddev_ele_sigma"]) if sigmas["spect_stddev_ele_sigma"] > 0 else nominal_spect_stddev_ele,
-            _MIN_IRF_WIDTH,
+        spect_stddev_ele = (
+            max(rng.normal(nominal_spect_stddev_ele, sigmas["spect_stddev_ele_sigma"]), _MIN_IRF_WIDTH)
+            if sigmas["spect_stddev_ele_sigma"] > 0
+            else nominal_spect_stddev_ele
         )
         gain = rng.normal(nominal_gain, sigmas["gain_sigma"]) if sigmas["gain_sigma"] > 0 else nominal_gain
         if gain <= 0:

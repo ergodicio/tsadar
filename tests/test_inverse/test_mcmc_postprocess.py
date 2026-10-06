@@ -181,3 +181,32 @@ def test_finalize_chain_selection_is_per_lineout_independent():
     assert not keep_by_chain[7, :, 1].any()
     other_chains = [c for c in range(num_chains) if c != 7]
     assert keep_by_chain[other_chains, :, 1].all()
+
+
+def test_failed_chains_flags_frozen_and_nonfinite_chains():
+    from tsadar.inverse.postprocess.mcmc_postprocess import _failed_chains
+
+    num_chains, batch_size, n_active, num_kept = 3, 1, 2, 20
+    stacked = _make_stacked(np.zeros((num_chains, batch_size, n_active)), num_kept=num_kept, seed=5)
+    by_chain = stacked.reshape(num_chains, num_kept, batch_size, n_active)
+    by_chain[1, :, 0, 0] = 0.7  # chain 1 never moved in parameter 0
+    r_hat = np.full((num_chains, batch_size, n_active), 1.0)
+    r_hat[1, 0, 0] = 0.99  # a frozen chain can still report an acceptable R-hat
+    r_hat[2, 0, 1] = np.nan
+    r_hat[0, 0, 1] = 1.5
+
+    failed = _failed_chains(by_chain.reshape(stacked.shape), num_chains, r_hat, threshold=1.1)
+
+    expected = np.zeros((num_chains, batch_size, n_active), dtype=bool)
+    expected[1, 0, 0] = expected[2, 0, 1] = expected[0, 0, 1] = True
+    np.testing.assert_array_equal(failed, expected)
+
+
+def test_reorder_columns_matches_parameters_by_name():
+    from tsadar.inverse.postprocess.mcmc_postprocess import _reorder_columns
+
+    laplace_keys = [("electron", "Te"), ("general", "lam"), ("general", "amp1"), ("general", "amp2")]
+    active_keys = [("electron", "Te"), ("general", "amp1"), ("general", "amp2"), ("general", "lam")]
+    sigmas = np.array([[1.0, 3.0, 4.0, 5.0]])
+
+    np.testing.assert_array_equal(_reorder_columns(sigmas, laplace_keys, active_keys), [[1.0, 4.0, 5.0, 3.0]])

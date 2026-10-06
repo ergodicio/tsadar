@@ -749,7 +749,9 @@ def run_mcmc_for_batch(
 
     key, burn_key = jr.split(key)
     adapt_every = max(int(mcmc_cfg["adapt_every"]), 1)
-    n_windows = max(int(mcmc_cfg["burn_in"]) // adapt_every, 0) if mcmc_cfg["burn_in"] > 0 else 0
+    burn_in = max(int(mcmc_cfg["burn_in"]), 0)
+    # full adapt_every-sized chunks followed by one shorter chunk for the remainder
+    burn_chunks = [adapt_every] * (burn_in // adapt_every) + ([burn_in % adapt_every] if burn_in % adapt_every else [])
     n_sample_steps = max(int(mcmc_cfg["num_steps"]) - int(mcmc_cfg["burn_in"]), 1)
     thin = max(int(mcmc_cfg["thin"]), 1)
 
@@ -760,30 +762,32 @@ def run_mcmc_for_batch(
     total_raw_sample_steps = num_kept_total * thin
 
     pbar = trange(
-        n_windows * adapt_every + total_raw_sample_steps,
+        burn_in + total_raw_sample_steps,
         desc=f"{progress_desc} burn-in",
         unit="step",
         leave=False,
         position=pbar_position,
     )
     # RAM adapts every step; adapt_every only sets the chunk size and progress-bar granularity
-    for window_index in range(n_windows):
+    steps_done = 0
+    for chunk_steps in burn_chunks:
         burn_key, window_key = jr.split(burn_key)
-        step_offset = jnp.asarray(float(window_index * adapt_every))
+        step_offset = jnp.asarray(float(steps_done))
         if use_blocking:
             diff_params, log_post, step_scale_ok, step_scale_problem, accept_count_ok, accept_count_problem = (
                 _run_block_ram_window(
                     window_key, loss_fn, static_params, batch, diff_params, log_post,
-                    step_scale_ok, step_scale_problem, well_idx, problem_idx, adapt_every, step_offset,
+                    step_scale_ok, step_scale_problem, well_idx, problem_idx, chunk_steps, step_offset,
                     mcmc_cfg["target_accept"], mcmc_cfg["adapt_gamma"],
                 )
             )
         else:
             diff_params, log_post, step_scale, accept_count = _run_ram_window(
-                window_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, adapt_every,
+                window_key, loss_fn, static_params, batch, diff_params, log_post, step_scale, chunk_steps,
                 step_offset, mcmc_cfg["target_accept"], mcmc_cfg["adapt_gamma"],
             )
-        pbar.update(adapt_every)
+        steps_done += chunk_steps
+        pbar.update(chunk_steps)
 
     pbar.set_description(f"{progress_desc} sampling")
     key, sample_key = jr.split(key)
@@ -955,13 +959,13 @@ def _split_in_half(x: np.ndarray) -> np.ndarray:
 
 def _rank_normalize_pooled(x: np.ndarray) -> np.ndarray:
     """Rank-normalizes x, shaped (num_kept, num_chains, *extra): values are ranked across both leading
-    axes together (ties averaged) and mapped to normal scores, z = Phi^-1((rank - 3/8) / (N - 1/4)).
+    axes together (ties averaged) and mapped to normal scores, z = Phi^-1((rank - 3/8) / (N + 1/4)).
     See Vehtari et al., Bayesian Analysis 16, 667 (2021)."""
     num_kept, num_chains = x.shape[0], x.shape[1]
     n = num_kept * num_chains
     flat = x.reshape(n, *x.shape[2:])
     ranks = scipy.stats.rankdata(flat, axis=0)
-    z = scipy.stats.norm.ppf((ranks - 3.0 / 8.0) / (n - 1.0 / 4.0))
+    z = scipy.stats.norm.ppf((ranks - 3.0 / 8.0) / (n + 1.0 / 4.0))
     return z.reshape(x.shape)
 
 

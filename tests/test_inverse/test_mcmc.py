@@ -514,3 +514,75 @@ def test_run_mcmc_pooled_r_hat_is_none_with_a_single_chain(fitted_fixture):
     assert within_chain_r_hat.shape == (1, 1, batch_size, n_active)
     assert np.all(np.isfinite(within_chain_r_hat))
     assert np.all(within_chain_r_hat >= 0.5)  # see the multi-chain test's assertion for why not a strict >= 1.0
+
+
+def test_rank_normalize_pooled_uses_symmetric_blom_scores():
+    x = np.random.default_rng(202).normal(size=(20, 1))
+    z = mcmc._rank_normalize_pooled(x)
+
+    ranks = np.argsort(np.argsort(x[:, 0])) + 1.0
+    expected = jax.scipy.stats.norm.ppf((ranks - 0.375) / (x.size + 0.25))
+    np.testing.assert_allclose(z[:, 0], expected, rtol=1e-12)
+    np.testing.assert_allclose(np.sort(z[:, 0]), -np.sort(z[:, 0])[::-1], atol=1e-12)
+
+
+def test_burn_in_shorter_than_a_chunk_is_still_run(fitted_fixture):
+    # 25 burn-in steps with adapt_every=50 must not behave like no burn-in at all
+    def _run(num_steps, burn_in):
+        cfg = copy.deepcopy(fitted_fixture["config"])
+        cfg["other"]["mcmc"] = {
+            "num_steps": num_steps, "burn_in": burn_in, "adapt_every": 50, "thin": 1, "use_laplace_seed": False,
+        }
+        _, _, diagnostics = mcmc.run_mcmc_for_batch(
+            cfg, fitted_fixture["loss_fn"], fitted_fixture["fitted_weights"][0], fitted_fixture["batch"],
+            jax.random.PRNGKey(3),
+        )
+        return np.asarray(diagnostics["final_step_scale"])
+
+    with pytest.warns(UserWarning):
+        adapted = _run(100, 25)
+        unadapted = _run(75, 0)
+    assert not np.allclose(adapted, unadapted)
+
+
+def test_covar_loss_function_builds_for_an_electron_only_fit(fitted_fixture):
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    assert not cfg["data"]["fit_IAW"]
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+
+    loss_fn = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], cfg["optimizer"]["batch_size"])
+
+    assert not hasattr(loss_fn, "covar_iaw_idx")
+    assert any(hasattr(loss_fn, name) for name in ("covar_blue_idx", "covar_red_idx"))
+    batch = build_batch(fitted_fixture["all_data"], np.arange(cfg["optimizer"]["batch_size"]), False)
+    nll = loss_fn.neg_log_likelihood(fitted_fixture["fitted_weights"][0], batch, per_lineout=True)
+    assert np.all(np.isfinite(np.asarray(nll)))
+
+
+def test_covar_loss_function_rejects_an_empty_enabled_fit_range(fitted_fixture):
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+    cfg["data"]["fit_EPWb"] = True
+    cfg["data"]["fit_rng"]["blue_min"], cfg["data"]["fit_rng"]["blue_max"] = 1.0, 2.0
+
+    with pytest.raises(ValueError, match="EPW blue fit range selects no pixels"):
+        _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], cfg["optimizer"]["batch_size"])
+
+
+def test_calibration_draws_leave_an_unperturbed_zero_irf_width_unchanged(fitted_fixture):
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["other"]["detector_specs"]["widIRF"]["spect_stddev_ion"] = 0.0
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 3, "gain_sigma": 0.05}
+    draws = mcmc_calibration.draw_calibration_realizations(
+        cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(4)
+    )
+    nominal_ele = cfg["other"]["detector_specs"]["widIRF"]["spect_stddev_ele"]
+    for cfg_k, _ in draws:
+        assert cfg_k["other"]["detector_specs"]["widIRF"]["spect_stddev_ion"] == 0.0
+        assert cfg_k["other"]["detector_specs"]["widIRF"]["spect_stddev_ele"] == nominal_ele
