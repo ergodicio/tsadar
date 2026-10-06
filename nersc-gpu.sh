@@ -9,6 +9,11 @@
 export SLURM_CPU_BIND="cores"
 export BASE_TEMPDIR="$PSCRATCH/tmp/"
 export MLFLOW_TRACKING_URI="https://continuum.ergodic.io/experiments/"
+# Coalesce the per-epoch async log_metrics calls (loops.py's _log_optimizer_step) into
+# batched requests instead of one WAN round trip per epoch -- without this, MLflow's
+# async queue submits each call as its own request and the backlog has to fully drain
+# (blocking) when the run ends, showing up as a multi-minute hang after fitting finishes.
+export MLFLOW_ASYNC_LOGGING_BUFFERING_SECONDS=5
 export MLFLOW_EXPORT=True
 
 # copy job stuff over
