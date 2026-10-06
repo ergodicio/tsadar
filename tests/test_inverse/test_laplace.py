@@ -197,3 +197,23 @@ def test_get_sigmas_raises_when_fe_active():
     fitted_params = {"electron": {"Te": None, "m": None}, "general": {}, "ion-1": {}}
     with pytest.raises(NotImplementedError):
         get_sigmas(None, None, None, fitted_params, batch_size=2)
+
+
+def test_a_failed_sigma_calculation_is_reported_as_nan(fitted_fixture, monkeypatch):
+    from tsadar.inverse.postprocess import laplace
+
+    def _fail(*args, **kwargs):
+        raise RuntimeError("forced failure")
+
+    monkeypatch.setattr(laplace, "get_sigmas", _fail)
+    cfg = fitted_fixture["config"]
+    fitted_weights = fitted_fixture["fitted_weights"]
+    _, num_params = unbatch_fitted_params(cfg, fitted_weights)
+
+    _, _, _, sigmas = recalculate_with_chosen_weights(
+        cfg, fitted_fixture["sa"], fitted_fixture["sample_indices"], fitted_fixture["all_data"],
+        fitted_fixture["loss_fn"], True, fitted_weights, num_params,
+    )
+
+    assert sigmas.shape == (len(fitted_fixture["sample_indices"]), num_params)
+    assert np.all(np.isnan(sigmas))
