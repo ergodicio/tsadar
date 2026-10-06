@@ -1536,6 +1536,20 @@ gain the data were divided by. There is a single gain in the code, the input dec
 correct if the data really are in photoelectrons. The kernel $g$ is tabulated on
 $[-5\sigma_{\rm px},5\sigma_{\rm px}]$.
 
+\paragraph{Throughput correction.} The EPW data are multiplied by the wavelength-dependent
+throughput correction $C(\lambda)$ of \S\ref{sec:throughput} when they are loaded, so the
+data and the model $t$ are in corrected units while the detector noise is not. The
+covariance above is therefore built from the uncorrected signal $t/C$ and transformed
+with the data,
+\begin{equation}
+  K_{\rm corr}=\operatorname{diag}(C)\,K\big(t/C\big)\,\operatorname{diag}(C),
+\end{equation}
+which scales the shot-noise variance of a pixel by $C$ and its readout variance by $C^2$.
+This is the same likelihood as one evaluated on uncorrected data, up to a constant.
+$C$ is evaluated on the calibrated wavelength axis by the same routine that corrects the
+data; pixels where it is undefined are left uncorrected. The IAW data carry no throughput
+correction.
+
 \paragraph{Fitting statistic and likelihood.} Reference~\cite{swadling2022} is a
 least-squares method: it minimizes $S=\mathbf e^{\!\top}K^{-1}\mathbf e$ by Gauss--Newton
 iteration, with $K$ rebuilt from the current fit before each step and held fixed within

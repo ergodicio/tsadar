@@ -910,6 +910,17 @@ The diagonal matrix :math:`\operatorname{diag}(\sigma_s^2)` is 2D-convolved with
 
 with :math:`\sigma_{\rm px}=1.0`, :math:`n=2d_{\rm pixel}+1` the number of detector rows summed per lineout, :math:`\sigma_{\rm rn}=17.0` CCD electrons (preliminary, see below), and :math:`G` the same gain the data were divided by. There is a single gain in the code, the input deck’s ``other.gain``; its default is :math:`108`, and ``fitter._validate_inputs_`` warns when ``loss_method="covar"`` is used with any other value, because the noise model is only correct if the data really are in photoelectrons. The kernel :math:`g` is tabulated on :math:`[-5\sigma_{\rm px},5\sigma_{\rm px}]`.
 
+.. rubric:: Throughput correction.
+
+
+The EPW data are multiplied by the wavelength-dependent throughput correction :math:`C(\lambda)` of §\ :ref:`10.2 <sec:throughput>` when they are loaded, so the data and the model :math:`t` are in corrected units while the detector noise is not. The covariance above is therefore built from the uncorrected signal :math:`t/C` and transformed with the data,
+
+.. math::
+
+     K_{\rm corr}=\operatorname{diag}(C)\,K\big(t/C\big)\,\operatorname{diag}(C),
+
+which scales the shot-noise variance of a pixel by :math:`C` and its readout variance by :math:`C^2`. This is the same likelihood as one evaluated on uncorrected data, up to a constant. :math:`C` is evaluated on the calibrated wavelength axis by the same routine that corrects the data; pixels where it is undefined are left uncorrected. The IAW data carry no throughput correction.
+
 .. rubric:: Fitting statistic and likelihood.
 
 

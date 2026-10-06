@@ -11,6 +11,7 @@ import numpy as np
 import equinox as eqx
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
+from ..data.correct_throughput import throughput_correction
 
 # from ..core.modules import exchange_params, get_filter_spec
 from ..utils.vector_tools import rotate
@@ -243,6 +244,14 @@ class LossFunction:
         # windows are only built for the features calc_ei_error fits; a disabled channel has no axis
         if cfg["data"]["fit_EPWb"] or cfg["data"]["fit_EPWr"]:
             lamAxisE = np.asarray(lamAxisE)[0]
+            # the electron data were multiplied by this throughput correction (data.prepare), so the
+            # detector noise has to be carried into the same units
+            shotnum = cfg["data"]["shotnum"]
+            self.covar_throughput_e = jnp.asarray(
+                throughput_correction(
+                    cfg["other"]["extraoptions"]["spectype"], lamAxisE, shotnum[0] if isinstance(shotnum, list) else shotnum
+                )
+            )
         if cfg["data"]["fit_EPWb"]:
             self.covar_blue_idx, self.covar_blue_mask, self.covar_blue_sub = _windowed(
                 (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"]), lamAxisE.shape[0], "EPW blue"
@@ -611,6 +620,7 @@ class LossFunction:
                 e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
                 covar_idx=getattr(self, "covar_blue_idx", None), covar_submask=getattr(self, "covar_blue_mask", None),
                 covar_sub=getattr(self, "covar_blue_sub", None),
+                covar_throughput=getattr(self, "covar_throughput_e", None),
             )
             e_error += error
             sqdev["ele"] = sqd
@@ -623,6 +633,7 @@ class LossFunction:
                 e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
                 covar_idx=getattr(self, "covar_red_idx", None), covar_submask=getattr(self, "covar_red_mask", None),
                 covar_sub=getattr(self, "covar_red_sub", None),
+                covar_throughput=getattr(self, "covar_throughput_e", None),
             )
             e_error += error
 
@@ -643,7 +654,7 @@ class LossFunction:
 
     def _feature_error_(
         self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False, covar_idx=None, covar_submask=None,
-        covar_sub=None,
+        covar_sub=None, covar_throughput=None,
     ):
         """
         Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
@@ -662,6 +673,8 @@ class LossFunction:
                 divided by (in-range pixels - free parameters).
             covar_idx, covar_submask, covar_sub: covar only. Pixel window, in-range mask within it, and
                 the positions of the in-range pixels within it, from _init_covar_pixel_indices.
+            covar_throughput: covar only. Throughput correction the data were multiplied by, on the full
+                wavelength axis, or None for a channel without one (the IAW).
 
         Returns:
             tuple: (error, sqdev) where sqdev is the residual array with out-of-range points set to zero.
@@ -674,7 +687,9 @@ class LossFunction:
 
             # K is built on the padded window so the convolution sees the neighbors of the in-range
             # pixels, then restricted to the in-range pixels, whose joint covariance it is
-            k = self.calculate_covariance_matrix(covar_g)
+            k = self.calculate_covariance_matrix(
+                covar_g, None if covar_throughput is None else jnp.take(covar_throughput, covar_idx)
+            )
             k = jnp.take(jnp.take(k, covar_sub, axis=-2), covar_sub, axis=-1)
             if not per_lineout:
                 # the fitting statistic weights the residuals with K held fixed at the current model
@@ -1503,7 +1518,7 @@ class LossFunction:
         momentum_loss = jnp.mean(mean_velocity**2)
         return density_loss, temperature_loss, momentum_loss
     
-    def calculate_covariance_matrix(self, data):
+    def calculate_covariance_matrix(self, data, throughput=None):
         """
         Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following Swadling
         et al., Rev. Sci. Instrum. 93, 043503 (2022), for a signal in photoelectrons (CCD electrons divided
@@ -1511,16 +1526,22 @@ class LossFunction:
         the diagonal and convolved with the CCD spread function self.g, and a readout-noise term
         (self.n * (self.sig_rn / self.G)**2) is added on the diagonal.
 
+        When the data were multiplied by a throughput correction C, the detector covariance is built from
+        the uncorrected signal data / C and returned in corrected units, C K_detector C.
+
         Args:
             data: array of shape (num_lineouts, num_pixels) the shot noise is estimated from. Callers pass
                 the model prediction. Values are floored at 1e-10 to keep the square root and its gradient
                 finite.
+            throughput: optional array of shape (num_pixels,), the throughput correction C applied to the
+                data. Pixels where it is zero are treated as uncorrected.
 
         Returns:
             k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
             each lineout.
         """
-        sig_s = jnp.sqrt(jnp.clip(data, 1e-10, None) * self.F2)
+        correction = jnp.ones(jnp.shape(data)[-1]) if throughput is None else jnp.where(throughput > 0, throughput, 1.0)
+        sig_s = jnp.sqrt(jnp.clip(data / correction, 1e-10, None) * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])
         #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
@@ -1532,4 +1553,4 @@ class LossFunction:
 
         k_noise = jax.vmap(_slice_noise)(sig_s)
 
-        return k_noise
+        return k_noise * correction[:, None] * correction[None, :]
