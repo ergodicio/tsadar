@@ -151,10 +151,10 @@ def _validate_inputs_(config: Dict) -> Dict:
             "to 1 for uncertainty estimates."
         )
 
-    if config["optimizer"]["loss_method"] == "covar" and config["other"]["gain"] != OMEGA_TS_GAIN:
+    if config["optimizer"]["loss_method"] == "covar" and config["other"]["detector_gain"] != OMEGA_TS_GAIN:
         warnings.warn(
-            f"loss_method=='covar' (and the MCMC postprocessor that uses it) needs an accurate other.gain to "
-            f"convert the data from CCD electrons to photoelectrons; it is {config['other']['gain']}. The "
+            f"loss_method=='covar' (and the MCMC postprocessor that uses it) needs an accurate other.detector_gain to "
+            f"convert the data from CCD electrons to photoelectrons; it is {config['other']['detector_gain']}. The "
             f"OMEGA Thomson-scattering streak cameras have a gain of {OMEGA_TS_GAIN} CCD electrons per "
             "photoelectron."
         )

@@ -46,7 +46,7 @@ def test_covar_forces_unsmoothed_unsubtracted_data_and_checks_the_gain(base_conf
     cfg = copy.deepcopy(base_config)
     cfg["optimizer"]["loss_method"] = "covar"
     cfg["data"]["background"]["bg_subtract"] = True
-    cfg["other"]["gain"] = 1
+    cfg["other"]["detector_gain"] = 1
     with pytest.warns(UserWarning) as record:
         cfg = _validate_inputs_(cfg)
     messages = " ".join(str(w.message) for w in record)

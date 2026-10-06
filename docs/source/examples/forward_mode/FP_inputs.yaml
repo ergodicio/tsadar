@@ -21,10 +21,11 @@ mlflow:
   run: FP example
 
 other:
-  Ipump_14: 0
-  beam_diam_um: 100
+  LPI_gain:
+    Ipump_14: 0
+    beam_diam_um: 100
+    include_LPI_gains: false
   calc_sigmas: false
-  include_gains: false
   refit: false
   refit_thresh: 5.0
 

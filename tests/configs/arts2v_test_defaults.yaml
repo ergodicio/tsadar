@@ -83,7 +83,7 @@ other:
   expandedions: false
   extraoptions:
   flatbg: 0
-  gain: 108
+  detector_gain: 108
   iawfilter:
   - 1
   - 4

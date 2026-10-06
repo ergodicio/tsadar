@@ -178,12 +178,13 @@ class FitModel:
         # slower but is what the tabulation is validated against.
         n_beta = config["other"].get("n_beta", DEFAULT_N_BETA)
 
-        if 'include_gains' in config["other"] and config["other"]["include_gains"]:
+        lpi_gain = config["other"].get("LPI_gain", {})
+        if lpi_gain.get("include_LPI_gains", False):
             calc_gain = {
-                'calc': config["other"]["include_gains"],
-                'Ipump': config["other"]["Ipump_14"],
-                'beam_diam_um': config["other"]["beam_diam_um"],
-                'gain_cap': config["other"].get("gain_cap", 100.0),
+                'calc': lpi_gain["include_LPI_gains"],
+                'Ipump': lpi_gain["Ipump_14"],
+                'beam_diam_um': lpi_gain["beam_diam_um"],
+                'gain_cap': lpi_gain.get("LPI_gain_cap", 100.0),
             }
         else:
             calc_gain = {'calc': False, 'Ipump': 0, 'beam_diam_um': 0, 'gain_cap': 100.0}

@@ -165,7 +165,7 @@ class LossFunction:
                 # number of detector rows summed into a lineout (see data.lineouts.get_lineouts)
                 self.n = 2 * cfg["data"]["dpixel"] + 1
                 # camera gain (CCD electrons per photoelectron), the same value the data were divided by
-                self.G = cfg["other"]["gain"]
+                self.G = cfg["other"]["detector_gain"]
                 # noise factor of the optical streak camera, Ghosh et al., RSI 75, 3956 (2004)
                 self.F2 = 1.15
 

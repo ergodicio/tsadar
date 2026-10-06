@@ -1315,7 +1315,7 @@ theory can actually be compared against is its own pipeline, run once per shot b
     over a window of $n=2\,\code{dpixel}+1$ detector rows centered on the lineout
     position $a$ (rows $a-\code{dpixel}$ to $a+\code{dpixel}$), the same $n$ that
     multiplies the readout noise in \S\ref{sec:loss}'s noise-covariance matrix, and divide
-    by the camera gain $G$ (\code{config["other"]["gain"]}, CCD electrons per
+    by the camera gain $G$ (\code{config["other"]["detector\_gain"]}, CCD electrons per
     photoelectron) to convert the data to photoelectrons, the units the noise model of
     \S\ref{sec:covar} assumes. Each lineout is then smoothed along the wavelength axis
     with a boxcar of \code{config["data"]["spectral\_smoothing"]} pixels. The default
@@ -1531,7 +1531,7 @@ on the diagonal,
 with $\sigma_{\rm px}=1.0$, $n=2d_{\rm pixel}+1$ the number of detector rows summed per
 lineout, $\sigma_{\rm rn}=17.0$ CCD electrons (preliminary, see below), and $G$ the same
 gain the data were divided by. There is a single gain in the code, the input deck's
-\code{other.gain}; its default is $108$, and \code{fitter.\_validate\_inputs\_} warns when
+\code{other.detector\_gain}; its default is $108$, and \code{fitter.\_validate\_inputs\_} warns when
 \code{loss\_method="covar"} is used with any other value, because the noise model is only
 correct if the data really are in photoelectrons. The kernel $g$ is tabulated on
 $[-5\sigma_{\rm px},5\sigma_{\rm px}]$.

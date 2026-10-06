@@ -149,7 +149,7 @@ def get_lineouts(
     )
 
     # Find data amplitudes, with the data converted from CCD electrons to photoelectrons
-    gain = config["other"]["gain"]
+    gain = config["other"]["detector_gain"]
     # the fitted data are smoothed over data.spectral_smoothing wavelength pixels (1 = not smoothed)
     width = spectral_smoothing_width(config)
     data_kernel = np.ones(width) / width
