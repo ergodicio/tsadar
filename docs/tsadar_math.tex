@@ -1550,6 +1550,14 @@ $C$ is evaluated on the calibrated wavelength axis by the same routine that corr
 data; pixels where it is undefined are left uncorrected. The IAW data carry no throughput
 correction.
 
+The data are corrected once, on the nominal wavelength axis. A calibration draw of
+\S\ref{sec:uq-pooling} that perturbs the EPW dispersion or offset moves the model's
+wavelength axis but does not re-correct the data, so every draw's covariance uses the
+nominal $C$, the one actually present in the data. This keeps the data and their noise
+model consistent. It is an approximation in one respect: under a perturbed wavelength
+calibration the appropriate correction would itself differ slightly (by roughly a percent
+per nanometre of shift), and that change is not propagated into the data.
+
 \paragraph{Fitting statistic and likelihood.} Reference~\cite{swadling2022} is a
 least-squares method: it minimizes $S=\mathbf e^{\!\top}K^{-1}\mathbf e$ by Gauss--Newton
 iteration, with $K$ rebuilt from the current fit before each step and held fixed within

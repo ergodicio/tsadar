@@ -921,6 +921,8 @@ The EPW data are multiplied by the wavelength-dependent throughput correction :m
 
 which scales the shot-noise variance of a pixel by :math:`C` and its readout variance by :math:`C^2`. This is the same likelihood as one evaluated on uncorrected data, up to a constant. :math:`C` is evaluated on the calibrated wavelength axis by the same routine that corrects the data; pixels where it is undefined are left uncorrected. The IAW data carry no throughput correction.
 
+The data are corrected once, on the nominal wavelength axis. A calibration draw of §\ :ref:`13.5 <sec:uq-pooling>` that perturbs the EPW dispersion or offset moves the model’s wavelength axis but does not re-correct the data, so every draw’s covariance uses the nominal :math:`C`, the one actually present in the data. This keeps the data and their noise model consistent. It is an approximation in one respect: under a perturbed wavelength calibration the appropriate correction would itself differ slightly (by roughly a percent per nanometre of shift), and that change is not propagated into the data.
+
 .. rubric:: Fitting statistic and likelihood.
 
 

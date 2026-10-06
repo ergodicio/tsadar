@@ -745,3 +745,25 @@ def test_brem_model_background_is_sized_along_the_wavelength_axis():
     image = np.zeros((8, 5))  # 8 wavelength pixels, 5 time pixels
     noiseE, noiseI = get_lineout_bg(config, image, image, 0, 0, [], 0, [1, 2], [1, 2], np.arange(8), np.arange(8))
     assert noiseE.shape == (2, 8) and noiseI.shape == (2, 8)
+
+
+def test_calibration_draws_keep_the_throughput_correction_applied_to_the_data(fitted_fixture):
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+    batch_size = cfg["optimizer"]["batch_size"]
+    nominal = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], batch_size)
+
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 2, "EPWDispersion_sigma": 0.005}
+    draws = mcmc_calibration.draw_calibration_realizations(
+        cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(7)
+    )
+    for cfg_k, all_data_k in draws:
+        # built on its own, a draw would evaluate the correction on its perturbed wavelength axis
+        own = _build_loss_fn_for_draw(cfg_k, fitted_fixture["sa"], all_data_k, batch_size)
+        assert not np.allclose(np.asarray(own.covar_throughput_e), np.asarray(nominal.covar_throughput_e))
+        # the data were corrected on the nominal axis, so the noise model keeps that correction
+        loss_fn_k = _build_loss_fn_for_draw(cfg_k, fitted_fixture["sa"], all_data_k, batch_size, nominal)
+        np.testing.assert_array_equal(np.asarray(loss_fn_k.covar_throughput_e), np.asarray(nominal.covar_throughput_e))

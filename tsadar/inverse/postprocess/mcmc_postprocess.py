@@ -171,15 +171,24 @@ def _finalize_chain_selection(bad_within: np.ndarray, bad_outlier: np.ndarray, m
     return keep_mask, n_dropped, unreliable, param_unreliable
 
 
-def _build_loss_fn_for_draw(config_k: Dict, sa, all_data_k: Dict, batch_size: int) -> LossFunction:
+def _build_loss_fn_for_draw(
+    config_k: Dict, sa, all_data_k: Dict, batch_size: int, nominal_loss_fn: LossFunction = None
+) -> LossFunction:
     """Builds a LossFunction for one calibration draw's data, using the same sample construction as
-    loops.one_d_loop so the normalization factors are consistent."""
+    loops.one_d_loop so the normalization factors are consistent.
+
+    The data were throughput-corrected once, on the nominal wavelength axis, and a draw does not
+    re-correct them. When nominal_loss_fn is given, the draw's covar noise model therefore keeps the
+    nominal throughput correction instead of one evaluated on the draw's perturbed axis."""
     sample = {k: v[:batch_size] for k, v in all_data_k.items()}
     sample = {
         "noise_e": all_data_k["noiseE"][:batch_size],
         "noise_i": all_data_k["noiseI"][:batch_size],
     } | sample
-    return LossFunction(config_k, sa, sample)
+    loss_fn_k = LossFunction(config_k, sa, sample)
+    if hasattr(nominal_loss_fn, "covar_throughput_e") and hasattr(loss_fn_k, "covar_throughput_e"):
+        loss_fn_k.covar_throughput_e = nominal_loss_fn.covar_throughput_e
+    return loss_fn_k
 
 
 def mcmc_postprocess(
@@ -241,7 +250,9 @@ def mcmc_postprocess(
     for draw_index, (config_k, all_data_k) in enumerate(draws):
         # the nominal loss_fn is only valid for a draw whose calibration is unperturbed
         reuse_nominal = config_k is config and all_data_k is all_data
-        loss_fn_k = loss_fn if reuse_nominal else _build_loss_fn_for_draw(config_k, sa, all_data_k, batch_size)
+        loss_fn_k = (
+            loss_fn if reuse_nominal else _build_loss_fn_for_draw(config_k, sa, all_data_k, batch_size, loss_fn)
+        )
         loss_fns_by_draw.append(loss_fn_k)
         batches_by_draw.append([build_batch(all_data_k, inds, background_subtract) for inds in batch_indices])
 
