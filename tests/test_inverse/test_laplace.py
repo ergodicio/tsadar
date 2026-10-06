@@ -104,7 +104,7 @@ def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
     hess0 = loss_fn.h_loss_wrt_params_per_lineout(diff_params0, static_params0, batch0)
 
     fitted_params0, _ = ts_params0.get_fitted_params(cfg["parameters"])
-    sigmas = get_sigmas(hess0, diff_params0, fitted_params0, batch_size)
+    sigmas = get_sigmas(hess0, diff_params0, static_params0, fitted_params0, batch_size)
 
     def _leaf(tree, species, key):
         nkey = f"normed_{key}" if key != "fract" else key
@@ -119,10 +119,23 @@ def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
             outer = _leaf(hess0, sp1, k1)
             for b, (sp2, k2) in enumerate(ordered):
                 temp[a, b] = np.asarray(_leaf(outer, sp2, k2))[i]
-        inv = np.linalg.inv(temp)
-        independent[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
+        # physical covariance: J (2 H^-1) J^T, with J from central differences of the parameter transform
+        jac = np.zeros((len(ordered), len(ordered)))
+        step = 1e-5
+        for b, (sp2, k2) in enumerate(ordered):
+            nkey = f"normed_{k2}" if k2 != "fract" else k2
+            if sp2.startswith("ion-"):
+                where = lambda t, _sp=sp2, _k=nkey: getattr(t.ions[int(_sp.split("-")[1]) - 1], _k)
+            else:
+                where = lambda t, _sp=sp2, _k=nkey: getattr(getattr(t, _sp), _k)
+            plus = eqx.tree_at(where, ts_params0, replace_fn=lambda x: x + step).get_unnormed_params()
+            minus = eqx.tree_at(where, ts_params0, replace_fn=lambda x: x - step).get_unnormed_params()
+            for a, (sp1, k1) in enumerate(ordered):
+                jac[a, b] = (np.asarray(plus[sp1][k1])[i] - np.asarray(minus[sp1][k1])[i]) / (2 * step)
+        covariance = jac @ (2.0 * np.linalg.inv(temp)) @ jac.T
+        independent[i, :] = np.sign(np.diag(covariance)) * np.sqrt(np.abs(np.diag(covariance)))
 
-    np.testing.assert_allclose(sigmas, independent, rtol=1e-8)
+    np.testing.assert_allclose(sigmas, independent, rtol=1e-5)
 
 
 def test_h_loss_wrt_params_per_lineout_matches_full_hessian_diagonal(fitted_fixture):
@@ -183,4 +196,4 @@ def test_get_sigmas_raises_when_fe_active():
     # an active electron distribution function must raise rather than be mis-computed
     fitted_params = {"electron": {"Te": None, "m": None}, "general": {}, "ion-1": {}}
     with pytest.raises(NotImplementedError):
-        get_sigmas(None, None, fitted_params, batch_size=2)
+        get_sigmas(None, None, None, fitted_params, batch_size=2)

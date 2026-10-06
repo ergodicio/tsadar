@@ -56,7 +56,54 @@ _DEFAULTS = {
     "block_gibbs_eigval_threshold": -0.1,
     # minimum |eigenvector component| for a parameter to count as part of a flagged direction
     "block_gibbs_component_threshold": 0.3,
+    # prior over the physical parameters, a key of _LOG_PRIORS
+    "prior": "uniform",
 }
+
+
+def _uniform_log_prior(weights) -> float:
+    """Uniform within each parameter's [lb, ub]."""
+    return 0.0
+
+
+# Log-prior densities over the physical parameters, selected by config["other"]["mcmc"]["prior"]. Each
+# takes the full ThomsonParams (use get_unnormed_params() for physical values) and returns a per-lineout
+# array of shape (batch_size,), or a scalar.
+_LOG_PRIORS: Dict[str, Callable] = {"uniform": _uniform_log_prior}
+
+
+def _log_prior_fn(config: Dict) -> Callable:
+    name = config.get("other", {}).get("mcmc", {}).get("prior", _DEFAULTS["prior"])
+    if name not in _LOG_PRIORS:
+        raise ValueError(f"Unknown MCMC prior {name!r}; available priors: {sorted(_LOG_PRIORS)}")
+    return _LOG_PRIORS[name]
+
+
+def _logit_leaves(diff_params) -> List[Tuple[int, jnp.ndarray]]:
+    """(index, leaf) of the active leaves sampled in logit coordinates, i.e. every "normed_" leaf. The
+    index is the leaf's position in jax.tree_util.tree_leaves(diff_params)."""
+    paths = jax.tree_util.tree_flatten_with_path(diff_params)[0]
+    return [(i, leaf) for i, (path, leaf) in enumerate(paths) if path[-1].name.startswith("normed_")]
+
+
+def _log_jacobian(diff_params) -> jnp.ndarray:
+    """Per-lineout log-Jacobian of the map from the sampled logit coordinates to the physical parameters,
+    up to a constant: sum over parameters of log(s) + log(1 - s), with s = sigmoid(z)."""
+    total = 0.0
+    for _, z in _logit_leaves(diff_params):
+        total = total + jax.nn.log_sigmoid(z) + jax.nn.log_sigmoid(-z)
+    return total
+
+
+def _log_jacobian_curvature(diff_params) -> jnp.ndarray:
+    """Hessian of -_log_jacobian with respect to the stacked leaves: a (batch_size, n_active, n_active)
+    diagonal matrix with entries 2 s (1 - s) for the logit-coordinate leaves and 0 otherwise."""
+    leaves = jax.tree_util.tree_leaves(diff_params)
+    diag = [jnp.zeros_like(leaf) for leaf in leaves]
+    for i, z in _logit_leaves(diff_params):
+        s = jax.nn.sigmoid(z)
+        diag[i] = 2.0 * s * (1.0 - s)
+    return jax.vmap(jnp.diag)(jnp.stack(diag, axis=-1))
 
 
 def _mcmc_cfg(config: Dict) -> Dict:
@@ -112,9 +159,11 @@ def _propose(key: jax.Array, diff_params, step_scale: jnp.ndarray):
 
 
 def _log_posterior(loss_fn: LossFunction, diff_params, static_params, batch: Dict) -> jnp.ndarray:
-    """Per-lineout log-posterior, up to an additive constant: -0.5 * neg_log_likelihood."""
+    """Per-lineout log-posterior density in the sampled coordinates, up to an additive constant:
+    log-likelihood + log-prior of the physical parameters + log-Jacobian of the coordinate transform."""
     weights = eqx.combine(static_params, diff_params)
-    return -0.5 * loss_fn.neg_log_likelihood(weights, batch, per_lineout=True)
+    log_likelihood = -0.5 * loss_fn.neg_log_likelihood(weights, batch, per_lineout=True)
+    return log_likelihood + _log_prior_fn(loss_fn.cfg)(weights) + _log_jacobian(diff_params)
 
 
 def _mh_accept(key: jax.Array, diff_params, log_post: jnp.ndarray, proposal, log_post_proposal: jnp.ndarray):
@@ -611,7 +660,7 @@ def _regularized_proposal_cholesky(H: jnp.ndarray, rr_factor: float) -> jnp.ndar
 
 def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: Dict, diff_params) -> jnp.ndarray:
     """Initial per-lineout proposal Cholesky factor from the full per-lineout Hessian of the negative
-    log-likelihood with respect to diff_params, scaled by 2.38/sqrt(n_active).
+    log-posterior with respect to diff_params, scaled by 2.38/sqrt(n_active).
 
     Returns:
         L: (batch_size, n_active, n_active) Cholesky factor of the proposal covariance.
@@ -623,8 +672,8 @@ def _seed_step_scale_from_laplace(loss_fn: LossFunction, static_params, batch: D
 def _hessian_and_regularized_step_scale(
     loss_fn: LossFunction, static_params, batch: Dict, diff_params
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """Computes the per-lineout Hessian with respect to diff_params once and returns it together with
-    its regularized proposal Cholesky factor.
+    """Computes the per-lineout Hessian of the negative log-posterior with respect to diff_params once
+    and returns it together with its regularized proposal Cholesky factor.
 
     Returns:
         (H, step_scale): both (batch_size, n_active, n_active).
@@ -635,7 +684,9 @@ def _hessian_and_regularized_step_scale(
         return empty, empty
 
     hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
-    H = _stack_hessian(hess, diff_params)  # (batch_size, n_active, n_active)
+    # Hessian of the negative log-posterior: half the -2*log-likelihood Hessian plus the Jacobian term
+    # (the curvature of a non-uniform prior is not included)
+    H = 0.5 * _stack_hessian(hess, diff_params) + _log_jacobian_curvature(diff_params)
     rr_factor = 2.38 / jnp.sqrt(float(n))
     return H, _regularized_proposal_cholesky(H, rr_factor)
 

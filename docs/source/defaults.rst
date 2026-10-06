@@ -196,6 +196,11 @@ The ``data:`` section contains the specifics on which shot and what region of th
 
 - ``dpixel`` determines the width of a lineout in pixels; the width of a lineout is 2*``dpixel`` + 1 centered about the values in ``lineouts``. 2 or 3 is a common value for this parameter to help improve the signal to noise ratio of the lineouts that are being fit, but a larger value can be used for very noisy data at the cost of potentially smearing features in the data due to changing conditions as a function of time or space.
 
+.. versionchanged:: 0.4.0
+    A lineout now sums 2*``dpixel`` + 1 detector rows centered on its position. Earlier releases summed 2*``dpixel`` rows (one fewer on the high side), so lineout amplitudes and fit results can shift. The default ``gain`` also changed from 1 to 108, which rescales the data and therefore loss values. A config that has no ``spectral_smoothing`` entry is treated as predating 0.4.0 and triggers a warning.
+
+- ``spectral_smoothing`` width, in wavelength pixels, of the boxcar smoothing applied to each lineout before fitting. ``default`` uses 2*``dpixel`` + 1, the same width as the row sum; ``1`` disables smoothing. It must be ``default`` or a positive odd integer. ``loss_method: covar`` and the MCMC postprocessor always use ``1``, with a warning if another value was set, because their noise model describes the pixel-to-pixel correlations itself. ``calc_sigmas`` warns when the data are smoothed, since the resulting uncertainties are underestimated.
+
 - ``ele_lam_shift`` shifts the central frequency given by ``lam`` in the EPW spectrum, given in nm. This can be used to account for wavelength calibration uncertainty between different the electron and ion data.
 
 - ``ele_t0`` shifts the time denoted as 0 for time resolved EPW data, given in the same units as the lineouts (ps or pixel). This can be used to set t0 to a specific location within the dataset.
@@ -326,7 +331,7 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``calc_sigmas`` is a boolean determining if a Hessian will be computed to determine the uncertainty in fitted parameters.
 
-.. versionchanged:: 0.3.1
+.. versionchanged:: 0.4.0
     Earlier releases computed this Hessian with respect to the *entire* fitted-parameter pytree, which could attempt a multi-hundred-GB allocation on an ordinary fit whose electron distribution function carries a sizeable fixed interpolation table (even with ``fe`` inactive), and the resulting uncertainties were not usable. The Hessian is now restricted to only the active fit parameters (the same restriction ``mcmc.use_laplace_seed`` below already applied), which fixes both problems. ``calc_sigmas`` still does not support the electron distribution function ("fe") as an active fit parameter -- deactivate ``electron.fe.active`` to use it, or use the MCMC postprocessor (:doc:`mcmc`) instead.
 
 - ``mcmc`` is a container for options controlling the standalone MCMC uncertainty postprocessor -- see :doc:`mcmc` for what it does and how to run it. These fields are only read by that postprocessor, never by a normal fit or by ``calc_sigmas``; the whole section (or any individual field) may be omitted, in which case the defaults below are used.
@@ -353,7 +358,7 @@ The ``other:`` section includes options specifying the types of data that are be
 
     - ``save_samples`` boolean; if true the full thinned, pooled posterior samples are saved as an artifact (``binary/mcmc_samples.nc``) in addition to the per-lineout mean/std/covariance summary.
 
-    - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default, mainly to keep this postprocessor's own footprint minimal -- as of 0.3.1 the underlying Hessian is restricted to only the active fit parameters (see ``calc_sigmas`` above), so this is no longer the large-memory-allocation risk it once was. A failure here (e.g. a degenerate Hessian, or the electron distribution function being active) is still caught and simply disables the comparison rather than failing the run.
+    - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default, mainly to keep this postprocessor's own footprint minimal -- as of 0.4.0 the underlying Hessian is restricted to only the active fit parameters (see ``calc_sigmas`` above), so this is no longer the large-memory-allocation risk it once was. A failure here (e.g. a degenerate Hessian, or the electron distribution function being active) is still caught and simply disables the comparison rather than failing the run.
 
     - ``chain_outlier_mad_scale`` threshold, in robust standard deviations (1.4826 x MAD), beyond which a chain's posterior mean for a parameter is flagged as an outlier relative to the other chains. Only used with more than one chain.
 
@@ -366,6 +371,8 @@ The ``other:`` section includes options specifying the types of data that are be
     - ``block_gibbs_eigval_threshold`` eigenvalue of the normalized Hessian at or below which a direction is treated as a problem direction for ``block_gibbs``.
 
     - ``block_gibbs_component_threshold`` minimum eigenvector component for a parameter to be counted as part of a problem direction.
+
+    - ``prior`` name of the prior over the physical parameters. ``uniform`` (the default) is flat within each parameter's ``lb``/``ub``.
 
 - ``calibration_uncertainty`` is a container for options controlling how many independent MCMC chains the standalone postprocessor runs and pools, and (optionally) how instrument-calibration uncertainty is propagated into them -- see :doc:`mcmc`. Like ``mcmc`` above, these fields are only read by the standalone MCMC postprocessor.
 
@@ -401,7 +408,7 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``flatbg`` flat (applied to all pixes) value added to the background
 
-- ``gain`` CCD counts per photo-electron; the standard OMEGA ROSS has a gain of 144. Gain must be accurate for appropriate use of Poisson statistics but the gain is generaly not important for the fitting process as the data is normalized by default.
+- ``gain`` CCD electrons per photo-electron, used to convert the data to photo-electrons. The OMEGA Thomson-scattering optical streak cameras have a gain of 108 (Ghosh et al., Rev. Sci. Instrum. 75, 3956 (2004)), which is the default. ``loss_method: covar`` and the MCMC postprocessor use this value in their noise model and warn if it is anything else. Gain must be accurate for appropriate use of Poisson statistics but the gain is generaly not important for the fitting process as the data is normalized by default.
 
 - ``points_per_pixel`` number of wavelength points computed per detector pixel by the legacy sampled-spectrum path. ARTS2D does not use this setting to resolve a narrow resonance: it integrates the continuous spectrum directly into the calibrated detector-bin edges.
 

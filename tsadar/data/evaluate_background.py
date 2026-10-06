@@ -124,7 +124,7 @@ def get_lineout_bg(
             "brem" bg_alg.
         axisyI (np.ndarray): Spectral axis for ion data (unused, kept for signature symmetry).
     """
-    span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
+    span = 2 * config["data"]["dpixel"] + 1  # rows summed per lineout, also the background smoothing width
 
     # Check if the background type is valid
     if config["data"]["background"]["type"].casefold() not in ["fit", "shot", "pixel", "brem_model"]:
@@ -192,7 +192,7 @@ def get_lineout_bg(
             # quantify a background lineout
             LineoutBGE = np.mean(
                 (elecData - BGele)[
-                    :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"]
+                    :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"] + 1
                 ],
                 1,
             )
@@ -216,7 +216,7 @@ def get_lineout_bg(
         # add background from background shot if applicable
         if np.shape(BGele) == tuple(config["other"]["CCDsize"]):
             LineoutBGE2 = [
-                np.mean(BGele[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
+                np.mean(BGele[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1], axis=1)
                 for a in LineoutPixelE
             ]
             noiseE = LineoutBGE + np.array(LineoutBGE2)
@@ -237,7 +237,7 @@ def get_lineout_bg(
         # quantify a uniform background
         noiseI = np.sum(
             (ionData - BGion)[
-                :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"]
+                :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"] + 1
             ],
             1,
         )
@@ -249,7 +249,7 @@ def get_lineout_bg(
         # add the uniform background to the background from the background shot
         if np.shape(BGion) == tuple(config["other"]["CCDsize"]):
             LineoutBGI = [
-                np.mean(BGion[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
+                np.mean(BGion[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1], axis=1)
                 for a in LineoutPixelI
             ]
             noiseI = noiseI + LineoutBGI

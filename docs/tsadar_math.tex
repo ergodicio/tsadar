@@ -1312,10 +1312,20 @@ theory can actually be compared against is its own pipeline, run once per shot b
     for the forward model to add back in, everything in the collected light that isn't
     Thomson-scattered signal.
   \item \textbf{Extract lineouts} (\code{lineouts.get\_lineouts}): sum each fit location
-    over a $2\,\code{dpixel}$-pixel window -- close to, but one pixel narrower than, the
-    $n=2\,\code{dpixel}+1$ that appears in \S\ref{sec:loss}'s noise-covariance matrix -- and
-    divide by the CCD gain $G$ to convert from raw counts to the same physical
-    (photoelectron) units the shot-noise model there assumes.
+    over a window of $n=2\,\code{dpixel}+1$ detector rows centered on the lineout
+    position $a$ (rows $a-\code{dpixel}$ to $a+\code{dpixel}$), the same $n$ that
+    multiplies the readout noise in \S\ref{sec:loss}'s noise-covariance matrix, and divide
+    by the camera gain $G$ (\code{config["other"]["gain"]}, CCD electrons per
+    photoelectron) to convert the data to photoelectrons, the units the noise model of
+    \S\ref{sec:covar} assumes. Each lineout is then smoothed along the wavelength axis
+    with a boxcar of \code{config["data"]["spectral\_smoothing"]} pixels. The default
+    width is $n$, which with the row sum makes a square $n\times n$ kernel; a width of
+    $1$ leaves the data unsmoothed. Smoothing lowers the pixel noise and correlates
+    neighboring pixels in a way no noise model here describes, so it is suitable for the
+    pointwise fitting losses but not for a likelihood: \code{loss\_method="covar"} and
+    the MCMC postprocessor force the width to $1$, and \code{calc\_sigmas} warns when it
+    is larger. Independently of this setting, an $n$-pixel smoothed copy is used to
+    estimate the background and to set each lineout's amplitude normalization.
 \end{enumerate}
 An optional feature-detection pass (\code{feature\_detector.first\_guess}) can run partway
 through step 4, after the shot-background estimate but before lineout extraction, to
@@ -1491,11 +1501,13 @@ pixels once convolved with the sensor's own PSF. Following the method of Swadlin
 noise-covariance matrix from a shot-noise term convolved with the CCD's point-spread
 function, plus an uncorrelated readout-noise term.
 
-\paragraph{Shot noise from the model.} The per-pixel shot-noise variance, given CCD gain
-$G$ and excess noise factor $F$, is
+\paragraph{Shot noise from the model.} A signal of $S_{\rm pe}$ photoelectrons is recorded
+as $S_{\rm ccd}=G\,S_{\rm pe}$ CCD electrons with variance $S_{\rm ccd}\,G\,F^2$, where $G$
+is the camera gain and $F$ its noise factor \cite{ghosh2004}. TSADAR works with the data
+divided by $G$ (\S\ref{sec:data}), i.e.\ in photoelectrons, where the per-pixel shot-noise
+variance is
 \begin{equation}
-  \sigma_s^2 = \max(t,\,10^{-10})\cdot G\cdot F^2
-  \qquad(G=108,\ F^2=1.15,\ \text{hardcoded device constants}),
+  \sigma_s^2 = \max(t,\,10^{-10})\cdot F^2 \qquad(F^2=1.15\ \text{\cite{ghosh2004}}),
 \end{equation}
 where $t$ is the forward model's prediction for that pixel, not the measured count $d$.
 Estimating the variance from the data biases a $\chi^2$ fit even at high counts
@@ -1513,13 +1525,35 @@ gradient.
 2D-convolved with a Gaussian CCD point-spread function and a readout-noise term is added
 on the diagonal,
 \begin{equation}
-  K = \operatorname{conv2d}\!\big(\operatorname{diag}(\sigma_s^2),\,g\big)+n\,\sigma_{\rm rn}^2\,I,
+  K = \operatorname{conv2d}\!\big(\operatorname{diag}(\sigma_s^2),\,g\big)+n\,\Big(\frac{\sigma_{\rm rn}}{G}\Big)^{2} I,
   \qquad g(a,b)=\frac{1}{2\pi\sigma_{\rm px}^2}\exp\!\left[-\frac{a^2+b^2}{2\sigma_{\rm px}^2}\right],
 \end{equation}
-with $\sigma_{\rm px}=1.0$, $n=2d_{\rm pixel}+1$ the number of detector pixels summed per
-lineout, and $\sigma_{\rm rn}=17.0$. The kernel $g$ is tabulated on
-$[-5\sigma_{\rm px},5\sigma_{\rm px}]$. The Gaussian log-determinant term
-$\ln\det K$ is not included in the objective, although $K$ depends on the model.
+with $\sigma_{\rm px}=1.0$, $n=2d_{\rm pixel}+1$ the number of detector rows summed per
+lineout, $\sigma_{\rm rn}=17.0$ CCD electrons (preliminary, see below), and $G$ the same
+gain the data were divided by. There is a single gain in the code, the input deck's
+\code{other.gain}; its default is $108$, and \code{fitter.\_validate\_inputs\_} warns when
+\code{loss\_method="covar"} is used with any other value, because the noise model is only
+correct if the data really are in photoelectrons. The kernel $g$ is tabulated on
+$[-5\sigma_{\rm px},5\sigma_{\rm px}]$.
+
+\paragraph{Fitting statistic and likelihood.} Reference~\cite{swadling2022} is a
+least-squares method: it minimizes $S=\mathbf e^{\!\top}K^{-1}\mathbf e$ by Gauss--Newton
+iteration, with $K$ rebuilt from the current fit before each step and held fixed within
+it, and takes the parameter covariance as $2H^{-1}$ with $H$ the Hessian of $S$ at the
+best fit. The point-estimate loss of \S\ref{sec:loss} is that statistic, and it is
+differentiated the same way: the gradient is taken with $K$ held fixed at the current
+model (a stop-gradient on $K$), giving $-2\,\mathbf e^{\!\top}K^{-1}\partial t/\partial\beta$.
+Differentiating through $K$ as well would add a term that lowers $S$ by inflating the
+predicted variance, which nothing in $S$ penalizes. A probability
+density needs one more term. Because $K$ depends on the model, the Gaussian density of the
+data is $\exp(-\tfrac12\mathbf e^{\!\top}K^{-1}\mathbf e)/\sqrt{\det K}$ and the
+determinant is not a constant: it is what penalizes a model for inflating its own
+predicted variance. The likelihood used for uncertainty estimation
+(\S\ref{sec:uq-likelihood}) is therefore
+\begin{equation}\label{eq:covar-likelihood}
+  -2\log L=\mathbf e^{\!\top}K^{-1}\mathbf e+\ln\det K ,
+\end{equation}
+with both terms taken from one Cholesky factorization of $K$.
 
 \paragraph{Background must not be subtracted.} The shot noise is set by the \emph{total}
 count on each pixel, signal plus background. The covar method therefore requires
@@ -1538,22 +1572,38 @@ false, with a warning, whenever \code{loss\_method="covar"}.
 each feature (IAW, EPW blue, EPW red) the data, the model and the covariance source are
 gathered to a fixed window of pixels that spans the fit range padded on each side by the
 half-width of $g$ (for the IAW the window also covers the excluded central gap). The
-residual is set to zero at the padding pixels, so they contribute to $K$ through the
-convolution but not to the quadratic form. Because $g$ has no support beyond its
-half-width, this reproduces the full-detector result while reducing the matrix from the
-full pixel count (e.g.\ $1024$) to roughly $150$--$200$ pixels; without the padding the
-quadratic form was observed to shift by about $0.6\%$. Factorizing the full matrix was the
+convolution is evaluated on that padded window, so every in-range pixel sees its true
+neighbors, and $K$ is then restricted to the rows and columns of the in-range pixels,
+which is their joint covariance. Because $g$ has no support beyond its half-width, the
+padding makes this restricted block identical to the one a full-detector calculation
+would give, while the factorized matrix shrinks from the full pixel count (e.g.\ $1024$)
+to roughly $150$--$200$ pixels. Factorizing the full matrix was the
 dominant cost of the method, about three times slower per evaluation than l2. The
 wavelength axes are fixed by the calibration and do not depend on the fitted parameters,
 so the windows are computed once per \code{LossFunction}
 (\code{\_init\_covar\_pixel\_indices}); each calibration draw of \S\ref{sec:uq} builds its
 own.
 
-\paragraph{Open items.} $G$, $F^2$, $\sigma_{\rm px}$ and $\sigma_{\rm rn}$ are placeholders
-that have not been measured for each detector. For comparison, Ref.~\cite{swadling2022}
-reports $G\approx135$, $F^2\approx1.05$ and $\sigma_{\rm px}\approx1.0$ px for its camera,
-and the dark-frame standard deviation measured on one streaked shot was about $65$--$73$
-ADU (EPW) and $64$ ADU (IAW), well above the value of $\sigma_{\rm rn}$ used here. How the
+\paragraph{Source of the constants.} The detector model and the instrument are those of
+Ref.~\cite{swadling2022}: the OMEGA Thomson-scattering diagnostic and its ROSS optical
+streak cameras. The gain and noise factor, $G=108$ CCD electrons per photoelectron and
+$F^2=1.15$, are the values measured by Ghosh, Boni and Jaanimagi \cite{ghosh2004} from the
+single-photoelectron pulse-height distribution of the LLE optical streak camera (P510
+tube, S-20 photocathode, fiber-coupled CCD). The pixel spread $\sigma_{\rm px}=1.0$ px is
+the value measured in Ref.~\cite{swadling2022}, which for its own camera found $G=135$
+and $F^2=1.05$; Ref.~\cite{ghosh2004} reports $70$, $95$ and $100\%$ of a single event's
+signal inside $3\times3$, $5\times5$ and $7\times7$ pixels, consistent with that spread.
+These are calibrations of the camera type made in 2004 and 2022. They have not been
+repeated for the individual cameras or shot days analyzed, and gain differences of this
+size between nominally similar cameras are reported in both references.
+
+\paragraph{Open items.} The readout noise is preliminary. The published version of
+Ref.~\cite{swadling2022} gives $\sigma_{\rm rn}=11$, obtained from the standard deviation
+of the CCD overscan region, and Ref.~\cite{ghosh2004} measured a CCD noise of $7$
+electrons on background-subtracted, unbinned images. TSADAR uses $\sigma_{\rm rn}=17$, a
+value raised from the published one to better match the data, which has not yet been
+derived from a measurement. For comparison, the dark-frame standard deviation measured on
+one streaked shot was about $65$--$73$ ADU (EPW) and $64$ ADU (IAW). How the
 unconditional dark-frame subtraction applied when the data are loaded maps onto
 $\sigma_{\rm rn}$ has not been settled.
 
@@ -1563,7 +1613,10 @@ $\sigma_{\rm rn}$ has not been settled.
   L = \alpha_{\rm ion}\,e_{\rm ion}+e_{\rm ele},
 \end{equation}
 where $e_{\rm ion}$ is the (masked, reduced) IAW-feature error, $e_{\rm ele}$ is the
-EPW-feature error (averaged $\tfrac12(e_{\rm blue}+e_{\rm red})$ if both wings are fit),
+EPW-feature error (averaged $\tfrac12(e_{\rm blue}+e_{\rm red})$ if both wings are fit
+and the per-feature reduction is a mean over pixels; wherever the reduction is a sum --
+the \code{covar} statistic and the $-2\log L$ of \S\ref{sec:uq-likelihood} -- the two
+wings add),
 and $\alpha_{\rm ion}$ is a configured scale factor balancing the two features -- needed
 because the IAW feature is typically orders of magnitude brighter than the EPW feature
 (\S\ref{sec:vlasov}), so an unweighted sum would let the fit ignore the electron feature
@@ -1664,7 +1717,50 @@ and documented here since it may be re-enabled):
 Minimizing the loss of \S\ref{sec:loss} produces a single best-fit point, not an estimate
 of how tightly that point is actually constrained by the data. TSADAR offers two
 postprocessing routes to that question, of increasing cost and generality, both built on
-the same underlying likelihood.
+the same statistical model.
+
+\subsection{The statistical model}\label{sec:uq-model}
+
+Both routes are approximations to one Bayesian inference problem, posed independently for
+each lineout. With $d$ the measured spectrum of a lineout and $p$ its active plasma
+parameters, Bayes' theorem gives the posterior
+\begin{equation}\label{eq:bayes}
+  \pi(p\mid d)\;\propto\;L(d\mid p)\,\pi_0(p),
+\end{equation}
+and the three ingredients are specified as follows.
+\begin{itemize}
+  \item \textbf{Likelihood} $L(d\mid p)$ (\S\ref{sec:uq-likelihood}): the probability of
+    the measured counts given the forward model's prediction $t(p)$ and a noise model. With
+    \code{loss\_method="covar"} it is the multivariate Gaussian of
+    Eq.~\ref{eq:covar-likelihood}, whose covariance is the detector model of
+    \S\ref{sec:covar} evaluated at $t(p)$. Everything the forward model holds fixed
+    (inactive parameters, the electron distribution function, the calibration) is
+    conditioned on.
+  \item \textbf{Prior} $\pi_0(p)$: uniform on each parameter's $[\mathrm{lb},\mathrm{ub}]$
+    from the input deck by default, independent across parameters. It is a named,
+    replaceable component (\S\ref{sec:uq-mcmc}).
+  \item \textbf{Posterior}: the Laplace route (\S\ref{sec:laplace}) approximates it by a
+    Gaussian centered on the best fit, with covariance from the curvature of the
+    likelihood there. The MCMC route (\S\ref{sec:uq-mcmc}) draws samples from
+    Eq.~\ref{eq:bayes} itself, so the reported means, standard deviations and covariances
+    are posterior moments, and the saved samples are posterior draws.
+\end{itemize}
+When calibration uncertainty is enabled, the calibration constants $c$ are given
+independent Gaussian priors and the reported posterior is the marginal
+$\int\pi(p\mid d,c)\,\pi_0(c)\,dc$, estimated by pooling chains run at draws of $c$ with
+equal weight (\S\ref{sec:uq-pooling}).
+
+Three qualifications apply to reading the result as a posterior. First, it is only as
+good as the noise model: the gain, noise factor and pixel spread of \S\ref{sec:covar} are
+published calibrations of this camera type rather than measurements of the individual
+cameras on the day, the readout noise is a preliminary value, and the Gaussian
+form replaces the true counting statistics.
+Second, with \code{loss\_method="l2"} the per-pixel variance is taken from the data
+rather than the model, which is a convenient weighting, not a generative noise model;
+\code{covar} is the choice for which Eq.~\ref{eq:bayes} holds as written. Third, the chain
+selection of \S\ref{sec:uq-mcmc-rhat} is a convergence safeguard applied to the sampler's
+output, not part of the model: it decides which chains are trusted to have reached the
+posterior.
 
 \subsection{A shared likelihood}\label{sec:uq-likelihood}
 
@@ -1676,9 +1772,9 @@ does not apply the IAW/EPW weighting of the total loss:
   \item \textbf{l2}: $\sum(d-t)^2/\sigma^2$ with $\sigma^2=\vert d\vert+10^{-10}$, a
     Poisson-like variance taken from the data (the offset only guards against an
     exactly-zero-count pixel).
-  \item \textbf{covar}: $\mathbf e^{\!\top}K^{-1}\mathbf e$ for each feature, with $K$ the
-    model-based noise covariance of \S\ref{sec:covar} and no degrees-of-freedom
-    normalization.
+  \item \textbf{covar}: $\mathbf e^{\!\top}K^{-1}\mathbf e+\ln\det K$ for each feature
+    (Eq.~\ref{eq:covar-likelihood}), with $K$ the model-based noise covariance of
+    \S\ref{sec:covar} and no degrees-of-freedom normalization.
 \end{itemize}
 It can reduce either to a single scalar for a whole batch or, when
 \code{per\_lineout=True}, to one value per lineout. The per-lineout form is what the
@@ -1705,7 +1801,7 @@ close to, but not exactly, the mode of the sampled posterior.
 The cheapest estimate of parameter uncertainty comes from the local curvature of the
 likelihood at its optimum. Approximating $-2\log L$ by its second-order Taylor expansion
 around the best fit turns the posterior into a Gaussian, the Laplace approximation, whose
-covariance is the inverse Hessian of $-2\log L$ (up to the standard factor of 2). TSADAR
+covariance is twice the inverse Hessian of $-2\log L$. TSADAR
 takes the JAX-differentiated Hessian of \code{neg\_log\_likelihood} with respect to only
 the \emph{active} leaves of the \code{ThomsonParams} pytree, \code{diff\_params}
 (\code{LossFunction.h\_loss\_wrt\_params}), obtained by partitioning the best-fit weights
@@ -1719,16 +1815,30 @@ lineout, the $d\times d$ block of the Hessian spanning every active parameter is
 from the diagonal (cross-lineout terms are structurally zero since lineouts in a batch don't
 affect each other) and inverted jointly:
 \begin{equation}
-  \Sigma \approx H^{-1}, \qquad \sigma_p = \operatorname{sign}(\Sigma_{pp})\sqrt{\vert\Sigma_{pp}\vert}
+  \Sigma_z \approx 2H^{-1}
   \qquad(\code{postprocess.laplace.get\_sigmas}).
 \end{equation}
-$\Sigma$ is the inverse of the \emph{full} $d\times d$ active-parameter block, so
-$\sigma_p$ accounts for correlations between simultaneously-fit parameters. The same
+$\Sigma_z$ comes from the \emph{full} $d\times d$ active-parameter block, so the
+uncertainties account for correlations between simultaneously-fit parameters. The same
 Hessian seeds the MCMC proposal of \S\ref{sec:uq-mcmc}. Because \code{ThomsonParams.get\_fitted\_params} (whose
 species order the returned columns must match) and \code{diff\_params}' own pytree flatten
 order enumerate species differently (electron/general/ion-$n$ vs.\ electron/ion-$n$/general,
 respectively), the Hessian's rows and columns are permuted by parameter name before this
 inversion.
+
+\paragraph{Units.} The Hessian is taken in the coordinates the optimizer works in, the
+logit variables $z$ of \S\ref{sec:paramnorm}, so $\Sigma_z=2H^{-1}$ is a covariance of
+those dimensionless variables. The reported uncertainties are in physical units: with
+$J_{ab}=\partial p_a/\partial z_b$ the Jacobian of the map from $z$ to the physical
+parameters $p$ (evaluated by automatic differentiation, so that couplings such as the ion
+fraction normalization are included),
+\begin{equation}
+  \Sigma_p = J\,\Sigma_z\,J^{\!\top},\qquad
+  \sigma_p = \operatorname{sign}\big((\Sigma_p)_{pp}\big)\sqrt{\vert(\Sigma_p)_{pp}\vert}.
+\end{equation}
+For an uncoupled parameter $p=\mathrm{lb}+(\mathrm{ub}-\mathrm{lb})\,\sigma(z)$ this is
+$\sigma_p=(\mathrm{ub}-\mathrm{lb})\,s(1-s)\,\sigma_z$ with $s=\sigma(z)$. The proposal
+seed of \S\ref{sec:uq-mcmc} needs no such conversion, because the sampler walks in $z$.
 
 \paragraph{Computing the per-lineout Hessian.} A direct Hessian of the batch-summed
 likelihood with respect to the active leaves is dense in the batch axis: every pair of
@@ -1772,10 +1882,21 @@ in the same unconstrained/logit space the optimizer already works in (so bounds 
 enforced implicitly by the same sigmoid map, never by rejection), vectorized across every
 lineout in a batch simultaneously:
 \begin{itemize}
-  \item \textbf{Target}: $\log\pi\propto-\tfrac12\cdot\code{neg\_log\_likelihood}$
-    (per lineout) -- i.e.\ the likelihood of \S\ref{sec:vlasov}--\ref{sec:loss} itself,
-    with no additional prior density multiplied in beyond what the bounded
-    reparameterization already implies.
+  \item \textbf{Target}: the posterior density written in the sampled coordinates $z$,
+    per lineout,
+    \begin{equation}\label{eq:mcmc-target}
+      \log\pi(z)=-\tfrac12\cdot\code{neg\_log\_likelihood}\big(p(z)\big)+\log\pi_0\big(p(z)\big)
+      +\sum_k\big[\log s_k+\log(1-s_k)\big],\qquad s_k=\sigma(z_k),
+    \end{equation}
+    where $\pi_0$ is the prior over the physical parameters and the last term is the
+    log-Jacobian $\log\vert\partial p/\partial z\vert$ of the sigmoid map, up to a
+    constant. The Jacobian is required: the likelihood alone tends to a positive constant
+    as a parameter approaches a bound ($z\to\pm\infty$), so it does not integrate over
+    $z$, and sampling it would correspond to the improper prior
+    $1/[(p-\mathrm{lb})(\mathrm{ub}-p)]$ that piles weight onto the bounds. The default
+    $\pi_0$ is uniform on $[\mathrm{lb},\mathrm{ub}]$ for every parameter. The prior is
+    selected by name (\code{other.mcmc.prior}) from a registry in \file{mcmc.py}, so
+    another prior can be added without touching the likelihood or the Jacobian.
   \item \textbf{Proposal}: a Gaussian random walk in the unconstrained space, jointly
     correlated across every active parameter of a lineout (\code{\_propose}: proposal
     $=$ current $+\,S\,z$, $z\sim\mathcal N(0,I)$, $S$ the lineout's own proposal Cholesky
@@ -1804,7 +1925,10 @@ lineout in a batch simultaneously:
     parameters (a real fit showed roughly $-700$ for one parameter alongside $6\times10^7$
     for another) -- while preserving $H$'s eigenvectors, i.e.\ \emph{which combinations} of
     parameters actually form each near-degenerate direction, rather than discarding that
-    structure the way an independent per-parameter fallback would. Explicitly, with
+    structure the way an independent per-parameter fallback would. Here $H$ denotes the
+    Hessian of the negative log-target of Eq.~\ref{eq:mcmc-target}: half the Hessian of
+    $-2\log L$ plus the Jacobian term $\operatorname{diag}\big(2s_k(1-s_k)\big)$ (the
+    curvature of a non-uniform prior is not included). Explicitly, with
     $D=\operatorname{diag}(1/\sqrt{\vert H_{ii}\vert})$ and the eigendecomposition
     $DHD=Q\Lambda Q^\top$,
     \begin{equation}
@@ -1942,7 +2066,7 @@ already in hand on this codebase's own production data. Recorded here as a
 documented future direction should block Gibbs prove insufficient on some shot -- e.g.\ a
 lineout whose problem block itself remains poorly-mixing even once isolated.
 
-\subsection{Pooling over calibration uncertainty}
+\subsection{Pooling over calibration uncertainty}\label{sec:uq-pooling}
 
 Section~\ref{sec:calibration} already describes how, when configured, $K$ independent
 realizations of the instrument's calibration constants are pre-drawn and used to rebuild
@@ -2158,6 +2282,11 @@ G.~F.~Swadling, C.~Bruulsema, W.~Rozmus, and J.~Katz,
 \textit{Quantitative assessment of fitting errors associated with streak camera noise in
 Thomson scattering data analysis},
 Review of Scientific Instruments \textbf{93}, 043503 (2022).
+
+\bibitem{ghosh2004}
+S.~Ghosh, R.~Boni, and P.~A.~Jaanimagi,
+\textit{Optical and x-ray streak camera gain measurements},
+Review of Scientific Instruments \textbf{75}, 3956 (2004).
 
 \bibitem{humphrey2009}
 P.~J.~Humphrey, W.~Liu, and D.~A.~Buote,

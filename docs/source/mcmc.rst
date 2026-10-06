@@ -35,7 +35,9 @@ How it works
 
 For each lineout, proposals are Gaussian random walks on the same unconstrained (sigmoid/logit)
 parameters the optimizer itself fits, so the existing ``lb``/``ub`` bounds from the input deck are
-enforced for free by that reparametrization -- no separate bounds handling is needed. The chain is
+enforced for free by that reparametrization -- no separate bounds handling is needed. The prior is
+uniform within those bounds by default (``other.mcmc.prior``); the sampled density includes the
+Jacobian of the reparametrization so that this holds in physical units. The chain is
 vectorized across every lineout in a fit-batch (and across fit-batches, via ``vmap``), so one call
 samples every lineout's posterior simultaneously rather than looping over them.
 
@@ -72,6 +74,10 @@ from the data, which is unreliable wherever the data are close to zero, while ``
 correlated detector-noise covariance from the model. Set it in the overrides deck (see below). ``covar``
 requires ``data.background.bg_subtract: false`` so that the noise model sees the total signal; this is
 enforced with a warning.
+
+The postprocessor always samples unsmoothed data (``data.spectral_smoothing: 1``), whatever the fit used,
+and ``covar`` needs ``other.gain`` to be the camera's actual gain (108 for the OMEGA Thomson-scattering
+streak cameras) so that the data are in photoelectrons. Both are checked, with a warning.
 
 Multiple chains
 ~~~~~~~~~~~~~~~~

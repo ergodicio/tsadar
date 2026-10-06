@@ -252,9 +252,9 @@ def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(
 
 
 def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixture):
-    # the proposal covariance should equal rr_factor^2 * inv(H_reg), with H_reg the Hessian from
-    # eqx.filter_hessian after flooring the eigenvalues of its normalized form; for a well-conditioned
-    # lineout that is rr_factor^2 * inv(H)
+    # the proposal covariance should equal rr_factor^2 * inv(H_reg), with H the Hessian of the negative
+    # log-posterior (half the eqx.filter_hessian of the -2*log-likelihood plus the Jacobian term) and
+    # H_reg that Hessian after flooring the eigenvalues of its normalized form
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["parameters"]["ion-1"]["Z"]["active"] = True  # exercise more than just electron/general leaves
     # the shared fixture is EPW-only, which leaves Z unconstrained; re-prepare a private copy of the
@@ -303,6 +303,8 @@ def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixtur
     assert step_scale.shape == (batch_size, n, n)
 
     rr_factor = 2.38 / np.sqrt(n)
+    s = 1.0 / (1.0 + np.exp(-np.stack([np.asarray(leaf) for leaf in jax.tree_util.tree_leaves(diff_params)], axis=-1)))
+    H_true = 0.5 * H_true + np.stack([np.diag(2.0 * s_i * (1.0 - s_i)) for s_i in s])
     for i in range(batch_size):
         d = 1.0 / np.sqrt(np.abs(np.diagonal(H_true[i])))
         h_norm = H_true[i] * np.outer(d, d)
@@ -558,8 +560,39 @@ def test_covar_loss_function_builds_for_an_electron_only_fit(fitted_fixture):
     assert not hasattr(loss_fn, "covar_iaw_idx")
     assert any(hasattr(loss_fn, name) for name in ("covar_blue_idx", "covar_red_idx"))
     batch = build_batch(fitted_fixture["all_data"], np.arange(cfg["optimizer"]["batch_size"]), False)
-    nll = loss_fn.neg_log_likelihood(fitted_fixture["fitted_weights"][0], batch, per_lineout=True)
-    assert np.all(np.isfinite(np.asarray(nll)))
+    weights = fitted_fixture["fitted_weights"][0]
+    nll = np.asarray(loss_fn.neg_log_likelihood(weights, batch, per_lineout=True))
+    assert np.all(np.isfinite(nll))
+
+    # Gaussian -2*log-likelihood of the in-range pixels, evaluated independently with numpy:
+    # residual^T K^-1 residual + log(det K), summed over the two wings
+    ThryE, _, _, _ = loss_fn.ts_diag(weights, batch)
+    ThryE, e_data = np.asarray(ThryE), np.asarray(batch["e_data"])
+    expected = np.zeros(e_data.shape[0])
+    for name in ("blue", "red"):
+        idx = np.asarray(getattr(loss_fn, f"covar_{name}_idx"))
+        sub = np.asarray(getattr(loss_fn, f"covar_{name}_sub"))
+        k = np.asarray(loss_fn.calculate_covariance_matrix(jnp.asarray(ThryE[:, idx])))[:, sub][:, :, sub]
+        resid = (e_data - ThryE)[:, idx][:, sub]
+        quad = np.einsum("bi,bi->b", resid, np.linalg.solve(k, resid[..., None])[..., 0])
+        expected += quad + np.linalg.slogdet(k)[1]
+    np.testing.assert_allclose(nll, expected, rtol=1e-8)
+
+    # the fitting statistic is differentiated with K held fixed: d/dt [r^T K^-1 r / norm] = -2 K^-1 r / norm
+    idx, mask, sub = loss_fn.covar_blue_idx, loss_fn.covar_blue_mask, loss_fn.covar_blue_sub
+    e_data_j, thry_j = jnp.asarray(e_data), jnp.asarray(ThryE)
+    grad = jax.grad(
+        lambda t: loss_fn._feature_error_(
+            e_data_j, t, None, None, t, None, False, covar_idx=idx, covar_submask=mask, covar_sub=sub
+        )[0]
+    )(thry_j)
+    pixels = np.asarray(idx)[np.asarray(sub)]
+    k = np.asarray(loss_fn.calculate_covariance_matrix(thry_j[:, np.asarray(idx)]))[:, np.asarray(sub)][:, :, np.asarray(sub)]
+    resid = (e_data - ThryE)[:, pixels]
+    norm = pixels.size * e_data.shape[0] - loss_fn.num_free_params
+    expected_grad = np.zeros_like(ThryE)
+    expected_grad[:, pixels] = -2.0 * np.linalg.solve(k, resid[..., None])[..., 0] / norm
+    np.testing.assert_allclose(np.asarray(grad), expected_grad, rtol=1e-6, atol=1e-12)
 
 
 def test_covar_loss_function_rejects_an_empty_enabled_fit_range(fitted_fixture):
@@ -586,3 +619,50 @@ def test_calibration_draws_leave_an_unperturbed_zero_irf_width_unchanged(fitted_
     for cfg_k, _ in draws:
         assert cfg_k["other"]["detector_specs"]["widIRF"]["spect_stddev_ion"] == 0.0
         assert cfg_k["other"]["detector_specs"]["widIRF"]["spect_stddev_ele"] == nominal_ele
+
+
+def test_log_posterior_adds_the_logit_jacobian_and_the_configured_prior(fitted_fixture, monkeypatch):
+    cfg = fitted_fixture["config"]
+    loss_fn = fitted_fixture["loss_fn"]
+    ts_params = fitted_fixture["fitted_weights"][0]
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(cfg["parameters"], ts_params))
+    batch = fitted_fixture["batch"]
+
+    log_likelihood = -0.5 * np.asarray(loss_fn.neg_log_likelihood(ts_params, batch, per_lineout=True))
+    z = np.stack([np.asarray(leaf) for leaf in jax.tree_util.tree_leaves(diff_params)], axis=-1)
+    s = 1.0 / (1.0 + np.exp(-z))
+    log_jacobian = np.sum(np.log(s) + np.log(1.0 - s), axis=-1)
+
+    # default: uniform prior within the bounds, so only the Jacobian of the logit transform is added
+    log_post = np.asarray(mcmc._log_posterior(loss_fn, diff_params, static_params, batch))
+    np.testing.assert_allclose(log_post, log_likelihood + log_jacobian, rtol=1e-10)
+
+    # a different prior is one registry entry selected by other.mcmc.prior
+    monkeypatch.setitem(mcmc._LOG_PRIORS, "te_gaussian", lambda w: -0.5 * (w.get_unnormed_params()["electron"]["Te"] - 1.0) ** 2)
+    monkeypatch.setitem(loss_fn.cfg["other"].setdefault("mcmc", {}), "prior", "te_gaussian")
+    te = np.asarray(ts_params.get_unnormed_params()["electron"]["Te"])
+    log_post = np.asarray(mcmc._log_posterior(loss_fn, diff_params, static_params, batch))
+    np.testing.assert_allclose(log_post, log_likelihood + log_jacobian - 0.5 * (te - 1.0) ** 2, rtol=1e-10)
+
+    monkeypatch.setitem(loss_fn.cfg["other"]["mcmc"], "prior", "not-a-prior")
+    with pytest.raises(ValueError, match="Unknown MCMC prior"):
+        mcmc._log_posterior(loss_fn, diff_params, static_params, batch)
+
+
+def test_l2_likelihood_sums_the_two_epw_wings(fitted_fixture):
+    # a mean-reduced loss averages the blue and red wings; the sum-reduced likelihood adds them
+    cfg, loss_fn = fitted_fixture["config"], fitted_fixture["loss_fn"]
+    assert cfg["optimizer"]["loss_method"] == "l2" and cfg["data"]["fit_EPWb"] and cfg["data"]["fit_EPWr"]
+    weights, batch = fitted_fixture["fitted_weights"][0], fitted_fixture["batch"]
+
+    ThryE, _, lamAxisE, _ = loss_fn.ts_diag(weights, batch)
+    ThryE, lamAxisE, e_data = np.asarray(ThryE), np.asarray(lamAxisE), np.asarray(batch["e_data"])
+    fr = cfg["data"]["fit_rng"]
+    in_range = ((lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"])) | (
+        (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"])
+    )
+    expected = np.sum(np.where(in_range, (e_data - ThryE) ** 2 / (np.abs(e_data) + 1e-10), 0.0), axis=-1)
+
+    nll = np.asarray(loss_fn.neg_log_likelihood(weights, batch, per_lineout=True))
+    np.testing.assert_allclose(nll, expected, rtol=1e-8)
+    assert loss_fn._averages_wings(jnp.nanmean) and not loss_fn._averages_wings(jnp.nansum)

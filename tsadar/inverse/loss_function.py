@@ -158,11 +158,15 @@ class LossFunction:
 
         if cfg["optimizer"]["loss_method"] == "covar":
                 self.sig_px = 1.0 #this is device specific and can be left hardcoded
-                # TODO: sig_rn should be measured per detector; the dark-frame std for shot 116773 is
-                # ~65-73 ADU (EPW) / ~64 ADU (IAW)
+                # TODO: sig_rn is preliminary. Swadling et al. (2022) give 11; it was raised to better match
+                # the data and should be measured per detector (the dark-frame std for shot 116773 is
+                # ~65-73 ADU (EPW) / ~64 ADU (IAW))
                 self.sig_rn = 17.0 # this is from the background of the camera and should be derived from the data image
+                # number of detector rows summed into a lineout (see data.lineouts.get_lineouts)
                 self.n = 2 * cfg["data"]["dpixel"] + 1
-                self.G = 108
+                # camera gain (CCD electrons per photoelectron), the same value the data were divided by
+                self.G = cfg["other"]["gain"]
+                # noise factor of the optical streak camera, Ghosh et al., RSI 75, 3956 (2004)
                 self.F2 = 1.15
 
                 self.num_free_params = sum(
@@ -211,8 +215,8 @@ class LossFunction:
             cfg: configuration dictionary.
             dummy_batch: any batch built from this run's data.
 
-        Sets self.covar_{blue,red,iaw}_idx (the pixel indices of each window) and
-        self.covar_{blue,red,iaw}_mask (True at the window positions that are inside the fit range).
+        Sets, for each fitted feature, self.covar_{blue,red,iaw}_idx (the pixel indices of the window),
+        _mask (True at the window positions inside the fit range) and _sub (those positions' indices).
         """
         from ..core.modules.ts_params import ThomsonParams
 
@@ -234,23 +238,23 @@ class LossFunction:
             hi = min(int(true_idx.max()) + half_width + 1, num_pixels)
             window_idx = np.arange(lo, hi)
             in_range_submask = true_mask_1d[window_idx]
-            return jnp.asarray(window_idx), jnp.asarray(in_range_submask)
+            return jnp.asarray(window_idx), jnp.asarray(in_range_submask), jnp.asarray(np.where(in_range_submask)[0])
 
         # windows are only built for the features calc_ei_error fits; a disabled channel has no axis
         if cfg["data"]["fit_EPWb"] or cfg["data"]["fit_EPWr"]:
             lamAxisE = np.asarray(lamAxisE)[0]
         if cfg["data"]["fit_EPWb"]:
-            self.covar_blue_idx, self.covar_blue_mask = _windowed(
+            self.covar_blue_idx, self.covar_blue_mask, self.covar_blue_sub = _windowed(
                 (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"]), lamAxisE.shape[0], "EPW blue"
             )
         if cfg["data"]["fit_EPWr"]:
-            self.covar_red_idx, self.covar_red_mask = _windowed(
+            self.covar_red_idx, self.covar_red_mask, self.covar_red_sub = _windowed(
                 (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"]), lamAxisE.shape[0], "EPW red"
             )
         if cfg["data"]["fit_IAW"]:
             lamAxisI_arr = np.asarray(lamAxisI)
             lamAxisI_arr = lamAxisI_arr[0] if lamAxisI_arr.ndim > 1 else lamAxisI_arr
-            self.covar_iaw_idx, self.covar_iaw_mask = _windowed(
+            self.covar_iaw_idx, self.covar_iaw_mask, self.covar_iaw_sub = _windowed(
                 ((lamAxisI_arr > fr["iaw_min"]) & (lamAxisI_arr < fr["iaw_cf_min"]))
                 | ((lamAxisI_arr > fr["iaw_cf_max"]) & (lamAxisI_arr < fr["iaw_max"])),
                 lamAxisI_arr.shape[0],
@@ -594,6 +598,7 @@ class LossFunction:
             error, sqd = self._feature_error_(
                 i_data, ThryI, uncert[0], mask, ThryI, reduce_func, per_lineout,
                 covar_idx=getattr(self, "covar_iaw_idx", None), covar_submask=getattr(self, "covar_iaw_mask", None),
+                covar_sub=getattr(self, "covar_iaw_sub", None),
             )
             i_error += error
             sqdev["ion"] = sqd
@@ -605,6 +610,7 @@ class LossFunction:
             error, sqd = self._feature_error_(
                 e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
                 covar_idx=getattr(self, "covar_blue_idx", None), covar_submask=getattr(self, "covar_blue_mask", None),
+                covar_sub=getattr(self, "covar_blue_sub", None),
             )
             e_error += error
             sqdev["ele"] = sqd
@@ -616,18 +622,28 @@ class LossFunction:
             error, sqd = self._feature_error_(
                 e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
                 covar_idx=getattr(self, "covar_red_idx", None), covar_submask=getattr(self, "covar_red_mask", None),
+                covar_sub=getattr(self, "covar_red_sub", None),
             )
             e_error += error
 
-            if self.cfg["data"]["fit_EPWb"]:
+            if self.cfg["data"]["fit_EPWb"] and self._averages_wings(reduce_func):
                 # the set e_error to the true mean if both sides are fit
                 e_error *= 1.0 / 2.0
             sqdev["ele"] += sqd
 
         return i_error, e_error, sqdev
 
+    def _averages_wings(self, reduce_func) -> bool:
+        """True when the per-feature error is a mean over pixels, in which case the blue and red EPW
+        errors are averaged. Sum-based reductions (the covar statistic, the -2*log-likelihood) add."""
+        if self.cfg["optimizer"]["loss_method"] == "covar":
+            return False
+        with jax.ensure_compile_time_eval():
+            return float(jnp.max(reduce_func(jnp.ones((2, 2))))) == 1.0
+
     def _feature_error_(
-        self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False, covar_idx=None, covar_submask=None
+        self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False, covar_idx=None, covar_submask=None,
+        covar_sub=None,
     ):
         """
         Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
@@ -641,10 +657,11 @@ class LossFunction:
             mask: boolean fit-range mask.
             covar_source: array the noise covariance is built from (the model prediction).
             reduce_func: reduction applied for the non-covar methods.
-            per_lineout: covar only. If True, returns the quadratic form per lineout with no normalization;
-                if False, the sum over lineouts divided by (in-range pixels - free parameters).
-            covar_idx, covar_submask: covar only. Pixel window and in-range mask for this feature, from
-                _init_covar_pixel_indices.
+            per_lineout: covar only. If True, returns the Gaussian -2*log-likelihood per lineout, the
+                quadratic form plus log(det K); if False, the quadratic form summed over lineouts and
+                divided by (in-range pixels - free parameters).
+            covar_idx, covar_submask, covar_sub: covar only. Pixel window, in-range mask within it, and
+                the positions of the in-range pixels within it, from _init_covar_pixel_indices.
 
         Returns:
             tuple: (error, sqdev) where sqdev is the residual array with out-of-range points set to zero.
@@ -653,16 +670,24 @@ class LossFunction:
             data_g = jnp.take(data, covar_idx, axis=-1)
             thry_g = jnp.take(thry, covar_idx, axis=-1)
             covar_g = jnp.take(covar_source, covar_idx, axis=-1)
-            # zero the padding-only positions' residual (they're not genuinely in-range) while keeping
-            # them in K so the convolution still sees them as real neighbors of the true in-range pixels.
             _error_small = jnp.where(covar_submask, data_g - thry_g, 0.0)
 
+            # K is built on the padded window so the convolution sees the neighbors of the in-range
+            # pixels, then restricted to the in-range pixels, whose joint covariance it is
             k = self.calculate_covariance_matrix(covar_g)
+            k = jnp.take(jnp.take(k, covar_sub, axis=-2), covar_sub, axis=-1)
+            if not per_lineout:
+                # the fitting statistic weights the residuals with K held fixed at the current model
+                # (Swadling et al. 2022), so the fit is not differentiated through K
+                k = jax.lax.stop_gradient(k)
+            resid = jnp.take(_error_small, covar_sub, axis=-1)
             c, lower = jax.scipy.linalg.cho_factor(k)
-            x = jax.scipy.linalg.cho_solve((c, lower), _error_small[..., None]).squeeze(-1)
-            quad = jnp.vecdot(_error_small, x)  # shape (num_lineouts,): one quadratic form per lineout
+            x = jax.scipy.linalg.cho_solve((c, lower), resid[..., None]).squeeze(-1)
+            quad = jnp.vecdot(resid, x)  # shape (num_lineouts,): one quadratic form per lineout
             if per_lineout:
-                error = quad
+                # Gaussian -2*log-likelihood: K depends on the model, so log(det K) is not a constant
+                log_det = 2.0 * jnp.sum(jnp.log(jnp.diagonal(c, axis1=-2, axis2=-1)), axis=-1)
+                error = quad + log_det
             else:
                 # in-range pixels summed over the whole batch
                 norm = jnp.sum(covar_submask) * data.shape[0] - self.num_free_params
@@ -1481,9 +1506,10 @@ class LossFunction:
     def calculate_covariance_matrix(self, data):
         """
         Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following Swadling
-        et al., Rev. Sci. Instrum. 93, 043503 (2022). The shot-noise variance (signal times the gain self.G
-        and excess-noise factor self.F2) is placed on the diagonal and convolved with the CCD spread
-        function self.g, and a readout-noise term (self.n * self.sig_rn**2) is added on the diagonal.
+        et al., Rev. Sci. Instrum. 93, 043503 (2022), for a signal in photoelectrons (CCD electrons divided
+        by the gain self.G). The shot-noise variance (signal times the noise factor self.F2) is placed on
+        the diagonal and convolved with the CCD spread function self.g, and a readout-noise term
+        (self.n * (self.sig_rn / self.G)**2) is added on the diagonal.
 
         Args:
             data: array of shape (num_lineouts, num_pixels) the shot noise is estimated from. Callers pass
@@ -1494,12 +1520,15 @@ class LossFunction:
             k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
             each lineout.
         """
-        sig_s = jnp.sqrt(jnp.clip(data, 1e-10, None) * self.G * self.F2)
+        sig_s = jnp.sqrt(jnp.clip(data, 1e-10, None) * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])
         #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
         def _slice_noise(sig_s_i):
-            return jax.scipy.signal.convolve2d(eye * sig_s_i**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
+            return (
+                jax.scipy.signal.convolve2d(eye * sig_s_i**2, self.g, mode="same")
+                + eye * self.n * (self.sig_rn / self.G) ** 2
+            )
 
         k_noise = jax.vmap(_slice_noise)(sig_s)
 

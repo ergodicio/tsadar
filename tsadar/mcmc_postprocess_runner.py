@@ -3,6 +3,7 @@ already-completed fit's saved results, loaded from a local run directory or a re
 redoing the fit. Shares its reconstruction and config-loading helpers with postprocess_runner.py.
 """
 import os
+import warnings
 import tempfile
 from typing import Dict, Optional
 
@@ -10,6 +11,7 @@ import mlflow
 import yaml
 
 from .inverse.postprocess import mcmc_postprocess as _mcmc_postprocess_module
+from .inverse.fitter import _check_spectral_smoothing_
 from .postprocess_runner import (
     _download_run_artifact,
     _extract_run_id,
@@ -52,6 +54,10 @@ def run_mcmc_postprocess(
                 mlflow.log_artifacts(td)
         misc.log_mlflow(config)
 
+        # a likelihood needs the detector's own noise, so the sampled data are never smoothed
+        if _check_spectral_smoothing_(config) != 1:
+            warnings.warn("The MCMC postprocessor uses unsmoothed data. Setting data.spectral_smoothing to 1.")
+            config["data"]["spectral_smoothing"] = 1
         state = _reconstruct_fit_state(config, fitted_weights_path)
         if state.is_angular:
             raise NotImplementedError(

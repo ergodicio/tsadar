@@ -66,6 +66,27 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
     return final_params
 
 
+# CCD electrons per photoelectron of the OMEGA TS optical streak cameras, Ghosh et al., RSI 75, 3956 (2004)
+OMEGA_TS_GAIN = 108
+
+
+def _check_spectral_smoothing_(config: Dict) -> int:
+    """Fills in and validates config["data"]["spectral_smoothing"] and returns the width in pixels. A
+    config without the key predates tsadar 0.4.0, in which the lineout row window also changed."""
+    if "spectral_smoothing" not in config["data"]:
+        warnings.warn(
+            "This config has no data.spectral_smoothing entry, so it predates tsadar 0.4.0. From 0.4.0 a "
+            "lineout sums 2*dpixel+1 detector rows centered on its position (previously 2*dpixel), which "
+            "changes lineout amplitudes and can shift fit results. Add 'spectral_smoothing: default' under "
+            "'data' to keep the previous spectral smoothing and silence this warning."
+        )
+        config["data"]["spectral_smoothing"] = "default"
+    value = config["data"]["spectral_smoothing"]
+    if value != "default" and not (isinstance(value, int) and not isinstance(value, bool) and value >= 1 and value % 2 == 1):
+        raise ValueError("data:spectral_smoothing must be 'default' or a positive odd integer (1 for no smoothing)")
+    return 2 * config["data"]["dpixel"] + 1 if value == "default" else value
+
+
 def _validate_inputs_(config: Dict) -> Dict:
     """
     Validates and augments the configuration dictionary for the fitting process.
@@ -115,6 +136,28 @@ def _validate_inputs_(config: Dict) -> Dict:
             "one. Setting data.background.bg_subtract to false."
         )
         config["data"]["background"]["bg_subtract"] = False
+
+    smoothing_width = _check_spectral_smoothing_(config)
+    if config["optimizer"]["loss_method"] == "covar" and smoothing_width != 1:
+        warnings.warn(
+            "loss_method=='covar' requires unsmoothed data: its noise covariance describes the detector's "
+            "pixel-to-pixel correlations itself. Setting data.spectral_smoothing to 1."
+        )
+        config["data"]["spectral_smoothing"] = smoothing_width = 1
+    if config["other"].get("calc_sigmas", False) and smoothing_width != 1:
+        warnings.warn(
+            f"calc_sigmas with data.spectral_smoothing={smoothing_width}: smoothing reduces and correlates the "
+            "pixel noise, so the Hessian-based uncertainties are underestimated. Set data.spectral_smoothing "
+            "to 1 for uncertainty estimates."
+        )
+
+    if config["optimizer"]["loss_method"] == "covar" and config["other"]["gain"] != OMEGA_TS_GAIN:
+        warnings.warn(
+            f"loss_method=='covar' (and the MCMC postprocessor that uses it) needs an accurate other.gain to "
+            f"convert the data from CCD electrons to photoelectrons; it is {config['other']['gain']}. The "
+            f"OMEGA Thomson-scattering streak cameras have a gain of {OMEGA_TS_GAIN} CCD electrons per "
+            "photoelectron."
+        )
 
     # check boundries for linouts and fit ranges to ensure they are ordered properly
     if config["data"]["lineouts"]["start"] == config["data"]["lineouts"]["end"]:

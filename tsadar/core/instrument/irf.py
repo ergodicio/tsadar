@@ -162,11 +162,15 @@ class SpectrometerIRF:
         normalize: Normalization mode. ``0`` scales the spectrum to the measured data
             amplitude; ``> 0`` normalizes each wing to unity and scales it by the fitted
             ``amp1``/``amp2``.
+        amp_ranges: Wavelength intervals ``(low, high)``, in nm, within which the model's
+            amplitude is measured when it is scaled to the data (``normalize == 0``). These
+            are the channel's fit ranges, the same pixels the data amplitude is taken from.
     """
 
     spect_stddev: float
     n_spectral_pixels: int
     normalize: int
+    amp_ranges: Tuple[Tuple[float, float], ...]
 
 
 @dataclass(frozen=True, eq=False)
@@ -232,6 +236,17 @@ def add_ATS_IRF(
     return lamAxisE, ThryE
 
 
+def _reference_amplitude(lam_axis, spectrum, ranges):
+    """Maximum of spectrum inside the wavelength intervals ranges, so that a feature outside the fit
+    ranges (e.g. an unresolved central peak) never sets the amplitude. Falls back to the global maximum
+    if the intervals select no pixel."""
+    mask = jnp.zeros(lam_axis.shape, dtype=bool)
+    for low, high in ranges:
+        mask = mask | ((lam_axis > low) & (lam_axis < high))
+    in_range = jnp.max(jnp.where(mask, spectrum, -jnp.inf))
+    return jnp.where(jnp.any(mask), in_range, jnp.amax(spectrum))
+
+
 def add_ion_IRF(irf: SpectrometerIRF, lamAxisI, modlI, amps, TSins) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Applies an instrumental response function (IRF) to the ion spectral model and optionally normalizes the result.
@@ -261,7 +276,7 @@ def add_ion_IRF(irf: SpectrometerIRF, lamAxisI, modlI, amps, TSins) -> Tuple[jnp
 
         if irf.normalize == 0:
             lamAxisI = jnp.average(lamAxisI.reshape(irf.n_spectral_pixels, -1), axis=1)
-            ThryI = TSins["general"]["amp3"] * amps * ThryI / jnp.amax(ThryI)
+            ThryI = TSins["general"]["amp3"] * amps * ThryI / _reference_amplitude(lamAxisI, ThryI, irf.amp_ranges)
             # lamAxisE = jnp.average(lamAxisE.reshape(irf.n_spectral_pixels, -1), axis=1)
     else:
         ThryI = modlI
@@ -306,7 +321,7 @@ def add_electron_IRF(irf: SpectrometerIRF, lamAxisE, modlE, amps, TSins) -> Tupl
     ThryE = jnp.average(ThryE.reshape(irf.n_spectral_pixels, -1), axis=1)
     if irf.normalize == 0:
         lamAxisE = jnp.average(lamAxisE.reshape(irf.n_spectral_pixels, -1), axis=1)
-        ThryE = amps * ThryE / jnp.amax(ThryE)
+        ThryE = amps * ThryE / _reference_amplitude(lamAxisE, ThryE, irf.amp_ranges)
         ThryE = jnp.where(
             lamAxisE < TSins["general"]["lam"], TSins["general"]["amp1"] * ThryE, TSins["general"]["amp2"] * ThryE
         )

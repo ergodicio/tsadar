@@ -10,8 +10,12 @@ data:
   background:
     # required by loss_method: covar
     bg_subtract: false
+  # required by loss_method: covar and by the MCMC postprocessor (no smoothing of the data)
+  spectral_smoothing: 1
 
 other:
+  # CCD electrons per photoelectron; loss_method: covar needs the camera's actual gain
+  gain: 108
   # options of the MCMC uncertainty postprocessor, see docs/source/mcmc.rst
   mcmc:
     # num_steps is the total number of steps including burn_in
@@ -43,6 +47,8 @@ other:
     block_gibbs_eigval_threshold: -0.1
     # minimum |eigenvector component| for a parameter to count as part of a flagged direction
     block_gibbs_component_threshold: 0.3
+    # prior over the physical parameters (uniform within each parameter's lb/ub)
+    prior: uniform
   # num_draws is the number of independent chains; the *_sigma fields perturb the calibration per chain
   calibration_uncertainty:
     num_draws: 50

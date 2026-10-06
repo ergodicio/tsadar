@@ -124,6 +124,14 @@ def _irfs_from_config(cfg, scattering_angles):
     n_spectral_pixels = int(cfg["other"]["CCDsize"][0])
     npts = int(cfg["other"]["npts"])
 
+    # the model amplitude is measured over the same fit ranges the data amplitude is
+    # (see data.lineouts.get_lineouts)
+    fit_rng = cfg["data"].get("fit_rng", {})
+    amp_ranges = {
+        "electron": (("blue_min", "blue_max"), ("red_min", "red_max")),
+        "ion": (("iaw_min", "iaw_cf_min"), ("iaw_cf_max", "iaw_max")),
+    }
+
     def _spectrometer_irf(channel, stddev):
         if npts % n_spectral_pixels:
             raise ValueError(
@@ -133,7 +141,14 @@ def _irfs_from_config(cfg, scattering_angles):
                 f"pixels, so this fails for a non-square CCD."
             )
         return SpectrometerIRF(
-            spect_stddev=stddev, n_spectral_pixels=n_spectral_pixels, normalize=normalize
+            spect_stddev=stddev,
+            n_spectral_pixels=n_spectral_pixels,
+            normalize=normalize,
+            amp_ranges=tuple(
+                (float(fit_rng[low]), float(fit_rng[high]))
+                for low, high in amp_ranges[channel]
+                if low in fit_rng and high in fit_rng
+            ),
         )
 
     ele_irf = ion_irf = ats_irf = None

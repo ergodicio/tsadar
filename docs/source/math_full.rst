@@ -777,7 +777,7 @@ Everything in §\ :ref:`1 <sec:physics>`–§\ :ref:`12 <sec:loss>` describes ho
 
 #. **Handle background** (§\ :ref:`10.3 <sec:background>`): estimate and subtract, or flag for the forward model to add back in, everything in the collected light that isn’t Thomson-scattered signal.
 
-#. **Extract lineouts** (``lineouts.get_lineouts``): sum each fit location over a :math:`2\,\mathtt{dpixel}`-pixel window – close to, but one pixel narrower than, the :math:`n=2\,\mathtt{dpixel}+1` that appears in §\ :ref:`12 <sec:loss>`\ ’s noise-covariance matrix – and divide by the CCD gain :math:`G` to convert from raw counts to the same physical (photoelectron) units the shot-noise model there assumes.
+#. **Extract lineouts** (``lineouts.get_lineouts``): sum each fit location over a window of :math:`n=2\,\mathtt{dpixel}+1` detector rows centered on the lineout position :math:`a` (rows :math:`a-\mathtt{dpixel}` to :math:`a+\mathtt{dpixel}`), the same :math:`n` that multiplies the readout noise in §\ :ref:`12 <sec:loss>`\ ’s noise-covariance matrix, and divide by the camera gain :math:`G` (``config["other"]["gain"]``, CCD electrons per photoelectron) to convert the data to photoelectrons, the units the noise model of §\ :ref:`12.3 <sec:covar>` assumes. Each lineout is then smoothed along the wavelength axis with a boxcar of ``config["data"]["spectral_smoothing"]`` pixels. The default width is :math:`n`, which with the row sum makes a square :math:`n\times n` kernel; a width of :math:`1` leaves the data unsmoothed. Smoothing lowers the pixel noise and correlates neighboring pixels in a way no noise model here describes, so it is suitable for the pointwise fitting losses but not for a likelihood: ``loss_method="covar"`` and the MCMC postprocessor force the width to :math:`1`, and ``calc_sigmas`` warns when it is larger. Independently of this setting, an :math:`n`-pixel smoothed copy is used to estimate the background and to set each lineout’s amplitude normalization.
 
 An optional feature-detection pass (``feature_detector.first_guess``) can run partway through step 4, after the shot-background estimate but before lineout extraction, to estimate reasonable lineout locations and fit-range bounds directly from the data, sparing the input deck from having to specify them by hand; the rest of this section covers steps 1, 3, and 4.
 
@@ -878,7 +878,7 @@ The elementwise loss is masked to the configured fit window(s) for the IAW featu
 
      \chi^2 = \frac{\mathbf e^{\!\top}K^{-1}\mathbf e}{N_{\rm pts}-N_{\rm free}},
 
-with :math:`\mathbf e=d-t` (masked to the fit window), and :math:`K^{-1}\mathbf e` obtained from a Cholesky factorization of :math:`K` rather than an explicit matrix inverse. Both the numerator and :math:`N_{\rm free}` are pooled over the whole batch rather than computed per lineout: :math:`\mathbf e^{\!\top}K^{-1}\mathbf e` is summed over every lineout in the batch, and :math:`N_{\rm free}` is the number of actively fit parameters *times the batch size*, so :math:`\chi^2` is a single batch-wide statistic, not one value per lineout. This normalized form is what the point-estimate optimizer minimizes. The uncertainty routines of §\ :ref:`13 <sec:uq>` use the unnormalized quadratic form of each lineout instead (§\ :ref:`13.1 <sec:uq-likelihood>`).
+with :math:`\mathbf e=d-t` (masked to the fit window), and :math:`K^{-1}\mathbf e` obtained from a Cholesky factorization of :math:`K` rather than an explicit matrix inverse. Both the numerator and :math:`N_{\rm free}` are pooled over the whole batch rather than computed per lineout: :math:`\mathbf e^{\!\top}K^{-1}\mathbf e` is summed over every lineout in the batch, and :math:`N_{\rm free}` is the number of actively fit parameters *times the batch size*, so :math:`\chi^2` is a single batch-wide statistic, not one value per lineout. This normalized form is what the point-estimate optimizer minimizes. The uncertainty routines of §\ :ref:`13 <sec:uq>` use the unnormalized quadratic form of each lineout instead (§\ :ref:`13.2 <sec:uq-likelihood>`).
 
 .. _`sec:covar`:
 
@@ -890,12 +890,11 @@ Treating every pixel’s noise as independent (an implicit assumption of the l1/
 .. rubric:: Shot noise from the model.
 
 
-The per-pixel shot-noise variance, given CCD gain :math:`G` and excess noise factor :math:`F`, is
+A signal of :math:`S_{\rm pe}` photoelectrons is recorded as :math:`S_{\rm ccd}=G\,S_{\rm pe}` CCD electrons with variance :math:`S_{\rm ccd}\,G\,F^2`, where :math:`G` is the camera gain and :math:`F` its noise factor [ghosh2004]_. TSADAR works with the data divided by :math:`G` (§\ :ref:`10 <sec:data>`), i.e. in photoelectrons, where the per-pixel shot-noise variance is
 
 .. math::
 
-     \sigma_s^2 = \max(t,\,10^{-10})\cdot G\cdot F^2
-     \qquad(G=108,\ F^2=1.15,\ \text{hardcoded device constants}),
+     \sigma_s^2 = \max(t,\,10^{-10})\cdot F^2 \qquad(F^2=1.15\ \text{\cite{ghosh2004}}),
 
 where :math:`t` is the forward model’s prediction for that pixel, not the measured count :math:`d`. Estimating the variance from the data biases a :math:`\chi^2` fit even at high counts [humphrey2009]_, and it fails outright wherever the (dark-frame- or background-subtracted) data happen to sit near zero: the variance collapses there and any ordinary model–data mismatch is weighted enormously. Because :math:`K` depends on :math:`t` it is rebuilt at every evaluation of the loss, as in Ref. [swadling2022]_. The floor is needed because a model prediction can still dip to tiny negative values, at the level of floating-point noise around a near-zero continuum, which would turn the square root into NaN. The floor is :math:`10^{-10}` rather than :math:`0` because the derivative of :math:`\sqrt{x}` diverges as :math:`x\to0^+`, so a pixel sitting at a floor of exactly zero would still give a NaN gradient.
 
@@ -906,10 +905,22 @@ The diagonal matrix :math:`\operatorname{diag}(\sigma_s^2)` is 2D-convolved with
 
 .. math::
 
-     K = \operatorname{conv2d}\!\big(\operatorname{diag}(\sigma_s^2),\,g\big)+n\,\sigma_{\rm rn}^2\,I,
+     K = \operatorname{conv2d}\!\big(\operatorname{diag}(\sigma_s^2),\,g\big)+n\,\Big(\frac{\sigma_{\rm rn}}{G}\Big)^{2} I,
      \qquad g(a,b)=\frac{1}{2\pi\sigma_{\rm px}^2}\exp\!\left[-\frac{a^2+b^2}{2\sigma_{\rm px}^2}\right],
 
-with :math:`\sigma_{\rm px}=1.0`, :math:`n=2d_{\rm pixel}+1` the number of detector pixels summed per lineout, and :math:`\sigma_{\rm rn}=17.0`. The kernel :math:`g` is tabulated on :math:`[-5\sigma_{\rm px},5\sigma_{\rm px}]`. The Gaussian log-determinant term :math:`\ln\det K` is not included in the objective, although :math:`K` depends on the model.
+with :math:`\sigma_{\rm px}=1.0`, :math:`n=2d_{\rm pixel}+1` the number of detector rows summed per lineout, :math:`\sigma_{\rm rn}=17.0` CCD electrons (preliminary, see below), and :math:`G` the same gain the data were divided by. There is a single gain in the code, the input deck’s ``other.gain``; its default is :math:`108`, and ``fitter._validate_inputs_`` warns when ``loss_method="covar"`` is used with any other value, because the noise model is only correct if the data really are in photoelectrons. The kernel :math:`g` is tabulated on :math:`[-5\sigma_{\rm px},5\sigma_{\rm px}]`.
+
+.. rubric:: Fitting statistic and likelihood.
+
+
+Reference [swadling2022]_ is a least-squares method: it minimizes :math:`S=\mathbf e^{\!\top}K^{-1}\mathbf e` by Gauss–Newton iteration, with :math:`K` rebuilt from the current fit before each step and held fixed within it, and takes the parameter covariance as :math:`2H^{-1}` with :math:`H` the Hessian of :math:`S` at the best fit. The point-estimate loss of §\ :ref:`12 <sec:loss>` is that statistic, and it is differentiated the same way: the gradient is taken with :math:`K` held fixed at the current model (a stop-gradient on :math:`K`), giving :math:`-2\,\mathbf e^{\!\top}K^{-1}\partial t/\partial\beta`. Differentiating through :math:`K` as well would add a term that lowers :math:`S` by inflating the predicted variance, which nothing in :math:`S` penalizes. A probability density needs one more term. Because :math:`K` depends on the model, the Gaussian density of the data is :math:`\exp(-\tfrac12\mathbf e^{\!\top}K^{-1}\mathbf e)/\sqrt{\det K}` and the determinant is not a constant: it is what penalizes a model for inflating its own predicted variance. The likelihood used for uncertainty estimation (§\ :ref:`13.2 <sec:uq-likelihood>`) is therefore
+
+.. math::
+   :label: eq-covar-likelihood
+
+     -2\log L=\mathbf e^{\!\top}K^{-1}\mathbf e+\ln\det K ,
+
+with both terms taken from one Cholesky factorization of :math:`K`.
 
 .. rubric:: Background must not be subtracted.
 
@@ -919,12 +930,17 @@ The shot noise is set by the *total* count on each pixel, signal plus background
 .. rubric:: Pixel window.
 
 
-:math:`K` only needs to be built where the residual is nonzero. For each feature (IAW, EPW blue, EPW red) the data, the model and the covariance source are gathered to a fixed window of pixels that spans the fit range padded on each side by the half-width of :math:`g` (for the IAW the window also covers the excluded central gap). The residual is set to zero at the padding pixels, so they contribute to :math:`K` through the convolution but not to the quadratic form. Because :math:`g` has no support beyond its half-width, this reproduces the full-detector result while reducing the matrix from the full pixel count (e.g. :math:`1024`) to roughly :math:`150`–:math:`200` pixels; without the padding the quadratic form was observed to shift by about :math:`0.6\%`. Factorizing the full matrix was the dominant cost of the method, about three times slower per evaluation than l2. The wavelength axes are fixed by the calibration and do not depend on the fitted parameters, so the windows are computed once per ``LossFunction`` (``_init_covar_pixel_indices``); each calibration draw of §\ :ref:`13 <sec:uq>` builds its own.
+:math:`K` only needs to be built where the residual is nonzero. For each feature (IAW, EPW blue, EPW red) the data, the model and the covariance source are gathered to a fixed window of pixels that spans the fit range padded on each side by the half-width of :math:`g` (for the IAW the window also covers the excluded central gap). The convolution is evaluated on that padded window, so every in-range pixel sees its true neighbors, and :math:`K` is then restricted to the rows and columns of the in-range pixels, which is their joint covariance. Because :math:`g` has no support beyond its half-width, the padding makes this restricted block identical to the one a full-detector calculation would give, while the factorized matrix shrinks from the full pixel count (e.g. :math:`1024`) to roughly :math:`150`–:math:`200` pixels. Factorizing the full matrix was the dominant cost of the method, about three times slower per evaluation than l2. The wavelength axes are fixed by the calibration and do not depend on the fitted parameters, so the windows are computed once per ``LossFunction`` (``_init_covar_pixel_indices``); each calibration draw of §\ :ref:`13 <sec:uq>` builds its own.
+
+.. rubric:: Source of the constants.
+
+
+The detector model and the instrument are those of Ref. [swadling2022]_: the OMEGA Thomson-scattering diagnostic and its ROSS optical streak cameras. The gain and noise factor, :math:`G=108` CCD electrons per photoelectron and :math:`F^2=1.15`, are the values measured by Ghosh, Boni and Jaanimagi [ghosh2004]_ from the single-photoelectron pulse-height distribution of the LLE optical streak camera (P510 tube, S-20 photocathode, fiber-coupled CCD). The pixel spread :math:`\sigma_{\rm px}=1.0` px is the value measured in Ref. [swadling2022]_, which for its own camera found :math:`G=135` and :math:`F^2=1.05`; Ref. [ghosh2004]_ reports :math:`70`, :math:`95` and :math:`100\%` of a single event’s signal inside :math:`3\times3`, :math:`5\times5` and :math:`7\times7` pixels, consistent with that spread. These are calibrations of the camera type made in 2004 and 2022. They have not been repeated for the individual cameras or shot days analyzed, and gain differences of this size between nominally similar cameras are reported in both references.
 
 .. rubric:: Open items.
 
 
-:math:`G`, :math:`F^2`, :math:`\sigma_{\rm px}` and :math:`\sigma_{\rm rn}` are placeholders that have not been measured for each detector. For comparison, Ref. [swadling2022]_ reports :math:`G\approx135`, :math:`F^2\approx1.05` and :math:`\sigma_{\rm px}\approx1.0` px for its camera, and the dark-frame standard deviation measured on one streaked shot was about :math:`65`–:math:`73` ADU (EPW) and :math:`64` ADU (IAW), well above the value of :math:`\sigma_{\rm rn}` used here. How the unconditional dark-frame subtraction applied when the data are loaded maps onto :math:`\sigma_{\rm rn}` has not been settled.
+The readout noise is preliminary. The published version of Ref. [swadling2022]_ gives :math:`\sigma_{\rm rn}=11`, obtained from the standard deviation of the CCD overscan region, and Ref. [ghosh2004]_ measured a CCD noise of :math:`7` electrons on background-subtracted, unbinned images. TSADAR uses :math:`\sigma_{\rm rn}=17`, a value raised from the published one to better match the data, which has not yet been derived from a measurement. For comparison, the dark-frame standard deviation measured on one streaked shot was about :math:`65`–:math:`73` ADU (EPW) and :math:`64` ADU (IAW). How the unconditional dark-frame subtraction applied when the data are loaded maps onto :math:`\sigma_{\rm rn}` has not been settled.
 
 12.4 Total loss
 ---------------
@@ -933,7 +949,7 @@ The shot noise is set by the *total* count on each pixel, signal plus background
 
      L = \alpha_{\rm ion}\,e_{\rm ion}+e_{\rm ele},
 
-where :math:`e_{\rm ion}` is the (masked, reduced) IAW-feature error, :math:`e_{\rm ele}` is the EPW-feature error (averaged :math:`\tfrac12(e_{\rm blue}+e_{\rm red})` if both wings are fit), and :math:`\alpha_{\rm ion}` is a configured scale factor balancing the two features – needed because the IAW feature is typically orders of magnitude brighter than the EPW feature (§\ :ref:`1.2 <sec:vlasov>`), so an unweighted sum would let the fit ignore the electron feature almost entirely. In ``multiplex_ang`` mode the same loss is evaluated a second time with :math:`f_e` rotated by a configured angle, modeling a second, angularly offset line of sight that shares the same underlying plasma condition, and the two contributions are summed.
+where :math:`e_{\rm ion}` is the (masked, reduced) IAW-feature error, :math:`e_{\rm ele}` is the EPW-feature error (averaged :math:`\tfrac12(e_{\rm blue}+e_{\rm red})` if both wings are fit and the per-feature reduction is a mean over pixels; wherever the reduction is a sum – the ``covar`` statistic and the :math:`-2\log L` of §\ :ref:`13.2 <sec:uq-likelihood>` – the two wings add), and :math:`\alpha_{\rm ion}` is a configured scale factor balancing the two features – needed because the IAW feature is typically orders of magnitude brighter than the EPW feature (§\ :ref:`1.2 <sec:vlasov>`), so an unweighted sum would let the fit ignore the electron feature almost entirely. In ``multiplex_ang`` mode the same loss is evaluated a second time with :math:`f_e` rotated by a configured angle, modeling a second, angularly offset line of sight that shares the same underlying plasma condition, and the two contributions are summed.
 
 .. _`sec:optimizers`:
 
@@ -987,18 +1003,42 @@ The forward model deliberately lets :math:`f_e`\ ’s shape and its normalizatio
 
 ``tsadar/inverse/postprocess/laplace.py``, ``tsadar/inverse/postprocess/mcmc.py``, ``tsadar/inverse/postprocess/mcmc_calibration.py``, ``tsadar/inverse/postprocess/mcmc_postprocess.py``
 
-Minimizing the loss of §\ :ref:`12 <sec:loss>` produces a single best-fit point, not an estimate of how tightly that point is actually constrained by the data. TSADAR offers two postprocessing routes to that question, of increasing cost and generality, both built on the same underlying likelihood.
+Minimizing the loss of §\ :ref:`12 <sec:loss>` produces a single best-fit point, not an estimate of how tightly that point is actually constrained by the data. TSADAR offers two postprocessing routes to that question, of increasing cost and generality, both built on the same statistical model.
+
+.. _`sec:uq-model`:
+
+13.1 The statistical model
+--------------------------
+
+Both routes are approximations to one Bayesian inference problem, posed independently for each lineout. With :math:`d` the measured spectrum of a lineout and :math:`p` its active plasma parameters, Bayes’ theorem gives the posterior
+
+.. math::
+   :label: eq-bayes
+
+     \pi(p\mid d)\;\propto\;L(d\mid p)\,\pi_0(p),
+
+and the three ingredients are specified as follows.
+
+- **Likelihood** :math:`L(d\mid p)` (§\ :ref:`13.2 <sec:uq-likelihood>`): the probability of the measured counts given the forward model’s prediction :math:`t(p)` and a noise model. With ``loss_method="covar"`` it is the multivariate Gaussian of Eq. :eq:`eq-covar-likelihood`, whose covariance is the detector model of §\ :ref:`12.3 <sec:covar>` evaluated at :math:`t(p)`. Everything the forward model holds fixed (inactive parameters, the electron distribution function, the calibration) is conditioned on.
+
+- **Prior** :math:`\pi_0(p)`: uniform on each parameter’s :math:`[\mathrm{lb},\mathrm{ub}]` from the input deck by default, independent across parameters. It is a named, replaceable component (§\ :ref:`13.4 <sec:uq-mcmc>`).
+
+- **Posterior**: the Laplace route (§\ :ref:`13.3 <sec:laplace>`) approximates it by a Gaussian centered on the best fit, with covariance from the curvature of the likelihood there. The MCMC route (§\ :ref:`13.4 <sec:uq-mcmc>`) draws samples from Eq. :eq:`eq-bayes` itself, so the reported means, standard deviations and covariances are posterior moments, and the saved samples are posterior draws.
+
+When calibration uncertainty is enabled, the calibration constants :math:`c` are given independent Gaussian priors and the reported posterior is the marginal :math:`\int\pi(p\mid d,c)\,\pi_0(c)\,dc`, estimated by pooling chains run at draws of :math:`c` with equal weight (§\ :ref:`13.5 <sec:uq-pooling>`).
+
+Three qualifications apply to reading the result as a posterior. First, it is only as good as the noise model: the gain, noise factor and pixel spread of §\ :ref:`12.3 <sec:covar>` are published calibrations of this camera type rather than measurements of the individual cameras on the day, the readout noise is a preliminary value, and the Gaussian form replaces the true counting statistics. Second, with ``loss_method="l2"`` the per-pixel variance is taken from the data rather than the model, which is a convenient weighting, not a generative noise model; ``covar`` is the choice for which Eq. :eq:`eq-bayes` holds as written. Third, the chain selection of §\ :ref:`13.6 <sec:uq-mcmc-rhat>` is a convergence safeguard applied to the sampler’s output, not part of the model: it decides which chains are trusted to have reached the posterior.
 
 .. _`sec:uq-likelihood`:
 
-13.1 A shared likelihood
+13.2 A shared likelihood
 ------------------------
 
 ``LossFunction.neg_log_likelihood`` defines the :math:`-2\log L` used by both routes. It reuses the masking and loss functional of §\ :ref:`12 <sec:loss>` for the configured ``loss_method``, but *sums* over the in-range pixels instead of averaging, and does not apply the IAW/EPW weighting of the total loss:
 
 - **l2**: :math:`\sum(d-t)^2/\sigma^2` with :math:`\sigma^2=\vert d\vert+10^{-10}`, a Poisson-like variance taken from the data (the offset only guards against an exactly-zero-count pixel).
 
-- **covar**: :math:`\mathbf e^{\!\top}K^{-1}\mathbf e` for each feature, with :math:`K` the model-based noise covariance of §\ :ref:`12.3 <sec:covar>` and no degrees-of-freedom normalization.
+- **covar**: :math:`\mathbf e^{\!\top}K^{-1}\mathbf e+\ln\det K` for each feature (Eq. :eq:`eq-covar-likelihood`), with :math:`K` the model-based noise covariance of §\ :ref:`12.3 <sec:covar>` and no degrees-of-freedom normalization.
 
 It can reduce either to a single scalar for a whole batch or, when ``per_lineout=True``, to one value per lineout. The per-lineout form is what the sampler and the Hessian use, because each lineout’s posterior is independent and should not be coupled through a shared reduction. For the covar method the batch scalar is the degrees-of-freedom-normalized :math:`\chi^2` of §\ :ref:`12 <sec:loss>`, which is the right scale for the optimizer but not a likelihood: differentiating it instead of the per-lineout sum divides the Hessian by :math:`N_{\rm pts}-N_{\rm free}` (a factor of several hundred to over a thousand on a real shot) and so inflates a Laplace-seeded proposal step by its square root. For angular data ``neg_log_likelihood`` delegates to the angular objective, which is not separable per lineout.
 
@@ -1006,17 +1046,29 @@ The covar form is the one intended for MCMC. With the data-based l2 variance, th
 
 .. _`sec:laplace`:
 
-13.2 Laplace approximation: curvature at the best-fit point
+13.3 Laplace approximation: curvature at the best-fit point
 -----------------------------------------------------------
 
-The cheapest estimate of parameter uncertainty comes from the local curvature of the likelihood at its optimum. Approximating :math:`-2\log L` by its second-order Taylor expansion around the best fit turns the posterior into a Gaussian, the Laplace approximation, whose covariance is the inverse Hessian of :math:`-2\log L` (up to the standard factor of 2). TSADAR takes the JAX-differentiated Hessian of ``neg_log_likelihood`` with respect to only the *active* leaves of the ``ThomsonParams`` pytree, ``diff_params`` (``LossFunction.h_loss_wrt_params``), obtained by partitioning the best-fit weights via ``eqx.partition(ts_params, get_filter_spec(…))`` and closing the loss over the complementary ``static_params`` with ``eqx.combine`` before differentiating – the same restriction §\ :ref:`13.3 <sec:uq-mcmc>`\ ’s step-scale seeding below also applies, and for the same reason: differentiating the *entire* pytree instead pulls in every fixed array the model carries, including large distribution-function lookup tables, and has been observed to attempt a multi-hundred-GB allocation on an ordinary fit. Then, per lineout, the :math:`d\times d` block of the Hessian spanning every active parameter is assembled from the diagonal (cross-lineout terms are structurally zero since lineouts in a batch don’t affect each other) and inverted jointly:
+The cheapest estimate of parameter uncertainty comes from the local curvature of the likelihood at its optimum. Approximating :math:`-2\log L` by its second-order Taylor expansion around the best fit turns the posterior into a Gaussian, the Laplace approximation, whose covariance is twice the inverse Hessian of :math:`-2\log L`. TSADAR takes the JAX-differentiated Hessian of ``neg_log_likelihood`` with respect to only the *active* leaves of the ``ThomsonParams`` pytree, ``diff_params`` (``LossFunction.h_loss_wrt_params``), obtained by partitioning the best-fit weights via ``eqx.partition(ts_params, get_filter_spec(…))`` and closing the loss over the complementary ``static_params`` with ``eqx.combine`` before differentiating – the same restriction §\ :ref:`13.4 <sec:uq-mcmc>`\ ’s step-scale seeding below also applies, and for the same reason: differentiating the *entire* pytree instead pulls in every fixed array the model carries, including large distribution-function lookup tables, and has been observed to attempt a multi-hundred-GB allocation on an ordinary fit. Then, per lineout, the :math:`d\times d` block of the Hessian spanning every active parameter is assembled from the diagonal (cross-lineout terms are structurally zero since lineouts in a batch don’t affect each other) and inverted jointly:
 
 .. math::
 
-     \Sigma \approx H^{-1}, \qquad \sigma_p = \operatorname{sign}(\Sigma_{pp})\sqrt{\vert\Sigma_{pp}\vert}
+     \Sigma_z \approx 2H^{-1}
      \qquad(\mathtt{postprocess.laplace.get\_sigmas}).
 
-:math:`\Sigma` is the inverse of the *full* :math:`d\times d` active-parameter block, so :math:`\sigma_p` accounts for correlations between simultaneously-fit parameters. The same Hessian seeds the MCMC proposal of §\ :ref:`13.3 <sec:uq-mcmc>`. Because ``ThomsonParams.get_fitted_params`` (whose species order the returned columns must match) and ``diff_params``\ ’ own pytree flatten order enumerate species differently (electron/general/ion-:math:`n` vs. electron/ion-:math:`n`/general, respectively), the Hessian’s rows and columns are permuted by parameter name before this inversion.
+:math:`\Sigma_z` comes from the *full* :math:`d\times d` active-parameter block, so the uncertainties account for correlations between simultaneously-fit parameters. The same Hessian seeds the MCMC proposal of §\ :ref:`13.4 <sec:uq-mcmc>`. Because ``ThomsonParams.get_fitted_params`` (whose species order the returned columns must match) and ``diff_params``\ ’ own pytree flatten order enumerate species differently (electron/general/ion-:math:`n` vs. electron/ion-:math:`n`/general, respectively), the Hessian’s rows and columns are permuted by parameter name before this inversion.
+
+.. rubric:: Units.
+
+
+The Hessian is taken in the coordinates the optimizer works in, the logit variables :math:`z` of §\ :ref:`4 <sec:paramnorm>`, so :math:`\Sigma_z=2H^{-1}` is a covariance of those dimensionless variables. The reported uncertainties are in physical units: with :math:`J_{ab}=\partial p_a/\partial z_b` the Jacobian of the map from :math:`z` to the physical parameters :math:`p` (evaluated by automatic differentiation, so that couplings such as the ion fraction normalization are included),
+
+.. math::
+
+     \Sigma_p = J\,\Sigma_z\,J^{\!\top},\qquad
+     \sigma_p = \operatorname{sign}\big((\Sigma_p)_{pp}\big)\sqrt{\vert(\Sigma_p)_{pp}\vert}.
+
+For an uncoupled parameter :math:`p=\mathrm{lb}+(\mathrm{ub}-\mathrm{lb})\,\sigma(z)` this is :math:`\sigma_p=(\mathrm{ub}-\mathrm{lb})\,s(1-s)\,\sigma_z` with :math:`s=\sigma(z)`. The proposal seed of §\ :ref:`13.4 <sec:uq-mcmc>` needs no such conversion, because the sampler walks in :math:`z`.
 
 .. rubric:: Computing the per-lineout Hessian.
 
@@ -1031,20 +1083,28 @@ A direct Hessian of the batch-summed likelihood with respect to the active leave
 
 since only :math:`j=i` survives. One Jacobian–vector product per active parameter therefore gives a full column of every lineout’s Hessian, :math:`N_{\rm active}` products in total. The loop over :math:`b` uses ``jax.lax.map`` so that it is compiled once rather than unrolled.
 
-A true local minimum has a positive-definite Hessian, and hence :math:`\Sigma_{pp}>0`. A negative :math:`\Sigma_{pp}` instead signals that the “best fit” isn’t actually a clean minimum in that parameter’s direction – a saddle, a boundary artifact, or an under-constrained parameter. Rather than silently clamping this to a positive number, TSADAR reports :math:`\sigma_p` itself as negative, so a downstream consumer can flag the fit as suspect instead of trusting an uncertainty that was never really a curvature in the first place. As with §\ :ref:`13.3 <sec:uq-mcmc>`, the electron distribution function cannot currently be an active fit parameter when ``calc_sigmas`` is requested: its per-lineout representation as a list of separate objects rather than one batched array is incompatible with this leaf-based approach, and ``get_sigmas`` raises rather than silently mis-computing.
+A true local minimum has a positive-definite Hessian, and hence :math:`\Sigma_{pp}>0`. A negative :math:`\Sigma_{pp}` instead signals that the “best fit” isn’t actually a clean minimum in that parameter’s direction – a saddle, a boundary artifact, or an under-constrained parameter. Rather than silently clamping this to a positive number, TSADAR reports :math:`\sigma_p` itself as negative, so a downstream consumer can flag the fit as suspect instead of trusting an uncertainty that was never really a curvature in the first place. As with §\ :ref:`13.4 <sec:uq-mcmc>`, the electron distribution function cannot currently be an active fit parameter when ``calc_sigmas`` is requested: its per-lineout representation as a list of separate objects rather than one batched array is incompatible with this leaf-based approach, and ``get_sigmas`` raises rather than silently mis-computing.
 
 .. _`sec:uq-mcmc`:
 
-13.3 MCMC: sampling the full posterior
+13.4 MCMC: sampling the full posterior
 --------------------------------------
 
 The Laplace approximation is local and Gaussian by construction; it says nothing about skewed or multimodal posteriors, or about parameters near a bound where the sigmoid reparameterization (§\ :ref:`4 <sec:paramnorm>`) makes the unconstrained space badly non-Gaussian even if the physical space were well-behaved. ``postprocess/mcmc.py`` instead samples the posterior directly with a random-walk Metropolis–Hastings chain, run in the same unconstrained/logit space the optimizer already works in (so bounds are enforced implicitly by the same sigmoid map, never by rejection), vectorized across every lineout in a batch simultaneously:
 
-- **Target**: :math:`\log\pi\propto-\tfrac12\cdot\mathtt{neg\_log\_likelihood}` (per lineout) – i.e. the likelihood of §\ :ref:`1.2 <sec:vlasov>`–:ref:`12 <sec:loss>` itself, with no additional prior density multiplied in beyond what the bounded reparameterization already implies.
+- **Target**: the posterior density written in the sampled coordinates :math:`z`, per lineout,
+
+.. math::
+   :label: eq-mcmc-target
+
+           \log\pi(z)=-\tfrac12\cdot\mathtt{neg\_log\_likelihood}\big(p(z)\big)+\log\pi_0\big(p(z)\big)
+           +\sum_k\big[\log s_k+\log(1-s_k)\big],\qquad s_k=\sigma(z_k),
+
+  where :math:`\pi_0` is the prior over the physical parameters and the last term is the log-Jacobian :math:`\log\vert\partial p/\partial z\vert` of the sigmoid map, up to a constant. The Jacobian is required: the likelihood alone tends to a positive constant as a parameter approaches a bound (:math:`z\to\pm\infty`), so it does not integrate over :math:`z`, and sampling it would correspond to the improper prior :math:`1/[(p-\mathrm{lb})(\mathrm{ub}-p)]` that piles weight onto the bounds. The default :math:`\pi_0` is uniform on :math:`[\mathrm{lb},\mathrm{ub}]` for every parameter. The prior is selected by name (``other.mcmc.prior``) from a registry in ``mcmc.py``, so another prior can be added without touching the likelihood or the Jacobian.
 
 - **Proposal**: a Gaussian random walk in the unconstrained space, jointly correlated across every active parameter of a lineout (``_propose``: proposal :math:`=` current :math:`+\,S\,z`, :math:`z\sim\mathcal N(0,I)`, :math:`S` the lineout’s own proposal Cholesky factor) rather than independent per-parameter steps – letting the walk move efficiently along a real correlated or degenerate ridge instead of proposing independent per-axis moves that almost always land off of it. Since the proposal is symmetric, the Metropolis acceptance ratio is just the posterior-density ratio (no Hastings correction term).
 
-- **Step-scale seeding**: optionally seeded from the *full* local curvature (not just the diagonal) of ``neg_log_likelihood`` taken only with respect to the active parameters (``diff_params``) – the same diff_params-only restriction §\ :ref:`13.2 <sec:laplace>` uses and for the same reason (avoiding the memory blowup a full-pytree Hessian would risk). The resulting per-lineout Hessian block :math:`H` is turned into a proposal covariance the same way §\ :ref:`13.2 <sec:laplace>` inverts it for :math:`\Sigma\approx H^{-1}`, scaled by the Roberts–Rosenthal :math:`2.38/\sqrt d` asymptotically-optimal random-walk factor [roberts2001]_ (:math:`d` = the number of active scalar parameters) – but, unlike §\ :ref:`13.2 <sec:laplace>`, :math:`H` is not always positive-definite here: a weakly- or jointly-identified parameter (e.g. an ion temperature identifiable only in combination with another parameter) can have negative or near-zero curvature at the reported best fit, a saddle rather than a true local minimum in that direction. ``_regularized_proposal_cholesky`` handles this by eigenvalue-clipping :math:`H` in *normalized* (correlation-scaled) space – dividing by each parameter’s own :math:`\sqrt{\vert H_{ii}\vert}` before eigendecomposing, so that one small fixed floor is a meaningful "this direction needs regularizing" threshold regardless of how many orders of magnitude the raw diagonal entries span across parameters (a real fit showed roughly :math:`-700` for one parameter alongside :math:`6\times10^7` for another) – while preserving :math:`H`\ ’s eigenvectors, i.e. *which combinations* of parameters actually form each near-degenerate direction, rather than discarding that structure the way an independent per-parameter fallback would. Explicitly, with :math:`D=\operatorname{diag}(1/\sqrt{\vert H_{ii}\vert})` and the eigendecomposition :math:`DHD=Q\Lambda Q^\top`,
+- **Step-scale seeding**: optionally seeded from the *full* local curvature (not just the diagonal) of ``neg_log_likelihood`` taken only with respect to the active parameters (``diff_params``) – the same diff_params-only restriction §\ :ref:`13.3 <sec:laplace>` uses and for the same reason (avoiding the memory blowup a full-pytree Hessian would risk). The resulting per-lineout Hessian block :math:`H` is turned into a proposal covariance the same way §\ :ref:`13.3 <sec:laplace>` inverts it for :math:`\Sigma\approx H^{-1}`, scaled by the Roberts–Rosenthal :math:`2.38/\sqrt d` asymptotically-optimal random-walk factor [roberts2001]_ (:math:`d` = the number of active scalar parameters) – but, unlike §\ :ref:`13.3 <sec:laplace>`, :math:`H` is not always positive-definite here: a weakly- or jointly-identified parameter (e.g. an ion temperature identifiable only in combination with another parameter) can have negative or near-zero curvature at the reported best fit, a saddle rather than a true local minimum in that direction. ``_regularized_proposal_cholesky`` handles this by eigenvalue-clipping :math:`H` in *normalized* (correlation-scaled) space – dividing by each parameter’s own :math:`\sqrt{\vert H_{ii}\vert}` before eigendecomposing, so that one small fixed floor is a meaningful "this direction needs regularizing" threshold regardless of how many orders of magnitude the raw diagonal entries span across parameters (a real fit showed roughly :math:`-700` for one parameter alongside :math:`6\times10^7` for another) – while preserving :math:`H`\ ’s eigenvectors, i.e. *which combinations* of parameters actually form each near-degenerate direction, rather than discarding that structure the way an independent per-parameter fallback would. Here :math:`H` denotes the Hessian of the negative log-target of Eq. :eq:`eq-mcmc-target`: half the Hessian of :math:`-2\log L` plus the Jacobian term :math:`\operatorname{diag}\big(2s_k(1-s_k)\big)` (the curvature of a non-uniform prior is not included). Explicitly, with :math:`D=\operatorname{diag}(1/\sqrt{\vert H_{ii}\vert})` and the eigendecomposition :math:`DHD=Q\Lambda Q^\top`,
 
 .. math::
 
@@ -1054,7 +1114,7 @@ The Laplace approximation is local and Gaussian by construction; it says nothing
 
   In normalized units a well-conditioned, uncorrelated direction has :math:`\lambda=1`, so a clipped direction is given a proposal about :math:`30` times wider (:math:`1/\sqrt{10^{-3}}`) than a typical one. This is deliberately generous: an unconstrained parameter should come out with a large uncertainty, and the sigmoid map bounds how far a logit-space step can move it in physical units. If ``use_laplace_seed`` is off, or the Hessian computation fails, the seed is instead the flat :math:`S_0=\mathtt{init\_step\_scale}\cdot I`. ``init_step_scale`` is a plain logit-space step shared by every parameter; it is not scaled by a parameter’s position or physical range.
 
-  Even restricted to ``diff_params``, this per-lineout Hessian (``LossFunction.h_loss_wrt_params_per_lineout``) is assembled with the same low-memory, one-leaf-at-a-time ``jax.lax.map`` sweep §\ :ref:`13.2 <sec:laplace>` uses, for the same peak-memory and compile-time reasons documented there. A fit’s lineouts are also split across many fit-batches, and ``run_mcmc_for_fit_batches`` vmaps the rest of this sampler across all of them at once for one shared compile – but this step-scale seed (and, when applicable, the block-partition decision below) is computed sequentially, one fit-batch at a time (``_seed_step_scale``, itself jit-compiled so the loop still only compiles once), *before* that vmap: fusing it into the fit-batch vmap has been observed to multiply its memory cost by the fit-batch count.
+  Even restricted to ``diff_params``, this per-lineout Hessian (``LossFunction.h_loss_wrt_params_per_lineout``) is assembled with the same low-memory, one-leaf-at-a-time ``jax.lax.map`` sweep §\ :ref:`13.3 <sec:laplace>` uses, for the same peak-memory and compile-time reasons documented there. A fit’s lineouts are also split across many fit-batches, and ``run_mcmc_for_fit_batches`` vmaps the rest of this sampler across all of them at once for one shared compile – but this step-scale seed (and, when applicable, the block-partition decision below) is computed sequentially, one fit-batch at a time (``_seed_step_scale``, itself jit-compiled so the loop still only compiles once), *before* that vmap: fusing it into the fit-batch vmap has been observed to multiply its memory cost by the fit-batch count.
 
 - **Adaptation**: burn-in adapts the proposal covariance every single step (not once per window) via Vihola’s (2012) Robust Adaptive Metropolis (RAM) [vihola2012]_, which replaced an earlier two-part Robbins–Monro-magnitude\ :math:`+` empirical-shape-re-estimation scheme. Writing :math:`S_{i-1}` for the current Cholesky factor, :math:`z_i` for this step’s whitened proposal draw (so the proposal was current\ :math:`+S_{i-1}z_i`), and :math:`\alpha_i\in[0,1]` for this step’s *continuous* MH acceptance probability (not just the realized accept/reject event),
 
@@ -1072,7 +1132,7 @@ MCMC is not available when the electron distribution function itself is an activ
 
 .. _`sec:uq-mcmc-block`:
 
-13.3.1 Block Metropolis-within-Gibbs
+13.4.1 Block Metropolis-within-Gibbs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A joint proposal (above) draws and accepts/rejects every active parameter of a lineout together, from one shared Metropolis decision. That works well when every parameter’s own local curvature is roughly comparable, but real fits showed a recurring failure mode when it isn’t: a parameter with substantially negative normalized-Hessian curvature (a genuine saddle – see the step-scale seeding bullet above) gets a hugely oversized regularized proposal in its own direction. Because the joint step’s accept/reject decision is a single coin flip shared by every parameter, that one oversized direction ends up dictating whether the whole step is accepted almost regardless of what every other, well-conditioned parameter proposed – starving those other parameters’ own RAM adaptation of a meaningful, direction-specific learning signal. This was confirmed directly on real fitted data: a controlled test that simply deactivated the offending parameter(s) (holding them fixed rather than sampling them) recovered clean, fast-mixing convergence in every *other* parameter, on multiple lineouts of the same shot.
@@ -1086,7 +1146,9 @@ The two thresholds were set from observed cases. Clipping has to catch every non
 
 Block Gibbs isolates a near-degenerate direction rather than addressing *why* a naive Euclidean random-walk step struggles there in the first place: the Hessian (or Fisher information) defines a natural Riemannian metric on parameter space, and that metric’s eigenvalue spectrum for this kind of physics model is a known, named phenomenon in the physics/systems-biology literature – "sloppy models," an eigenvalue spread of many orders of magnitude with roughly log-linear decay [transtrum2011]_ [sethna2015]_ – matching this codebase’s own observed spread directly (roughly seven orders of magnitude across active parameters on a real fit). The principled fix in that framework is to move along *geodesics* of the Riemannian metric rather than straight Euclidean lines, e.g. Geodesic Monte Carlo [byrne2013]_ or Riemannian-manifold HMC with the SoftAbs metric [betancourt2013]_, which *symmetrically* regularizes indefinite curvature rather than the one-sided eigenvalue floor ``_regularized_proposal_cholesky`` uses above. This is a substantially heavier architectural change than block Gibbs – gradient-based (HMC-style) proposals, and for SoftAbs specifically, third derivatives of the loss – and was set aside in favor of block Gibbs given the latter’s direct experimental validation already in hand on this codebase’s own production data. Recorded here as a documented future direction should block Gibbs prove insufficient on some shot – e.g. a lineout whose problem block itself remains poorly-mixing even once isolated.
 
-13.4 Pooling over calibration uncertainty
+.. _`sec:uq-pooling`:
+
+13.5 Pooling over calibration uncertainty
 -----------------------------------------
 
 Section :ref:`11 <sec:calibration>` already describes how, when configured, :math:`K` independent realizations of the instrument’s calibration constants are pre-drawn and used to rebuild :math:`K` corresponding ``(config, data)`` pairs. ``mcmc_postprocess.py`` builds those :math:`K` pairs and hands them to ``mcmc.run_mcmc_pooled``, which runs the full MCMC procedure above once per realization (dispatched across a thread pool, one chain per realization) and pools the :math:`K` resulting sets of posterior samples into one combined ensemble, so that the reported uncertainty on each plasma parameter reflects both the statistical (shot-noise) uncertainty the likelihood already captures *and* the systematic uncertainty in the instrument calibration those :math:`K` realizations sample from – two genuinely different sources of uncertainty that a single MCMC chain against fixed calibration constants could not distinguish.
@@ -1095,21 +1157,21 @@ Section :ref:`11 <sec:calibration>` already describes how, when configured, :ma
 
 .. _`sec:uq-mcmc-rhat`:
 
-13.5 Convergence diagnostics: rank-normalized R-hat and per-parameter reliability
+13.6 Convergence diagnostics: rank-normalized R-hat and per-parameter reliability
 ---------------------------------------------------------------------------------
 
 Pooling :math:`K\ge2` independent chains (whether from calibration draws, dispersed starting points, or both) makes the classic Gelman–Rubin diagnostic available: the potential scale reduction factor :math:`\hat R`, the ratio of a pooled (between-plus-within-chain) variance estimate to the within-chain variance, close to :math:`1` once every chain has mixed to the same distribution [gelmanrubin1992]_. ``mcmc_postprocess.py`` uses two variants of it – a cross-chain :math:`\hat R` across all :math:`K` chains (``mcmc._max_r_hat_across_chains``) and a per-chain *split* :math:`\hat R` that treats one chain’s own first and second half as two chains, catching a chain that never reached a stationary distribution within its own budget even when it coincidentally agrees with the others on average (``mcmc._within_chain_r_hat``) – to decide, per lineout, which posterior-sampling chains to trust. A chain is flagged for a parameter when its split :math:`\hat R` exceeds ``within_chain_r_hat_threshold`` (default :math:`1.1`, more lenient than the :math:`1.01` usually quoted for many chains because only two half-chains are compared).
 
-13.5.1 Rank-normalized, folded, split R-hat
+13.6.1 Rank-normalized, folded, split R-hat
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The classic :math:`\hat R` formula is known to fail once a chain’s variance is very large or effectively infinite [vehtari2021]_. That is exactly what a genuinely weakly-identified parameter looks like in this sampler’s own unconstrained/logit space (§\ :ref:`13.3 <sec:uq-mcmc>`): its RAM-adapted proposal step can keep growing throughout burn-in with no sign of plateauing, since nothing in the likelihood pulls it back. On a real production shot this alone was measured to drive classic cross-chain :math:`\hat R` above :math:`1000` for such a parameter – not because the chains disagreed about where the *bulk* of the distribution sits, but because a handful of extreme per-chain excursions dominate the naive variance ratio.
+The classic :math:`\hat R` formula is known to fail once a chain’s variance is very large or effectively infinite [vehtari2021]_. That is exactly what a genuinely weakly-identified parameter looks like in this sampler’s own unconstrained/logit space (§\ :ref:`13.4 <sec:uq-mcmc>`): its RAM-adapted proposal step can keep growing throughout burn-in with no sign of plateauing, since nothing in the likelihood pulls it back. On a real production shot this alone was measured to drive classic cross-chain :math:`\hat R` above :math:`1000` for such a parameter – not because the chains disagreed about where the *bulk* of the distribution sits, but because a handful of extreme per-chain excursions dominate the naive variance ratio.
 
 ``mcmc._rank_normalized_r_hat`` replaces the classic formula everywhere in this module with the rank-normalized, folded, split :math:`\hat R` of Vehtari, Gelman, Simpson, Carpenter & Bürkner [vehtari2021]_, the modern default in Stan/ArviZ. Every chain is first split into two halves (catching within-chain non-stationarity the same way the existing split-:math:`\hat R` already did); the pooled values across every resulting half-chain are then replaced by their rank (ties broken by averaging – material here, since a *rejected* Metropolis–Hastings step repeats the previous sample’s exact float value, a common source of ties in real MCMC output) and mapped through the inverse-normal (“Blom”) transform onto approximately standard-normal scores before the classic formula is applied. Two such statistics are computed and the worse one kept: a *bulk* :math:`\hat R` (rank-normalizing the raw split chains, sensitive to disagreement in location) and a *tail* :math:`\hat R` (rank-normalizing the *folded* chains, :math:`\vert x-\mathrm{median}(x)\vert`, sensitive to disagreement in spread even when the centers agree). Rank-normalizing makes the statistic depend only on each chain’s relative *ordering*, which stays well-defined and comparably scaled regardless of how extreme the raw values get – on the same production shot, this alone brought the worst cross-chain :math:`\hat R` down from the hundreds/thousands to order :math:`10`.
 
 .. _`sec:uq-mcmc-mad`:
 
-13.5.2 Cross-chain outlier detection
+13.6.2 Cross-chain outlier detection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A chain can be stationary and still have settled in a different region from the others, for example at another point along a degenerate ridge; a random-walk sampler does not cross between well-separated modes. ``mcmc_postprocess._mad_flagged_chains`` tests for this per lineout and per parameter. With :math:`\mu_c` the posterior mean of chain :math:`c`,
@@ -1122,10 +1184,10 @@ A chain can be stationary and still have settled in a different region from the 
 
 where :math:`1.4826\,\mathrm{MAD}` is the usual normal-consistent robust standard deviation and :math:`s` is ``chain_outlier_mad_scale``. The default :math:`s=3.5` is the modified :math:`z`-score cutoff of Iglewicz and Hoaglin [iglewicz1993]_. The MAD is exactly zero whenever more than half the chains agree exactly, so it is floored at a tiny positive number; an agreeing chain then still has zero deviation and a divergent one is still flagged. A posterior with several well-populated modes inflates its own MAD and is rarely flagged, which is intended: the test targets one or two stray chains. Flagged chains are never deleted from the saved samples, only excluded from the summary statistics as described next.
 
-13.5.3 One weakly-identified parameter must not veto every other parameter
+13.6.3 One weakly-identified parameter must not veto every other parameter
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A well-scaled :math:`\hat R` formula alone does not fix the deeper issue: :math:`\hat R` cannot tell “this parameter’s posterior is genuinely flat, so chains landing at different values within it is correct” apart from “these chains have not yet converged.” Both of the :math:`\hat R` variants above, and the outlier check of §\ :ref:`13.5.2 <sec:uq-mcmc-mad>`, were therefore changed to report their result *per active parameter* rather than reduced, as they previously were, to a single worst-case-across-parameters number per lineout – under that reduction, one honestly weakly-identified parameter (e.g. an ion temperature the data barely constrain – exactly the parameter §\ :ref:`13.3.1 <sec:uq-mcmc-block>`\ ’s block Metropolis-within-Gibbs isolates) made an entire lineout’s summary statistics look unreliable even when every *other* parameter converged cleanly: on one real production shot this reduction alone flagged 83 of 84 lineouts as unreliable although mean sampling acceptance across chains was within a percent of the target rate for every one of them.
+A well-scaled :math:`\hat R` formula alone does not fix the deeper issue: :math:`\hat R` cannot tell “this parameter’s posterior is genuinely flat, so chains landing at different values within it is correct” apart from “these chains have not yet converged.” Both of the :math:`\hat R` variants above, and the outlier check of §\ :ref:`13.6.2 <sec:uq-mcmc-mad>`, were therefore changed to report their result *per active parameter* rather than reduced, as they previously were, to a single worst-case-across-parameters number per lineout – under that reduction, one honestly weakly-identified parameter (e.g. an ion temperature the data barely constrain – exactly the parameter §\ :ref:`13.4.1 <sec:uq-mcmc-block>`\ ’s block Metropolis-within-Gibbs isolates) made an entire lineout’s summary statistics look unreliable even when every *other* parameter converged cleanly: on one real production shot this reduction alone flagged 83 of 84 lineouts as unreliable although mean sampling acceptance across chains was within a percent of the target rate for every one of them.
 
 ``mcmc_postprocess._finalize_chain_selection`` accordingly decides, independently per lineout and per active parameter, whether that parameter’s own bad-chain count (chains failing the split-:math:`\hat R` check, the cross-chain outlier check, or both) exceeds ``max_dropped_chain_fraction`` (default :math:`0.2`) *on its own*. A parameter that does is *structurally unreliable* for that lineout – no subset of chains would satisfy the budget using that parameter alone – and is excluded from voting on which chains to keep, rather than being allowed to write off (nearly) every chain and, with it, every other parameter’s perfectly good summary statistics. Only the remaining, *voting* parameters’ bad-chain flags are combined (by union) to select which chains feed the lineout’s mean/standard-deviation/covariance; if even that restricted union still exceeds the budget, the lineout is marked unreliable outright (NaN’d) as before, since that signals genuine, non-parameter-specific disagreement rather than one flat direction. Keeping the least-bad subset of chains in that case was tried and rejected, because it hides exactly the lineouts where most chains failed together. When *no* parameter can vote, every chain is kept and every parameter’s own (necessarily wide) statistics are reported from the full, unfiltered pool, rather than discarding a lineout that has no informative subset to select by in the first place.
 
@@ -1133,7 +1195,7 @@ Critically, a structurally-unreliable parameter is not hidden: its mean and stan
 
 .. _`sec:uq-impl`:
 
-13.6 Implementation notes
+13.7 Implementation notes
 -------------------------
 
 These points do not change the algorithm but explain how ``mcmc.py`` and ``mcmc_postprocess.py`` are organized.
@@ -1168,6 +1230,8 @@ References
 .. [milder2019] A. L. Milder, S. T. Ivancic, J. P. Palastro, and D. H. Froula, *Impact of non-Maxwellian electron velocity distribution functions on inferred plasma parameters in collective Thomson scattering*, Physics of Plasmas **26**, 022711 (2019).
 
 .. [swadling2022] G. F. Swadling, C. Bruulsema, W. Rozmus, and J. Katz, *Quantitative assessment of fitting errors associated with streak camera noise in Thomson scattering data analysis*, Review of Scientific Instruments **93**, 043503 (2022).
+
+.. [ghosh2004] S. Ghosh, R. Boni, and P. A. Jaanimagi, *Optical and x-ray streak camera gain measurements*, Review of Scientific Instruments **75**, 3956 (2004).
 
 .. [humphrey2009] P. J. Humphrey, W. Liu, and D. A. Buote, *:math:`\chi^2` and Poissonian data: biases even in the high-count regime and how to avoid them*, Astrophysical Journal **693**, 822 (2009).
 

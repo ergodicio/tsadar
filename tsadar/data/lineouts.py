@@ -28,6 +28,13 @@ def compute_lineout_pixel_indices(config, axisxE, axisxI, shift_zero, IAWtime, t
     return LineoutPixelE, LineoutPixelI
 
 
+def spectral_smoothing_width(config) -> int:
+    """Width, in wavelength pixels, of the boxcar applied to the fitted lineouts. "default" is
+    2*dpixel+1, the number of rows summed per lineout; 1 is no smoothing."""
+    value = config["data"].get("spectral_smoothing", "default")
+    return 2 * config["data"]["dpixel"] + 1 if value == "default" else int(value)
+
+
 def get_lineouts(
     elecData, ionData, BGele, BGion, axisxE, axisxI, axisyE, axisyI, shift_zero, IAWtime, xlab, sa, config
 ) -> Dict:
@@ -104,21 +111,22 @@ def get_lineouts(
         BackgroundPixel = []
 
     config["data"]["background"]["pixel"] = BackgroundPixel
-    span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
+    span = 2 * config["data"]["dpixel"] + 1  # rows summed per lineout, also the background smoothing width
 
     # extract lineouts
     if config["data"]["load_ele_spec"]:
         LineoutTSE = [
-            np.sum(elecData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
+            np.sum(elecData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1], axis=1)
             for a in LineoutPixelE
         ]
+        # smoothed copy used to estimate the background and the lineout amplitude
         LineoutTSE_smooth = [
             np.convolve(LineoutTSE[i], np.ones(span) / span, "same") for i, _ in enumerate(LineoutPixelE)
         ]
         if config["other"]["extraoptions"]["spectype"] == "angular":
             sa["weights"] = np.array(
                 [
-                    np.mean(sa["weights"][a - config["data"]["dpixel"] : a + config["data"]["dpixel"], :], axis=0)
+                    np.mean(sa["weights"][a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1, :], axis=0)
                     for a in LineoutPixelE
                 ]
             )
@@ -130,12 +138,9 @@ def get_lineouts(
 
     if config["data"]["load_ion_spec"]:
         LineoutTSI = [
-            np.sum(ionData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
+            np.sum(ionData[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1], axis=1)
             for a in LineoutPixelI
         ]
-        LineoutTSI_smooth = [
-            np.convolve(LineoutTSI[i], np.ones(span) / span, "same") for i, _ in enumerate(LineoutPixelI)
-        ]  # was divided by 10 for some reason (removed 8-9-22)
 
     # Find background signal combining information from a background shot and background lineout
     [noiseE, noiseI] = get_lineout_bg(
@@ -143,14 +148,19 @@ def get_lineouts(
         axisyE, axisyI,
     )
 
-    # Find data amplitudes
+    # Find data amplitudes, with the data converted from CCD electrons to photoelectrons
     gain = config["other"]["gain"]
+    # the fitted data are smoothed over data.spectral_smoothing wavelength pixels (1 = not smoothed)
+    width = spectral_smoothing_width(config)
+    data_kernel = np.ones(width) / width
     if config["data"]["load_ion_spec"]:
         noiseI = noiseI / gain
-        LineoutTSI_norm = [LineoutTSI_smooth[i] / gain for i, _ in enumerate(LineoutPixelI)]
+        LineoutTSI_norm = [np.convolve(LineoutTSI[i], data_kernel, "same") / gain for i, _ in enumerate(LineoutPixelI)]
         LineoutTSI_norm = np.array(LineoutTSI_norm)
+        # the amplitude is taken from a smoothed copy so that it is not set by a single noisy pixel
+        LineoutTSI_smooth = np.array([np.convolve(lineout, np.ones(span) / span, "same") / gain for lineout in LineoutTSI])
         ampI = np.amax(
-            LineoutTSI_norm[
+            LineoutTSI_smooth[
                 :,
                 ((config["data"]["fit_rng"]["iaw_min"] < axisyI) & (axisyI < config["data"]["fit_rng"]["iaw_cf_min"]))
                 | (
@@ -162,11 +172,12 @@ def get_lineouts(
 
     if config["data"]["load_ele_spec"]:
         noiseE = noiseE / gain
-        LineoutTSE_norm = [LineoutTSE_smooth[i] / gain for i, _ in enumerate(LineoutPixelE)]
+        LineoutTSE_norm = [np.convolve(LineoutTSE[i], data_kernel, "same") / gain for i, _ in enumerate(LineoutPixelE)]
         LineoutTSE_norm = np.array(LineoutTSE_norm)
         # ampE = np.amax(LineoutTSE_norm[:, 100:-1] - noiseE[:, 100:-1], axis=1)  # attempts to ignore 3w comtamination
+        # the amplitude is taken from the smoothed copy so that it is not set by a single noisy pixel
         ampE = np.amax(
-            LineoutTSE_norm[
+            (np.array(LineoutTSE_smooth) / gain)[
                 :,
                 ((config["data"]["fit_rng"]["blue_min"] < axisyE) & (axisyE < config["data"]["fit_rng"]["blue_max"]))
                 | ((config["data"]["fit_rng"]["red_min"] < axisyE) & (axisyE < config["data"]["fit_rng"]["red_max"])),

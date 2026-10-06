@@ -12,6 +12,7 @@ data:
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 2
+  spectral_smoothing: default
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:
@@ -82,7 +83,7 @@ other:
   expandedions: false
   extraoptions:
   flatbg: 0
-  gain: 1
+  gain: 108
   iawfilter:
   - 1
   - 4

@@ -109,7 +109,9 @@ def recalculate_with_chosen_weights(
                 diff_params, static_params = eqx.partition(ts_params, filter_spec)
                 hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
                 fitted_params_this_batch, _ = ts_params.get_fitted_params(config["parameters"])
-                sigmas[inds] = get_sigmas(hess, diff_params, fitted_params_this_batch, config["optimizer"]["batch_size"])
+                sigmas[inds] = get_sigmas(
+                    hess, diff_params, static_params, fitted_params_this_batch, config["optimizer"]["batch_size"]
+                )
             except Exception as e:
                 print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
                 calc_sigma = False
@@ -142,24 +144,26 @@ def _named_diff_leaves(diff_params) -> List[Tuple[str, str]]:
     return names
 
 
-def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.ndarray:
+def get_sigmas(hess, diff_params, static_params, fitted_params: Dict, batch_size: int) -> np.ndarray:
     """
-    Calculates parameter uncertainty from a Hessian, using the hessian values as the inverse of the
-    covariance matrix and then inverting that. Negatives in the inverse hessian normally indicate
-    non-optimal points, to represent this in the final result the uncertainty of those values are
-    reported as negative.
+    Calculates parameter uncertainty, in physical units, from the Hessian of the -2*log-likelihood. The
+    covariance in the fitted (normalized) coordinates is 2 * inverse(Hessian); it is converted to the
+    physical parameters with the Jacobian of the parameter transform. Negatives in the covariance
+    normally indicate non-optimal points, to represent this in the final result the uncertainty of those
+    values are reported as negative.
 
     Args:
         hess: per-lineout Hessian of the loss wrt diff_params, as returned by
             LossFunction.h_loss_wrt_params_per_lineout.
         diff_params: the diff_params pytree the Hessian was taken with respect to.
+        static_params: the complementary partition of the same ThomsonParams.
         fitted_params: nested dict as returned by ThomsonParams.get_fitted_params; sets the columns and
             order of the returned array.
         batch_size: int- number of lineouts in a batch
 
     Returns:
-        sigmas: batch_size x number_of_parameters array with the uncertainty values for each parameter,
-            columns ordered to match fitted_params.
+        sigmas: batch_size x number_of_parameters array with the uncertainty of each parameter in
+            physical units, columns ordered to match fitted_params.
 
     Raises:
         NotImplementedError: if any electron distribution-function parameter is active.
@@ -197,12 +201,28 @@ def get_sigmas(hess, diff_params, fitted_params: Dict, batch_size: int) -> np.nd
     # permutation from fitted_params order (electron/general/ions) to diff_params order (electron/ions/general)
     perm = [name_to_row_index[name] for name in ordered_names]
 
+    # jacobian[k][a] is d(physical parameter a)/d(leaf k), per lineout
+    leaves, treedef = jax.tree_util.tree_flatten(diff_params)
+
+    def _physical(flat_leaves):
+        unnormed = eqx.combine(static_params, jax.tree_util.tree_unflatten(treedef, flat_leaves)).get_unnormed_params()
+        return jax.numpy.stack([jax.numpy.reshape(unnormed[s][k], (-1,)) for s, k in ordered_names])
+
+    jacobian = [np.asarray(j).reshape(num_params, batch_size, -1) for j in jax.jacfwd(_physical)(leaves)]
+
     for i in range(batch_size):
         temp = np.array(
-            [[np.asarray(blocks[perm[k1]][perm[k2]])[i] for k2 in range(num_params)] for k1 in range(num_params)]
+            [[np.asarray(blocks[perm[k1]][perm[k2]]).reshape(-1)[i] for k2 in range(num_params)] for k1 in range(num_params)]
         )
-        inv = np.linalg.inv(temp)
-        sigmas[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
+        # each lineout only depends on its own leaf entry (entry 0 for an unbatched leaf)
+        jac = np.array(
+            [
+                [jacobian[perm[k2]][a, i, i if jacobian[perm[k2]].shape[-1] > 1 else 0] for k2 in range(num_params)]
+                for a in range(num_params)
+            ]
+        )
+        covariance = jac @ (2.0 * np.linalg.inv(temp)) @ jac.T
+        sigmas[i, :] = np.sign(np.diag(covariance)) * np.sqrt(np.abs(np.diag(covariance)))
 
     return sigmas
 
@@ -455,7 +475,9 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
             filter_spec = get_filter_spec(config["parameters"], fitted_weights)
             diff_params, static_params = eqx.partition(fitted_weights, filter_spec)
             hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
-            sigmas = get_sigmas(hess, diff_params, batch_fitted_params, config["optimizer"]["batch_size"])
+            sigmas = get_sigmas(
+                hess, diff_params, static_params, batch_fitted_params, config["optimizer"]["batch_size"]
+            )
             print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
         except Exception as e:
             print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
