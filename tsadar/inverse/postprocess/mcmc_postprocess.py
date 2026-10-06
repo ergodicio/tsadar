@@ -312,7 +312,7 @@ def mcmc_postprocess(
                     continue  # mean/std/covariance stay NaN -- see all_params_mean/std/covariance init above
                 kept = stacked[keep_mask[:, lineout_local], lineout_local, :]
                 means = kept.mean(axis=0)
-                stds = kept.std(axis=0)
+                stds = kept.std(axis=0, ddof=1)  # same estimator as np.cov below
                 for a, (species, key_name) in enumerate(active_keys):
                     all_params_mean[species][key_name][lineout_global] = means[a]
                     all_params_std[species][key_name][lineout_global] = stds[a]

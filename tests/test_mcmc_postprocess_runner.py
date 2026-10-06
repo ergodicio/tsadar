@@ -89,6 +89,20 @@ def test_mcmc_postprocess_writes_expected_artifacts():
         assert "binary/mcmc_covariance.nc" in binary_files
         assert "binary/mcmc_reliability.nc" in binary_files
 
+        # the saved covariance diagonal is the square of the saved marginal sigmas
+        import numpy as np
+        import xarray as xr
+
+        with tempfile.TemporaryDirectory() as dl:
+            covariance = xr.open_dataset(
+                mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="binary/mcmc_covariance.nc", dst_path=dl)
+            ).load()
+            sigmas = xr.open_dataset(
+                mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="sigmas_mcmc.nc", dst_path=dl)
+            ).load()
+        for a, name in enumerate(covariance["param_i"].values):
+            np.testing.assert_allclose(covariance["covariance"].values[:, a, a], sigmas[str(name)].values ** 2, rtol=1e-8)
+
         with tempfile.TemporaryDirectory() as dl:
             local_path = mlflow.artifacts.download_artifacts(
                 run_id=run_id, artifact_path="binary/mcmc_covariance.nc", dst_path=dl
