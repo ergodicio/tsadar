@@ -361,19 +361,21 @@ def test_calibration_draws_perturb_gain_and_rescale_data(fitted_fixture):
 
 
 def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
-    # pooling chains run under different calibration realizations should give a posterior at least as
-    # wide as a single chain at the nominal calibration. For gain the shift is small (the per-lineout
-    # normalization cancels most of it), so the comparison is averaged over several seed pairs.
+    # pooling chains run under different calibration realizations should give a wider posterior than a
+    # single chain at the nominal calibration. The EPW dispersion is perturbed because it moves the
+    # plasma-wave peaks and therefore the inferred density; the comparison is averaged over seed pairs.
     cfg = fitted_fixture["config"]
     sa = fitted_fixture["sa"]
     ts_params = fitted_fixture["fitted_weights"][0]
     batch_size = cfg["optimizer"]["batch_size"]
     mcmc_settings = {"num_steps": 1500, "burn_in": 1000, "thin": 5, "adapt_every": 50, "use_laplace_seed": True}
 
-    def _pooled_amp1_std(num_draws, gain_sigma, mcmc_key_seed, cal_rng_seed):
+    def _pooled_ne_std(num_draws, dispersion_sigma, mcmc_key_seed, cal_rng_seed):
         cfg_run = copy.deepcopy(cfg)
         cfg_run["other"]["mcmc"] = mcmc_settings
-        cfg_run["other"]["calibration_uncertainty"] = {"num_draws": num_draws, "gain_sigma": gain_sigma, "seed": cal_rng_seed}
+        cfg_run["other"]["calibration_uncertainty"] = {
+            "num_draws": num_draws, "EPWDispersion_sigma": dispersion_sigma, "seed": cal_rng_seed,
+        }
         draws = mcmc_calibration.draw_calibration_realizations(
             cfg_run, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(cal_rng_seed)
         )
@@ -406,15 +408,15 @@ def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
             return eqx.combine(static_i, dp).get_unnormed_params()
 
         physical = eqx.filter_vmap(_unnorm)(diff_i)
-        return float(np.std(np.asarray(physical["general"]["amp1"])[:, 0]))
+        return float(np.std(np.asarray(physical["electron"]["ne"])[:, 0]))
 
     # Same set of shapes (num_steps/burn_in/thin/adapt_every) every repeat, so _run_window's filter_jit
     # cache is warmed once and every further repeat is cheap -- only the PRNG/calibration seeds vary.
     n_repeats = 5
     gaps = []
     for i in range(n_repeats):
-        std_no = _pooled_amp1_std(num_draws=1, gain_sigma=0.0, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
-        std_with = _pooled_amp1_std(num_draws=4, gain_sigma=0.2, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
+        std_no = _pooled_ne_std(num_draws=1, dispersion_sigma=0.0, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
+        std_with = _pooled_ne_std(num_draws=4, dispersion_sigma=0.005, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
         gaps.append(std_with - std_no)
 
     mean_gap = float(np.mean(gaps))

@@ -94,12 +94,13 @@ def test_mcmc_postprocess_writes_expected_artifacts():
         import xarray as xr
 
         with tempfile.TemporaryDirectory() as dl:
-            covariance = xr.open_dataset(
+            # load_dataset reads the file and closes it, so the temporary directory can be removed
+            covariance = xr.load_dataset(
                 mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="binary/mcmc_covariance.nc", dst_path=dl)
-            ).load()
-            sigmas = xr.open_dataset(
+            )
+            sigmas = xr.load_dataset(
                 mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="sigmas_mcmc.nc", dst_path=dl)
-            ).load()
+            )
         for a, name in enumerate(covariance["param_i"].values):
             np.testing.assert_allclose(covariance["covariance"].values[:, a, a], sigmas[str(name)].values ** 2, rtol=1e-8)
 
