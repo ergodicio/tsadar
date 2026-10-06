@@ -21,7 +21,7 @@ dependencies = [
     "matplotlib",
     "xlrd",
     "pyyaml",
-    "mlflow",
+    "mlflow>=3.11.1",
     "mlflow_export_import",
     "boto3",
     "flatten-dict",

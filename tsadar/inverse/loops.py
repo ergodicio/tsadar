@@ -111,8 +111,11 @@ def _log_optimizer_step(
     # canonical tags and status="running" are queryable the instant fitting starts, before this function
     # is ever called. Scoping the async behavior to just this per-epoch metrics call keeps that
     # synchronous while still taking the HTTP round trip off the epoch loop's critical path -- mlflow
-    # queues it on a background thread; mlflow.start_run's __exit__ (end_run) drains the queue before the
-    # run closes, so nothing is dropped.
+    # queues it on a background thread; mlflow.start_run's __exit__ (end_run) waits for the queued writes
+    # before the run closes. That wait is version-dependent (older mlflow returned from end_run with
+    # writes still pending), hence the mlflow floor in pyproject.toml. A write the tracking server rejects
+    # is only reported on stderr and does not fail the run: these metrics are diagnostics, and everything
+    # the fit is required to produce is logged as an artifact.
     mlflow.log_metrics(
         {
             "epoch loss": current_loss,
