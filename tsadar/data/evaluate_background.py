@@ -133,8 +133,9 @@ def get_lineout_bg(
     # brem_model defers the background to the forward model, so a zero background is returned here
     if config["data"]["background"]["type"].casefold() == "brem_model":
         n_lineouts = len(config["data"]["lineouts"]["val"])
-        noiseE = np.zeros((n_lineouts, elecData.shape[1])) if config["data"]["load_ele_spec"] else np.zeros(n_lineouts)
-        noiseI = np.zeros((n_lineouts, ionData.shape[1])) if config["data"]["load_ion_spec"] else np.zeros(n_lineouts)
+        # one value per wavelength pixel (axis 0 of the detector image), as the lineouts are
+        noiseE = np.zeros((n_lineouts, elecData.shape[0])) if config["data"]["load_ele_spec"] else np.zeros(n_lineouts)
+        noiseI = np.zeros((n_lineouts, ionData.shape[0])) if config["data"]["load_ion_spec"] else np.zeros(n_lineouts)
         return noiseE, noiseI
 
     # for electrons, if the background type is "fit" and the data type is not "angular"
