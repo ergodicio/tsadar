@@ -49,6 +49,16 @@ def test_arts1d_forward_pass():
             config["data"]["fit_rng"]["forward_iaw_end"],
         ]
         config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+        # Accounts for the pixel-centred model grid fix: ThryE-arts1v.npy was generated on the old grid,
+        # linspace(start, end, npts). Shrink the ranges so the new grid lands on those same points.
+        # Remove this block when the reference is regenerated on the new grid.
+        ppp = config["other"]["points_per_pixel"]
+        n_pixels = config["other"]["npts"] // ppp
+        for key in ("lamrangE", "lamrangI"):
+            start, end = config["other"][key]
+            pixel_width = (end - start) / (n_pixels - 1 + (1 - 1 / ppp))
+            overhang = 0.5 * pixel_width * (1 - 1 / ppp)
+            config["other"][key] = [start + overhang, end - overhang]
         sas = get_scattering_angles(config)
 
         [axisxE, _, _, _, _, _] = get_calibrations(

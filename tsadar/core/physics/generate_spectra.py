@@ -198,6 +198,7 @@ class FitModel:
             ud_ang=ud_angle,
             calc_gain=calc_gain,
             n_beta=n_beta,
+            points_per_pixel=int(config["other"].get("points_per_pixel", 1)),
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -209,6 +210,7 @@ class FitModel:
             ud_ang=ud_angle,
             calc_gain=calc_gain,
             n_beta=n_beta,
+            points_per_pixel=int(config["other"].get("points_per_pixel", 1)),
         )
 
     def __call__(self, all_params: Dict):

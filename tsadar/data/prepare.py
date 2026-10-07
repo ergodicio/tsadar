@@ -214,7 +214,13 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
             electron_wavelength_edges = detector_edges_from_centers(np.ravel(axisyE))
         config["other"]["detector_specs"]["electron_wavelength_edges"] = electron_wavelength_edges
         config["other"]["detector_specs"]["electron_wavelength_centers"] = np.ravel(axisyE)
-    config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
+    # The model grid assumes evenly spaced bins between these two centers. A final resolution unit with
+    # fewer pixels has its center pulled in, so the upper end is taken from the uniform spacing instead.
+    axisyE_centers = np.ravel(axisyE)
+    lamrangE_upper = axisyE_centers[-1]
+    if electron_wavelength_edges is not None and axisyE_centers.size > 2:
+        lamrangE_upper = axisyE_centers[0] + (axisyE_centers.size - 1) * (axisyE_centers[1] - axisyE_centers[0])
+    config["other"]["lamrangE"] = [axisyE_centers[0], lamrangE_upper]
     config["other"]["lamrangI"] = [axisyI[0], axisyI[-1]]
     config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
 
