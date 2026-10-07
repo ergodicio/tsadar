@@ -767,3 +767,22 @@ def test_calibration_draws_keep_the_throughput_correction_applied_to_the_data(fi
         # the data were corrected on the nominal axis, so the noise model keeps that correction
         loss_fn_k = _build_loss_fn_for_draw(cfg_k, fitted_fixture["sa"], all_data_k, batch_size, nominal)
         np.testing.assert_array_equal(np.asarray(loss_fn_k.covar_throughput_e), np.asarray(nominal.covar_throughput_e))
+
+
+def test_covar_throughput_correction_does_not_depend_on_points_per_pixel(fitted_fixture):
+    from tsadar.data.correct_throughput import throughput_correction
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+    # oversample the model: its binned wavelength axis then no longer coincides with the pixel centers
+    cfg["other"]["points_per_pixel"] = 2
+    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][1] * 2)
+    loss_fn = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], cfg["optimizer"]["batch_size"])
+
+    # the correction is the one applied to the data, on the detector pixel centers
+    expected = throughput_correction(
+        cfg["other"]["extraoptions"]["spectype"], np.asarray(fitted_fixture["all_axes"]["epw_y"]), cfg["data"]["shotnum"]
+    )
+    np.testing.assert_allclose(np.asarray(loss_fn.covar_throughput_e), expected, rtol=1e-10)
