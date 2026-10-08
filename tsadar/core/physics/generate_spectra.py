@@ -9,6 +9,18 @@ from jax import lax, numpy as jnp
 from jax.tree_util import tree_map
 
 
+def points_per_detector_pixel(config: Dict) -> int:
+    """Number of fine-grid points the instrument reduction averages into each detector pixel.
+
+    Angular spectra are reduced by ``points_per_pixel``. Temporal and imaging spectra are reduced onto
+    ``CCDsize[0]`` wavelength pixels (see ``thomson_diagnostic._irfs_from_config``), which differs from
+    ``points_per_pixel`` on a non-square detector.
+    """
+    if config["other"]["extraoptions"]["spectype"] == "angular_full":
+        return int(config["other"].get("points_per_pixel", 1))
+    return max(int(config["other"]["npts"]) // int(config["other"]["CCDsize"][0]), 1)
+
+
 class FitModel:
     """
     FitModel is a class that wraps the FormFactor class to add finite aperture and finite volume effects for generating Thomson scattering spectra. It manages configuration options, handles multiple scattering angles, and supports both electron and ion features, including gradient effects and angular spectra.
@@ -188,6 +200,7 @@ class FitModel:
         else:
             calc_gain = {'calc': False, 'Ipump': 0, 'beam_diam_um': 0, 'gain_cap': 100.0}
 
+        points_per_pixel = points_per_detector_pixel(config)
         self.electron_form_factor = FormFactor(
             config["other"]["lamrangE"],
             npts=config["other"]["npts"],
@@ -198,7 +211,7 @@ class FitModel:
             ud_ang=ud_angle,
             calc_gain=calc_gain,
             n_beta=n_beta,
-            points_per_pixel=int(config["other"].get("points_per_pixel", 1)),
+            points_per_pixel=points_per_pixel,
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -210,7 +223,7 @@ class FitModel:
             ud_ang=ud_angle,
             calc_gain=calc_gain,
             n_beta=n_beta,
-            points_per_pixel=int(config["other"].get("points_per_pixel", 1)),
+            points_per_pixel=points_per_pixel,
         )
 
     def __call__(self, all_params: Dict):

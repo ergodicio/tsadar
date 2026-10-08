@@ -112,6 +112,20 @@ def zprimeMaxw(xi):
     return Zp
 
 
+def pixel_centered_grid(lambda_range, npts, points_per_pixel=1):
+    """Fine wavelength grid whose groups of ``points_per_pixel`` points average to the detector pixel centers.
+
+    ``lambda_range`` holds the first and last detector pixel centers. With ``points_per_pixel > 1`` the
+    grid runs from pixel edge to pixel edge with the points centered in equal sub-cells.
+    """
+    n_pixels = npts // points_per_pixel
+    overhang = 0.0
+    if points_per_pixel > 1 and n_pixels > 1:
+        pixel_width = (lambda_range[1] - lambda_range[0]) / (n_pixels - 1)
+        overhang = 0.5 * pixel_width * (1.0 - 1.0 / points_per_pixel)
+    return jnp.linspace(lambda_range[0] - overhang, lambda_range[1] + overhang, npts)
+
+
 class FormFactor:
     """
     FormFactor class for calculating the Thomson scattering structure factor or spectral density function.
@@ -218,15 +232,7 @@ class FormFactor:
         self.h = 0.01
         minmax = 8.2
         h1 = 1024  # 1024
-        # lambda_range holds the first and last detector pixel centers. With points_per_pixel > 1 the
-        # grid runs from pixel edge to pixel edge with the points centered in equal sub-cells, so that
-        # averaging each group of points_per_pixel points gives exactly that pixel's center.
-        n_pixels = npts // points_per_pixel
-        overhang = 0.0
-        if points_per_pixel > 1 and n_pixels > 1:
-            pixel_width = (lambda_range[1] - lambda_range[0]) / (n_pixels - 1)
-            overhang = 0.5 * pixel_width * (1.0 - 1.0 / points_per_pixel)
-        lamAxis = jnp.linspace(lambda_range[0] - overhang, lambda_range[1] + overhang, npts)
+        lamAxis = pixel_centered_grid(lambda_range, npts, points_per_pixel)
         self.lambda_axis_nm = lamAxis
         self.omgL_num = 2 * jnp.pi * 1e7 * self.C
         omgs = 2e7 * jnp.pi * self.C / lamAxis  # Scattered frequency axis(1 / sec)
