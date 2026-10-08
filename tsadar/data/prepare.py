@@ -219,6 +219,6 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["other"]["detector_specs"]["electron_wavelength_centers"] = np.ravel(axisyE)
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
     config["other"]["lamrangI"] = [axisyI[0], axisyI[-1]]
-    config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+    config["other"]["npts"] = int(len(axisyE) * config["other"]["points_per_pixel"])
 
     return all_data, sa, all_axes
