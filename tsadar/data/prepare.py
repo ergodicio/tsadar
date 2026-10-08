@@ -146,6 +146,9 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # down sample image to resolution units by summation
         ang_res_unit = config["other"]["ang_res_unit"]  # in pixels
         lam_res_unit = config["other"]["lam_res_unit"]  # in pixels
+        # drop a partial final wavelength unit so every unit has the same width
+        n_lam = (elecData.shape[0] // lam_res_unit) * lam_res_unit
+        elecData, BGele, axisyE = elecData[:n_lam], BGele[:n_lam], axisyE[:n_lam]
         electron_wavelength_edges = grouped_detector_edges(axisyE, lam_res_unit)
 
         data_res_unit = np.array(
@@ -216,6 +219,6 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["other"]["detector_specs"]["electron_wavelength_centers"] = np.ravel(axisyE)
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
     config["other"]["lamrangI"] = [axisyI[0], axisyI[-1]]
-    config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+    config["other"]["npts"] = int(len(axisyE) * config["other"]["points_per_pixel"])
 
     return all_data, sa, all_axes

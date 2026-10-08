@@ -206,6 +206,7 @@ class FormFactor:
         va_ang,
         calc_gain,
         n_beta=DEFAULT_N_BETA,
+        points_per_pixel=1,
     ):
 
         # basic quantities
@@ -217,7 +218,11 @@ class FormFactor:
         self.h = 0.01
         minmax = 8.2
         h1 = 1024  # 1024
-        lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
+        # lambda_range is the first and last pixel centers; the grid is extended so that each group of
+        # points_per_pixel points is centered on its pixel
+        pixel_width = (lambda_range[1] - lambda_range[0]) / max(npts // points_per_pixel - 1, 1)
+        overhang = 0.5 * pixel_width * (1 - 1 / points_per_pixel)
+        lamAxis = jnp.linspace(lambda_range[0] - overhang, lambda_range[1] + overhang, npts)
         self.lambda_axis_nm = lamAxis
         self.omgL_num = 2 * jnp.pi * 1e7 * self.C
         omgs = 2e7 * jnp.pi * self.C / lamAxis  # Scattered frequency axis(1 / sec)

@@ -69,7 +69,7 @@ def test_grouped_detector_edges_reject_invalid_group_size(bad_group):
         grouped_detector_edges(np.arange(4.0), bad_group)
 
 
-def test_prepare_data_retains_exact_arts_spectral_edges(monkeypatch):
+def test_prepare_data_drops_a_ragged_final_arts_spectral_unit(monkeypatch):
     electron_data = np.arange(20.0).reshape(5, 4)
     ion_data = np.zeros_like(electron_data)
     wavelength_centers = np.arange(5.0) + 0.5
@@ -134,16 +134,18 @@ def test_prepare_data_retains_exact_arts_spectral_edges(monkeypatch):
 
     all_data, _, all_axes = prepare.prepare_data(cfg, 1)
 
-    np.testing.assert_array_equal(all_axes["epw_y"].squeeze(), np.array([1.0, 3.0, 4.5]))
+    # 5 wavelength pixels in units of 2: the fifth pixel is dropped rather than kept as a half-width unit
+    np.testing.assert_array_equal(all_axes["epw_y"].squeeze(), np.array([1.0, 3.0]))
     np.testing.assert_array_equal(
-        cfg["other"]["detector_specs"]["electron_wavelength_edges"], np.array([0.0, 2.0, 4.0, 5.0])
+        cfg["other"]["detector_specs"]["electron_wavelength_edges"], np.array([0.0, 2.0, 4.0])
     )
     np.testing.assert_array_equal(
         cfg["other"]["detector_specs"]["electron_wavelength_centers"],
-        np.array([1.0, 3.0, 4.5]),
+        np.array([1.0, 3.0]),
     )
-    assert all_data["e_data"].shape == (2, 3)
-    assert cfg["other"]["CCDsize"] == (2, 3)
+    assert all_data["e_data"].shape == (2, 2)
+    assert cfg["other"]["CCDsize"] == (2, 2)
+    assert cfg["other"]["lamrangE"] == [1.0, 3.0]
 
 
 def test_forward_arts_bounds_remain_first_and_last_detector_centers():

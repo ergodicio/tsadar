@@ -786,3 +786,19 @@ def test_covar_throughput_correction_does_not_depend_on_points_per_pixel(fitted_
         cfg["other"]["extraoptions"]["spectype"], np.asarray(fitted_fixture["all_axes"]["epw_y"]), cfg["data"]["shotnum"]
     )
     np.testing.assert_allclose(np.asarray(loss_fn.covar_throughput_e), expected, rtol=1e-10)
+
+
+@pytest.mark.parametrize("points_per_pixel", [1, 2, 5])
+def test_binned_model_axis_matches_the_detector_pixel_centers(fitted_fixture, points_per_pixel):
+    from tsadar.inverse.loss_function import LossFunction
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    batch_size = cfg["optimizer"]["batch_size"]
+    cfg["other"]["points_per_pixel"] = points_per_pixel
+    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][1] * points_per_pixel)
+    sample = {k: v[:batch_size] for k, v in fitted_fixture["all_data"].items()}
+    sample = {"noise_e": sample["noiseE"], "noise_i": sample["noiseI"]} | sample
+    loss_fn = LossFunction(cfg, fitted_fixture["sa"], sample)
+
+    _, _, lamAxisE, _ = loss_fn.ts_diag(fitted_fixture["fitted_weights"][0], fitted_fixture["batch"])
+    np.testing.assert_allclose(np.asarray(lamAxisE)[0], np.asarray(fitted_fixture["all_axes"]["epw_y"]), rtol=0, atol=1e-9)
