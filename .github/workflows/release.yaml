@@ -63,21 +63,31 @@ jobs:
             skip=false; if has "release:skip"; then skip=true; fi
           fi
 
-          if [ -n "$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*')" ]; then
-            echo "This commit is already tagged."
-            skip=true
+          # A commit that is already tagged keeps its tag, so a rerun can finish a release
+          # whose tag was pushed but whose release was never created.
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -n "$tag" ]; then
+            push_tag=false
+            if gh release view "$tag" > /dev/null 2>&1; then
+              echo "$tag is already released."
+              skip=true
+            fi
+          else
+            push_tag=true
+            latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            case "$bump" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              *) patch=$((patch + 1)) ;;
+            esac
+            tag="v$major.$minor.$patch"
+            echo "Latest tag $latest, bump $bump"
           fi
 
-          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
-          IFS=. read -r major minor patch <<< "${latest#v}"
-          case "$bump" in
-            major) major=$((major + 1)); minor=0; patch=0 ;;
-            minor) minor=$((minor + 1)); patch=0 ;;
-            *) patch=$((patch + 1)) ;;
-          esac
-
-          echo "Latest tag $latest, bump $bump, draft $draft, skip $skip"
-          echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+          echo "Tag $tag, push tag $push_tag, draft $draft, skip $skip"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "push_tag=$push_tag" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
@@ -86,9 +96,12 @@ jobs:
         env:
           TAG: ${{ steps.plan.outputs.tag }}
           DRAFT: ${{ steps.plan.outputs.draft }}
+          PUSH_TAG: ${{ steps.plan.outputs.push_tag }}
         run: |
-          git tag "$TAG" "$GITHUB_SHA"
-          git push origin "$TAG"
+          if [ "$PUSH_TAG" = "true" ]; then
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
           args=(--verify-tag --generate-notes --title "$TAG")
           if [ "$DRAFT" = "true" ]; then args+=(--draft); fi
           gh release create "$TAG" "${args[@]}"
