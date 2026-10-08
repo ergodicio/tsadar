@@ -146,18 +146,16 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # down sample image to resolution units by summation
         ang_res_unit = config["other"]["ang_res_unit"]  # in pixels
         lam_res_unit = config["other"]["lam_res_unit"]  # in pixels
-        # a final wavelength unit with fewer than lam_res_unit pixels is dropped, so every unit has the same width
-        n_lam_pixels = (elecData.shape[0] // lam_res_unit) * lam_res_unit
-        if n_lam_pixels < elecData.shape[0]:
-            print(f"final {elecData.shape[0] - n_lam_pixels} wavelength pixels have been removed")
-        axisyE = axisyE[:n_lam_pixels]
+        # drop a partial final wavelength unit so every unit has the same width
+        n_lam = (elecData.shape[0] // lam_res_unit) * lam_res_unit
+        elecData, BGele, axisyE = elecData[:n_lam], BGele[:n_lam], axisyE[:n_lam]
         electron_wavelength_edges = grouped_detector_edges(axisyE, lam_res_unit)
 
         data_res_unit = np.array(
-            [np.average(elecData[i : i + lam_res_unit, :], axis=0) for i in range(0, n_lam_pixels, lam_res_unit)]
+            [np.average(elecData[i : i + lam_res_unit, :], axis=0) for i in range(0, elecData.shape[0], lam_res_unit)]
         )
         bg_res_unit = np.array(
-            [np.average(BGele[i : i + lam_res_unit, :], axis=0) for i in range(0, n_lam_pixels, lam_res_unit)]
+            [np.average(BGele[i : i + lam_res_unit, :], axis=0) for i in range(0, BGele.shape[0], lam_res_unit)]
         )
         data_res_unit = np.array(
             [
@@ -213,7 +211,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
     config["other"]["detector_specs"]["widIRF"] = stddev
     if config["other"]["extraoptions"]["spectype"] == "angular_full":
         # Keep the calibrated axis exposed to plotting/loss code as bin centers, but
-        # retain the finite support of every spectral resolution unit for detector-bin quadrature.
+        # retain the finite support of every (possibly ragged) spectral resolution
+        # unit for detector-bin quadrature.
         if electron_wavelength_edges is None:
             electron_wavelength_edges = detector_edges_from_centers(np.ravel(axisyE))
         config["other"]["detector_specs"]["electron_wavelength_edges"] = electron_wavelength_edges
