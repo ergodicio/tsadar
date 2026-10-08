@@ -32,6 +32,8 @@ concurrency:
 
 jobs:
   release:
+    # a manual run only releases main
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -51,7 +53,8 @@ jobs:
             draft="$INPUT_DRAFT"
             skip=false
           else
-            labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[].labels[].name')
+            labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+              --jq '.[] | select(.merged_at != null and .base.ref == "main") | .labels[].name')
             echo "PR labels: $labels"
             has() { printf '%s\n' "$labels" | grep -qxF "$1"; }
             bump=patch
