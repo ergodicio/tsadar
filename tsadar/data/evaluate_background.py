@@ -86,17 +86,24 @@ def get_shot_bg(config, shotNum, axisyE, elecData):
 
 
 def get_lineout_bg(
-    config, elecData, ionData, BGele, BGion, LineoutTSE_smooth, BackgroundPixel, LineoutPixelE, LineoutPixelI
+    config, elecData, ionData, BGele, BGion, LineoutTSE_smooth, BackgroundPixel, LineoutPixelE, LineoutPixelI, axisyE, axisyI
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     This function generates noise or background profiles to based off the data or background data.
-    Electron spectra have 2 options "Fit" and "pixel". These specify how foreground data is treated.
+    Electron spectra have 3 options "Fit", "pixel", and "brem_model". These specify how foreground data is treated.
     Noise is then the sum of foreground and background noise. Ions only have one background option as the background is
     usually very small
 
-    "Fit" : fits a rational model against the edges of the lineout to produce a background, the model can be changed.
-    This option functions differently for angular data and is handled by the function get_shot_bg. This option makes no
-    attempt to remove a background shot, using both can result in double counting. This option is best for imaging data.
+    "Fit" : fits a model (config["data"]["background"]["bg_alg"]) against the edges of the lineout to produce
+    a background. This option functions differently for angular data and is handled by the function
+    get_shot_bg. This option makes no attempt to remove a background shot, using both can result in double
+    counting. This option is best for imaging data. One of the available bg_alg choices, "brem", fits a
+    bremsstrahlung emission model; Z and ne are fixed at the input deck's initial plasma conditions (they
+    are not separable from the fit's scale parameter) and only the overall scale and offset are fit.
+
+    "brem_model" : defers the bremsstrahlung background entirely to the forward model, which adds it to the
+    synthetic spectrum using each fit iteration's own Z/Te/ne rather than a separately pre-fit background
+    (see ThomsonScatteringDiagnostic). No background is computed here; a zero background is returned.
 
     "pixel : the other options "ps" and "auto" are aliases for "pixel" where the background pixel is instead identified
     by a time ("ps") or set to 100 pixels past the lineout ("auto"). This method uses another lint of the data that is
@@ -113,12 +120,23 @@ def get_lineout_bg(
         BackgroundPixel (int): Pixel index for the background region.
         LineoutPixelE (list): List of pixel indices for electron lineouts.
         LineoutPixelI (list): List of pixel indices for ion lineouts.
+        axisyE (np.ndarray): Spectral axis for electron data, used as the independent variable for the
+            "brem" bg_alg.
+        axisyI (np.ndarray): Spectral axis for ion data (unused, kept for signature symmetry).
     """
-    span = 2 * config["data"]["dpixel"] + 1  # (span must be odd)
+    span = 2 * config["data"]["dpixel"] + 1  # rows summed per lineout, also the background smoothing width
 
     # Check if the background type is valid
-    if config["data"]["background"]["type"].casefold() not in ["fit", "shot", "pixel"]:
-        raise NotImplementedError("Background type must be: 'Fit', 'Shot', or 'Pixel'")
+    if config["data"]["background"]["type"].casefold() not in ["fit", "shot", "pixel", "brem_model"]:
+        raise NotImplementedError("Background type must be: 'Fit', 'Shot', 'Pixel', or 'brem_model'")
+
+    # brem_model defers the background to the forward model, so a zero background is returned here
+    if config["data"]["background"]["type"].casefold() == "brem_model":
+        n_lineouts = len(config["data"]["lineouts"]["val"])
+        # one value per wavelength pixel (axis 0 of the detector image), as the lineouts are
+        noiseE = np.zeros((n_lineouts, elecData.shape[0])) if config["data"]["load_ele_spec"] else np.zeros(n_lineouts)
+        noiseI = np.zeros((n_lineouts, ionData.shape[0])) if config["data"]["load_ion_spec"] else np.zeros(n_lineouts)
+        return noiseE, noiseI
 
     # for electrons, if the background type is "fit" and the data type is not "angular"
     if config["data"]["load_ele_spec"]:
@@ -128,7 +146,7 @@ def get_lineout_bg(
                                config["data"]["background"]["bg_alg_domain"][1]),
                                  np.arange(config["data"]["background"]["bg_alg_domain"][2],
                                            config["data"]["background"]["bg_alg_domain"][3])])
-        
+
         if config["data"]["background"]["type"].casefold() == "fit":
             if config["other"]["extraoptions"]["spectype"] != "angular":
                 # exp2 bg seems to be the best for some imaging data while rat11 is better in other cases but
@@ -152,7 +170,18 @@ def get_lineout_bg(
                 def rat11(x, a, b, c):
                     return (a * x + b) / (x + c)
 
-                methods={"exp2": exp2, "power2": power2, "rat21": rat21, "rat11": rat11}
+                def brem(x, a, c):
+                    # Full bremsstrahlung model (lam in nm, Te in keV, 1.24 = hc in keV*nm):
+                    # lambda lam, a, c, Z, Te, ne: 10**8*Z*ne**2/Te**0.5/lam**2*np.exp(-1.24/(lam*Te))*a + c
+                    # Z, Te and ne are not separable from the scale a, so they are fixed at the input deck
+                    # values and only a and c are fit. x is the pixel index, converted to wavelength via axisyE.
+                    Z = config["parameters"]["ion-1"]["Z"]["val"]
+                    Te = config["parameters"]["electron"]["Te"]["val"]
+                    ne = config["parameters"]["electron"]["ne"]["val"]
+                    lam = axisyE[np.asarray(x).astype(int)]
+                    return 10**8 * Z * ne**2 / Te**0.5 / lam**2 * np.exp(-1.24 / (lam * Te)) * a + c
+
+                methods={"exp2": exp2, "power2": power2, "rat21": rat21, "rat11": rat11, "brem": brem}
                 LineoutBGE = []
                 bgalg  = methods[config["data"]["background"]["bg_alg"]]
                 for i, _ in enumerate(config["data"]["lineouts"]["val"]):
@@ -164,7 +193,7 @@ def get_lineout_bg(
             # quantify a background lineout
             LineoutBGE = np.mean(
                 (elecData - BGele)[
-                    :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"]
+                    :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"] + 1
                 ],
                 1,
             )
@@ -188,7 +217,7 @@ def get_lineout_bg(
         # add background from background shot if applicable
         if np.shape(BGele) == tuple(config["other"]["CCDsize"]):
             LineoutBGE2 = [
-                np.mean(BGele[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
+                np.mean(BGele[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1], axis=1)
                 for a in LineoutPixelE
             ]
             noiseE = LineoutBGE + np.array(LineoutBGE2)
@@ -209,7 +238,7 @@ def get_lineout_bg(
         # quantify a uniform background
         noiseI = np.sum(
             (ionData - BGion)[
-                :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"]
+                :, BackgroundPixel - config["data"]["dpixel"] : BackgroundPixel + config["data"]["dpixel"] + 1
             ],
             1,
         )
@@ -221,7 +250,7 @@ def get_lineout_bg(
         # add the uniform background to the background from the background shot
         if np.shape(BGion) == tuple(config["other"]["CCDsize"]):
             LineoutBGI = [
-                np.mean(BGion[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"]], axis=1)
+                np.mean(BGion[:, a - config["data"]["dpixel"] : a + config["data"]["dpixel"] + 1], axis=1)
                 for a in LineoutPixelI
             ]
             noiseI = noiseI + LineoutBGI

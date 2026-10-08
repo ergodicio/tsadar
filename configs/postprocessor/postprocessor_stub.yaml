@@ -1,0 +1,74 @@
+mlflow:
+  experiment: experiment-1
+  run: run-1
+
+optimizer:
+  # likelihood the MCMC chains sample; the point estimate in fitted_weights.eqx is not re-optimized
+  loss_method: covar
+
+data:
+  background:
+    # required by loss_method: covar
+    bg_subtract: false
+  # required by loss_method: covar and by the MCMC postprocessor (no smoothing of the data)
+  spectral_smoothing: 1
+
+other:
+  # CCD electrons per photoelectron; loss_method: covar needs the camera's actual gain
+  gain: 108
+  # options of the MCMC uncertainty postprocessor, see docs/source/mcmc.rst
+  mcmc:
+    # num_steps is the total number of steps including burn_in
+    num_steps: 30000
+    burn_in: 10000
+    thin: 5
+    # burn-in chunk size (progress-bar granularity only)
+    adapt_every: 100
+    target_accept: 0.234
+    # RAM gain decay exponent, in (0.5, 1]
+    adapt_gamma: 0.6
+    # flat logit-space proposal step used when there is no Laplace seed
+    init_step_scale: 0.1
+    use_laplace_seed: true
+    # multiplier on the seeded step scale used to disperse each chain's starting point
+    init_dispersion_factor: 2.0
+    seed: 0
+    save_samples: true
+    compare_to_laplace: true
+    # chains whose mean is further than this many robust SDs from the median of the chains are flagged
+    chain_outlier_mad_scale: 3.5
+    # split R-hat above which a single chain is flagged as not stationary
+    within_chain_r_hat_threshold: 1.1
+    # maximum fraction of chains that may be dropped before a lineout is marked unreliable
+    max_dropped_chain_fraction: 0.2
+    # sample substantially-negative-curvature parameters in their own block
+    block_gibbs: true
+    # normalized-Hessian eigenvalue at or below which a direction is assigned to the problem block
+    block_gibbs_eigval_threshold: -0.1
+    # minimum |eigenvector component| for a parameter to count as part of a flagged direction
+    block_gibbs_component_threshold: 0.3
+    # prior over the physical parameters (uniform within each parameter's lb/ub)
+    prior: uniform
+  # num_draws is the number of independent chains; the *_sigma fields perturb the calibration per chain
+  calibration_uncertainty:
+    num_draws: 50
+    seed: 0
+    EPWDispersion_sigma: 0
+    IAWDispersion_sigma: 0
+    EPWoffset_sigma: 0
+    IAWoffset_sigma: 0
+    spect_stddev_ion_sigma: 0
+    spect_stddev_ele_sigma: 0
+    gain_sigma: 0.0
+  include_gains: false
+
+plotting:
+  data_cbar_l: 0
+  data_cbar_u: data
+  detailed_breakdown: false
+  ele_window_end: 660
+  ele_window_start: 425
+  ion_window_end: 528
+  ion_window_start: 525
+  n_sigmas: 3
+  rolling_std_width: 5

@@ -196,6 +196,11 @@ The ``data:`` section contains the specifics on which shot and what region of th
 
 - ``dpixel`` determines the width of a lineout in pixels; the width of a lineout is 2*``dpixel`` + 1 centered about the values in ``lineouts``. 2 or 3 is a common value for this parameter to help improve the signal to noise ratio of the lineouts that are being fit, but a larger value can be used for very noisy data at the cost of potentially smearing features in the data due to changing conditions as a function of time or space.
 
+.. versionchanged:: 0.4.0
+    A lineout now sums 2*``dpixel`` + 1 detector rows centered on its position. Earlier releases summed 2*``dpixel`` rows (one fewer on the high side), so lineout amplitudes and fit results can shift. The default ``gain`` also changed from 1 to 108, which rescales the data and therefore loss values. A config that has no ``spectral_smoothing`` entry is treated as predating 0.4.0 and triggers a warning.
+
+- ``spectral_smoothing`` width, in wavelength pixels, of the boxcar smoothing applied to each lineout before fitting. ``default`` uses 2*``dpixel`` + 1, the same width as the row sum; ``1`` disables smoothing. It must be ``default`` or a positive odd integer. ``loss_method: covar`` and the MCMC postprocessor always use ``1``, with a warning if another value was set, because their noise model describes the pixel-to-pixel correlations itself. ``calc_sigmas`` warns when the data are smoothed, since the resulting uncertainties are underestimated.
+
 - ``ele_lam_shift`` shifts the central frequency given by ``lam`` in the EPW spectrum, given in nm. This can be used to account for wavelength calibration uncertainty between different the electron and ion data.
 
 - ``ele_t0`` shifts the time denoted as 0 for time resolved EPW data, given in the same units as the lineouts (ps or pixel). This can be used to set t0 to a specific location within the dataset.
@@ -248,7 +253,7 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
 - ``moment_loss`` is the legacy shorthand for unit-strength density, temperature, and momentum priors. For ARTS fits it is applied to the positive physical EDF (not its internal parameterization) and is equivalent to enabling the three corresponding ``angular_objective.regularization`` weights.
 
-- ``loss_method`` metric minimized in order to match data; ``l2`` is recommended but ``l1``, ``log-cosh``, and ``poisson`` are also available
+- ``loss_method`` metric minimized in order to match data; ``l2`` is recommended but ``l1``, ``log-cosh``, ``poisson``, and ``covar`` are also available. ``covar`` uses a correlated detector-noise covariance (see :doc:`math`) and requires ``bg_subtract: false``, which is enforced with a warning.
 
 - ``angular_objective`` configures the ARTS detector likelihood, gain nuisances, contamination model, and EDF priors. ARTS requires ``loss_method: l2`` because this section supplies its more specific likelihood:
 
@@ -314,6 +319,8 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``include_gains`` is a boolean determining whether to compute the SRS and SBS amplification of the Thomson scattered light. Having ``include_gains`` set to True will require the pump intensity and beam diameter to be specified in the ``other:`` section of the input deck.
 
+- ``gain_cap`` upper limit on the gain exponent when ``include_gains`` is true. Prevents an unresolved resonance from overflowing the exponential. Default is 100.
+
 - ``Ipump_14`` is the intensity relevant to computing the SRS and SBS amplification in units of :math:`10^{14}` W/cm\ :sup:`-2`. This is likely the probe beam intensity for most experiments at that is the beam that is overlapped with the scattering volume, but for some experiments it may differ.
 
 - ``beam_diam_um`` is the beam diameter in microns of the beam that pumps SRS and SBS, again this is likely the probe beam diameter. This is used in conjunction with the scattering angle to compute the gain length for the SRS and SBS amplification.
@@ -324,8 +331,62 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``calc_sigmas`` is a boolean determining if a Hessian will be computed to determine the uncertainty in fitted parameters.
 
-.. deprecated:: 0.2.0
-    ``calc_sigmas`` is currently deprecated. Implementation of uncertainty quantification is planned for a future release but the current method of computing sigmas from the Hessian is not robust and therefore has been deprecated until a more robust method can be implemented.
+.. versionchanged:: 0.4.0
+    Earlier releases computed this Hessian with respect to the *entire* fitted-parameter pytree, which could attempt a multi-hundred-GB allocation on an ordinary fit whose electron distribution function carries a sizeable fixed interpolation table (even with ``fe`` inactive), and the resulting uncertainties were not usable. The Hessian is now restricted to only the active fit parameters (the same restriction ``mcmc.use_laplace_seed`` below already applied), which fixes both problems. ``calc_sigmas`` still does not support the electron distribution function ("fe") as an active fit parameter -- deactivate ``electron.fe.active`` to use it, or use the MCMC postprocessor (:doc:`mcmc`) instead.
+
+- ``mcmc`` is a container for options controlling the standalone MCMC uncertainty postprocessor -- see :doc:`mcmc` for what it does and how to run it. These fields are only read by that postprocessor, never by a normal fit or by ``calc_sigmas``; the whole section (or any individual field) may be omitted, in which case the defaults below are used.
+
+    - ``num_steps`` total number of Metropolis-Hastings steps in the chain, including burn-in.
+
+    - ``burn_in`` number of initial steps discarded as burn-in before the sampling phase begins.
+
+    - ``thin`` keep only every ``thin``-th post-burn-in sample, to reduce the size of the saved posterior and its autocorrelation.
+
+    - ``adapt_every`` number of steps per burn-in chunk. This only sets how often the progress bar updates; the proposal is adapted on every burn-in step.
+
+    - ``target_accept`` target per-lineout acceptance rate that burn-in adaptation aims for. 0.234 is the standard asymptotically-optimal rate for random-walk Metropolis.
+
+    - ``adapt_gamma`` decay exponent of the adaptation gain, in (0.5, 1]. Larger values make the adaptation die away faster.
+
+    - ``init_step_scale`` flat proposal step, in the same unconstrained/logit space the optimizer fits in, shared by every parameter. Used whenever ``use_laplace_seed`` is false, or when the Laplace-based seed below fails.
+
+    - ``use_laplace_seed`` boolean; if true, seed each lineout's initial proposal covariance from the full Hessian of the likelihood at the best fit (scaled by the Roberts-Rosenthal 2.38/:math:`\sqrt{d}` factor and regularized where the Hessian is not positive-definite), falling back to ``init_step_scale`` if the Hessian cannot be computed.
+
+    - ``init_dispersion_factor`` multiplier on the seeded step scale, used to perturb each independent chain's own starting point before burn-in begins -- see ``calibration_uncertainty.num_draws`` below for what controls how many chains are run. ``0.0`` (the default) means every chain starts at the exact best fit, matching single-chain behavior exactly. Set this above 0 when running several chains (``num_draws`` > 1) so they don't all start from the same point -- useful on its own for a more thorough posterior exploration, and required for a meaningful R-hat when the calibration sigmas below are all left at 0.
+
+    - ``seed`` PRNG seed for the MCMC chain(s).
+
+    - ``save_samples`` boolean; if true the full thinned, pooled posterior samples are saved as an artifact (``binary/mcmc_samples.nc``) in addition to the per-lineout mean/std/covariance summary.
+
+    - ``compare_to_laplace`` boolean; if true, also compute the existing Hessian/Laplace uncertainty (the same calculation ``calc_sigmas`` triggers during a normal fit) and plot it alongside the MCMC-derived sigma for comparison. Off by default, mainly to keep this postprocessor's own footprint minimal -- as of 0.4.0 the underlying Hessian is restricted to only the active fit parameters (see ``calc_sigmas`` above), so this is no longer the large-memory-allocation risk it once was. A failure here (e.g. a degenerate Hessian, or the electron distribution function being active) is still caught and simply disables the comparison rather than failing the run.
+
+    - ``chain_outlier_mad_scale`` threshold, in robust standard deviations (1.4826 x MAD), beyond which a chain's posterior mean for a parameter is flagged as an outlier relative to the other chains. Only used with more than one chain.
+
+    - ``within_chain_r_hat_threshold`` split R-hat above which a single chain is flagged as not having reached a stationary distribution.
+
+    - ``max_dropped_chain_fraction`` largest fraction of chains that may be excluded from a lineout's summary statistics. If more would be excluded the lineout is marked unreliable and its mean/std/covariance are reported as NaN.
+
+    - ``block_gibbs`` boolean; if true (the default), parameters that lie along a direction of substantially negative curvature are proposed and adapted in a separate block from the rest. Requires ``use_laplace_seed``.
+
+    - ``block_gibbs_eigval_threshold`` eigenvalue of the normalized Hessian at or below which a direction is treated as a problem direction for ``block_gibbs``.
+
+    - ``block_gibbs_component_threshold`` minimum eigenvector component for a parameter to be counted as part of a problem direction.
+
+    - ``prior`` name of the prior over the physical parameters. ``uniform`` (the default) is flat within each parameter's ``lb``/``ub``.
+
+- ``calibration_uncertainty`` is a container for options controlling how many independent MCMC chains the standalone postprocessor runs and pools, and (optionally) how instrument-calibration uncertainty is propagated into them -- see :doc:`mcmc`. Like ``mcmc`` above, these fields are only read by the standalone MCMC postprocessor.
+
+    - ``num_draws`` the number of independent MCMC chains to run and pool into one posterior. This is the one chain-count knob: chains may differ by a perturbed calibration (the ``*_sigma`` fields below), by a perturbed starting point (``mcmc.init_dispersion_factor`` above), by both, or -- with neither configured -- only by their own independent random-walk noise from an identical start. ``num_draws: 1`` (the default) runs a single chain at the nominal calibration, matching every other config. With every ``*_sigma`` field below at its default of 0.0, ``num_draws`` chains still run (just without any calibration perturbation between them) rather than collapsing to one.
+
+    - ``seed`` PRNG seed used to draw the calibration realizations.
+
+    - ``EPWDispersion_sigma`` / ``IAWDispersion_sigma`` standard deviation of the Gaussian perturbation applied to the EPW / IAW spectral dispersion calibration for each draw.
+
+    - ``EPWoffset_sigma`` / ``IAWoffset_sigma`` standard deviation of the Gaussian perturbation applied to the EPW / IAW spectral offset calibration for each draw.
+
+    - ``spect_stddev_ion_sigma`` / ``spect_stddev_ele_sigma`` standard deviation of the Gaussian perturbation applied to the ion / electron instrument response function width for each draw. Perturbed widths are floored just above zero so the IRF convolution stays well defined.
+
+    - ``gain_sigma`` standard deviation of the Gaussian perturbation applied to the detector gain for each draw; the loaded data is rescaled to match each draw's perturbed gain.
 
 - ``extraoptions`` is a container for some additional options
 
@@ -347,7 +408,7 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``flatbg`` flat (applied to all pixes) value added to the background
 
-- ``gain`` CCD counts per photo-electron; the standard OMEGA ROSS has a gain of 144. Gain must be accurate for appropriate use of Poisson statistics but the gain is generaly not important for the fitting process as the data is normalized by default.
+- ``gain`` CCD electrons per photo-electron, used to convert the data to photo-electrons. The OMEGA Thomson-scattering optical streak cameras have a gain of 108 (Ghosh et al., Rev. Sci. Instrum. 75, 3956 (2004)), which is the default. ``loss_method: covar`` and the MCMC postprocessor use this value in their noise model and warn if it is anything else. Gain must be accurate for appropriate use of Poisson statistics but the gain is generaly not important for the fitting process as the data is normalized by default.
 
 - ``points_per_pixel`` number of wavelength points computed per detector pixel by the legacy sampled-spectrum path. ARTS2D does not use this setting to resolve a narrow resonance: it integrates the continuous spectrum directly into the calibrated detector-bin edges.
 

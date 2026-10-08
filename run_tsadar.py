@@ -6,11 +6,18 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.6")
 from jax import config
 
 config.update("jax_enable_x64", True)
+config.update(
+    "jax_compilation_cache_dir",
+    os.environ.get(
+        "JAX_COMPILATION_CACHE_DIR",
+        os.path.join(os.environ.get("PSCRATCH", os.path.expanduser("~/.cache")), "jax_cache"),
+    ),
+)
+config.update("jax_persistent_cache_min_compile_time_secs", 5)
 # config.update("jax_debug_nans", True)
 # config.update("jax_disable_jit", True)
 
 from tsadar.runner import run, run_job, load_and_make_folders
-from tsadar.utils.misc import export_run
 
 
 if __name__ == "__main__":
@@ -27,6 +34,3 @@ if __name__ == "__main__":
     else:
         #    run_id, config = load_and_make_folders(args.cfg)
         run_id = run(args.cfg, mode=args.mode)
-
-    if "MLFLOW_EXPORT" in os.environ:
-        export_run(run_id)

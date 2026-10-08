@@ -1,5 +1,8 @@
 """Postprocessing plot library: final-parameter tables/plots, loss histograms, data-vs-fit and best/worst
 lineout comparisons (simple and detailed), and the angular-data plotting functions."""
+from typing import List
+
+import corner
 import matplotlib as mpl
 import matplotlib.cm
 import matplotlib.colors
@@ -416,7 +419,7 @@ def save_sigmas_fe(all_params, best_weights_std, sigmas, td):
     return sigma_fe
 
 
-def save_sigmas_params(config, all_params, sigmas, all_axes, td):
+def save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigmas.nc"):
     """
     Formats and saves the uncertainty values for the fitted parameters.
 
@@ -426,21 +429,198 @@ def save_sigmas_params(config, all_params, sigmas, all_axes, td):
         sigmas: uncertainty values for the fitted parameters
         all_axes: dictionary with calibrated axes and axes labels
         td: temporary directory that will be uploaded to mlflow
+        filename: name of the netCDF file to write, relative to td. Defaults to "sigmas.nc" (the existing
+            Hessian/Laplace uncertainty artifact); the MCMC postprocessor writes its own uncertainty here
+            under a different name (see save_sigmas_params_mcmc) so both can coexist in one run's artifacts.
 
     Returns:
         sigma_ds: uncertainty values for each of the fitted parameters restructured as a DataArray.
 
     """
     coords = ((all_axes["x_label"], np.array(all_axes["epw_x"][config["data"]["lineouts"]["pixelE"]])),)
+    # one running column index across all species, matching the column order of sigmas; the
+    # distribution-function entries are not counted in num_params and have no column
+    ordered_names = [
+        (series, k) for series in all_params.keys() for k in all_params[series].keys() if k not in ("fe", "f", "flm")
+    ]
     sigmas_ds = xr.Dataset(
-        {
-            k + "_" + series: xr.DataArray(sigmas[:, i], coords=coords)
-            for series in all_params.keys()
-            for i, k in enumerate(all_params[series].keys())
-        }
+        {k + "_" + series: xr.DataArray(sigmas[:, i], coords=coords) for i, (series, k) in enumerate(ordered_names)}
     )
-    sigmas_ds.to_netcdf(os.path.join(td, "sigmas.nc"))
+    sigmas_ds.to_netcdf(os.path.join(td, filename))
     return sigmas_ds
+
+
+def save_sigmas_params_mcmc(config, all_params, sigmas, all_axes, td):
+    """MCMC analogue of save_sigmas_params: identical schema, written to sigmas_mcmc.nc instead of
+    sigmas.nc so the MCMC and Hessian/Laplace uncertainty artifacts can coexist unambiguously in one
+    run's artifact set."""
+    return save_sigmas_params(config, all_params, sigmas, all_axes, td, filename="sigmas_mcmc.nc")
+
+
+def plot_mcmc_diagnostics(config, acceptance_rate, td, max_r_hat=None, n_chains_dropped=None, lineout_unreliable=None):
+    """
+    Plots a histogram of per-lineout MCMC acceptance rates. Further panels are added for the per-lineout
+    worst-case R-hat, the number of chains dropped from each lineout's summary statistics, and the number
+    of lineouts marked unreliable, when those are given.
+
+    Args:
+        config: configuration dictionary created from the input decks
+        acceptance_rate: array of shape (num_lineouts,), the sampling-phase acceptance rate for each
+            lineout, averaged across chains.
+        td: temporary directory that will be uploaded to mlflow
+        max_r_hat: optional array of shape (num_lineouts,), the maximum R-hat over active parameters for
+            each lineout before chain filtering. NaN entries are ignored.
+        n_chains_dropped: optional array of shape (num_lineouts,), the number of chains dropped per lineout.
+        lineout_unreliable: optional boolean array of shape (num_lineouts,), True for unreliable lineouts.
+
+    Returns:
+        None: the plot is saved to td/plots and logged to MLflow via the usual artifact upload.
+    """
+    target = config.get("other", {}).get("mcmc", {}).get("target_accept", 0.234)
+    ncols = 1 + (max_r_hat is not None) + (n_chains_dropped is not None) + (lineout_unreliable is not None)
+    fig, axes = plt.subplots(1, ncols, figsize=(5 * ncols, 4), squeeze=False)
+    ax = axes[0][0]
+    ax.hist(np.asarray(acceptance_rate), bins=30)
+    ax.axvline(target, color="r", linestyle="--", label=f"target ({target:.3f})")
+    ax.set_xlabel("acceptance rate")
+    ax.set_ylabel("number of lineouts")
+    ax.set_title("MCMC sampling-phase acceptance rate")
+    ax.legend()
+    ax.grid()
+    next_col = 1
+
+    if max_r_hat is not None:
+        r_hat = np.asarray(max_r_hat)
+        r_hat = r_hat[np.isfinite(r_hat)]
+        ax = axes[0][next_col]
+        next_col += 1
+        ax.hist(r_hat, bins=30)
+        ax.axvline(1.01, color="r", linestyle="--", label="target R-hat = 1.01")
+        ax.set_xlabel("max R-hat across active parameters")
+        ax.set_ylabel("number of lineouts")
+        ax.set_title("MCMC chain convergence (Gelman-Rubin)\nbefore chain filtering")
+        ax.legend()
+        ax.grid()
+
+    if n_chains_dropped is not None:
+        dropped = np.asarray(n_chains_dropped)
+        ax = axes[0][next_col]
+        next_col += 1
+        max_dropped = int(dropped.max()) if dropped.size else 0
+        ax.hist(dropped, bins=np.arange(max_dropped + 2) - 0.5)
+        ax.set_xlabel("chains written off from summary stats")
+        ax.set_ylabel("number of lineouts")
+        ax.set_title("MCMC chain filtering")
+        ax.grid()
+
+    if lineout_unreliable is not None:
+        unreliable = np.asarray(lineout_unreliable)
+        ax = axes[0][next_col]
+        next_col += 1
+        counts = [int(np.sum(~unreliable)), int(np.sum(unreliable))]
+        ax.bar(["reliable", "unreliable"], counts)
+        ax.set_ylabel("number of lineouts")
+        ax.set_title("MCMC lineout reliability\n(too many chains written off)")
+        ax.grid(axis="y")
+
+    fig.savefig(os.path.join(td, "plots", "mcmc_acceptance_rate.png"), bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_sigma_comparison(config, all_params, laplace_sigmas_ds, mcmc_sigmas_ds, td):
+    """
+    Plots the Hessian/Laplace-derived sigma against the MCMC-derived sigma for each fitted parameter, as
+    a function of lineout, so the two uncertainty methods can be visually compared.
+
+    Args:
+        config: configuration dictionary created from the input decks
+        all_params: dictionary containing all the fitted parameters for all the species (only used for
+            iterating parameter/species names, same as plot_final_params)
+        laplace_sigmas_ds: xarray Dataset as returned by save_sigmas_params, or None if the Laplace
+            comparison could not be computed (e.g. the Hessian was degenerate or too expensive) -- in
+            that case only the MCMC sigma is plotted.
+        mcmc_sigmas_ds: xarray Dataset as returned by save_sigmas_params_mcmc
+        td: temporary directory that will be uploaded to mlflow
+
+    Returns:
+        None: the plots are saved to td/plots and logged to MLflow via the usual artifact upload.
+    """
+    lineouts = np.array(config["data"]["lineouts"]["val"])
+    for species in all_params.keys():
+        for param in all_params[species].keys():
+            if param not in ["fe", "f", "v", "flm0", "flm10", "flm11"]:
+                name = param + "_" + species
+                if name not in mcmc_sigmas_ds:
+                    continue
+                fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+                ax.plot(lineouts, np.abs(mcmc_sigmas_ds[name].values), label="MCMC")
+                if laplace_sigmas_ds is not None and name in laplace_sigmas_ds:
+                    ax.plot(lineouts, np.abs(laplace_sigmas_ds[name].values), label="Laplace/Hessian")
+                ax.set_xlabel("lineout", fontsize=14)
+                ax.set_ylabel(f"sigma({param})", fontsize=14)
+                ax.legend()
+                ax.grid()
+                fig.savefig(
+                    os.path.join(td, "plots", "mcmc_sigma_comparison_" + param + "_" + species + ".png"),
+                    bbox_inches="tight",
+                )
+                plt.close(fig)
+
+
+def _color_corner_by_chain(fig, samples: np.ndarray, num_chains: int) -> None:
+    """Scatters each chain's points in its own color onto the off-diagonal axes of an existing
+    corner.corner figure, so chains that did not mix appear as separate clusters. samples' leading axis
+    must be num_chains contiguous, equal-length blocks, one per chain.
+    """
+    n = samples.shape[1]
+    axes = np.asarray(fig.axes).reshape((n, n))
+    chain_len = samples.shape[0] // num_chains
+    cmap = plt.get_cmap("tab20")
+    for row in range(1, n):
+        for col in range(row):
+            ax = axes[row, col]
+            for c in range(num_chains):
+                sl = slice(c * chain_len, (c + 1) * chain_len)
+                ax.scatter(samples[sl, col], samples[sl, row], s=1, alpha=0.3, color=cmap(c % 20), rasterized=True)
+
+
+def plot_corner(samples: np.ndarray, param_names: List[str], lineout_value, td: str, num_chains: int = 1) -> None:
+    """
+    Corner plot (pairwise joint posteriors below the diagonal, 1D marginal histograms on it) for one
+    lineout's MCMC-sampled parameters, via the `corner` package. Can also be called on samples read back
+    from binary/mcmc_samples.nc.
+
+    Args:
+        samples: array of shape (num_samples, n_params), physical posterior draws for one lineout, columns
+            matching param_names.
+        param_names: names for each column of samples, used as axis labels.
+        lineout_value: the lineout's value, used for the plot title and filename.
+        td: directory to save the plot under (td/plots/corner).
+        num_chains: number of chains pooled, in order, into samples' leading axis. When > 1 each chain's
+            points are colored separately (see _color_corner_by_chain).
+
+    Returns:
+        None: the plot is saved to td/plots/corner.
+    """
+    os.makedirs(os.path.join(td, "plots", "corner"), exist_ok=True)
+    samples = np.asarray(samples)
+
+    # corner.corner raises on a column with zero range, so widen those by a small epsilon
+    mins = samples.min(axis=0)
+    maxs = samples.max(axis=0)
+    span = maxs - mins
+    pad = np.where(span > 0, 0.0, np.where(np.abs(mins) > 0, np.abs(mins) * 1e-3, 1e-6))
+    ranges = list(zip(mins - pad, maxs + pad))
+
+    fig = corner.corner(
+        samples, labels=param_names, show_titles=True, title_fmt=".3g", range=ranges,
+        plot_datapoints=(num_chains <= 1),
+    )
+    if num_chains > 1:
+        _color_corner_by_chain(fig, samples, num_chains)
+    fig.suptitle(f"lineout {lineout_value}")
+    fig.savefig(os.path.join(td, "plots", "corner", f"corner_lineout_{lineout_value}.png"), bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_data_angular(config, fits, all_data, all_axes, td):

@@ -106,16 +106,8 @@ def _log_optimizer_step(
     *, current_loss: float, checkpoint: OptimizationCheckpoint, learning_rate: float,
     grad, step: int, stage: int, seed: int,
 ) -> None:
-    # synchronous=False rather than the global mlflow.config.enable_async_logging switch: that switch
-    # also defers mlflow.set_tag/set_tags, which breaks _run_'s contract (ergodicio/tsadar#115) that the
-    # canonical tags and status="running" are queryable the instant fitting starts, before this function
-    # is ever called. Scoping the async behavior to just this per-epoch metrics call keeps that
-    # synchronous while still taking the HTTP round trip off the epoch loop's critical path -- mlflow
-    # queues it on a background thread; mlflow.start_run's __exit__ (end_run) waits for the queued writes
-    # before the run closes. That wait is version-dependent (older mlflow returned from end_run with
-    # writes still pending), hence the mlflow floor in pyproject.toml. A write the tracking server rejects
-    # is only reported on stderr and does not fail the run: these metrics are diagnostics, and everything
-    # the fit is required to produce is logged as an artifact.
+    # logged asynchronously to keep the HTTP round trip out of the epoch loop; tags stay synchronous.
+    # end_run waiting for the queued writes depends on the mlflow floor in pyproject.toml.
     mlflow.log_metrics(
         {
             "epoch loss": current_loss,
@@ -442,9 +434,16 @@ def _1d_optax_loop_(
     """
 
     minimizer = getattr(optax, config["optimizer"]["method"])
-    # schedule = optax.schedules.cosine_decay_schedule(config["optimizer"]["learning_rate"], 100, alpha = 0.00001)
-    # solver = minimizer(schedule)
-    opt = minimizer(None if config["optimizer"]["method"]=='lbfgs' else config["optimizer"]["learning_rate_init"])
+    schedule = None
+    if config["optimizer"]["method"] == "lbfgs":
+        opt = minimizer(None)
+    else:
+        schedule = optax.schedules.cosine_decay_schedule(
+            config["optimizer"]["learning_rate_init"],
+            np.round(0.75 * config["optimizer"]["num_epochs"]),
+            alpha=config["optimizer"]["learning_rate_final"] / config["optimizer"]["learning_rate_init"],
+        )
+        opt = minimizer(schedule)
 
     #ts_params = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
     #diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
@@ -476,7 +475,10 @@ def _1d_optax_loop_(
     patience, min_delta = _stopping_options(config)
     wait = 0
     patience_reference_loss = checkpoint.loss
-    learning_rate = float(config["optimizer"].get("learning_rate_init", 0.0))
+    # the logged learning rate follows the decay schedule when there is one
+    learning_rate = (
+        float(config["optimizer"].get("learning_rate_init", 0.0)) if schedule is None else float(schedule(0))
+    )
     seed = int(config["optimizer"].get("seed", 0))
     _log_optimizer_step(
         current_loss=current_loss,
@@ -522,6 +524,8 @@ def _1d_optax_loop_(
         else:
             wait += 1
 
+        if schedule is not None:
+            learning_rate = float(schedule(i_epoch))
         _log_optimizer_step(
             current_loss=candidate_loss,
             checkpoint=checkpoint,

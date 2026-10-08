@@ -1,6 +1,6 @@
 """Miscellaneous helpers: logging config/metrics to mlflow, merging config dicts, and S3/local file
 transfer utilities used by the runners."""
-import os, mlflow, flatten_dict, boto3, botocore, botocore.exceptions, shutil, time, tempfile
+import os, mlflow, flatten_dict, boto3, botocore, botocore.exceptions, shutil
 from urllib.parse import urlparse
 from functools import partial
 
@@ -77,72 +77,6 @@ def update(base_dict, new_dict):
             combined_dict[k] = new_dict[k]
 
     return combined_dict
-
-
-def upload_dir_to_s3(local_directory: str, bucket: str, destination: str, run_id: str, prefix="ingest", step=0):
-    """
-    Uploads the contents of a local directory to an S3 bucket, preserving the directory structure.
-    After uploading all files, creates a marker file indicating completion and uploads it to the bucket.
-
-    Args:    
-        local_directory (str): Path to the local directory to upload.
-        bucket (str): Name of the S3 bucket to upload to.
-        destination (str): S3 key prefix (folder path) where files will be uploaded.
-        run_id (str): Identifier for the current run, used in the marker filename.
-        prefix (str, optional): Prefix for the marker filename. Defaults to "ingest".
-        step (int, optional): Step number for the marker filename. Defaults to 0.
-    Returns:    
-        None
-    """
-    client = boto3.client("s3")
-
-    # enumerate local files recursively
-    for root, dirs, files in os.walk(local_directory):
-        for filename in files:
-            # construct the full local path
-            local_path = os.path.join(root, filename)
-
-            # construct the full path
-            relative_path = os.path.relpath(local_path, local_directory)
-            s3_path = os.path.join(destination, relative_path)
-            client.upload_file(local_path, bucket, s3_path)
-
-    filename = f"{prefix}-{run_id}-{step}.txt"
-    filepath = os.path.join(local_directory, filename)
-
-    with open(filepath, "w") as fi:
-        fi.write("ready")
-
-    client.upload_file(filepath, bucket, filename)
-
-
-def export_run(run_id, prefix="ingest", step=0):
-    """
-    Exports an MLflow run and uploads its artifacts to an S3 bucket.
-    Args:
-        run_id (str): The unique identifier of the MLflow run to export.
-        prefix (str, optional): Prefix to use when uploading to S3. Defaults to "ingest".
-        step (int, optional): Step number or identifier for the upload process. Defaults to 0.
-    Side Effects:
-        - Exports the specified MLflow run to a temporary directory.
-        - Uploads the exported run directory to the specified S3 bucket and path.
-        - Prints the time taken for export and upload operations.
-    Environment Variables:
-        BASE_TEMPDIR: If set, used as the base directory for the temporary export directory.
-    Raises:
-        Any exceptions raised by MLflow or S3 upload operations will propagate.
-    """
-
-    t0 = time.time()
-    from mlflow_export_import.run.export_run import RunExporter
-
-    run_exp = RunExporter(mlflow_client=mlflow.MlflowClient())
-    with tempfile.TemporaryDirectory(dir=os.getenv("BASE_TEMPDIR")) as td2:
-        run_exp.export_run(run_id, td2)
-        print(f"Export took {round(time.time() - t0, 2)} s")
-        t0 = time.time()
-        upload_dir_to_s3(td2, "remote-mlflow-staging", f"artifacts/{run_id}", run_id, prefix=prefix, step=step)
-    print(f"Uploading took {round(time.time() - t0, 2)} s")
 
 
 def get_cfg(artifact_uri, temp_path):

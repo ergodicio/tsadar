@@ -1,13 +1,8 @@
-tsadar.forward.calc\_series
+﻿tsadar.forward.calc\_series
 ===========================
 
 .. automodule:: tsadar.forward.calc_series
 
-   
-   
-   
-
-   
    
    .. rubric:: Functions
 
@@ -15,15 +10,3 @@ tsadar.forward.calc\_series
    
       forward_pass
    
-   
-
-   
-   
-   
-
-   
-   
-   
-
-
-

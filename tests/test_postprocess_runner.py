@@ -158,3 +158,44 @@ if __name__ == "__main__":
     test_run_postprocess_local()
     test_run_postprocess_remote()
     test_extract_run_id()
+
+
+def test_load_fitted_weights_reads_checkpoints_saved_before_the_brem_parameters(tmp_path):
+    import equinox as eqx
+    import numpy as np
+    from tsadar.core.modules.ts_params import ThomsonParams
+    from tsadar.postprocess_runner import _LEGACY_ABSENT_GENERAL_LEAVES, _load_fitted_weights
+
+    with open("tests/configs/time_test_defaults.yaml", "r") as fi:
+        defaults = yaml.safe_load(fi)
+    with open("tests/configs/time_test_inputs.yaml", "r") as fi:
+        inputs = yaml.safe_load(fi)
+    flat = flatten(defaults)
+    flat.update(flatten(inputs))
+    config = unflatten(flat)
+
+    def _skeleton():
+        return [ThomsonParams(config["parameters"], 2, activate=True) for _ in range(2)]
+
+    def _absent(tree):
+        return [getattr(p.general, name) for p in tree for name in _LEGACY_ABSENT_GENERAL_LEAVES]
+
+    fitted = _skeleton()
+    fitted = eqx.tree_at(lambda t: [p.electron.normed_Te for p in t], fitted, replace_fn=lambda x: x + 0.25)
+
+    # current layout round-trips
+    current_path = str(tmp_path / "current.eqx")
+    eqx.tree_serialise_leaves(current_path, fitted)
+    loaded = _load_fitted_weights(current_path, _skeleton())
+    np.testing.assert_allclose(loaded[1].electron.normed_Te, fitted[1].electron.normed_Te)
+
+    # layout written before the bremsstrahlung leaves existed
+    legacy = eqx.tree_at(_absent, fitted, replace=[None] * len(_absent(fitted)))
+    legacy_path = str(tmp_path / "legacy.eqx")
+    eqx.tree_serialise_leaves(legacy_path, legacy)
+    loaded = _load_fitted_weights(legacy_path, _skeleton())
+    for got, want in zip(loaded, fitted):
+        np.testing.assert_allclose(got.electron.normed_Te, want.electron.normed_Te)
+        np.testing.assert_allclose(got.general.normed_lam, want.general.normed_lam)
+        np.testing.assert_allclose(got.general.normed_brem_amp, want.general.normed_brem_amp)
+        assert got.general.brem_c_scale == want.general.brem_c_scale

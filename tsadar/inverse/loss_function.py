@@ -11,6 +11,7 @@ import numpy as np
 import equinox as eqx
 
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
+from ..data.correct_throughput import throughput_correction
 
 # from ..core.modules import exchange_params, get_filter_spec
 from ..utils.vector_tools import rotate
@@ -87,9 +88,11 @@ class LossFunction:
             Returns a normalized copy of the input batch.
         vg_loss(diff_weights, static_weights, batch):
             Computes the loss value and gradient with respect to weights for optimization.
-        h_loss_wrt_params(weights, batch):
-            Computes the Hessian of the loss with respect to parameters.
-        _loss_for_hess_fn_(weights, batch):
+        h_loss_wrt_params(diff_params, static_params, batch):
+            Computes the Hessian of the loss with respect to the active (diff_params) parameters only.
+        neg_log_likelihood(weights, batch, per_lineout):
+            Poisson-like -2*log-likelihood shared by the Hessian/Laplace uncertainty and the MCMC sampler.
+        _loss_for_hess_fn_(diff_params, static_params, batch):
             Loss function used for Hessian computation.
         calc_ei_error(batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func):
             Calculates the error between experimental and theoretical spectra for IAW and EPW.
@@ -156,9 +159,15 @@ class LossFunction:
 
         if cfg["optimizer"]["loss_method"] == "covar":
                 self.sig_px = 1.0 #this is device specific and can be left hardcoded
+                # TODO: sig_rn is preliminary. Swadling et al. (2022) give 11; it was raised to better match
+                # the data and should be measured per detector (the dark-frame std for shot 116773 is
+                # ~65-73 ADU (EPW) / ~64 ADU (IAW))
                 self.sig_rn = 17.0 # this is from the background of the camera and should be derived from the data image
+                # number of detector rows summed into a lineout (see data.lineouts.get_lineouts)
                 self.n = 2 * cfg["data"]["dpixel"] + 1
-                self.G = 108
+                # camera gain (CCD electrons per photoelectron), the same value the data were divided by
+                self.G = cfg["other"]["gain"]
+                # noise factor of the optical streak camera, Ghosh et al., RSI 75, 3956 (2004)
                 self.F2 = 1.15
 
                 self.num_free_params = sum(
@@ -179,6 +188,9 @@ class LossFunction:
 
         self.ts_diag = ThomsonScatteringDiagnostic(cfg, scattering_angles=scattering_angles)
 
+        if cfg["optimizer"]["loss_method"] == "covar":
+            self._init_covar_pixel_indices(cfg, dummy_batch)
+
         # Set by _1d_scipy_loop_ (loops.py) before use, via ravel_pytree(diff_params) -- the unraveling
         # function matching that particular fit's parameter pytree structure. Declared here so it's a
         # known attribute rather than one only ever assigned from outside the class.
@@ -188,7 +200,80 @@ class LossFunction:
         self._vg_func_ = filter_jit(filter_value_and_grad(self.__loss__, has_aux=True))
         ## this will be replaced with jacobian params jacobian inverse
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
+        self._h_func_per_lineout_ = filter_jit(self._h_loss_wrt_params_per_lineout_impl)
         self.array_loss = filter_jit(self.post_loss)
+
+    def _init_covar_pixel_indices(self, cfg, dummy_batch):
+        """Precomputes the pixel window used by the covar loss for each fit-range feature (IAW, EPW-blue,
+        EPW-red), so the covariance matrix is built and factorized on that window instead of the full
+        detector. The window spans the fit range padded by the half-width of the CCD spread function
+        self.g, which keeps the result identical to the full-array calculation.
+
+        The wavelength axes depend only on the calibration, so the windows are computed once per
+        LossFunction instance.
+
+        Args:
+            cfg: configuration dictionary.
+            dummy_batch: any batch built from this run's data.
+
+        Sets, for each fitted feature, self.covar_{blue,red,iaw}_idx (the pixel indices of the window),
+        _mask (True at the window positions inside the fit range) and _sub (those positions' indices).
+        """
+        from ..core.modules.ts_params import ThomsonParams
+
+        # Use dummy_batch's own lineout count, not cfg["optimizer"]["batch_size"] -- callers may pass a
+        # batch sized differently from the configured fit-batch size (e.g. a single-lineout refit).
+        nominal_params = ThomsonParams(cfg["parameters"], dummy_batch["e_data"].shape[0], activate=True)
+        _, _, lamAxisE, lamAxisI = self.ts_diag(nominal_params, dummy_batch)
+        fr = cfg["data"]["fit_rng"]
+        half_width = self.g.shape[0] // 2
+
+        def _windowed(true_mask_1d, num_pixels, feature):
+            true_idx = np.where(true_mask_1d)[0]
+            if true_idx.size == 0:
+                raise ValueError(
+                    f"loss_method 'covar': the {feature} fit range selects no pixels on the calibrated "
+                    "wavelength axis. Check data.fit_rng, or disable fitting of this feature."
+                )
+            lo = max(int(true_idx.min()) - half_width, 0)
+            hi = min(int(true_idx.max()) + half_width + 1, num_pixels)
+            window_idx = np.arange(lo, hi)
+            in_range_submask = true_mask_1d[window_idx]
+            return jnp.asarray(window_idx), jnp.asarray(in_range_submask), jnp.asarray(np.where(in_range_submask)[0])
+
+        # windows are only built for the features calc_ei_error fits; a disabled channel has no axis
+        if cfg["data"]["fit_EPWb"] or cfg["data"]["fit_EPWr"]:
+            lamAxisE = np.asarray(lamAxisE)[0]
+            # the electron data were multiplied by this throughput correction (data.prepare), so the
+            # detector noise has to be carried into the same units. It is evaluated on the detector pixel
+            # centers the data were corrected on, which the binned model axis only matches exactly for
+            # points_per_pixel == 1.
+            shotnum = cfg["data"]["shotnum"]
+            detector_axis = np.linspace(cfg["other"]["lamrangE"][0], cfg["other"]["lamrangE"][1], lamAxisE.shape[0])
+            self.covar_throughput_e = jnp.asarray(
+                throughput_correction(
+                    cfg["other"]["extraoptions"]["spectype"],
+                    detector_axis,
+                    shotnum[0] if isinstance(shotnum, list) else shotnum,
+                )
+            )
+        if cfg["data"]["fit_EPWb"]:
+            self.covar_blue_idx, self.covar_blue_mask, self.covar_blue_sub = _windowed(
+                (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"]), lamAxisE.shape[0], "EPW blue"
+            )
+        if cfg["data"]["fit_EPWr"]:
+            self.covar_red_idx, self.covar_red_mask, self.covar_red_sub = _windowed(
+                (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"]), lamAxisE.shape[0], "EPW red"
+            )
+        if cfg["data"]["fit_IAW"]:
+            lamAxisI_arr = np.asarray(lamAxisI)
+            lamAxisI_arr = lamAxisI_arr[0] if lamAxisI_arr.ndim > 1 else lamAxisI_arr
+            self.covar_iaw_idx, self.covar_iaw_mask, self.covar_iaw_sub = _windowed(
+                ((lamAxisI_arr > fr["iaw_min"]) & (lamAxisI_arr < fr["iaw_cf_min"]))
+                | ((lamAxisI_arr > fr["iaw_cf_max"]) & (lamAxisI_arr < fr["iaw_max"])),
+                lamAxisI_arr.shape[0],
+                "IAW",
+            )
 
     def _validated_angular_objective(self, supplied):
         """Return the complete ARTS objective config or reject unsupported choices."""
@@ -354,29 +439,111 @@ class LossFunction:
         else:
             return self._vg_func_(diff_weights, static_weights, batch)
 
-    def h_loss_wrt_params(self, weights, batch):
+    def h_loss_wrt_params(self, diff_params, static_params, batch):
         """
-        Computes the Hessian of the loss with respect to the (active) fitted parameters, using the
-        JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__. Used by postprocessing to
-        derive parameter uncertainties from the curvature of the loss (see postprocess.get_sigmas).
+        Computes the Hessian of the loss with respect to the active fitted parameters (diff_params) only,
+        using the JIT-compiled Hessian function built from _loss_for_hess_fn_ in __init__.
 
         Args:
-            weights: the parameter values to evaluate the Hessian at (typically the best-fit weights).
+            diff_params: the active leaves to differentiate with respect to, from
+                eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params)).
+            static_params: the complementary partition of the same ThomsonParams.
             batch (Dict): batch of data to evaluate the loss against.
 
         Returns:
-            The Hessian of the loss with respect to weights, in the same nested structure as weights.
+            The Hessian of the loss with respect to diff_params, in the same nested structure as
+            diff_params (each "leaf" is itself a diff_params-shaped subtree of second derivatives).
         """
-        return self._h_func_(weights, batch)
+        return self._h_func_(diff_params, static_params, batch)
 
-    def _loss_for_hess_fn_(self, weights, batch):
-        if self.is_angular:
-            total_loss, _, _, _, _ = self.calc_loss(
-                weights, batch, denom=[], reduce_func=jnp.nanmean
+    def h_loss_wrt_params_per_lineout(self, diff_params, static_params, batch):
+        """
+        Per-lineout Hessian of the negative log-likelihood with respect to diff_params: for each lineout,
+        the (n_active x n_active) block of second derivatives. Cross-lineout terms, which are zero, are
+        never formed, so memory scales as n_active^2 * batch_size. Computed with one forward-over-reverse
+        sweep per active leaf (see docs/tsadar_math.tex).
+
+        Args:
+            diff_params: the active leaves to differentiate with respect to. Every leaf must have the
+                same (batch_size,) shape and dtype.
+            static_params: as in h_loss_wrt_params.
+            batch (Dict): batch of data to evaluate the loss against.
+
+        Returns:
+            The same nested structure h_loss_wrt_params returns, with each block of shape (batch_size,).
+        """
+        return self._h_func_per_lineout_(diff_params, static_params, batch)
+
+    def _h_loss_wrt_params_per_lineout_impl(self, diff_params, static_params, batch):
+        """Implementation of h_loss_wrt_params_per_lineout, factored out so __init__ can wrap it in one
+        filter_jit-compiled callable (self._h_func_per_lineout_) -- mirroring _h_func_/_loss_for_hess_fn_
+        -- rather than retracing this Hessian computation from scratch on every call."""
+
+        def _nll_of_diff(dp):
+            weights = eqx.combine(static_params, dp)
+            if self.is_angular:
+                # see _loss_for_hess_fn_'s identical branch: angular's per_lineout=False is already the
+                # right (non-dof-normalized) objective, and per_lineout=True isn't supported for it.
+                return self.neg_log_likelihood(weights, batch, per_lineout=False)
+            # per_lineout=True, summed -- see _loss_for_hess_fn_'s docstring for why per_lineout=False
+            # (dof-normalized for loss_method="covar") is the wrong thing to differentiate for a Hessian.
+            return jnp.sum(self.neg_log_likelihood(weights, batch, per_lineout=True))
+
+        flat_diff, treedef = jax.tree_util.tree_flatten(diff_params)
+        n = len(flat_diff)
+        if n == 0:
+            return jax.tree_util.tree_unflatten(treedef, [])
+
+        shapes = {leaf.shape for leaf in flat_diff}
+        dtypes = {leaf.dtype for leaf in flat_diff}
+        if len(shapes) != 1 or len(dtypes) != 1:
+            raise ValueError(
+                "h_loss_wrt_params_per_lineout requires every active leaf to share one shape/dtype "
+                f"(one (batch_size,) float array per lineout); got shapes {shapes}, dtypes {dtypes}."
             )
+        stacked = jnp.stack(flat_diff, axis=0)  # (n_active, batch_size)
+
+        def _nll_of_stacked(rows):
+            return _nll_of_diff(jax.tree_util.tree_unflatten(treedef, list(rows)))
+
+        grad_of_stacked = jax.grad(_nll_of_stacked)
+
+        def _col_for(b):
+            tangent = jnp.zeros_like(stacked).at[b].set(1.0)
+            _, jvp_out = jax.jvp(grad_of_stacked, (stacked,), (tangent,))
+            return jvp_out  # (n_active, batch_size); jvp_out[a, i] == H_{a,b}[i, i]
+
+        h_cols = jax.lax.map(_col_for, jnp.arange(n))  # (n_active [b], n_active [a], batch_size)
+        h_per_lineout = jnp.transpose(h_cols, (1, 0, 2))  # (n_active [a], n_active [b], batch_size)
+
+        rows = [jax.tree_util.tree_unflatten(treedef, list(h_per_lineout[a])) for a in range(n)]
+        return jax.tree_util.tree_unflatten(treedef, rows)
+
+    def neg_log_likelihood(self, weights, batch: Dict, per_lineout: bool = False):
+        """
+        -2*log-likelihood shared by the Hessian/Laplace uncertainty and the MCMC sampler. For 1D data this
+        is the configured loss functional summed (not averaged) over the fit range, with per-pixel
+        variance |data| for the l2 method or the full noise covariance for the covar method. Angular data
+        delegates to calc_loss.
+
+        Args:
+            weights: full ThomsonParams to evaluate at.
+            batch (Dict): batch of data, as built by loops.build_batch.
+            per_lineout: if True, returns one value per lineout, shape (batch_size,). If False (default),
+                returns a single scalar for the batch, which for the covar method is normalized by the
+                degrees of freedom. Not supported for angular data.
+        """
+        if self.is_angular:
+            if per_lineout:
+                raise NotImplementedError(
+                    "neg_log_likelihood(per_lineout=True) is not supported for angular (ARTS2D) data: "
+                    "its noise-whitened objective (_angular_data_objective) is not separable per lineout."
+                )
+            total_loss, _, _, _, _ = self.calc_loss(weights, batch, denom=[], reduce_func=jnp.nanmean)
             return total_loss
 
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(weights, batch)
+        reduce_func = (lambda x: jnp.nansum(x, axis=-1)) if per_lineout else jnp.nansum
         i_error, e_error, _ = self.calc_ei_error(
             batch,
             ThryI,
@@ -384,12 +551,21 @@ class LossFunction:
             ThryE,
             lamAxisE,
             uncert=[jnp.abs(batch["i_data"]) + 1e-10, jnp.abs(batch["e_data"]) + 1e-10],
-            reduce_func=jnp.sum,
+            reduce_func=reduce_func,
+            per_lineout=per_lineout,
         )
 
         return i_error + e_error
 
-    def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean):
+    def _loss_for_hess_fn_(self, diff_params, static_params, batch):
+        weights = eqx.combine(static_params, diff_params)
+        if self.is_angular:
+            return self.neg_log_likelihood(weights, batch, per_lineout=False)
+        # the Hessian needs the unnormalized -2*log-likelihood; the per_lineout=False scalar is
+        # normalized by the degrees of freedom for the covar method
+        return jnp.sum(self.neg_log_likelihood(weights, batch, per_lineout=True))
+
+    def calc_ei_error(self, batch, ThryI, lamAxisI, ThryE, lamAxisE, uncert, reduce_func=jnp.mean, per_lineout=False):
         """
         Calculates the error metrics for ion and electron spectral fits based on theoretical and experimental data.
         This function computes the error between measured and theoretical spectra for both ion (IAW) and electron (EPW)
@@ -403,6 +579,8 @@ class LossFunction:
             lamAxisE (array-like): Wavelength axis for the electron spectrum.
             uncert (tuple or list): Tuple or list containing uncertainty arrays for ion and electron data, respectively.
             reduce_func (callable, optional): Function to reduce the error array to a scalar (e.g., jnp.mean, jnp.sum). Defaults to jnp.mean.
+            per_lineout (bool, optional): For loss_method=="covar" only -- return one quadratic-form
+                value per lineout instead of the dof-normalized batch scalar. See _feature_error_.
         Returns:
             tuple:
                 i_error (float): Reduced error metric for the ion feature (IAW).
@@ -429,8 +607,13 @@ class LossFunction:
                 (lamAxisI > self.cfg["data"]["fit_rng"]["iaw_cf_max"])
                 & (lamAxisI < self.cfg["data"]["fit_rng"]["iaw_max"])
             )
-            # covar_source is i_data here (not ThryI) -- matches the original per-branch behavior below.
-            error, sqd = self._feature_error_(i_data, ThryI, uncert[0], mask, i_data, reduce_func)
+            # covar_source is ThryI (model prediction, not raw data) -- avoids the Neyman/Pearson bias
+            # and the near-zero-data variance blowup; matches the EPW branches below.
+            error, sqd = self._feature_error_(
+                i_data, ThryI, uncert[0], mask, ThryI, reduce_func, per_lineout,
+                covar_idx=getattr(self, "covar_iaw_idx", None), covar_submask=getattr(self, "covar_iaw_mask", None),
+                covar_sub=getattr(self, "covar_iaw_sub", None),
+            )
             i_error += error
             sqdev["ion"] = sqd
 
@@ -438,7 +621,12 @@ class LossFunction:
             mask = (lamAxisE > self.cfg["data"]["fit_rng"]["blue_min"]) & (
                 lamAxisE < self.cfg["data"]["fit_rng"]["blue_max"]
             )
-            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func)
+            error, sqd = self._feature_error_(
+                e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
+                covar_idx=getattr(self, "covar_blue_idx", None), covar_submask=getattr(self, "covar_blue_mask", None),
+                covar_sub=getattr(self, "covar_blue_sub", None),
+                covar_throughput=getattr(self, "covar_throughput_e", None),
+            )
             e_error += error
             sqdev["ele"] = sqd
 
@@ -446,41 +634,92 @@ class LossFunction:
             mask = (lamAxisE > self.cfg["data"]["fit_rng"]["red_min"]) & (
                 lamAxisE < self.cfg["data"]["fit_rng"]["red_max"]
             )
-            error, sqd = self._feature_error_(e_data, ThryE, uncert[1], mask, ThryE, reduce_func)
+            error, sqd = self._feature_error_(
+                e_data, ThryE, uncert[1], mask, ThryE, reduce_func, per_lineout,
+                covar_idx=getattr(self, "covar_red_idx", None), covar_submask=getattr(self, "covar_red_mask", None),
+                covar_sub=getattr(self, "covar_red_sub", None),
+                covar_throughput=getattr(self, "covar_throughput_e", None),
+            )
             e_error += error
 
-            if self.cfg["data"]["fit_EPWb"]:
+            if self.cfg["data"]["fit_EPWb"] and self._averages_wings(reduce_func):
                 # the set e_error to the true mean if both sides are fit
                 e_error *= 1.0 / 2.0
             sqdev["ele"] += sqd
 
         return i_error, e_error, sqdev
 
-    def _feature_error_(self, data, thry, uncert, mask, covar_source, reduce_func):
+    def _averages_wings(self, reduce_func) -> bool:
+        """True when the per-feature error is a mean over pixels, in which case the blue and red EPW
+        errors are averaged. Sum-based reductions (the covar statistic, the -2*log-likelihood) add."""
+        if self.cfg["optimizer"]["loss_method"] == "covar":
+            return False
+        with jax.ensure_compile_time_eval():
+            return float(jnp.max(reduce_func(jnp.ones((2, 2))))) == 1.0
+
+    def _feature_error_(
+        self, data, thry, uncert, mask, covar_source, reduce_func, per_lineout=False, covar_idx=None, covar_submask=None,
+        covar_sub=None, covar_throughput=None,
+    ):
         """
         Shared per-feature (IAW / EPW-blue / EPW-red) error computation used by calc_ei_error: applies the loss
         functional, masks to the feature's fit range, and reduces either via reduce_func or, for
-        loss_method=="covar", via the covariance-weighted quadratic form. covar_source is the array
-        calculate_covariance_matrix is built from -- i_data for the ion branch, ThryE for both electron
-        branches, matching each branch's original behavior.
+        loss_method=="covar", via the covariance-weighted quadratic form residual^T K^-1 residual.
+
+        Args:
+            data: measured spectrum, (num_lineouts, num_pixels).
+            thry: modeled spectrum, same shape.
+            uncert: per-pixel uncertainty used by the non-covar loss functionals.
+            mask: boolean fit-range mask.
+            covar_source: array the noise covariance is built from (the model prediction).
+            reduce_func: reduction applied for the non-covar methods.
+            per_lineout: covar only. If True, returns the Gaussian -2*log-likelihood per lineout, the
+                quadratic form plus log(det K); if False, the quadratic form summed over lineouts and
+                divided by (in-range pixels - free parameters).
+            covar_idx, covar_submask, covar_sub: covar only. Pixel window, in-range mask within it, and
+                the positions of the in-range pixels within it, from _init_covar_pixel_indices.
+            covar_throughput: covar only. Throughput correction the data were multiplied by, on the full
+                wavelength axis, or None for a channel without one (the IAW).
 
         Returns:
-            tuple: (error, sqdev) where sqdev is nan_to_num(masked _error_), matching what calc_ei_error
-            stored for each branch before this was factored out.
+            tuple: (error, sqdev) where sqdev is the residual array with out-of-range points set to zero.
         """
+        if self.cfg["optimizer"]["loss_method"] == "covar":
+            data_g = jnp.take(data, covar_idx, axis=-1)
+            thry_g = jnp.take(thry, covar_idx, axis=-1)
+            covar_g = jnp.take(covar_source, covar_idx, axis=-1)
+            _error_small = jnp.where(covar_submask, data_g - thry_g, 0.0)
+
+            # K is built on the padded window so the convolution sees the neighbors of the in-range
+            # pixels, then restricted to the in-range pixels, whose joint covariance it is
+            k = self.calculate_covariance_matrix(
+                covar_g, None if covar_throughput is None else jnp.take(covar_throughput, covar_idx)
+            )
+            k = jnp.take(jnp.take(k, covar_sub, axis=-2), covar_sub, axis=-1)
+            if not per_lineout:
+                # the fitting statistic weights the residuals with K held fixed at the current model
+                # (Swadling et al. 2022), so the fit is not differentiated through K
+                k = jax.lax.stop_gradient(k)
+            resid = jnp.take(_error_small, covar_sub, axis=-1)
+            c, lower = jax.scipy.linalg.cho_factor(k)
+            x = jax.scipy.linalg.cho_solve((c, lower), resid[..., None]).squeeze(-1)
+            quad = jnp.vecdot(resid, x)  # shape (num_lineouts,): one quadratic form per lineout
+            if per_lineout:
+                # Gaussian -2*log-likelihood: K depends on the model, so log(det K) is not a constant
+                log_det = 2.0 * jnp.sum(jnp.log(jnp.diagonal(c, axis1=-2, axis2=-1)), axis=-1)
+                error = quad + log_det
+            else:
+                # in-range pixels summed over the whole batch
+                norm = jnp.sum(covar_submask) * data.shape[0] - self.num_free_params
+                error = jnp.sum(quad) / norm
+            # scatter back into a full-pixel-size array for callers (e.g. plotting/diagnostics) that
+            # still expect sqdev shaped like the raw data.
+            sqdev = jnp.zeros_like(data).at[..., covar_idx].set(_error_small)
+            return error, sqdev
+
         _error_ = self.loss_functionals(data, thry, uncert, method=self.cfg["optimizer"]["loss_method"])
         _error_ = jnp.where(mask, _error_, jnp.nan)
-
-        if self.cfg["optimizer"]["loss_method"] == "covar":
-            k = self.calculate_covariance_matrix(covar_source)
-            norm = jnp.sum(jnp.isfinite(_error_)) - self.num_free_params
-            print(norm)
-            _error_ = jnp.nan_to_num(_error_)
-            x = jnp.linalg.solve(k, _error_[..., None]).squeeze(-1)
-            error = jnp.sum(jnp.vecdot(_error_, x)) / norm
-        else:
-            error = reduce_func(_error_)
-
+        error = reduce_func(_error_)
         return error, jnp.nan_to_num(_error_)
 
     def _angular_variance(self, batch):
@@ -1284,31 +1523,39 @@ class LossFunction:
         momentum_loss = jnp.mean(mean_velocity**2)
         return density_loss, temperature_loss, momentum_loss
     
-    def calculate_covariance_matrix(self, data):
+    def calculate_covariance_matrix(self, data, throughput=None):
         """
-        Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following the
-        method described in George's RSI. For each lineout, the shot-noise standard deviation is estimated
-        from `data` (self.G/self.F2 are device-specific gain/noise-factor constants set in __init__ when
-        loss_method=="covar"), placed on the diagonal, convolved with the CCD spread function self.g, and a
-        constant readout-noise term (self.n * self.sig_rn**2) is added on the diagonal.
+        Builds the per-lineout noise-covariance matrix used by the "covar" loss method, following Swadling
+        et al., Rev. Sci. Instrum. 93, 043503 (2022), for a signal in photoelectrons (CCD electrons divided
+        by the gain self.G). The shot-noise variance (signal times the noise factor self.F2) is placed on
+        the diagonal and convolved with the CCD spread function self.g, and a readout-noise term
+        (self.n * (self.sig_rn / self.G)**2) is added on the diagonal.
+
+        When the data were multiplied by a throughput correction C, the detector covariance is built from
+        the uncorrected signal data / C and returned in corrected units, C K_detector C.
 
         Args:
-            data: array of shape (num_lineouts, num_pixels) used to estimate the shot noise. Note this is
-                computed from the signal itself, not the forward model, per the comment below -- a known
-                simplification, not yet the model-based noise estimate the method calls for.
+            data: array of shape (num_lineouts, num_pixels) the shot noise is estimated from. Callers pass
+                the model prediction. Values are floored at 1e-10 to keep the square root and its gradient
+                finite.
+            throughput: optional array of shape (num_pixels,), the throughput correction C applied to the
+                data. Pixels where it is zero are treated as uncorrected.
 
         Returns:
             k_noise: array of shape (num_lineouts, num_pixels, num_pixels), the noise-covariance matrix for
             each lineout.
         """
-        # Calculate noise (here it is done with the signal but it should be done with the model)
-        sig_s = jnp.sqrt(data * self.G * self.F2)
+        correction = jnp.ones(jnp.shape(data)[-1]) if throughput is None else jnp.where(throughput > 0, throughput, 1.0)
+        sig_s = jnp.sqrt(jnp.clip(data / correction, 1e-10, None) * self.F2)
 
         eye = jnp.eye(jnp.shape(data)[-1])
         #the n in this equation should only be included if the lineouts are summed over n pixels, if they are not summed then n should be 1
         def _slice_noise(sig_s_i):
-            return jax.scipy.signal.convolve2d(eye * sig_s_i**2, self.g, mode="same") + eye * self.n * self.sig_rn**2
+            return (
+                jax.scipy.signal.convolve2d(eye * sig_s_i**2, self.g, mode="same")
+                + eye * self.n * (self.sig_rn / self.G) ** 2
+            )
 
         k_noise = jax.vmap(_slice_noise)(sig_s)
 
-        return k_noise
+        return k_noise * correction[:, None] * correction[None, :]

@@ -1,20 +1,19 @@
 """postprocess: recomputes final fits/losses/uncertainties after fitting completes, optionally refits
 individually poor-fit lineouts, and produces the resulting plots and saved parameter values."""
-from typing import Dict
+from typing import Dict, List, Tuple
 from collections import defaultdict
-from flatten_dict import flatten, unflatten
 import json
 
 import time, tempfile, mlflow, os, copy
 
 import numpy as np
 import jax
+import equinox as eqx
 
 from tsadar.utils import manifest
-from tsadar.utils.plotting import plotters
-from .loss_function import LossFunction
-from tsadar.core.modules.ts_params import IonParams
-from .loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
+from ..loss_function import LossFunction
+from tsadar.core.modules.ts_params import IonParams, get_filter_spec
+from ..loops import one_d_loop, unbatch_fitted_params, build_batch, build_angular_batch
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
 
@@ -104,19 +103,26 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             try:
-                hess = loss_fn.h_loss_wrt_params(fitted_weights[i_batch], batch)
+                _check_fe_not_fit(config)
+                # Hessian with respect to the active fit parameters (diff_params) only
+                ts_params = fitted_weights[i_batch]
+                filter_spec = get_filter_spec(config["parameters"], ts_params)
+                diff_params, static_params = eqx.partition(ts_params, filter_spec)
+                hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
+                fitted_params_this_batch, _ = ts_params.get_fitted_params(config["parameters"])
+                sigmas[inds] = get_sigmas(
+                    hess, diff_params, static_params, fitted_params_this_batch, config["optimizer"]["batch_size"]
+                )
             except Exception as e:
                 print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
                 calc_sigma = False
+                # a failed calculation is reported as NaN, never as zero uncertainty
+                sigmas[:] = np.nan
 
         losses[inds] = loss
 
         sqdevs["ele"][inds] = sqds["ele"]
         sqdevs["ion"][inds] = sqds["ion"]
-
-        if calc_sigma:
-            sigmas[inds] = get_sigmas(hess, config["optimizer"]["batch_size"])
-            # print(f"Number of 0s in sigma: {len(np.where(sigmas==0)[0])}") number of negatives?
 
         fits["ele"]["total_spec"][inds] = ThryE
         fits["ion"]["total_spec"][inds] = ThryI
@@ -124,45 +130,110 @@ def recalculate_with_chosen_weights(
     return losses, sqdevs, fits, sigmas
 
 
-def get_sigmas(hess: Dict, batch_size: int) -> Dict:
-    """
-    Calculates the variance using the hessian with respect to the parameters and then using the hessian values
-    as the inverse of the covariance matrix and then inverting that. Negatives in the inverse hessian normally indicate
-    non-optimal points, to represent this in the final result the uncertainty of those values are reported as negative.
+def _check_fe_not_fit(config: Dict) -> None:
+    """Raises if the electron distribution function is being fit: Hessian uncertainties are only
+    computed for the scalar parameters. The 1D DLM shape parameter m is the one case intended to be
+    supported; it is not handled yet."""
+    fe = config["parameters"]["electron"]["fe"]
+    if fe["active"]:
+        if fe["dim"] == 1 and fe["type"].casefold() == "dlm":
+            raise NotImplementedError("calc_sigmas does not yet support fitting the DLM shape parameter m.")
+        raise NotImplementedError("calc_sigmas does not support a fitted electron distribution function.")
 
+
+def _named_diff_leaves(diff_params) -> List[Tuple[str, str]]:
+    """(species, key) name of every active leaf of a diff_params pytree, in jax.tree_util.tree_leaves
+    order. species is "electron"/"general"/"ion-<n>" (1-based) and key has the "normed_" prefix removed.
+    """
+    names = []
+    for path, _leaf in jax.tree_util.tree_flatten_with_path(diff_params)[0]:
+        top = path[0].name
+        if top == "ions":
+            species = f"ion-{path[1].idx + 1}"
+        else:
+            species = top
+        attr = path[-1].name
+        key = attr[len("normed_") :] if attr.startswith("normed_") else attr
+        names.append((species, key))
+    return names
+
+
+def get_sigmas(hess, diff_params, static_params, fitted_params: Dict, batch_size: int) -> np.ndarray:
+    """
+    Calculates parameter uncertainty, in physical units, from the Hessian of the -2*log-likelihood. The
+    covariance in the fitted (normalized) coordinates is 2 * inverse(Hessian); it is converted to the
+    physical parameters with the Jacobian of the parameter transform. Negatives in the covariance
+    normally indicate non-optimal points, to represent this in the final result the uncertainty of those
+    values are reported as negative.
 
     Args:
-        hess: Hessian dictionary, the field for each fitted parameter has subfields corresponding to each of the other
-            fitted parameters. Within each nested subfield is a batch_size x batch_size array with the hessian values
-            for that parameter combination and that batch. The cross terms of this array are zero since separate
-            lineouts within a batch do not affect each other, they are therefore discarded
+        hess: per-lineout Hessian of the loss wrt diff_params, as returned by
+            LossFunction.h_loss_wrt_params_per_lineout.
+        diff_params: the diff_params pytree the Hessian was taken with respect to.
+        static_params: the complementary partition of the same ThomsonParams.
+        fitted_params: nested dict as returned by ThomsonParams.get_fitted_params; sets the columns and
+            order of the returned array.
         batch_size: int- number of lineouts in a batch
 
     Returns:
-        sigmas: batch_size x number_of_parameters array with the uncertainty values for each parameter
+        sigmas: batch_size x number_of_parameters array with the uncertainty of each parameter in
+            physical units, columns ordered to match fitted_params.
+
+    Raises:
+        NotImplementedError: if the DLM shape parameter m is among the fitted parameters.
     """
-    sizes = {
-        key + species: hess[species][key][species][key].shape[1]
-        for species in hess.keys()
-        for key in hess[species].keys()
-    }
-    actual_num_params = sum([v for k, v in sizes.items()])
-    sigmas = np.zeros((batch_size, actual_num_params))
+    # "f"/"fe"/"flm" are always reported by get_fitted_params and are not sigma columns
+    ordered_names = [
+        (species, key)
+        for species, params in fitted_params.items()
+        for key in params.keys()
+        if key not in ("fe", "f", "flm")
+    ]
+    if any(key == "m" for _, key in ordered_names):
+        raise NotImplementedError("get_sigmas does not yet support fitting the DLM shape parameter m.")
+    num_params = len(ordered_names)
+    sigmas = np.full((batch_size, num_params), np.nan)
+    if num_params == 0:
+        return sigmas
+
+    target_structure = jax.tree_util.tree_structure(diff_params)
+    rows = jax.tree_util.tree_leaves(
+        hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure
+    )
+    row_names = _named_diff_leaves(diff_params)
+    if len(rows) != len(row_names):
+        raise ValueError(f"Unexpected Hessian structure: found {len(rows)} row(s), expected {len(row_names)}")
+    name_to_row_index = {name: idx for idx, name in enumerate(row_names)}
+    if any(name not in name_to_row_index for name in ordered_names):
+        missing = [name for name in ordered_names if name not in name_to_row_index]
+        raise ValueError(f"fitted_params names not found among diff_params' active leaves: {missing}")
+
+    blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[k1][k2][i] is d^2L/d(leaf k1[i]) d(leaf k2[i])
+    # permutation from fitted_params order (electron/general/ions) to diff_params order (electron/ions/general)
+    perm = [name_to_row_index[name] for name in ordered_names]
+
+    # jacobian[k][a] is d(physical parameter a)/d(leaf k), per lineout
+    leaves, treedef = jax.tree_util.tree_flatten(diff_params)
+
+    def _physical(flat_leaves):
+        unnormed = eqx.combine(static_params, jax.tree_util.tree_unflatten(treedef, flat_leaves)).get_unnormed_params()
+        return jax.numpy.stack([jax.numpy.reshape(unnormed[s][k], (-1,)) for s, k in ordered_names])
+
+    jacobian = [np.asarray(j).reshape(num_params, batch_size, -1) for j in jax.jacfwd(_physical)(leaves)]
 
     for i in range(batch_size):
-        temp = np.zeros((actual_num_params, actual_num_params))
-        k1 = 0
-        for species1 in hess.keys():
-            for key1 in hess[species1].keys():
-                k2 = 0
-                for species2 in hess.keys():
-                    for key2 in hess[species2].keys():
-                        temp[k1, k2] = np.squeeze(hess[species1][key1][species2][key2])[i, i]
-                        k2 += 1
-                k1 += 1
-
-        inv = np.linalg.inv(temp)
-        sigmas[i, :] = np.sign(np.diag(inv)) * np.sqrt(np.abs(np.diag(inv)))
+        temp = np.array(
+            [[np.asarray(blocks[perm[k1]][perm[k2]]).reshape(-1)[i] for k2 in range(num_params)] for k1 in range(num_params)]
+        )
+        # each lineout only depends on its own leaf entry (entry 0 for an unbatched leaf)
+        jac = np.array(
+            [
+                [jacobian[perm[k2]][a, i, i if jacobian[perm[k2]].shape[-1] > 1 else 0] for k2 in range(num_params)]
+                for a in range(num_params)
+            ]
+        )
+        covariance = jac @ (2.0 * np.linalg.inv(temp)) @ jac.T
+        sigmas[i, :] = np.sign(np.diag(covariance)) * np.sqrt(np.abs(np.diag(covariance)))
 
     return sigmas
 
@@ -269,8 +340,10 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
 
         def extract(x):
             # i, true_batch_size would idealy be inputs but i cant figure out how to pass variables
+            # keeps the batch axis so the result is a valid batch_size=1 ThomsonParams
+            prev = (i - 1) % true_batch_size
             if isinstance(x, list) or len(np.shape(x)) > 0:
-                return x[(i - 1) % true_batch_size]
+                return x[prev : prev + 1]
             else:
                 return x
 
@@ -289,29 +362,16 @@ def refit_bad_fits(config, sa, batch_indices, all_data, loss_fn, fitted_weights,
         prev_weights = jax.tree.map(
             extract, prev_weights, is_leaf=lambda x: isinstance(x, list) and not isinstance(x[0], IonParams)
         )
-        prev_weights = prev_weights.get_unnormed_params()
-        prev_weights = jax.tree.map(lambda x: {"val": x}, prev_weights)
-        if config["parameters"]["electron"]["fe"]["type"].casefold() == "dlm":
-            prev_weights["electron"]["fe"] = {"params": {"m": prev_weights["electron"].pop("m")}}
-        else:
-            # Arbitrary1V always rebuilds fval from params.init_m and has no config-driven override
-            # for "f" (get_unnormed_params()'s key here), so there's nothing to carry over for it.
-            prev_weights["electron"].pop("f", None)
-
-        temp_params = flatten(temp_cfg["parameters"])
-        temp_params.update(flatten(prev_weights))
-        temp_cfg["parameters"] = unflatten(temp_params)
-        # temp_cfg["parameters"] = temp_cfg["parameters"] | prev_weights
-        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, np.array([i]), 1)
+        new_weights, _, loss_fn = one_d_loop(temp_cfg, all_data, sa, np.array([i]), 1, previous_weights=[prev_weights])
 
         inds = np.array([i])
         batch = build_batch(all_data, inds, config["data"]["background"]["bg_subtract"])
         loss, _, _, _, _ = loss_fn.array_loss(new_weights[0], batch)
 
         if loss < losses_init[i]:
-            fitted_weights[(i - 1) // true_batch_size] = jax.tree.map(
+            fitted_weights[i // true_batch_size] = jax.tree.map(
                 insert,
-                fitted_weights[(i - 1) // true_batch_size],
+                fitted_weights[i // true_batch_size],
                 new_weights[0],
                 is_leaf=lambda x: isinstance(x, list) and not isinstance(x[0], IonParams),
             )
@@ -344,6 +404,8 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
             t1 (float): updated timestamp, taken after recomputing losses/fits, for timing the plotting step
             final_params (Dict): the final fitted parameters and distribution function data
     """
+    from tsadar.utils.plotting import plotters
+
     losses, sqdevs, fits, sigmas = recalculate_with_chosen_weights(
         config, sa, sample_indices, all_data, loss_fn, config["other"]["calc_sigmas"], fitted_weights, num_params
     )
@@ -392,6 +454,8 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
             t1 (float): updated timestamp, taken after recomputing losses/fits, for timing the plotting step
             final_params (Dict): the final fitted parameters and distribution function data
     """
+    from tsadar.utils.plotting import plotters
+
     # Prepare parameter containers
     all_params = {k: defaultdict(list) for k in config["parameters"].keys()}
     batch_fitted_params, num_params = fitted_weights.get_fitted_params(config["parameters"])
@@ -415,13 +479,21 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
         json.dump(objective_terms, file, indent=2, sort_keys=True)
     mlflow.log_metrics({f"arts2d_{key}": value for key, value in objective_terms.items()})
 
-    # Calculate sigmas if needed
+    # Calculate sigmas if needed, from the Hessian with respect to the active fit parameters only
     sigmas = None
     if config["other"]["calc_sigmas"]:
-        active_params = loss_fn.spec_calc.get_plasma_parameters(fitted_weights, return_static_params=False)
-        hess = loss_fn.h_loss_wrt_params(active_params, batch)
-        sigmas = get_sigmas(hess, config["optimizer"]["batch_size"])
-        print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
+        try:
+            _check_fe_not_fit(config)
+            filter_spec = get_filter_spec(config["parameters"], fitted_weights)
+            diff_params, static_params = eqx.partition(fitted_weights, filter_spec)
+            hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
+            sigmas = get_sigmas(
+                hess, diff_params, static_params, batch_fitted_params, config["optimizer"]["batch_size"]
+            )
+            print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
+        except Exception as e:
+            print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
+            sigmas = None
 
     # Logging and plotting
     mlflow.log_metrics({"postprocessing time": round(time.time() - t1, 2)})
@@ -431,7 +503,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     final_params = plotters.get_final_params(config, all_params, all_axes, td)
     sigma_fe = None
     if "fe" in final_params:
-        if config["other"]["calc_sigmas"]:
+        if sigmas is not None:
             sigma_fe = plotters.save_sigmas_fe(final_params, {}, sigmas, td)
         else:
             sigma_fe = np.zeros_like(final_params['fe'])

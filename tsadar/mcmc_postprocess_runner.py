@@ -1,0 +1,135 @@
+"""Standalone MCMC postprocessor entry point: runs inverse.postprocess.mcmc_postprocess against an
+already-completed fit's saved results, loaded from a local run directory or a remote MLflow run, without
+redoing the fit. Shares its reconstruction and config-loading helpers with postprocess_runner.py.
+"""
+import os
+import warnings
+import tempfile
+from typing import Dict, Optional
+
+import mlflow
+import yaml
+
+from .inverse.postprocess import mcmc_postprocess as _mcmc_postprocess_module
+from .inverse.fitter import _check_spectral_smoothing_
+from .postprocess_runner import (
+    _download_run_artifact,
+    _extract_run_id,
+    _load_merged_config,
+    _reconstruct_fit_state,
+    _resolve_artifact_uri,
+)
+from .utils import misc
+
+
+def run_mcmc_postprocess(
+    config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None, overrides: Optional[Dict] = None
+) -> Dict:
+    """
+    Reconstructs the fit state from a saved config + fitted_weights.eqx and runs the MCMC postprocessor
+    inside a new mlflow run. The run the fit came from is only read.
+
+    Args:
+        config (Dict): The exact (merged) config the original fit used.
+        fitted_weights_path (str): Local path to a fitted_weights.eqx saved by fitter._save_fit_artifacts.
+        source_run_id (Optional[str]): The mlflow run id the artifacts came from, if any, logged as a tag
+            on the new run.
+        overrides (Optional[Dict]): the --overrides stub deck this run was launched with, if any. Saved as
+            an overrides.yaml artifact on the new run.
+    Returns:
+        Dict: The final_params produced by inverse.postprocess.mcmc_postprocess.mcmc_postprocess.
+    """
+    mlflow_cfg = config.get("mlflow", {})
+    if "experiment" in mlflow_cfg:
+        mlflow.set_experiment(mlflow_cfg["experiment"])
+    run_name = f"{mlflow_cfg['run']} (mcmc-postprocess)" if "run" in mlflow_cfg else None
+
+    with mlflow.start_run(run_name=run_name):
+        if source_run_id is not None:
+            mlflow.set_tag("source_run_id", source_run_id)
+        if overrides:
+            with tempfile.TemporaryDirectory() as td:
+                with open(os.path.join(td, "overrides.yaml"), "w") as fi:
+                    yaml.dump(overrides, fi)
+                mlflow.log_artifacts(td)
+        misc.log_mlflow(config)
+
+        # a likelihood needs the detector's own noise, so the sampled data are never smoothed
+        if _check_spectral_smoothing_(config) != 1:
+            warnings.warn("The MCMC postprocessor uses unsmoothed data. Setting data.spectral_smoothing to 1.")
+            config["data"]["spectral_smoothing"] = 1
+        state = _reconstruct_fit_state(config, fitted_weights_path)
+        if state.is_angular:
+            raise NotImplementedError(
+                "MCMC postprocessing does not support angular fits; see "
+                "inverse.postprocess.mcmc_postprocess.mcmc_postprocess for details."
+            )
+        final_params = _mcmc_postprocess_module.mcmc_postprocess(
+            state.config,
+            state.sample_indices,
+            state.all_data,
+            state.all_axes,
+            state.loss_fn,
+            state.sa,
+            state.fitted_weights,
+            state.num_params,
+        )
+
+    return final_params
+
+
+def run_mcmc_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) -> Dict:
+    """
+    Runs the MCMC postprocessor on a fit whose artifacts sit in a local directory. The directory must
+    contain fitted_weights.eqx and either config.yaml or defaults.yaml + inputs.yaml.
+
+    Args:
+        dir_path: path to the artifact directory.
+        overrides: optional partial config (same nesting as inputs.yaml) deep-merged on top of the saved
+            config in memory. See postprocess_runner.run_postprocess_local.
+    """
+    config = _load_merged_config(dir_path)
+    if overrides:
+        config = misc.merge_defaults_and_inputs(config, overrides)
+    fitted_weights_path = os.path.join(dir_path, "fitted_weights.eqx")
+    if not os.path.exists(fitted_weights_path):
+        raise FileNotFoundError(
+            f"No fitted_weights.eqx found in {dir_path} - this fit may predate that artifact, or "
+            "postprocessing/saving may have been disabled for it."
+        )
+    return run_mcmc_postprocess(config, fitted_weights_path, overrides=overrides)
+
+
+def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None) -> Dict:
+    """
+    Runs the MCMC postprocessor on a fit tracked by mlflow, identified by a run id or a run URL. The
+    source run is only read; results are logged to a new run.
+
+    Args:
+        run_id_or_url: mlflow run id or URL of the fit.
+        overrides: see run_mcmc_postprocess_local.
+    """
+    run_id = _extract_run_id(run_id_or_url)
+
+    with tempfile.TemporaryDirectory() as td:
+        base_uri = _resolve_artifact_uri(run_id)
+        try:
+            _download_run_artifact(base_uri, "config.yaml", td)
+            config_fnames = ["config.yaml"]
+        except Exception:
+            config_fnames = ["defaults.yaml", "inputs.yaml"]
+
+        for fname in config_fnames + ["fitted_weights.eqx"]:
+            try:
+                _download_run_artifact(base_uri, fname, td)
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"Could not download {fname} from run {run_id}: {e}. If this is fitted_weights.eqx, "
+                    "the run may predate that artifact, or postprocessing/saving may have been disabled for it."
+                ) from e
+
+        config = _load_merged_config(td)
+        if overrides:
+            config = misc.merge_defaults_and_inputs(config, overrides)
+        fitted_weights_path = os.path.join(td, "fitted_weights.eqx")
+        return run_mcmc_postprocess(config, fitted_weights_path, source_run_id=run_id, overrides=overrides)

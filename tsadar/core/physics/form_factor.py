@@ -420,7 +420,8 @@ class FormFactor:
             GD = (k**2)/4/ks * j0 * -jnp.imag(Fchi)
             GDl = jnp.mean(GD * interaction_length_cm, axis=-1)
             # formfactor = jnp.sum(formfactor[...,jnp.newaxis] * jnp.exp(GDl), axis=-1)
-            formfactor = formfactor * jnp.exp(GDl)
+            # cap the gain exponent (other.gain_cap) so an unresolved resonance cannot overflow exp()
+            formfactor = formfactor * jnp.exp(jnp.minimum(GDl, self.calc_gain['gain_cap']))
 
 
         return formfactor, jnp.squeeze(lams, axis=-1)

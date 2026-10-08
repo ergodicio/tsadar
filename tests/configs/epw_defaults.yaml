@@ -98,7 +98,7 @@ other:
     beam_diam_um: 100
     include_gains: false
     flatbg: 0
-    gain: 1
+    gain: 108
     points_per_pixel: 1
     ang_res_unit: 10
     lam_res_unit: 5
@@ -137,6 +137,7 @@ data:
     ele_lam_shift: 0.0
     probe_beam: P9
     dpixel: 2
+    spectral_smoothing: default
     lineouts:
         type:
             pixel

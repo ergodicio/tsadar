@@ -15,6 +15,7 @@ data:
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 2
+  spectral_smoothing: default
   ele_lam_shift: 0.0
   ele_t0: 0
   fit_rng:

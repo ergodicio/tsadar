@@ -188,7 +188,14 @@ def test_shipped_decks_use_per_ion_flow_schema():
     ]
 
     for deck_path in deck_paths:
-        parameters = yaml.safe_load(deck_path.read_text())["parameters"]
+        deck = yaml.safe_load(deck_path.read_text())
+        if "parameters" not in deck:
+            # Not every yaml under configs/ is a full parameter deck -- e.g.
+            # configs/postprocessor/postprocessor_stub.yaml is a partial-override stub
+            # (other/plotting sections only) read solely by the standalone MCMC
+            # uncertainty postprocessor, never by a normal fit.
+            continue
+        parameters = deck["parameters"]
         assert "Va" not in parameters["general"], deck_path
         for species, species_config in parameters.items():
             if species.startswith("ion-"):

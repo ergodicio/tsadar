@@ -24,6 +24,7 @@ Table of Contents
    Inputs<inputs>
    Fit Artifacts<artifacts>
    Defaults<defaults>
+   MCMC Uncertainty Postprocessor<mcmc>
    Background Algorithms<bg_algorithms>
    Forward<forward_pass>
    Fundamentals of Thomson Scattering<TS_fundamentals>
