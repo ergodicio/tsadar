@@ -1,3 +1,6 @@
 # Append-only research notebooks: preserve entries from concurrent branches.
 NOTES.md merge=union
 **/NOTES.md merge=union
+
+# Stamps the tag into GitHub source archives, which have no git history to read the version from.
+.git_archival.txt export-subst
