@@ -15,6 +15,7 @@ import mlflow
 from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
 
 from ..data import prepare
+from ..utils.misc import rename_deprecated_gain_keys
 
 
 def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
@@ -87,47 +88,6 @@ def _check_spectral_smoothing_(config: Dict) -> int:
     return 2 * config["data"]["dpixel"] + 1 if value == "default" else value
 
 
-# old key path -> new key path, both under config["other"]. Temporary, see _rename_deprecated_gain_keys_
-_DEPRECATED_GAIN_KEYS = {
-    ("gain",): ("detector_gain",),
-    ("calibration_uncertainty", "gain_sigma"): ("calibration_uncertainty", "detector_gain_sigma"),
-    ("include_gains",): ("LPI_gain", "include_LPI_gains"),
-    ("gain_cap",): ("LPI_gain", "LPI_gain_cap"),
-    ("Ipump_14",): ("LPI_gain", "Ipump_14"),
-    ("beam_diam_um",): ("LPI_gain", "beam_diam_um"),
-}
-
-
-def _rename_deprecated_gain_keys_(config: Dict) -> Dict:
-    """Temporary helper: moves the pre-rename gain keys of config["other"] to their new names and warns
-    about each one found. A value given under an old key replaces the value under the new key, since the
-    new key is otherwise just the default. To be removed in a future version, most likely 0.5.0."""
-    other = config["other"]
-    renamed = []
-    for old_path, new_path in _DEPRECATED_GAIN_KEYS.items():
-        parent = other
-        for key in old_path[:-1]:
-            parent = parent.get(key, {})
-        if old_path[-1] not in parent:
-            continue
-        target = other
-        for key in new_path[:-1]:
-            target = target.setdefault(key, {})
-        target[new_path[-1]] = parent.pop(old_path[-1])
-        renamed.append(f"other.{'.'.join(old_path)} -> other.{'.'.join(new_path)}")
-
-    if renamed:
-        warnings.warn(
-            "This config uses gain keys that have been renamed: "
-            + "; ".join(renamed)
-            + ". The old keys were converted for this run, with their values taking precedence over the new "
-            "keys. Update the input deck: this conversion will be removed in a future version, most likely "
-            "0.5.0.",
-            FutureWarning,
-        )
-    return config
-
-
 def _validate_inputs_(config: Dict) -> Dict:
     """
     Validates and augments the configuration dictionary for the fitting process.
@@ -151,7 +111,7 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     """
 
-    config = _rename_deprecated_gain_keys_(config)
+    config = rename_deprecated_gain_keys(config)
 
     if config["optimizer"]["num_epochs"] < 1:
         raise ValueError(

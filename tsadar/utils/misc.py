@@ -1,6 +1,7 @@
 """Miscellaneous helpers: logging config/metrics to mlflow, merging config dicts, and S3/local file
 transfer utilities used by the runners."""
 import os, mlflow, flatten_dict, boto3, botocore, botocore.exceptions, shutil
+import warnings
 from urllib.parse import urlparse
 from functools import partial
 
@@ -267,3 +268,44 @@ def format_error(exc: BaseException) -> str:
     rendered = f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
     return _truncate(rendered)
+
+
+# old key path -> new key path, both under config["other"]. Temporary, see rename_deprecated_gain_keys
+_DEPRECATED_GAIN_KEYS = {
+    ("gain",): ("detector_gain",),
+    ("calibration_uncertainty", "gain_sigma"): ("calibration_uncertainty", "detector_gain_sigma"),
+    ("include_gains",): ("LPI_gain", "include_LPI_gains"),
+    ("gain_cap",): ("LPI_gain", "LPI_gain_cap"),
+    ("Ipump_14",): ("LPI_gain", "Ipump_14"),
+    ("beam_diam_um",): ("LPI_gain", "beam_diam_um"),
+}
+
+
+def rename_deprecated_gain_keys(config):
+    """Temporary helper: moves the pre-rename gain keys of config["other"] to their new names and warns
+    about each one found. A value given under an old key replaces the value under the new key, since the
+    new key is otherwise just the default. To be removed in a future version, most likely 0.5.0."""
+    other = config["other"]
+    renamed = []
+    for old_path, new_path in _DEPRECATED_GAIN_KEYS.items():
+        parent = other
+        for key in old_path[:-1]:
+            parent = parent.get(key, {})
+        if old_path[-1] not in parent:
+            continue
+        target = other
+        for key in new_path[:-1]:
+            target = target.setdefault(key, {})
+        target[new_path[-1]] = parent.pop(old_path[-1])
+        renamed.append(f"other.{'.'.join(old_path)} -> other.{'.'.join(new_path)}")
+
+    if renamed:
+        warnings.warn(
+            "This config uses gain keys that have been renamed: "
+            + "; ".join(renamed)
+            + ". The old keys were converted for this run, with their values taking precedence over the new "
+            "keys. Update the input deck: this conversion will be removed in a future version, most likely "
+            "0.5.0.",
+            FutureWarning,
+        )
+    return config

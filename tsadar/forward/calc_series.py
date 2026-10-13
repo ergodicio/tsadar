@@ -12,6 +12,7 @@ from jax.tree_util import tree_leaves
 import copy
 from types import MappingProxyType
 
+from ..utils.misc import rename_deprecated_gain_keys
 from ..utils.plotting import plotters
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules.ts_params import ThomsonParams
@@ -39,6 +40,7 @@ def forward_pass(config):
         - The ability to loop over multiple parameters or generate a series of spectra is not working with v0.1+ refactoring.
 
     """
+    config = rename_deprecated_gain_keys(config)
     is_angular = True if "angular" in config["other"]["extraoptions"]["spectype"] else False
     # get scattering angles and weights
     config["optimizer"]["batch_size"] = 1
