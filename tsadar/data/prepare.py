@@ -146,9 +146,19 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # down sample image to resolution units by summation
         ang_res_unit = config["other"]["ang_res_unit"]  # in pixels
         lam_res_unit = config["other"]["lam_res_unit"]  # in pixels
-        # drop a partial final wavelength unit so every unit has the same width
-        n_lam = (elecData.shape[0] // lam_res_unit) * lam_res_unit
-        elecData, BGele, axisyE = elecData[:n_lam], BGele[:n_lam], axisyE[:n_lam]
+        # The detector-bin quadrature (2D distribution functions) integrates a partial final wavelength
+        # unit over its true width. The uniform model grid needs every unit to have the same width, so
+        # there the partial unit is dropped.
+        detector_binned = config["parameters"]["electron"]["fe"]["dim"] == 2 and config["other"].get(
+            "resonance_quadrature", {}
+        ).get("enabled", True)
+        if not detector_binned:
+            n_lam = (elecData.shape[0] // lam_res_unit) * lam_res_unit
+            if n_lam == 0:
+                raise ValueError(
+                    f"lam_res_unit={lam_res_unit} is larger than the {elecData.shape[0]} wavelength pixels."
+                )
+            elecData, BGele, axisyE = elecData[:n_lam], BGele[:n_lam], axisyE[:n_lam]
         electron_wavelength_edges = grouped_detector_edges(axisyE, lam_res_unit)
 
         data_res_unit = np.array(
