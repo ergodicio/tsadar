@@ -1,7 +1,10 @@
 """Detector wavelength grids: pixel edges, grouped resolution units, and the oversampled model axis.
 
 Every path that needs a wavelength grid builds it here from the detector pixel centers, so the
-detector-bin quadrature and the oversampled uniform grid agree on where each pixel is.
+detector-bin quadrature and the oversampled uniform grid agree on where each pixel is. Which of
+those two an electron spectrum uses is decided here as well.
+
+This module depends only on numpy so the data layer can import it without loading the forward model.
 """
 
 import numpy as np
@@ -74,3 +77,19 @@ def oversampled_axis(centers: np.ndarray, points_per_pixel: int) -> np.ndarray:
     edges = detector_edges_from_centers(np.asarray(centers, dtype=float))
     fractions = (np.arange(points_per_pixel) + 0.5) / points_per_pixel
     return (edges[:-1, None] + fractions * np.diff(edges)[:, None]).ravel()
+
+
+def electron_spectrum_is_detector_binned(config) -> bool:
+    """Whether the electron spectrum is integrated directly into detector bins by the resonance quadrature.
+
+    True for angular data with a 2D electron distribution function unless
+    ``other.resonance_quadrature.enabled`` is false. Otherwise the spectrum is evaluated on the
+    oversampled uniform grid and binned, which needs every wavelength unit to have the same width.
+    """
+
+    return bool(
+        config["data"]["load_ele_spec"]
+        and config["parameters"]["electron"]["fe"]["dim"] == 2
+        and config["other"]["extraoptions"]["spectype"] == "angular_full"
+        and config["other"].get("resonance_quadrature", {}).get("enabled", True)
+    )

@@ -7,7 +7,7 @@ from scipy.signal import find_peaks
 
 from .instrument import irf
 from .instrument import AngularIRF, SpectrometerIRF
-from .instrument.detector_grid import detector_edges_from_centers
+from ..utils.detector_grid import detector_edges_from_centers
 from .modules.ts_params import ThomsonParams
 from .physics.generate_spectra import FitModel
 from .physics.bremsstrahlung import brem_spectrum

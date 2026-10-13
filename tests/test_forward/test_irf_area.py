@@ -18,7 +18,7 @@ from tsadar.core.instrument.irf import (
     _gaussian_bin_response,
     add_ATS_IRF,
 )
-from tsadar.core.instrument.detector_grid import oversampled_axis
+from tsadar.utils.detector_grid import oversampled_axis
 from tsadar.core import thomson_diagnostic
 from tsadar.core.thomson_diagnostic import (
     ThomsonScatteringDiagnostic,

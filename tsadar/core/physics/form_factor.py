@@ -15,7 +15,7 @@ from jax.lax import scan, map as jmap
 from jax import checkpoint
 
 from . import ratintn
-from ..instrument.detector_grid import oversampled_axis
+from ...utils.detector_grid import oversampled_axis
 from .interpolation import interp_uniform
 from ...utils.vector_tools import vsub, vdot, vdiv
 

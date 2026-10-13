@@ -17,6 +17,7 @@ from .calibration import (
 from .lineouts import get_lineouts
 from .data_visualizer import launch_data_visualizer
 from .feature_detector import first_guess
+from ..utils.detector_grid import electron_spectrum_is_detector_binned
 
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:
@@ -149,14 +150,17 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # The detector-bin quadrature (2D distribution functions) integrates a partial final wavelength
         # unit over its true width. The uniform model grid needs every unit to have the same width, so
         # there the partial unit is dropped.
-        detector_binned = config["parameters"]["electron"]["fe"]["dim"] == 2 and config["other"].get(
-            "resonance_quadrature", {}
-        ).get("enabled", True)
-        if not detector_binned:
+        if not electron_spectrum_is_detector_binned(config):
             n_lam = (elecData.shape[0] // lam_res_unit) * lam_res_unit
             if n_lam == 0:
                 raise ValueError(
                     f"lam_res_unit={lam_res_unit} is larger than the {elecData.shape[0]} wavelength pixels."
+                )
+            if n_lam < elecData.shape[0]:
+                print(
+                    f"Warning: lam_res_unit={lam_res_unit} does not divide the {elecData.shape[0]} wavelength "
+                    f"pixels; the final {elecData.shape[0] - n_lam} pixels "
+                    f"({axisyE[n_lam]:.2f} to {axisyE[-1]:.2f} nm) have been removed"
                 )
             elecData, BGele, axisyE = elecData[:n_lam], BGele[:n_lam], axisyE[:n_lam]
         electron_wavelength_edges = grouped_detector_edges(axisyE, lam_res_unit)

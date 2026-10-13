@@ -4,6 +4,7 @@ from typing import Dict
 
 from .form_factor import DEFAULT_N_BETA, FormFactor
 from .resonance_quadrature import integrate_detector_bins
+from ...utils.detector_grid import electron_spectrum_is_detector_binned
 
 from jax import lax, numpy as jnp
 from jax.tree_util import tree_map
@@ -67,12 +68,7 @@ class FitModel:
         self.scattering_angles = scattering_angles
 
         quadrature_config = config["other"].get("resonance_quadrature", {})
-        self.electron_spectrum_is_detector_binned = bool(
-            config["data"]["load_ele_spec"]
-            and config["parameters"]["electron"]["fe"]["dim"] == 2
-            and config["other"]["extraoptions"]["spectype"] == "angular_full"
-            and quadrature_config.get("enabled", True)
-        )
+        self.electron_spectrum_is_detector_binned = electron_spectrum_is_detector_binned(config)
         if self.electron_spectrum_is_detector_binned:
             detector_specs = config["other"]["detector_specs"]
             self.electron_detector_edges_nm = jnp.asarray(

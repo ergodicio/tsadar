@@ -6,7 +6,7 @@ import numpy as np
 import scipy.io as sio
 import os
 
-from ..core.instrument.detector_grid import detector_edges_from_centers, grouped_detector_edges
+from ..utils.detector_grid import detector_edges_from_centers, grouped_detector_edges
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
