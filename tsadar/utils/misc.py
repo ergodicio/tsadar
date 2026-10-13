@@ -1,6 +1,7 @@
 """Miscellaneous helpers: logging config/metrics to mlflow, merging config dicts, and S3/local file
 transfer utilities used by the runners."""
 import os, mlflow, flatten_dict, boto3, botocore, botocore.exceptions, shutil
+import warnings
 from urllib.parse import urlparse
 from functools import partial
 
@@ -267,3 +268,55 @@ def format_error(exc: BaseException) -> str:
     rendered = f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
     return _truncate(rendered)
+
+
+# old key path -> new key path, both under config["other"]. Temporary, see rename_deprecated_gain_keys
+_DEPRECATED_GAIN_KEYS = {
+    ("gain",): ("detector_gain",),
+    ("calibration_uncertainty", "gain_sigma"): ("calibration_uncertainty", "detector_gain_sigma"),
+    ("include_gains",): ("LPI_gain", "include_LPI_gains"),
+    ("gain_cap",): ("LPI_gain", "LPI_gain_cap"),
+    ("Ipump_14",): ("LPI_gain", "Ipump_14"),
+    ("beam_diam_um",): ("LPI_gain", "beam_diam_um"),
+}
+
+
+def rename_deprecated_gain_keys(config):
+    """Temporary helper: removes the pre-rename gain keys of config["other"] and warns about each one
+    found. An old key's value is moved to the new key only when the new key is absent; when both are
+    present the new key wins and the old value is discarded. To be removed in a future version, most
+    likely 0.5.0."""
+    other = config["other"]
+    converted, ignored = [], []
+    for old_path, new_path in _DEPRECATED_GAIN_KEYS.items():
+        parent = other
+        for key in old_path[:-1]:
+            parent = parent.get(key, {})
+        if old_path[-1] not in parent:
+            continue
+        old_value = parent.pop(old_path[-1])
+        target = other
+        for key in new_path[:-1]:
+            target = target.setdefault(key, {})
+        old_name, new_name = f"other.{'.'.join(old_path)}", f"other.{'.'.join(new_path)}"
+        if new_path[-1] in target:
+            ignored.append(f"{old_name}={old_value} (using {new_name}={target[new_path[-1]]})")
+        else:
+            target[new_path[-1]] = old_value
+            converted.append(f"{old_name} -> {new_name}")
+
+    if converted or ignored:
+        message = "This config uses gain keys that have been renamed."
+        if ignored:
+            message += (
+                " IGNORED, because the new key is also set (possibly only by the defaults deck) and the new "
+                "key wins: " + "; ".join(ignored) + ". Set the new key to the value you want."
+            )
+        if converted:
+            message += " Converted for this run: " + "; ".join(converted) + "."
+        message += (
+            " Replace the old keys in the input deck: this handling will be removed in a future version, "
+            "most likely 0.5.0."
+        )
+        warnings.warn(message, FutureWarning)
+    return config

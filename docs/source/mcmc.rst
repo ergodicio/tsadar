@@ -76,7 +76,7 @@ requires ``data.background.bg_subtract: false`` so that the noise model sees the
 enforced with a warning.
 
 The postprocessor always samples unsmoothed data (``data.spectral_smoothing: 1``), whatever the fit used,
-and ``covar`` needs ``other.gain`` to be the camera's actual gain (108 for the OMEGA Thomson-scattering
+and ``covar`` needs ``other.detector_gain`` to be the camera's actual gain (108 for the OMEGA Thomson-scattering
 streak cameras) so that the data are in photoelectrons. Both are checked, with a warning.
 
 Multiple chains

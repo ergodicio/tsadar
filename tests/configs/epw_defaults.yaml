@@ -94,11 +94,12 @@ other:
     iawoff: 0
     iawfilter: [1, 4, 24, 528]
     CCDsize: [1024, 1024]
-    Ipump_14: 0
-    beam_diam_um: 100
-    include_gains: false
+    LPI_gain:
+        Ipump_14: 0
+        beam_diam_um: 100
+        include_LPI_gains: false
     flatbg: 0
-    gain: 108
+    detector_gain: 108
     points_per_pixel: 1
     ang_res_unit: 10
     lam_res_unit: 5

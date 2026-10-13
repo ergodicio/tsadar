@@ -18,7 +18,7 @@ _SIGMA_FIELDS = (
     "IAWoffset_sigma",
     "spect_stddev_ion_sigma",
     "spect_stddev_ele_sigma",
-    "gain_sigma",
+    "detector_gain_sigma",
 )
 
 #: Floor applied to sampled IRF widths so a large sigma draw can never make a convolution kernel
@@ -56,7 +56,7 @@ def draw_calibration_realizations(
         perturbed wavelength axis.
       - spect_stddev_ion/spect_stddev_ele: config_k["other"]["detector_specs"]["widIRF"], floored at
         _MIN_IRF_WIDTH when perturbed.
-      - gain: config_k["other"]["gain"], with all_data_k's e_data/i_data/noiseE/noiseI/e_amps/i_amps
+      - gain: config_k["other"]["detector_gain"], with all_data_k's e_data/i_data/noiseE/noiseI/e_amps/i_amps
         rescaled by old_gain / new_gain.
 
     Args:
@@ -82,7 +82,7 @@ def draw_calibration_realizations(
     widIRF = config["other"]["detector_specs"]["widIRF"]
     nominal_spect_stddev_ion = float(widIRF.get("spect_stddev_ion", 0.0))
     nominal_spect_stddev_ele = float(widIRF.get("spect_stddev_ele", 0.0))
-    nominal_gain = float(config["other"]["gain"])
+    nominal_gain = float(config["other"]["detector_gain"])
     ccd_size = config["other"]["CCDsize"]
 
     draws: List[Tuple[Dict, Dict]] = []
@@ -102,7 +102,7 @@ def draw_calibration_realizations(
             if sigmas["spect_stddev_ele_sigma"] > 0
             else nominal_spect_stddev_ele
         )
-        gain = rng.normal(nominal_gain, sigmas["gain_sigma"]) if sigmas["gain_sigma"] > 0 else nominal_gain
+        gain = rng.normal(nominal_gain, sigmas["detector_gain_sigma"]) if sigmas["detector_gain_sigma"] > 0 else nominal_gain
         if gain <= 0:
             gain = nominal_gain  # a non-positive gain draw is unphysical; keep this draw at the nominal value
 
@@ -114,7 +114,7 @@ def draw_calibration_realizations(
         config_k["other"]["lamrangI"] = [float(axisyI_k[0]), float(axisyI_k[-1])]
         config_k["other"]["detector_specs"]["widIRF"]["spect_stddev_ion"] = float(spect_stddev_ion)
         config_k["other"]["detector_specs"]["widIRF"]["spect_stddev_ele"] = float(spect_stddev_ele)
-        config_k["other"]["gain"] = float(gain)
+        config_k["other"]["detector_gain"] = float(gain)
 
         gain_rescale = nominal_gain / gain
         all_data_k = dict(all_data)

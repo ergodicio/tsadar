@@ -22,7 +22,8 @@ mlflow:
   run: Maxwellian_wrot_test_model_dlm
 other:
   calc_sigmas: false
-  include_gains: false
+  LPI_gain:
+    include_LPI_gains: false
   extraoptions:
     spectype: angular
   refit: false

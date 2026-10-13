@@ -15,7 +15,7 @@ data:
 
 other:
   # CCD electrons per photoelectron; loss_method: covar needs the camera's actual gain
-  gain: 108
+  detector_gain: 108
   # options of the MCMC uncertainty postprocessor, see docs/source/mcmc.rst
   mcmc:
     # num_steps is the total number of steps including burn_in
@@ -59,8 +59,9 @@ other:
     IAWoffset_sigma: 0
     spect_stddev_ion_sigma: 0
     spect_stddev_ele_sigma: 0
-    gain_sigma: 0.0
-  include_gains: false
+    detector_gain_sigma: 0.0
+  LPI_gain:
+    include_LPI_gains: false
 
 plotting:
   data_cbar_l: 0

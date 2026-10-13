@@ -334,7 +334,7 @@ def test_calibration_draws_repeat_nominal_when_all_sigmas_zero(fitted_fixture):
     # collapsing to a single chain here would silently defeat init_dispersion_factor/R-hat, which only
     # need independent chains, not independently-perturbed calibrations.
     cfg = copy.deepcopy(fitted_fixture["config"])
-    cfg["other"]["calibration_uncertainty"] = {"num_draws": 8, "gain_sigma": 0.0, "EPWDispersion_sigma": 0.0}
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 8, "detector_gain_sigma": 0.0, "EPWDispersion_sigma": 0.0}
     draws = mcmc_calibration.draw_calibration_realizations(
         cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(0)
     )
@@ -346,17 +346,17 @@ def test_calibration_draws_repeat_nominal_when_all_sigmas_zero(fitted_fixture):
 
 def test_calibration_draws_perturb_gain_and_rescale_data(fitted_fixture):
     cfg = copy.deepcopy(fitted_fixture["config"])
-    cfg["other"]["calibration_uncertainty"] = {"num_draws": 5, "gain_sigma": 0.05}
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 5, "detector_gain_sigma": 0.05}
     draws = mcmc_calibration.draw_calibration_realizations(
         cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(1)
     )
     assert len(draws) == 5
-    nominal_gain = cfg["other"]["gain"]
+    nominal_gain = cfg["other"]["detector_gain"]
     nominal_e_data = fitted_fixture["all_data"]["e_data"]
-    gains = [cfg_k["other"]["gain"] for cfg_k, _ in draws]
+    gains = [cfg_k["other"]["detector_gain"] for cfg_k, _ in draws]
     assert len(set(gains)) > 1  # actually different draws, not all collapsed to the nominal value
     for cfg_k, all_data_k in draws:
-        expected_scale = nominal_gain / cfg_k["other"]["gain"]
+        expected_scale = nominal_gain / cfg_k["other"]["detector_gain"]
         np.testing.assert_allclose(all_data_k["e_data"], nominal_e_data * expected_scale)
 
 
@@ -618,7 +618,7 @@ def test_covar_loss_function_rejects_an_empty_enabled_fit_range(fitted_fixture):
 def test_calibration_draws_leave_an_unperturbed_zero_irf_width_unchanged(fitted_fixture):
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["other"]["detector_specs"]["widIRF"]["spect_stddev_ion"] = 0.0
-    cfg["other"]["calibration_uncertainty"] = {"num_draws": 3, "gain_sigma": 0.05}
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 3, "detector_gain_sigma": 0.05}
     draws = mcmc_calibration.draw_calibration_realizations(
         cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(4)
     )

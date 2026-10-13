@@ -1,4 +1,5 @@
 import copy
+import warnings
 
 import pytest
 import yaml
@@ -46,7 +47,7 @@ def test_covar_forces_unsmoothed_unsubtracted_data_and_checks_the_gain(base_conf
     cfg = copy.deepcopy(base_config)
     cfg["optimizer"]["loss_method"] = "covar"
     cfg["data"]["background"]["bg_subtract"] = True
-    cfg["other"]["gain"] = 1
+    cfg["other"]["detector_gain"] = 1
     with pytest.warns(UserWarning) as record:
         cfg = _validate_inputs_(cfg)
     messages = " ".join(str(w.message) for w in record)
@@ -54,6 +55,34 @@ def test_covar_forces_unsmoothed_unsubtracted_data_and_checks_the_gain(base_conf
     assert f"gain of {OMEGA_TS_GAIN}" in messages
     assert cfg["data"]["spectral_smoothing"] == 1
     assert cfg["data"]["background"]["bg_subtract"] is False
+
+
+def test_deprecated_gain_keys_are_renamed_with_a_warning(base_config):
+    cfg = copy.deepcopy(base_config)
+    other = cfg["other"]
+    del other["detector_gain"]
+    other["gain"] = 150
+    other["calibration_uncertainty"] = {"num_draws": 3, "gain_sigma": 0.05}
+    # the old LPI keys sit beside the new-style defaults, as when an old inputs deck meets new defaults:
+    # the new keys win, and only gain_cap, which has no new-style counterpart here, is converted
+    other.update({"include_gains": True, "gain_cap": 50, "Ipump_14": 2.0, "beam_diam_um": 70})
+    with pytest.warns(FutureWarning, match="0.5.0") as record:
+        cfg = _validate_inputs_(cfg)
+    message = " ".join(str(w.message) for w in record if w.category is FutureWarning)
+    assert "other.include_gains=True (using other.LPI_gain.include_LPI_gains=False)" in message
+    assert "other.gain -> other.detector_gain" in message
+
+    other = cfg["other"]
+    assert other["detector_gain"] == 150
+    assert other["calibration_uncertainty"] == {"num_draws": 3, "detector_gain_sigma": 0.05}
+    assert other["LPI_gain"] == {"include_LPI_gains": False, "LPI_gain_cap": 50, "Ipump_14": 0.0, "beam_diam_um": 100}
+    assert not {"gain", "include_gains", "gain_cap", "Ipump_14", "beam_diam_um"} & set(other)
+
+
+def test_current_gain_keys_do_not_warn(base_config):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        _validate_inputs_(copy.deepcopy(base_config))
 
 
 def test_calc_sigmas_with_smoothed_data_warns(base_config):

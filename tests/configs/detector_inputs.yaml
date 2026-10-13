@@ -103,7 +103,7 @@ other:
   extraoptions:
     spectype: 1d
   flatbg: 0
-  gain: 150
+  detector_gain: 150
   iawfilter:
   - 1
   - 4

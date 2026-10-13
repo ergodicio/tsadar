@@ -15,6 +15,7 @@ import mlflow
 from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
 
 from ..data import prepare
+from ..utils.misc import rename_deprecated_gain_keys
 
 
 def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
@@ -110,6 +111,8 @@ def _validate_inputs_(config: Dict) -> Dict:
 
     """
 
+    config = rename_deprecated_gain_keys(config)
+
     if config["optimizer"]["num_epochs"] < 1:
         raise ValueError(
             f"optimizer:num_epochs must be at least 1, got {config['optimizer']['num_epochs']}"
@@ -151,10 +154,10 @@ def _validate_inputs_(config: Dict) -> Dict:
             "to 1 for uncertainty estimates."
         )
 
-    if config["optimizer"]["loss_method"] == "covar" and config["other"]["gain"] != OMEGA_TS_GAIN:
+    if config["optimizer"]["loss_method"] == "covar" and config["other"]["detector_gain"] != OMEGA_TS_GAIN:
         warnings.warn(
-            f"loss_method=='covar' (and the MCMC postprocessor that uses it) needs an accurate other.gain to "
-            f"convert the data from CCD electrons to photoelectrons; it is {config['other']['gain']}. The "
+            f"loss_method=='covar' (and the MCMC postprocessor that uses it) needs an accurate other.detector_gain to "
+            f"convert the data from CCD electrons to photoelectrons; it is {config['other']['detector_gain']}. The "
             f"OMEGA Thomson-scattering streak cameras have a gain of {OMEGA_TS_GAIN} CCD electrons per "
             "photoelectron."
         )

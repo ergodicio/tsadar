@@ -96,7 +96,7 @@ other:
   extraoptions:
     spectype: None
   flatbg: 0
-  gain: 1
+  detector_gain: 1
   iawfilter:
   - 1
   - 4
@@ -107,9 +107,10 @@ other:
   points_per_pixel: 1
   refit: false
   refit_thresh: 0.25
-  Ipump_14: 0.0
-  beam_diam_um: 100
-  include_gains: false
+  LPI_gain:
+    Ipump_14: 0.0
+    beam_diam_um: 100
+    include_LPI_gains: false
 parameters:
   electron:
     Te:
