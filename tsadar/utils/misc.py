@@ -282,30 +282,41 @@ _DEPRECATED_GAIN_KEYS = {
 
 
 def rename_deprecated_gain_keys(config):
-    """Temporary helper: moves the pre-rename gain keys of config["other"] to their new names and warns
-    about each one found. A value given under an old key replaces the value under the new key, since the
-    new key is otherwise just the default. To be removed in a future version, most likely 0.5.0."""
+    """Temporary helper: removes the pre-rename gain keys of config["other"] and warns about each one
+    found. An old key's value is moved to the new key only when the new key is absent; when both are
+    present the new key wins and the old value is discarded. To be removed in a future version, most
+    likely 0.5.0."""
     other = config["other"]
-    renamed = []
+    converted, ignored = [], []
     for old_path, new_path in _DEPRECATED_GAIN_KEYS.items():
         parent = other
         for key in old_path[:-1]:
             parent = parent.get(key, {})
         if old_path[-1] not in parent:
             continue
+        old_value = parent.pop(old_path[-1])
         target = other
         for key in new_path[:-1]:
             target = target.setdefault(key, {})
-        target[new_path[-1]] = parent.pop(old_path[-1])
-        renamed.append(f"other.{'.'.join(old_path)} -> other.{'.'.join(new_path)}")
+        old_name, new_name = f"other.{'.'.join(old_path)}", f"other.{'.'.join(new_path)}"
+        if new_path[-1] in target:
+            ignored.append(f"{old_name}={old_value} (using {new_name}={target[new_path[-1]]})")
+        else:
+            target[new_path[-1]] = old_value
+            converted.append(f"{old_name} -> {new_name}")
 
-    if renamed:
-        warnings.warn(
-            "This config uses gain keys that have been renamed: "
-            + "; ".join(renamed)
-            + ". The old keys were converted for this run, with their values taking precedence over the new "
-            "keys. Update the input deck: this conversion will be removed in a future version, most likely "
-            "0.5.0.",
-            FutureWarning,
+    if converted or ignored:
+        message = "This config uses gain keys that have been renamed."
+        if ignored:
+            message += (
+                " IGNORED, because the new key is also set (possibly only by the defaults deck) and the new "
+                "key wins: " + "; ".join(ignored) + ". Set the new key to the value you want."
+            )
+        if converted:
+            message += " Converted for this run: " + "; ".join(converted) + "."
+        message += (
+            " Replace the old keys in the input deck: this handling will be removed in a future version, "
+            "most likely 0.5.0."
         )
+        warnings.warn(message, FutureWarning)
     return config
