@@ -317,6 +317,10 @@ Other options
  
 The ``other:`` section includes options specifying the types of data that are being fit and other options on how to perform the fit.
 
+.. note::
+
+    Several gain options were renamed. ``gain`` is now ``detector_gain``, ``calibration_uncertainty: gain_sigma`` is now ``calibration_uncertainty: detector_gain_sigma``, and ``include_gains``, ``gain_cap``, ``Ipump_14`` and ``beam_diam_um`` moved into the ``LPI_gain`` group as ``include_LPI_gains``, ``LPI_gain_cap``, ``Ipump_14`` and ``beam_diam_um``. Input decks using the old names still run: the old keys are converted at the start of the run with a warning, and their values take precedence over the new keys. This conversion is temporary and will be removed in a future version, most likely 0.5.0, so update old decks.
+
 - ``LPI_gain`` groups the options for the SRS and SBS amplification of the Thomson scattered light.
 
     - ``include_LPI_gains`` is a boolean determining whether to compute the SRS and SBS amplification of the Thomson scattered light. Having ``include_LPI_gains`` set to True will require the pump intensity and beam diameter to be specified in the ``other: LPI_gain:`` section of the input deck.

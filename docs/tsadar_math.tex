@@ -1164,7 +1164,8 @@ the job of the next stage (\S\ref{sec:downstream}).
 
 \subsection{Optional: parametric-instability gain}
 
-If enabled (\code{calc\_gain}), a supplementary physics module calculates the local SBS
+If enabled (\code{config["other"]["LPI\_gain"]["include\_LPI\_gains"]}, passed to the form
+factor as \code{calc\_gain}), a supplementary physics module calculates the local SBS
 and SRS gain on the Thomson-scattered light, evaluated kinetically at the current plasma
 conditions. It lives in \file{form\_factor.py} because it reuses the same electron and ion
 susceptibilities already computed above, repurposed to describe the resonant energy

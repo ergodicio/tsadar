@@ -675,7 +675,7 @@ and it is :math:`P(\lambda)` – not :math:`P(\omega)` – that is the function�
 8.1 Optional: parametric-instability gain
 -----------------------------------------
 
-If enabled (``calc_gain``), a supplementary physics module calculates the local SBS and SRS gain on the Thomson-scattered light, evaluated kinetically at the current plasma conditions. It lives in ``form_factor.py`` because it reuses the same electron and ion susceptibilities already computed above, repurposed to describe the resonant energy exchange between the two light waves. With pump intensity :math:`I_{\rm pump}`, beam diameter :math:`d`, and scattering angle :math:`\theta`:
+If enabled (``config["other"]["LPI_gain"]["include_LPI_gains"]``, passed to the form factor as ``calc_gain``), a supplementary physics module calculates the local SBS and SRS gain on the Thomson-scattered light, evaluated kinetically at the current plasma conditions. It lives in ``form_factor.py`` because it reuses the same electron and ion susceptibilities already computed above, repurposed to describe the resonant energy exchange between the two light waves. With pump intensity :math:`I_{\rm pump}`, beam diameter :math:`d`, and scattering angle :math:`\theta`:
 
 .. math::
 

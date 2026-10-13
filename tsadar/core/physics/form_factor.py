@@ -210,6 +210,15 @@ class FormFactor:
         n_beta=DEFAULT_N_BETA,
         points_per_pixel=1,
     ):
+        """
+        Args:
+            calc_gain (dict): SRS/SBS amplification of the Thomson scattered light, built in
+                generate_spectra.FitModel from config["other"]["LPI_gain"]:
+                    calc (bool): whether to apply the gain, from include_LPI_gains
+                    Ipump (float): pump intensity in 1e14 W/cm^2, from Ipump_14
+                    beam_diam_um (float): pump beam diameter in microns, from beam_diam_um
+                    gain_cap (float): upper limit on the gain exponent, from LPI_gain_cap
+        """
 
         # basic quantities
         self.C = 2.99792458e10
