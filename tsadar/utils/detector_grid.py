@@ -65,6 +65,9 @@ def oversampled_axis(centers: np.ndarray, points_per_pixel: int) -> np.ndarray:
     ``points_per_pixel`` equal cells and sampled at the cell midpoints. Averaging each group of
     ``points_per_pixel`` points therefore returns the middle of the pixel, which on a uniformly
     spaced axis is its center.
+
+    The model only uses this with uniformly spaced centers: the spectral instrument response
+    applied to the result assumes a uniform grid.
     """
 
     if (

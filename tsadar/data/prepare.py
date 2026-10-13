@@ -8,16 +8,15 @@ import os
 from .evaluate_background import get_shot_bg
 from .load_ts_data import loadData
 from .correct_throughput import correctThroughput
-from .calibration import (
-    detector_edges_from_centers,
-    get_calibrations,
-    get_scattering_angles,
-    grouped_detector_edges,
-)
+from .calibration import get_calibrations, get_scattering_angles
 from .lineouts import get_lineouts
 from .data_visualizer import launch_data_visualizer
 from .feature_detector import first_guess
-from ..utils.detector_grid import electron_spectrum_is_detector_binned
+from ..utils.detector_grid import (
+    detector_edges_from_centers,
+    electron_spectrum_is_detector_binned,
+    grouped_detector_edges,
+)
 
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:
@@ -158,7 +157,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
                 )
             if n_lam < elecData.shape[0]:
                 print(
-                    f"Warning: lam_res_unit={lam_res_unit} does not divide the {elecData.shape[0]} wavelength "
+                    f"lam_res_unit={lam_res_unit} does not divide the {elecData.shape[0]} wavelength "
                     f"pixels; the final {elecData.shape[0] - n_lam} pixels "
                     f"({axisyE[n_lam]:.2f} to {axisyE[-1]:.2f} nm) have been removed"
                 )

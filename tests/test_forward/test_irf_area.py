@@ -18,18 +18,14 @@ from tsadar.core.instrument.irf import (
     _gaussian_bin_response,
     add_ATS_IRF,
 )
-from tsadar.utils.detector_grid import oversampled_axis
+from tsadar.utils.detector_grid import detector_edges_from_centers, grouped_detector_edges, oversampled_axis
 from tsadar.core import thomson_diagnostic
 from tsadar.core.thomson_diagnostic import (
     ThomsonScatteringDiagnostic,
     _ensure_angular_detector_edges,
 )
 from tsadar.data import prepare
-from tsadar.data.calibration import (
-    detector_edges_from_centers,
-    get_calibrations,
-    grouped_detector_edges,
-)
+from tsadar.data.calibration import get_calibrations
 from tsadar.utils.misc import merge_defaults_and_inputs
 
 
@@ -180,6 +176,19 @@ def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_
     assert cfg["other"]["CCDsize"] == (2, centers.size)
     assert cfg["other"]["lamrangE"] == [centers[0], centers[-1]]
     assert cfg["other"]["npts"] == centers.size
+
+
+def test_angular_irf_can_be_jit_compiled():
+    import jax
+
+    irf = AngularIRF(spect_stddev=0.5, ang_stddev=1.0, ang_axis=np.linspace(50.0, 70.0, 6), normalize=0)
+    wavelengths = jnp.linspace(400.0, 500.0, 16)
+    model = jnp.arange(96.0).reshape(6, 16)
+
+    expected = add_ATS_IRF(irf, wavelengths, model, _instrument_params())[1]
+    compiled = jax.jit(lambda values: add_ATS_IRF(irf, wavelengths, values, _instrument_params())[1])(model)
+
+    np.testing.assert_allclose(compiled, expected, rtol=1e-12)
 
 
 def test_forward_arts_bounds_remain_first_and_last_detector_centers():
