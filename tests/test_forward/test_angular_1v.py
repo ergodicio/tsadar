@@ -69,8 +69,9 @@ def test_arts1d_forward_pass():
         sas["angAxis"] = axisxE
 
         dummy_batch = {
-            "i_data": np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1])),
-            "e_data": np.ones((config["other"]["CCDsize"][0], config["other"]["CCDsize"][1])),
+            # CCDsize is [wavelength, angle]; the model and data are [angle, wavelength]
+            "i_data": np.ones((config["other"]["CCDsize"][1], config["other"]["CCDsize"][0])),
+            "e_data": np.ones((config["other"]["CCDsize"][1], config["other"]["CCDsize"][0])),
             "noise_e": np.array([0]),
             "noise_i": np.array([0]),
             "e_amps": np.array([1]),

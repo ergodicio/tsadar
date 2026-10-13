@@ -90,3 +90,34 @@ def test_calc_sigmas_with_smoothed_data_warns(base_config):
     cfg["other"]["calc_sigmas"] = True
     with pytest.warns(UserWarning, match="uncertainties are underestimated"):
         _validate_inputs_(cfg)
+
+
+@pytest.mark.parametrize(
+    "spectype, lineout_type, setting, resolved",
+    [
+        ("angular", "range", "auto", True),
+        ("angular", "range", None, True),
+        ("angular", "range", False, False),
+        ("temporal", "pixel", "auto", False),
+        ("temporal", "pixel", None, False),
+    ],
+)
+def test_resonance_quadrature_auto_turns_on_only_for_full_angular_data(
+    base_config, spectype, lineout_type, setting, resolved
+):
+    cfg = copy.deepcopy(base_config)
+    cfg["other"]["extraoptions"]["spectype"] = spectype
+    cfg["data"]["lineouts"]["type"] = lineout_type
+    cfg["other"].pop("resonance_quadrature", None)
+    if setting is not None:
+        cfg["other"]["resonance_quadrature"] = {"enabled": setting}
+
+    cfg = _validate_inputs_(cfg)
+    assert cfg["other"]["resonance_quadrature"]["enabled"] is resolved
+
+
+def test_resonance_quadrature_forced_on_for_other_1d_data_is_not_implemented(base_config):
+    cfg = copy.deepcopy(base_config)
+    cfg["other"]["resonance_quadrature"] = {"enabled": True}
+    with pytest.raises(NotImplementedError, match="not yet implemented"):
+        _validate_inputs_(cfg)

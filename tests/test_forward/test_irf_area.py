@@ -94,9 +94,12 @@ def test_oversampled_axis_rejects_invalid_points_per_pixel(bad_points_per_pixel)
         oversampled_axis(np.arange(4.0), bad_points_per_pixel)
 
 
-@pytest.mark.parametrize("fe_dim, detector_binned", [(2, True), (1, False)])
+@pytest.mark.parametrize(
+    "fe_dim, quadrature_enabled, detector_binned",
+    [(2, None, True), (2, False, False), (1, None, False), (1, True, True), (1, "auto", True), (1, False, False)],
+)
 def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_bins(
-    monkeypatch, fe_dim, detector_binned
+    monkeypatch, fe_dim, quadrature_enabled, detector_binned
 ):
     electron_data = np.arange(20.0).reshape(5, 4)
     ion_data = np.zeros_like(electron_data)
@@ -160,6 +163,8 @@ def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_
             "extraoptions": {"spectype": "angular"},
         },
     }
+    if quadrature_enabled is not None:
+        cfg["other"]["resonance_quadrature"] = {"enabled": quadrature_enabled}
 
     all_data, _, all_axes = prepare.prepare_data(cfg, 1)
 
@@ -173,7 +178,7 @@ def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_
     np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_edges"], edges)
     np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_centers"], centers)
     assert all_data["e_data"].shape == (2, centers.size)
-    assert cfg["other"]["CCDsize"] == (2, centers.size)
+    assert cfg["other"]["CCDsize"] == (centers.size, 2)
     assert cfg["other"]["lamrangE"] == [centers[0], centers[-1]]
     assert cfg["other"]["npts"] == centers.size
 

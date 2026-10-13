@@ -196,7 +196,8 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # changed this 8-29-23 not sure how it worked with =0?
         all_data["noiseI"] = np.zeros(np.shape(bg_res_unit))
         all_data["noiseE"] = config["data"]["bgscaleE"] * bg_res_unit + 0.1
-        config["other"]["CCDsize"] = np.shape(data_res_unit)
+        # e_data is [angle, wavelength]; CCDsize keeps the [wavelength, angle] layout loadData gives it
+        config["other"]["CCDsize"] = np.shape(data_res_unit)[::-1]
         # config["data"]["lineouts"]["start"] = int(config["data"]["lineouts"]["start"] / ang_res_unit)
         # config["data"]["lineouts"]["end"] = int(config["data"]["lineouts"]["end"] / ang_res_unit)
 
