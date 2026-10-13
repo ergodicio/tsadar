@@ -52,8 +52,8 @@ def get_shot_bg(config, shotNum, axisyE, elecData):
     # If the background type is Fit, load the data from the specified shot and apply a polynomial model for correction.
     # This is specifically for angular data.
     elif config["other"]["extraoptions"]["spectype"] == "angular" and config["data"]["background"]["type"] == "Fit":
-        [BGele, _, _, _, _] = loadData(
-            config["data"]["background"]["slice"], config["data"]["shotDay"], config["other"]["extraoptions"]
+        [BGele, _, _, _, _, _] = loadData(
+            config["data"]["background"]["slice"], config["data"]["shotDay"], config["data"]
         )
 
         BGele = correctThroughput(BGele, config["other"]["extraoptions"]["spectype"], axisyE, shotNum)

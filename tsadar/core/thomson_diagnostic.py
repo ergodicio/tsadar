@@ -253,12 +253,16 @@ class ThomsonScatteringDiagnostic:
             ang_step = int(self.cfg["other"]["ang_res_unit"])
             if ang_step < 1:
                 raise ValueError("ang_res_unit must be a positive integer")
-            expected_angular_bins = -(-ThryE.shape[0] // ang_step)
+            # the data batch is already sliced to the lineout range, so compare after the same slice
+            lineouts = self.cfg["data"]["lineouts"]
+            grouped_angular_bins = -(-ThryE.shape[0] // ang_step)
+            expected_angular_bins = len(range(grouped_angular_bins)[lineouts["start"] : lineouts["end"]])
             if expected_angular_bins != target_angular_bins:
                 raise ValueError(
                     "Cannot reduce ARTS angular pixels with the configured resolution "
                     f"unit: {ThryE.shape[0]} raw rows grouped by {ang_step} gives "
-                    f"{expected_angular_bins}, but the data has {target_angular_bins}."
+                    f"{grouped_angular_bins} ({expected_angular_bins} in the lineout range), "
+                    f"but the data has {target_angular_bins}."
                 )
 
         if self.model.electron_spectrum_is_detector_binned:

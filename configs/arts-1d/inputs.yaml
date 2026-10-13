@@ -1,25 +1,25 @@
 data:
+  # [binned angle row, wavelength bin] pixels in the detector roll-off corners, excluded from the fit
+  bad_pixels: [[2,4],[2,5],[2,6],[2,7],[2,8],[2,9],[2,10],[3,4],[3,5],[3,6],[3,7],[3,8],[3,9],[3,10],[4,4],[4,5],[5,4],[5,5],[5,6],[5,7],[5,8],[5,9],[6,4],[6,5],[6,6],[6,7],[6,8],[6,9],[8,4],[8,5],[8,6],[8,7],[8,8],[8,9],[9,4],[9,5],[9,6],[9,7],[10,4],[10,5],[10,6],[10,7],[11,4],[11,5],[11,6],[11,7],[18,4],[18,5],[18,6],[18,7],[18,8],[19,4],[19,5],[19,6],[19,7],[19,8],[21,4],[21,5],[21,6],[21,7],[21,8],[26,4],[26,5],[26,6],[26,7],[26,8],[98,4],[98,5],[98,6],[99,4],[99,5],[99,6],[99,7],[99,8]]
   fit_EPWb: true
   fit_EPWr: true
   fit_IAW: false
   load_ele_spec: true
   load_ion_spec: false
   background:
-    slice: 10002
+    slice: 94483
     type: Fit
   lineouts:
-    end: 950
+    end: 1000
     skip: 20
-    start: 150
+    start: 20
     type: range
-  shot_rot: 90.0
-  shotnum:
-  - 10011
-  - 10011
+  shot_rot: 0.0
+  shotnum: 94481
 machine: gpu
 mlflow:
-  experiment: tsadar-tests-2
-  run: Maxwellian_wrot_test_model_dlm
+  experiment: arts-fits
+  run: s94481-update-2
 other:
   calc_sigmas: false
   LPI_gain:
@@ -45,7 +45,7 @@ parameters:
     fe:
       active: true
       dim: 1
-      nvx: 128
+      nvx: 256
       params:
         Nl: 1
         dtx: 0.0005
@@ -63,7 +63,7 @@ parameters:
           len: 45
           sampling: 30
           type: hanning
-      type: dlm
+      type: arbitrary
     ne:
       active: true
       gradient_scalar: 10.0
@@ -93,7 +93,7 @@ parameters:
       ub: 3.75
       val: 1.0
     lam:
-      active: false
+      active: true
       lb: 525.0
       ub: 528.0
       val: 526.5
@@ -112,7 +112,7 @@ parameters:
   ion-1:
     A:
       active: false
-      val: 1.0
+      val: 83.0
     Ti:
       active: false
       lb: 0.01
@@ -129,7 +129,7 @@ parameters:
       active: false
       lb: 0.5
       ub: 36.0
-      val: 1.0
+      val: 25.0
     fract:
       active: false
       val: 1.0

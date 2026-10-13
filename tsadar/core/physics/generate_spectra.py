@@ -344,7 +344,7 @@ class FitModel:
         return lamAxisE, modlE, raw_thry
 
     def detector_integrated_electron_spectrum(self, all_params):
-        """Integrate the ARTS2D electron spectrum directly into detector bins.
+        """Integrate the ARTS electron spectrum (1D or 2D fe) directly into detector bins.
 
         Each gradient/scattering-angle spectrum gets an independent root search and
         tan-mapped quadrature because its dielectric roots occur at different physical
@@ -369,7 +369,11 @@ class FitModel:
             )
 
         form_factor = self.electron_form_factor
-        sinogram = form_factor.prepare_2D_sinogram(all_params)
+        is_1d = self.config["parameters"]["electron"]["fe"]["dim"] == 1
+        if is_1d:
+            terms_1d = form_factor.prepare_1D_spectral_terms(all_params)
+        else:
+            sinogram = form_factor.prepare_2D_sinogram(all_params)
         angles = jnp.asarray(self.scattering_angles["sa"])
         num_gradients = form_factor.num_grad_points
         num_angles = angles.size
@@ -381,6 +385,15 @@ class FitModel:
             angle = angles[angle_index]
 
             def terms_at(wavelengths_nm):
+                if is_1d:
+                    numerator, epsilon = terms_1d(wavelengths_nm, angle * jnp.pi / 180, gradient_index)
+                    if self.electron_notch_filter is not None:
+                        filter_lower, filter_upper, attenuation = self.electron_notch_filter
+                        numerator = numerator * jnp.where(
+                            (wavelengths_nm > filter_lower) & (wavelengths_nm < filter_upper), attenuation, 1.0
+                        )
+                    return numerator, epsilon
+
                 numerator, epsilon = form_factor.calc_2D_spectral_terms(
                     all_params,
                     wavelengths_nm,

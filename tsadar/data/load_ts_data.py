@@ -42,12 +42,15 @@ def loadData(sNum, sDay, loadspecs, custom_path=False):
             sDay: N/A
             loadspecs: Dictionary containing the options of which spectra should be loaded, sub-dictionary of the input
                 deck
-    eDat, iDat, xlab, t0, specType
+            custom_path: folder to load the data from instead of the default data folder
+
         Returns:
             eDat: electron data
             iDat: ion data
             xlab: x-axis label, one of the following: Radius, Time, Angle
             t0: pixel location of t0 in the ion and electron data, defaults to 0 if no fiducials are found
+            specType: type of data found, one of the following: temporal, imaging, angular
+            CCDsize: shape of the loaded detector image
 
     """
     if sDay:

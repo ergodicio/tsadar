@@ -815,13 +815,15 @@ def plot_ang_lineouts(used_points, sqdevs, losses, all_params, all_axes, savedat
     used_points = used_points * sqdevs["ele"].shape[1]
     red_losses = np.sum(losses) / (1.1 * (used_points - len(all_params)))
     mlflow.log_metrics({"Total reduced loss": float(red_losses)})
+    # the angular loss is a single total, so the per-lineout value comes from the residual image
+    lineout_losses = np.sum(np.asarray(sqdevs["ele"]), axis=1)
 
     # Create lineout images
     os.makedirs(os.path.join(td, "lineouts"))
     for i in np.linspace(0, savedata["data"].shape[1] - 1, 8, dtype="int"):
         # plot model vs actual
-        titlestr = r"|Error|$^2$" + f" = {losses[i]:.2e}, line out # {i}"
-        filename = f"loss={losses[i]:.2e}-lineout={i}.png"
+        titlestr = r"|Error|$^2$" + f" = {lineout_losses[i]:.2e}, line out # {i}"
+        filename = f"loss={lineout_losses[i]:.2e}-lineout={i}.png"
         fig, ax = plt.subplots(2, 1, figsize=(10, 8), tight_layout=True, sharex=True)
         ax[0].plot(all_axes["epw_y"], np.squeeze(savedata["data"][:, i]), label="Data")
         ax[0].plot(all_axes["epw_y"], np.squeeze(savedata["fit"][:, i]), label="Fit")

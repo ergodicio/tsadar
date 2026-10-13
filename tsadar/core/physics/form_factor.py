@@ -446,6 +446,101 @@ class FormFactor:
 
         return formfactor, jnp.squeeze(lams, axis=-1)
 
+    def prepare_1D_spectral_terms(self, params):
+        """
+        Builds a pointwise evaluator of the 1D spectral terms, for quadratures that choose their own
+        wavelength nodes (see resonance_quadrature.integrate_detector_bins) rather than this object's
+        fixed wavelength grid.
+
+        The physics mirrors __call__, except that the imaginary electron susceptibility uses the
+        tabulated derivative of the distribution rather than a difference along the wavelength grid,
+        which has no meaning at arbitrary nodes. Gain is not included.
+
+        As in __call__, the distribution drops to a flat floor past the ends of its velocity grid. A
+        flat floor has zero slope, so a resonance whose phase velocity lies there has no Landau damping
+        and the quadrature rejects it; the velocity grid has to cover every resonance in the spectrum.
+
+        Args:
+            params: dictionary of physical parameters, as produced by ThomsonParams()
+
+        Returns:
+            terms: function of (wavelengths_nm, scattering angle in radians, gradient index) returning
+                (numerator, epsilon), both one value per wavelength. The spectral density per unit
+                wavelength, in the units of __call__, is numerator / abs(epsilon)**2.
+        """
+        gradient_scale = lambda percent: jnp.linspace(1 - percent / 200, 1 + percent / 200, self.num_grad_points)
+        ne = jnp.reshape(1.0e20 * params["electron"]["ne"] * gradient_scale(params["general"]["ne_gradient"]), (-1,))
+        Te = jnp.reshape(params["electron"]["Te"] * gradient_scale(params["general"]["Te_gradient"]), (-1,))
+        lam = jnp.squeeze(params["general"]["lam"]) + self.lam_shift
+        ion_species = [species for species in params.keys() if "ion" in species]
+        A, Z, Ti, Va, fract = (
+            jnp.reshape(jnp.array([params[species][name] for species in ion_species]), (-1,))
+            for name in ("A", "Z", "Ti", "Va", "fract")
+        )
+        Va = Va * 1.0e6
+        ud = jnp.squeeze(params["general"]["ud"]) * 1.0e6
+        fe = jnp.squeeze(params["electron"]["fe"])
+        vx = jnp.squeeze(params["electron"]["v"])
+
+        Mi = A * self.Mp
+        re = 2.8179e-13
+        Esq = self.Me * self.C**2 * re
+        constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
+        omgL = self.omgL_num / lam
+        Zbar = jnp.sum(Z * fract)
+        vTi = jnp.sqrt(Ti / Mi)
+        electron_flow = jnp.squeeze(_charge_weighted_flow(Z, fract, Va)) + ud
+
+        log_fe = jnp.log(fe)
+
+        def log_fe_at(x):
+            return interp1d(x, vx, log_fe, extrap=[-50, -50])
+
+        ratmod = jnp.exp(log_fe_at(self.xi1))
+        ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
+        chiERratprim = self.chiERratprim_op @ ratdf
+
+        def terms(wavelengths_nm, sarad, gradient_index):
+            ne_g, Te_g = ne[gradient_index], Te[gradient_index]
+            omgpe = constants * jnp.sqrt(ne_g)
+            vTe = jnp.sqrt(Te_g / self.Me)
+            omgpi = constants * Z * jnp.sqrt(fract * ne_g / Zbar * self.Me / Mi)
+
+            omgs = 2e7 * jnp.pi * self.C / wavelengths_nm
+            omg = omgs - omgL
+            ks = jnp.sqrt(omgs**2 - omgpe**2) / self.C
+            kL = jnp.sqrt(omgL**2 - omgpe**2) / self.C
+            k = jnp.sqrt(ks**2 + kL**2 - 2 * ks * kL * jnp.cos(sarad))
+            klde = (vTe / omgpe) * k
+
+            kldi = (vTi / omgpi) * k[:, None]
+            xii = (omg[:, None] - k[:, None] * Va) / (jnp.sqrt(2.0) * vTi * k[:, None])
+            ZpiR = interp_uniform(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
+            ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
+            chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), axis=1)
+
+            xie = (omg - k * electron_flow) / (k * vTe)
+            fe_vphi = jnp.exp(log_fe_at(xie))
+            dfe = jnp.interp(xie, self.xi1, ratdf, left=0.0, right=0.0)
+            chiE = -1.0 / (klde**2) * interp_uniform(xie, self.xi2, chiERratprim) - 1j * jnp.pi / (klde**2) * dfe
+            epsilon = 1.0 + chiE + chiI
+
+            ion_comp = jnp.sum(
+                (fract * Z**2 / Zbar / vTi)
+                * (jnp.abs(chiE) ** 2)[:, None]
+                * jnp.exp(-(xii**2))
+                / jnp.sqrt(2 * jnp.pi),
+                axis=1,
+            )
+            ele_comp = jnp.abs(1.0 + chiI) ** 2 * fe_vphi / vTe
+            lams = 2 * jnp.pi * self.C / omgs
+            numerator = (
+                (ion_comp + ele_comp) / k * (1 + 2 * omg / omgL) * re**2 * ne_g * 2 * jnp.pi * self.C / lams**2
+            )
+            return numerator, epsilon
+
+        return terms
+
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
         Rotate a 2D array by a specified angle in radians. This method rotates the input 2D array `df` using a rotation matrix constructed from the given angle. The rotation is performed around the origin, and the rotated coordinates are interpolated back onto the original grid using cubic interpolation.

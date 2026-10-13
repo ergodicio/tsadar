@@ -227,7 +227,7 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
         if shotNum < 95000:
             EPWDisp = 0.214116
             # EPWoff = 449.5272
-            EPWoff = 449.5272
+            EPWoff = 445.39  # 4.13 nm below 449.5272 to center the notch filter in s94475
         elif shotNum < 105000:
             EPWDisp = 0.2129
             EPWoff = 439.8

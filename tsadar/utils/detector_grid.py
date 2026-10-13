@@ -85,14 +85,17 @@ def oversampled_axis(centers: np.ndarray, points_per_pixel: int) -> np.ndarray:
 def electron_spectrum_is_detector_binned(config) -> bool:
     """Whether the electron spectrum is integrated directly into detector bins by the resonance quadrature.
 
-    True for angular data with a 2D electron distribution function unless
-    ``other.resonance_quadrature.enabled`` is false. Otherwise the spectrum is evaluated on the
-    oversampled uniform grid and binned, which needs every wavelength unit to have the same width.
+    Only angular data can be. A 2D electron distribution function is unless
+    ``other.resonance_quadrature.enabled`` is false. A 1D one is only when that flag is set: true, or
+    "auto", which the fit's input check resolves to true for full angular data and which counts as
+    true here for callers that skip that check. Otherwise the spectrum is evaluated on the oversampled
+    uniform grid and binned, which needs every wavelength unit to have the same width.
     """
 
+    fe_dim = config["parameters"]["electron"]["fe"]["dim"]
     return bool(
         config["data"]["load_ele_spec"]
-        and config["parameters"]["electron"]["fe"]["dim"] == 2
+        and fe_dim in (1, 2)
         and config["other"]["extraoptions"]["spectype"] == "angular_full"
-        and config["other"].get("resonance_quadrature", {}).get("enabled", True)
+        and config["other"].get("resonance_quadrature", {}).get("enabled", fe_dim == 2)
     )

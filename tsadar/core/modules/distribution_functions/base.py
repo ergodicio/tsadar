@@ -169,10 +169,10 @@ class DistributionFunction1V(eqx.Module):
 
         Attributes:
             vx (jnp.ndarray): 1D array of velocity grid points, evenly spaced between -vmax and vmax (excluding endpoints),
-                where vmax is set to 6.0 and dv is the grid spacing.
+                where vmax is set to 8.0 and dv is the grid spacing.
         """
         super().__init__()
-        vmax = 6.0
+        vmax = 8.0
         dv = 2 * vmax / dist_cfg["nvx"]
         self.vx = jnp.linspace(-vmax + dv / 2, vmax - dv / 2, dist_cfg["nvx"])
 
@@ -409,10 +409,10 @@ class DistributionFunction2V(eqx.Module):
 
         Attributes:
             vx (jnp.ndarray): 1D array of velocity grid points, evenly spaced between
-                -vmax and vmax (excluding endpoints), where vmax is set to 6.0.
+                -vmax and vmax (excluding endpoints), where vmax is set to 8.0.
         """
         super().__init__()
-        vmax = 6.0
+        vmax = 8.0
         dvx = 2 * vmax / dist_cfg["nvx"]
         self.vx = jnp.linspace(-vmax + dvx / 2, vmax - dvx / 2, dist_cfg["nvx"])
 

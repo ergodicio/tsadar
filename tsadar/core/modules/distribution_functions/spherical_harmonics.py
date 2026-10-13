@@ -222,7 +222,7 @@ class SphericalHarmonics(DistributionFunction2V):
 
         # The radial functions belong to a 3-V hypothesis. Cover the corners of the
         # Cartesian integration box, with a small interpolation guard beyond them.
-        vmax = 6.0 * 1.05 * jnp.sqrt(3.0)
+        vmax = 8.0 * 1.05 * jnp.sqrt(3.0)
         dvr = vmax / dist_cfg["params"]["nvr"]
         self.vr = jnp.linspace(dvr / 2, vmax - dvr / 2, dist_cfg["params"]["nvr"])
 
@@ -240,8 +240,8 @@ class SphericalHarmonics(DistributionFunction2V):
         if nvz < 2:
             raise ValueError("nvz must contain at least two quadrature nodes")
         vz_nodes, vz_weights = leggauss(nvz)
-        self.vz = jnp.asarray(6.0 * vz_nodes)
-        self.vz_weights = jnp.asarray(6.0 * vz_weights)
+        self.vz = jnp.asarray(8.0 * vz_nodes)
+        self.vz_weights = jnp.asarray(8.0 * vz_weights)
         self.Nl = dist_cfg["params"]["Nl"]
         self.anisotropy_log_limit = float(dist_cfg["params"].get("anisotropy_log_limit", 8.0))
         if self.anisotropy_log_limit <= 0:

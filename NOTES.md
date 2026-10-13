@@ -145,3 +145,149 @@ Append-only record of numerical-physics investigations and the decisions needed 
 
 - Two fresh hosted jobs (`99621504504` and retry `99624590900`) installed JAX 0.10.2 with its CUDA 12 plugin, but both failed at the explicit device gate before pytest: `cuInit(0)` returned CUDA error 303 and JAX reported only the CPU backend. This also explains why the earlier nominal GPU suite could run for six hours rather than exercising accelerator behavior.
 - The workflow does not treat CPU fallback as GPU success. The bounded GPU regression remains checked in, but its hosted job is opt-in through `GPU_CI_ENABLED` until a working runner (planned NERSC/GitHub Actions integration) exists. GPU-sensitive pull requests carry a checklist item assigning a person or linked run to execute that regression on an actual GPU before submission.
+
+## 2026-10-07 — DECISION: default velocity-grid extent raised from 6 to 8 vTe
+
+- USER (verbatim): "Ok based off this test i would like to chagne the defaults used in the generation of edfs and velocity grids to 8vth, do this by changeing the hardcoded defaults not by adding a deck parameter".
+- Context: branch `arts-reinstate`, working tree on top of `b77752a8`, uncommitted at the time of this entry. A root-aware (`integrate_detector_bins`) evaluation of the 1D-EDF ARTS fit `s94475-update-5` (MLflow experiment `189128`, run `f61027cd99cb4256a2ac8528e56c40d8`) returned `zero_width` for 10 of 241 scattering angles, 19.0–23.5 degrees. At 19.0 degrees the outer roots of `Re(epsilon)` were at 474.69 and 587.24 nm, phase velocities +6.85 and −7.19 vTe; the fitted velocity grid spanned ±5.95 vTe. The 1D form factor sets `log(fe) = -50` outside the velocity grid (`extrap=[-50, -50]`).
+- Change: `vmax = 6.0 -> 8.0` in `tsadar/core/modules/distribution_functions/base.py` (1D grid and 2D Cartesian grid); `6.0 -> 8.0` in `spherical_harmonics.py` for the radial extent `vmax * 1.05 * sqrt(3)` and for the `vz` Gauss-Legendre nodes and weights. The extent stays a hardcoded constant; no deck parameter. The form-factor susceptibility tables (`xi1`, `xi2`) span ±8.2 and were not changed.
+- Timing evidence preceding the decision: time-resolved test deck (`tests/configs/time_test_{defaults,inputs}.yaml`, shot 101675, electron spectrum, DLM EDF, batch of 2, L-BFGS-B), local CPU, median of 30 loss+gradient calls after compilation, grid extent varied through a temporary option that was removed afterwards.
+
+  | vmax (vTe) | nvx | dv (vTe) | loss+grad (ms) | full fit (s) | final loss | Te / ne / m |
+  |---|---|---|---|---|---|---|
+  | 6 | 320 | 0.0375 | 5.56 | 6.8 | 0.05982283 | 0.6309 / 0.2257 / 3.1011 |
+  | 8 | 320 | 0.0500 | 5.49 | 6.4 | 0.05982287 | 0.6310 / 0.2257 / 3.1012 |
+  | 10 | 320 | 0.0625 | 5.57 | 6.5 | 0.05982346 | 0.6310 / 0.2257 / 3.1001 |
+  | 8 | 426 | 0.0376 | 5.51 | 6.5 | 0.05982283 | 0.6309 / 0.2257 / 3.1007 |
+  | 10 | 534 | 0.0375 | 5.81 | 6.3 | 0.05982283 | 0.6310 / 0.2257 / 3.1012 |
+
+- Not measured: GPU timing; `arbitrary` 1D EDFs; any 2D or spherical-harmonic EDF, whose grids changed in the same edit. At unchanged `nvx`, the velocity spacing of every grid is larger by 8/6.
+- Consequence for existing artifacts: `fitted_weights.eqx` files holding a gridded EDF were fitted on the ±6 vTe grid; loading them after this change assigns the same values to a ±8 vTe grid.
+- State at the time of this entry: the grid-dependent test selection (`tests/test_forward`, `tests/test_form_factor`, `tests/test_spherical_harmonics.py`, `tests/test_arts2d_marginal.py`, `tests/test_inverse/test_recovery_benchmark.py`, `tests/test_inverse/test_1d_data.py`, `-m "not slow"`) was LAUNCHED on local CPU and had not reported. No fit has been run on the ±8 vTe grid.
+- Open questions: which stored reference spectra and fit values change under the new grid; whether the 2D decks need a larger `nvx` to keep their velocity resolution.
+- Shared-vault mirror skipped: no local Obsidian vault named 'Ergodic Research' was resolved on this host.
+
+## 2026-10-07 — RESULT: grid-dependent tests and first root-aware evaluation on the ±8 vTe grid
+
+- Follows the DECISION entry of the same date; same uncommitted working tree on `arts-reinstate`. Local CPU.
+- Test selection named in that entry COMPLETED: `7 failed, 150 passed, 5 skipped, 2 deselected` in 516 s. Failures: `tests/test_spherical_harmonics.py::test_l1_real_harmonics_are_independent_cartesian_modes[49]`; five cases in `tests/test_arts2d_marginal.py` (`test_nonmaxwellian_3d_marginal_matches_adaptive_integration[3.0-4e-06]` and `[5.0-5e-08]`, `test_anisotropic_marginal_matches_refined_quadrature_and_stays_smoothly_positive`, `test_reduced_edf_normalization_and_temperature_moment_do_not_drift[_harmonic_model-2.0]`, `test_every_in_plane_projection_matches_direct_3d_integration`); and `tests/test_inverse/test_recovery_benchmark.py::test_production_arts2d_benchmark_smoke`, which raised `FloatingPointError: invalid production benchmark evaluation at step 1` while fitting `mora-yahi` after `arbitrary`, `nn-sh`, and `coefficient-sh` completed. `tests/test_arts2d_marginal.py` constructs its refined reference with a literal `6.0 * nodes`. Every test in `tests/test_forward`, `tests/test_form_factor`, and `tests/test_inverse/test_1d_data.py` in the selection passed. Failure causes were not investigated.
+- First evaluation of the 1D root-aware path on the new grid, `configs/arts-1d` decks (shot 94475, background 94477, `fe.type: arbitrary`, `nvx: 128`), initial parameters: grid ±7.938 vTe; `fe` at the grid edge `4.289e-27`; `root_overflow`, `nonfinite`, and `zero_width` raised for 0 of 241 scattering angles; root half-widths from `2.89e-20` to `16.3` nm; initial objective `1600.568`; gradient finite; 3.3 s per loss+gradient call after compilation with `map_batch_size: 8`.
+- No fit has been run on the ±8 vTe grid; no GPU timing exists for the 1D root-aware path.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — LAUNCHED: `s94475-update-6`, first 1D root-aware ARTS fit on the ±8 vTe grid
+
+- USER (verbatim): "Start the session and launch the run i will want to compare the run time to the previous run 5".
+- Source: `arts-reinstate` working tree on `b77752a83fc8`, dirty, session fingerprint `3a0e2f50d19d`, synced to `$PSCRATCH/tsadar-sessions/20261007T132342Z-10135-534/src`. Command: `python -u run_tsadar.py --cfg configs/arts-1d --mode fit`. Slurm job `59484959`, `shared_interactive`, 1 A100 80 GB, 2 h, account `m4490_g`; log `workdir/arts1d-update-6.log` under the session root.
+- Deck: shot 94475, background 94477, `fe.type: arbitrary`, `nvx: 128`, lineouts 150–950. Differences from `s94475-update-5` (run `f61027cd99cb4256a2ac8528e56c40d8`): `other.resonance_quadrature.enabled: auto`, resolved on by the input check, with `map_batch_size: 8`; velocity grid ±8 vTe instead of ±6; MLflow run name. Same GPU type and QOS as run 5.
+- State: LAUNCHED. MLflow run id not yet read back.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94475-update-6` COMPLETED; run time against `s94475-update-5`
+
+- `s94475-update-6`: MLflow experiment `189128`, run `1fdcbc949861472b99dcb2643a107d3f`, Slurm job `59484959`, exit code 0, no flagged or non-finite evaluation reported in the log.
+- Run time, both on one A100 80 GB under `shared_interactive`: minimization of 1000 steps took 437 s (2.29 steps/s, including about 46 s before the second step) for update-6 and 91 s (10.87 steps/s) for update-5. System-metrics start to stop: 10 min 38 s for update-6, 3 min 7 s for update-5. Shell wall time of the update-6 command: 686 s.
+- Final objective reported by the progress bar: `3.40e+02` for update-6 (root-aware, ±8 vTe grid), `3.17e+02` for update-5 (legacy quadrature, ±6 vTe grid). The two runs differ in both the quadrature and the grid, so neither difference is isolated.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — PLANNED: `s94475-update-7` and `s94475-update-8`, 256 velocity points and a wider lineout range
+
+- USER (verbatim): "Rerun at 256 points for run 7. When that completes run at 256 points with the start lowered to 20 and the end raised to 1000".
+- Both: same working tree as `s94475-update-6` apart from the deck, same session (Slurm job `59484959`, one A100 80 GB), root-aware quadrature on, velocity grid ±8 vTe, `fe.type: arbitrary`. The smoothing window (`len: 45`, `sampling: 30`) is unchanged in grid points.
+- `s94475-update-7`: `fe.nvx: 256` (was 128), lineouts 150–950.
+- `s94475-update-8`: `fe.nvx: 256`, lineouts `start: 20`, `end: 1000` (binned rows 2–100 of 103), launched after update-7 exits with code 0.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94475-update-7` and `s94475-update-8` COMPLETED
+
+- Both exit code 0 on Slurm job `59484959` (one A100 80 GB), experiment `189128`. Planned in the entry of the same date.
+- `s94475-update-7` (run `927745f78ad04f5cbbdfad1dbda5ff10`; `nvx: 256`, lineouts 150–950, 36 lineouts after batch trimming message): 1000 steps in 447 s (2.24 steps/s); shell wall time 672 s; final objective `2.54e+02`. `s94475-update-6` at `nvx: 128`, otherwise identical, ended at `3.40e+02` in 437 s.
+- `s94475-update-8` (run `a76d4c3556bb475f9ed936bd98697f6f`; `nvx: 256`, lineouts 20–1000): 1000 steps in 454 s (2.20 steps/s); shell wall time 654 s; final objective `5.38e+02`. The objective is normalized per valid pixel over a different set of rows than update-7.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — PLANNED: `s94475-update-9`, run 8 repeated with the probe wavelength active
+
+- USER (verbatim): "repeat run 8 with lam on".
+- Identical to `s94475-update-8` (`nvx: 256`, lineouts 20–1000, root-aware quadrature, ±8 vTe) except `parameters.general.lam.active: true` (`val: 526.5`, bounds 525–528). Same working tree and session (Slurm job `59484959`).
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94475-update-9` COMPLETED; row-range scoring of runs 7, 8, 9
+
+- `s94475-update-9` (run `605a1ac927264452b8560d14f869b30c`, Slurm job `59484959`): exit code 0; 1000 steps in 457 s (2.19 steps/s); shell wall time 684 s; final objective `470.15` (data term `366.19`, total reduced loss `2.116`); fitted `lam = 525.238` nm (start 526.5, bounds 525–528), `Te = 1.316` keV, `ne = 0.4275e20`.
+- Row-range scoring: each fit evaluated on local CPU by `forward_root_aware_arts1d.py --eval_rows 2:100 2:15 15:95 95:100` with all fitted parameters fixed and the detector gains re-profiled by `LossFunction._angular_data_objective`. Self-checks against each fit forward model were below `1e-12`; no angle was flagged. Objective (data term) per binned-row range:
+
+  | run | fit rows | 2:100 | 2:15 | 15:95 | 95:100 |
+  |---|---|---|---|---|---|
+  | update-7 | 15:95 | 835.6 (731.7) | 4423.1 (4328.6) | 253.8 (171.7) | 409.9 (310.6) |
+  | update-8 | 2:100 | 538.3 (436.3) | 1488.1 (1270.6) | 391.7 (310.1) | 382.1 (282.6) |
+  | update-9 | 2:100 | 470.2 (366.2) | 1290.9 (1066.3) | 340.0 (258.8) | 358.6 (258.9) |
+
+- Fitted values: update-7 `Te = 1.068`, `ne = 0.4212`; update-8 `Te = 1.355`, `ne = 0.4259`; update-9 as above.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — LAUNCHED: `s94481-update-1`, first fit of shot 94481 with the root-aware 1D path
+
+- USER (verbatim): "I have update the local input deck and added the appropriate files to the data folder, copy them over and run shot 94481 on the gpu".
+- Deck as edited by the user, `configs/arts-1d`: shot 94481, background 94483, lineouts 20–1000, `fe.type: arbitrary`, `nvx: 256`, `lam` active, ion `A: 83`, `Z: 25`, MLflow experiment `arts-fits`. Data files `ATS-s94481.hdf` and `ATS-s94483.hdf` synced with the working tree. Root-aware quadrature on, velocity grid ±8 vTe, angular calibration offset 445.39 (set from shot 94475).
+- Source: `arts-reinstate` working tree on `b77752a83fc8`, dirty, session fingerprint `4d1eb1f7e32b`. Slurm job `59489306`, `shared_interactive`, one A100, 1 h. Log `workdir/s94481-update-1.log` under `$PSCRATCH/tsadar-sessions/20261007T152502Z-10973-25169`.
+- State: LAUNCHED.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94481-update-1` COMPLETED
+
+- MLflow experiment `189128`, run `95114c096e144f60a1e01942b7616d6a`; Slurm job `59489306`; exit code 0; 1000 steps in 463 s (2.16 steps/s); shell wall time 660 s. Launch entry of the same date gives the deck and source state.
+- Final objective `1204.19` (data term `843.17`, total reduced loss `5.419`); the objective fell from `6.21e+03` at step 2.
+- Fitted values: `Te = 1.4404` keV, `ne = 0.4354e20`, `lam = 525.340` nm, `amp1 = 0.9999`, `amp2 = 1.0240`. Fitted EDF: integral `1.0000`, mean `0.0797` vTe, second moment `0.8923`; `Te` times the second moment is `1.285` keV.
+- Lineouts, the fit image, and the notch position for this shot were not inspected.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — LAUNCHED: `s94481-update-2`, shot 94481 with the detector roll-off corners masked
+
+- USER (verbatim): "can you rerun the fit masking the corners? or does that require a bunch of handrolled code?".
+- Identical to `s94481-update-1` except `data.bad_pixels`: 74 [binned row, wavelength bin] pixels in rows 2–6, 8–11, 18, 19, 21, 26, 98, 99, all with wavelength between 450 nm and the first bin of that row whose background (shot 94483, 3-row average) reaches 95% of a straight line fitted over 459–475 nm. Wavelength fit ranges unchanged (450–515, 540–650 nm). No code change; the mask is applied by `build_angular_batch`.
+- Same session as update-1: Slurm job `59489306`, one A100. State: LAUNCHED.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — PLANNED: `s94475-update-10`, run 9 with the detector roll-off corners masked
+
+- USER (verbatim): "Good now lets repeat this process with 94475 run 9's data ad deck. Setting the appropriate mask which should be nearly identicle. the rerun that as well once the current run finishes".
+- Deck: the logged decks of `s94475-update-9` (run `605a1ac927264452b8560d14f869b30c`) plus `data.bad_pixels` and the new run name; stored at `workdir/decks/s94475-update-10` in the session and at `C:\tmp\run_u10` locally. Nothing else differs from update-9.
+- Mask: same criterion as for 94481, applied to the 94475 background (shot 94477), kept only in the corner rows 2–11 and 96–99: 63 pixels. The same criterion on 94481 gives 54 pixels in those rows, 50 in common. The criterion also flagged 88 pixels in rows 16–23, 51–53, 74, 87–89 of the 94477 background; these were not masked.
+- Queued on Slurm job `59489306` to start when `s94481-update-2` exits.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94481-update-2` COMPLETED
+
+- Run `ace955aa1f4546f3a89f6911ac8cddc2`, Slurm job `59489306`, exit code 0; 1000 steps in 427 s (2.34 steps/s); shell wall time 582 s.
+- Final objective `1172.88` (data term `813.43`, total reduced loss `5.278`); `s94481-update-1` without the mask: `1204.19` (`843.17`, `5.419`).
+- Lineout 97 (binned row 99): residual sum in the plot title `2.59e+04`, against `4.37e+05` in update-1; no residual is plotted below 456 nm.
+- Fitted values: `Te = 1.4650` keV, `ne = 0.4355e20`, `lam = 525.341` nm; EDF second moment `0.8780`; `Te` times the second moment `1.286` keV (update-1: `1.285`).
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94475-update-10` COMPLETED
+
+- Run `9916668411af4316a72cf546c84ee56d`, Slurm job `59489306`, exit code 0; 1000 steps in 426 s (2.35 steps/s); shell wall time 580 s; started 16:09:57Z.
+- Final objective `455.06` (data term `352.04`, total reduced loss `2.048`); `s94475-update-9` without the mask: `470.15` (`366.19`, `2.116`).
+- Fitted values: `Te = 1.3836` keV, `ne = 0.4282e20`, `lam = 525.232` nm; EDF second moment `0.8087`, mean `0.0851` vTe; `Te` times the second moment `1.119` keV (update-9: `Te = 1.3163`, second moment `0.8485`, product `1.117`).
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — LAUNCHED: `s94475-update-11`, run 10 repeated after the grid-centering commits
+
+- USER (verbatim): "Another agent made a series of changes to this branch to fix a grid issue. Sync this branch to perlmutter and rerun run 10 to see what effect it has".
+- Source: `arts-reinstate` at `9cac42c6fb19` (three commits above `b77752a8`: `32bea05f`, `322b623e`, `9cac42c6` "Centre the oversampled model grid on the detector pixels"), same uncommitted working-tree changes as update-10, session fingerprint `e81cc51c8f0a`. Deck identical to `s94475-update-10` apart from the run name; `points_per_pixel: 1`; root-aware quadrature on.
+- Slurm job `59496545`, `shared_interactive`, one A100, 1 h. State: LAUNCHED.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-07 — RESULT: `s94475-update-11` and control `s94475-update-12`; effect of the grid-centering commits on the 1D root-aware fit
+
+- `s94475-update-11` (run `aa290a01e8c741ecbeb50039b9d6a764`) and `s94475-update-12` (run `458e1f9332684f1d980eb866e82f3168`): both exit code 0 on Slurm job `59496545`, same source (`9cac42c6fb19` plus the uncommitted working tree) and the deck of `s94475-update-10` apart from the run name. Update-12 is a repeat of update-11 with no change, launched to measure run-to-run variation.
+- Fixed-parameter check: the update-10 fitted weights evaluated with the `9cac42c6` code on local CPU give objective `455.0626501915755`; update-10 logged `455.0626501915471` from the earlier code on the GPU.
+- Loss histories (`epoch loss`): step 0 is `2739.025166917294` in all three runs. Update-10 and update-11 are identical at step 1 and first differ at step 2 (relative `3.6e-07`); update-11 and update-12 first differ at step 1 (relative `2.6e-09`).
+
+  | pair | max relative loss difference (step) | final relative loss difference | Te | ne | lam | fe where fe > 1e-6 |
+  |---|---|---|---|---|---|---|
+  | update-10 vs update-11 (different code) | 1.0e-02 (35) | 4.5e-04 | 2.3e-05 | 2.4e-05 | 4.0e-06 | 1.2e-02 |
+  | update-11 vs update-12 (same code) | 6.9e-03 (31) | 1.1e-03 | 3.2e-03 | 8.4e-05 | 2.2e-07 | 5.3e-02 |
+
+- Final objectives: update-10 `455.0627`, update-11 `455.2690`, update-12 `454.7831`.
+- Shared-vault mirror skipped: no vault resolved on this host.

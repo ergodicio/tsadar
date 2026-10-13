@@ -8,7 +8,7 @@ data:
     slice: 900
     type: pixel
     report_background: True
-  bgscaleE: 0.0
+  bgscaleE: 1.0
   bgscaleI: 0.1
   bgshotmult: 1
   dpixel: 2
@@ -44,6 +44,14 @@ dist_fit:
   window:
     len: 4
     type: hanning
+feature_detector:
+  estimate_lineouts_epw: false
+  estimate_lineouts_iaw: false
+  buffer:
+    lineout_start: 0
+    lineout_end: 0
+    spectral_start: 0
+    spectral_end: 0
 mlflow:
   experiment: tsadar-test
   run: arts2d
@@ -103,6 +111,23 @@ other:
   iawoff: 0
   lam_res_unit: 5
   points_per_pixel: 1
+  # Integrate the spectrum into finite detector bins with a root-aware quadrature, so plasma-wave
+  # resonances much narrower than a wavelength pixel keep their area. The spectral IRF is included
+  # in the integral. enabled: auto turns this on for full angular data; set true or false to force
+  # it. With a 1D distribution function it is not yet implemented for other data types.
+  resonance_quadrature:
+    enabled: auto
+    root_scan_panels: 4096
+    integration_panels: 256
+    regular_order: 8
+    root_order: 32
+    max_roots: 16
+    neighbor_panels: 1
+    bisection_iterations: 48
+    tail_sigma: 6.0
+    scan_phase: 0.0
+    # scattering angles integrated at once; raise for speed, lower if memory runs out
+    map_batch_size: 8
   refit: false
   refit_thresh: 0.25
 parameters:

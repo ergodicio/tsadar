@@ -146,7 +146,7 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # down sample image to resolution units by summation
         ang_res_unit = config["other"]["ang_res_unit"]  # in pixels
         lam_res_unit = config["other"]["lam_res_unit"]  # in pixels
-        # The detector-bin quadrature (2D distribution functions) integrates a partial final wavelength
+        # The detector-bin quadrature integrates a partial final wavelength
         # unit over its true width. The uniform model grid needs every unit to have the same width, so
         # there the partial unit is dropped.
         if not electron_spectrum_is_detector_binned(config):

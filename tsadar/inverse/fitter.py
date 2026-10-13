@@ -229,7 +229,42 @@ def _validate_inputs_(config: Dict) -> Dict:
         config["data"]["lineouts"]["val"] = config["data"]["lineouts"]["val"][: -(num_slices % batch_size)]
         print(f"final {num_slices % batch_size} lineouts have been removed")
 
+    _resolve_resonance_quadrature_(config)
+
     return config
+
+
+def _resolve_resonance_quadrature_(config: Dict) -> None:
+    """
+    Resolves other.resonance_quadrature.enabled for 1D distribution functions, in place. "auto" (or a
+    missing value) turns the root-aware detector-bin quadrature on for full angular data and off
+    otherwise; an explicit true or false is kept. The quadrature is not yet implemented for other data
+    types, so an explicit true there raises NotImplementedError. 2D distribution functions are left
+    alone: they already default to on.
+
+    Args:
+        config (Dict): Configuration dictionary; other.resonance_quadrature.enabled may be rewritten.
+    """
+    if config["parameters"]["electron"]["fe"]["dim"] != 1:
+        return
+
+    spectype = config["other"]["extraoptions"]["spectype"]
+    # prepare_data promotes ranged angular data to angular_full after this check has run
+    full_angular = spectype == "angular_full" or (
+        spectype == "angular" and config["data"]["lineouts"]["type"] == "range"
+    )
+    quadrature = config["other"].setdefault("resonance_quadrature", {})
+    enabled = quadrature.get("enabled", "auto")
+    if enabled == "auto":
+        quadrature["enabled"] = full_angular
+        if full_angular:
+            print("full angular data: root-aware resonance quadrature turned on")
+    elif enabled and not full_angular:
+        raise NotImplementedError(
+            "other:resonance_quadrature:enabled is true, but with a 1D distribution function the "
+            f"root-aware quadrature is not yet implemented for spectype {spectype!r}, only for full "
+            "angular data"
+        )
 
 
 def fit(config) -> Tuple[pd.DataFrame, float]:
