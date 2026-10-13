@@ -776,9 +776,9 @@ def test_covar_throughput_correction_does_not_depend_on_points_per_pixel(fitted_
     cfg = copy.deepcopy(fitted_fixture["config"])
     cfg["optimizer"]["loss_method"] = "covar"
     cfg["data"]["background"]["bg_subtract"] = False
-    # oversample the model: its binned wavelength axis then no longer coincides with the pixel centers
+    # oversample the model: its binned wavelength axis is still the detector pixel centers
     cfg["other"]["points_per_pixel"] = 2
-    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][1] * 2)
+    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][0] * 2)
     loss_fn = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], cfg["optimizer"]["batch_size"])
 
     # the correction is the one applied to the data, on the detector pixel centers
@@ -795,7 +795,7 @@ def test_binned_model_axis_matches_the_detector_pixel_centers(fitted_fixture, po
     cfg = copy.deepcopy(fitted_fixture["config"])
     batch_size = cfg["optimizer"]["batch_size"]
     cfg["other"]["points_per_pixel"] = points_per_pixel
-    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][1] * points_per_pixel)
+    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][0] * points_per_pixel)
     sample = {k: v[:batch_size] for k, v in fitted_fixture["all_data"].items()}
     sample = {"noise_e": sample["noiseE"], "noise_i": sample["noiseI"]} | sample
     loss_fn = LossFunction(cfg, fitted_fixture["sa"], sample)

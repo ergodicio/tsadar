@@ -153,7 +153,7 @@ def test_arts2d_inverse(dist_type: bool):
                 config["data"]["fit_rng"]["forward_iaw_start"],
                 config["data"]["fit_rng"]["forward_iaw_end"],
             ]
-            config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+            config["other"]["npts"] = int(config["other"]["CCDsize"][0] * config["other"]["points_per_pixel"])
             sas = get_scattering_angles(config)
 
             sas["angAxis"], _, _, _, _, _ = get_calibrations(

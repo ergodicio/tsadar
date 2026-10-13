@@ -48,7 +48,7 @@ def test_arts1d_forward_pass():
             config["data"]["fit_rng"]["forward_iaw_start"],
             config["data"]["fit_rng"]["forward_iaw_end"],
         ]
-        config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+        config["other"]["npts"] = int(config["other"]["CCDsize"][0] * config["other"]["points_per_pixel"])
         # Accounts for the pixel-centred model grid fix: ThryE-arts1v.npy was generated on the old grid,
         # linspace(start, end, npts). Shrink the ranges so the new grid lands on those same points.
         # Remove this block when the reference is regenerated on the new grid.

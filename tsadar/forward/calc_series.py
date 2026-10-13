@@ -51,17 +51,8 @@ def forward_pass(config):
         config["data"]["fit_rng"]["forward_iaw_start"],
         config["data"]["fit_rng"]["forward_iaw_end"],
     ]
-    # Forward ARTS decks retain the raw calibration convention
-    # ``CCDsize == [wavelength, angle]`` until the synthetic detector is built.
-    # Non-angular forward decks retain the historical wavelength-second layout.
-    spectral_pixels = (
-        config["other"]["CCDsize"][0]
-        if is_angular
-        else config["other"]["CCDsize"][1]
-    )
-    config["other"]["npts"] = int(
-        spectral_pixels * config["other"]["points_per_pixel"]
-    )
+    # CCDsize follows the layout loadData returns for every data type: [wavelength, time/space/angle]
+    config["other"]["npts"] = int(config["other"]["CCDsize"][0] * config["other"]["points_per_pixel"])
 
     sas = get_scattering_angles(config)
     if not is_angular:
