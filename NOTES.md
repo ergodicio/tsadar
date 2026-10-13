@@ -291,3 +291,12 @@ Append-only record of numerical-physics investigations and the decisions needed 
 
 - Final objectives: update-10 `455.0627`, update-11 `455.2690`, update-12 `454.7831`.
 - Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-13 — RESULT: ARTS 1D work moved onto current main; fixed-parameter regression
+
+- Working state committed on `arts-reinstate` as `ac31a4ca`, then replayed onto `origin/main` at `93e00b0c` (PRs #158, #159, #161, #162) as branch `arts-reinstate-on-main`: `879a1c38` (replay) and `728de212` (axis order and tests). One conflict, in `generate_spectra.py`, resolved by using the shared `electron_spectrum_is_detector_binned` helper from #161 and extending it to 1D distribution functions and `enabled: "auto"`.
+- `prepare_data` now leaves `other.CCDsize` as [wavelength bins, angle bins] after angular reduction (it had been set to the reduced data shape, [angle, wavelength]); the six angular tests build dummy data as `(CCDsize[1], CCDsize[0])`.
+- Fixed-parameter regression, local CPU, `728de212` working tree: the `s94475-update-10` fitted weights with the update-10 inputs (gain key renamed to `LPI_gain.include_LPI_gains`) and the current `configs/arts-1d/defaults.yaml` give objective `455.0626501915755` and data term `352.0409673719676`; update-10 logged `455.0626501915471` and `352.0409673719395`. Self-check against the fit forward model `2.9e-13`; no scattering angle flagged.
+- Tests on local CPU: `tests/test_forward/test_irf_area.py`, `test_angular_1v.py`, `test_angular_2v.py`, `test_resonance_notch_filter.py`, `test_1d.py`, `tests/test_inverse/test_validate_inputs.py`, `test_angular_1v.py`, `test_angular_2v.py`: `50 passed, 4 skipped` before the new tests; `test_irf_area.py` and `test_validate_inputs.py` with the new cases: `57 passed`.
+- Not done: a GPU fit on the new branch. The NERSC certificate expired on 2026-10-08.
+- Shared-vault mirror skipped: no vault resolved on this host.
