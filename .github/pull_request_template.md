@@ -1,3 +1,7 @@
+## Release
+
+Merging cuts a patch release. Add a label to change that: `release:minor`, `release:major`, `release:draft` (release notes written by hand before publishing), or `release:skip`.
+
 ## Validation
 
 - [ ] Fast suite passed: `pytest -m "not slow" tests/`

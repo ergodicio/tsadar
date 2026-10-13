@@ -103,6 +103,7 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             try:
+                _check_fe_not_fit(config)
                 # Hessian with respect to the active fit parameters (diff_params) only
                 ts_params = fitted_weights[i_batch]
                 filter_spec = get_filter_spec(config["parameters"], ts_params)
@@ -115,6 +116,8 @@ def recalculate_with_chosen_weights(
             except Exception as e:
                 print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
                 calc_sigma = False
+                # a failed calculation is reported as NaN, never as zero uncertainty
+                sigmas[:] = np.nan
 
         losses[inds] = loss
 
@@ -125,6 +128,17 @@ def recalculate_with_chosen_weights(
         fits["ion"]["total_spec"][inds] = ThryI
 
     return losses, sqdevs, fits, sigmas
+
+
+def _check_fe_not_fit(config: Dict) -> None:
+    """Raises if the electron distribution function is being fit: Hessian uncertainties are only
+    computed for the scalar parameters. The 1D DLM shape parameter m is the one case intended to be
+    supported; it is not handled yet."""
+    fe = config["parameters"]["electron"]["fe"]
+    if fe["active"]:
+        if fe["dim"] == 1 and fe["type"].casefold() == "dlm":
+            raise NotImplementedError("calc_sigmas does not yet support fitting the DLM shape parameter m.")
+        raise NotImplementedError("calc_sigmas does not support a fitted electron distribution function.")
 
 
 def _named_diff_leaves(diff_params) -> List[Tuple[str, str]]:
@@ -166,20 +180,17 @@ def get_sigmas(hess, diff_params, static_params, fitted_params: Dict, batch_size
             physical units, columns ordered to match fitted_params.
 
     Raises:
-        NotImplementedError: if any electron distribution-function parameter is active.
+        NotImplementedError: if the DLM shape parameter m is among the fitted parameters.
     """
-    for species, params in fitted_params.items():
-        unsupported = set(params.keys()) & {"fe", "f", "flm", "m"}
-        if unsupported:
-            raise NotImplementedError(
-                f"get_sigmas does not support the electron distribution function as an active fit "
-                f"parameter (found {sorted(unsupported)} under {species!r}): its per-lineout parameters "
-                "are stored as a list of separate objects rather than one array with a batch axis, which "
-                "this leaf-diagonal approach does not handle. Deactivate 'electron.fe.active' to use "
-                "calc_sigmas for the remaining (scalar) active parameters."
-            )
-
-    ordered_names = [(species, key) for species, params in fitted_params.items() for key in params.keys()]
+    # "f"/"fe"/"flm" are always reported by get_fitted_params and are not sigma columns
+    ordered_names = [
+        (species, key)
+        for species, params in fitted_params.items()
+        for key in params.keys()
+        if key not in ("fe", "f", "flm")
+    ]
+    if any(key == "m" for _, key in ordered_names):
+        raise NotImplementedError("get_sigmas does not yet support fitting the DLM shape parameter m.")
     num_params = len(ordered_names)
     sigmas = np.full((batch_size, num_params), np.nan)
     if num_params == 0:
@@ -472,6 +483,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     sigmas = None
     if config["other"]["calc_sigmas"]:
         try:
+            _check_fe_not_fit(config)
             filter_spec = get_filter_spec(config["parameters"], fitted_weights)
             diff_params, static_params = eqx.partition(fitted_weights, filter_spec)
             hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)

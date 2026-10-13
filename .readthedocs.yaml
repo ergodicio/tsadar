@@ -10,6 +10,10 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.10"
+  jobs:
+    post_checkout:
+      # full history so the version can be read from the tags
+      - git fetch --unshallow --tags || true
     # You can also specify other tool versions:
     # nodejs: "19"
     # rust: "1.64"

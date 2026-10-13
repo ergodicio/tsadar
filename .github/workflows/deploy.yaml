@@ -18,7 +18,9 @@ jobs:
   deploy-tsadar:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -37,7 +39,8 @@ jobs:
           ECR_REPOSITORY: continuum
           IMAGE_TAG: latest-tsadar-runner
         run: |
-          docker build -f docker/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          TSADAR_VERSION=$(pipx run hatch version)
+          docker build -f docker/Dockerfile --build-arg TSADAR_VERSION="$TSADAR_VERSION" -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
 
       - name: Push all images to Amazon ECR
         env:

@@ -41,6 +41,8 @@ def _recovery_config(feature, *, refined=False):
     # peak normalization even when its wavelengths are excluded from the loss.
     cfg["other"].update(
         CCDsize=[128, 128],
+        # 128 detector pixels, refined by sampling more points inside each pixel
+        points_per_pixel=16 if refined else 8,
         npts=2048 if refined else 1024,
         lamrangE=[440.0, 630.0],
         lamrangI=[524.5, 528.5],

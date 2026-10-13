@@ -434,6 +434,7 @@ def _1d_optax_loop_(
     """
 
     minimizer = getattr(optax, config["optimizer"]["method"])
+    schedule = None
     if config["optimizer"]["method"] == "lbfgs":
         opt = minimizer(None)
     else:
@@ -474,7 +475,10 @@ def _1d_optax_loop_(
     patience, min_delta = _stopping_options(config)
     wait = 0
     patience_reference_loss = checkpoint.loss
-    learning_rate = float(config["optimizer"].get("learning_rate_init", 0.0))
+    # the logged learning rate follows the decay schedule when there is one
+    learning_rate = (
+        float(config["optimizer"].get("learning_rate_init", 0.0)) if schedule is None else float(schedule(0))
+    )
     seed = int(config["optimizer"].get("seed", 0))
     _log_optimizer_step(
         current_loss=current_loss,
@@ -520,6 +524,8 @@ def _1d_optax_loop_(
         else:
             wait += 1
 
+        if schedule is not None:
+            learning_rate = float(schedule(i_epoch))
         _log_optimizer_step(
             current_loss=candidate_loss,
             checkpoint=checkpoint,

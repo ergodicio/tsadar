@@ -266,3 +266,27 @@ def test_build_angular_batch_combines_detector_mask_and_bad_pixel_coordinates():
     assert not batch["e_mask"][0, 2]
     assert not batch["e_mask"][1, 0]
     assert batch["e_mask"].sum() == 4
+
+
+def test_1d_optax_logs_the_scheduled_learning_rate(monkeypatch, isolated_optimizer):
+    class Progress:
+        @staticmethod
+        def set_description(description):
+            del description
+
+    logged = []
+
+    def _record(metrics, **kwargs):
+        if "optimizer.learning_rate" in metrics:
+            logged.append(metrics["optimizer.learning_rate"])
+
+    monkeypatch.setattr(loops.mlflow, "log_metrics", _record)
+    config = _fake_angular_config(learning_rate_init=0.1, learning_rate_final=0.001, num_epochs=8, patience=100)
+    initial = _FakeParams(_FakeElectron(jnp.asarray(0.0), _FakeDistribution()))
+    _1d_optax_loop_(config, _QuadraticLoss(), initial, {}, Progress())
+
+    # cosine decay from learning_rate_init to learning_rate_final over the first 75% of the epochs
+    assert logged[0] == pytest.approx(0.1)
+    assert logged[-1] == pytest.approx(0.001)
+    assert all(later <= earlier for earlier, later in zip(logged, logged[1:]))
+    assert len(set(logged)) > 2

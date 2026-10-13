@@ -418,7 +418,7 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``ang_res_unit`` is the number of pixels in an angular resolution unit for ARTS
 
-- ``lam_res_unit`` is the number of pixels in an specular resolution unit for ARTS
+- ``lam_res_unit`` is the number of pixels in an specular resolution unit for ARTS. If it does not divide the number of wavelength pixels, the leftover pixels form a narrower final unit when the electron distribution function is 2D with resonance quadrature enabled, and are dropped otherwise
 
 
 Plotting

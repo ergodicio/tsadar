@@ -15,6 +15,7 @@ from jax.lax import scan, map as jmap
 from jax import checkpoint
 
 from . import ratintn
+from ...utils.detector_grid import oversampled_axis
 from .interpolation import interp_uniform
 from ...utils.vector_tools import vsub, vdot, vdiv
 
@@ -119,8 +120,8 @@ class FormFactor:
     scattering structure factor or spectral density function, supporting both 1D and 2D electron distribution
     functions (EDFs), multiple plasma conditions, and scattering angles.
     Args:
-        lambda_range (list): Starting and ending wavelengths over which to calculate the spectrum.
-        npts (int): Number of wavelength points to use in the calculation.
+        lambda_range (list): Centers of the first and last detector pixels the spectrum is calculated for.
+        npts (int): Number of wavelength points to use in the calculation, points_per_pixel per pixel.
         lam_shift (float): Wavelength shift to apply.
         scattering_angles (dict): Dictionary containing scattering angles (in degrees).
         num_grad_points (int): Number of gradient points for plasma parameter profiles.
@@ -129,6 +130,7 @@ class FormFactor:
         n_beta (int): Number of angles at which the 2D EDF's projection is tabulated. Trades accuracy for
             speed in the 2D calculation; 0 disables the tabulation and rotates the EDF exactly at every
             evaluation point instead.
+        points_per_pixel (int): Number of wavelength points inside each detector pixel.
     Attributes:
         C (float): Speed of light in cm/s.
         Me (float): Electron mass in keV/C^2.
@@ -206,6 +208,7 @@ class FormFactor:
         va_ang,
         calc_gain,
         n_beta=DEFAULT_N_BETA,
+        points_per_pixel=1,
     ):
 
         # basic quantities
@@ -217,7 +220,15 @@ class FormFactor:
         self.h = 0.01
         minmax = 8.2
         h1 = 1024  # 1024
-        lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
+        # lambda_range is the first and last pixel centers; each pixel holds points_per_pixel grid points
+        if npts % points_per_pixel:
+            raise ValueError(f"npts={npts} must be a multiple of points_per_pixel={points_per_pixel}.")
+        n_pixels = npts // points_per_pixel
+        if n_pixels == 1:
+            lamAxis = jnp.linspace(lambda_range[0], lambda_range[1], npts)
+        else:
+            pixel_centers = np.linspace(lambda_range[0], lambda_range[1], n_pixels)
+            lamAxis = jnp.asarray(oversampled_axis(pixel_centers, points_per_pixel))
         self.lambda_axis_nm = lamAxis
         self.omgL_num = 2 * jnp.pi * 1e7 * self.C
         omgs = 2e7 * jnp.pi * self.C / lamAxis  # Scattered frequency axis(1 / sec)

@@ -361,19 +361,21 @@ def test_calibration_draws_perturb_gain_and_rescale_data(fitted_fixture):
 
 
 def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
-    # pooling chains run under different calibration realizations should give a posterior at least as
-    # wide as a single chain at the nominal calibration. For gain the shift is small (the per-lineout
-    # normalization cancels most of it), so the comparison is averaged over several seed pairs.
+    # pooling chains run under different calibration realizations should give a wider posterior than a
+    # single chain at the nominal calibration. The EPW dispersion is perturbed because it moves the
+    # plasma-wave peaks and therefore the inferred density; the comparison is averaged over seed pairs.
     cfg = fitted_fixture["config"]
     sa = fitted_fixture["sa"]
     ts_params = fitted_fixture["fitted_weights"][0]
     batch_size = cfg["optimizer"]["batch_size"]
     mcmc_settings = {"num_steps": 1500, "burn_in": 1000, "thin": 5, "adapt_every": 50, "use_laplace_seed": True}
 
-    def _pooled_amp1_std(num_draws, gain_sigma, mcmc_key_seed, cal_rng_seed):
+    def _pooled_ne_std(num_draws, dispersion_sigma, mcmc_key_seed, cal_rng_seed):
         cfg_run = copy.deepcopy(cfg)
         cfg_run["other"]["mcmc"] = mcmc_settings
-        cfg_run["other"]["calibration_uncertainty"] = {"num_draws": num_draws, "detector_gain_sigma": gain_sigma, "seed": cal_rng_seed}
+        cfg_run["other"]["calibration_uncertainty"] = {
+            "num_draws": num_draws, "EPWDispersion_sigma": dispersion_sigma, "seed": cal_rng_seed,
+        }
         draws = mcmc_calibration.draw_calibration_realizations(
             cfg_run, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(cal_rng_seed)
         )
@@ -406,15 +408,15 @@ def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
             return eqx.combine(static_i, dp).get_unnormed_params()
 
         physical = eqx.filter_vmap(_unnorm)(diff_i)
-        return float(np.std(np.asarray(physical["general"]["amp1"])[:, 0]))
+        return float(np.std(np.asarray(physical["electron"]["ne"])[:, 0]))
 
     # Same set of shapes (num_steps/burn_in/thin/adapt_every) every repeat, so _run_window's filter_jit
     # cache is warmed once and every further repeat is cheap -- only the PRNG/calibration seeds vary.
     n_repeats = 5
     gaps = []
     for i in range(n_repeats):
-        std_no = _pooled_amp1_std(num_draws=1, gain_sigma=0.0, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
-        std_with = _pooled_amp1_std(num_draws=4, gain_sigma=0.2, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
+        std_no = _pooled_ne_std(num_draws=1, dispersion_sigma=0.0, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
+        std_with = _pooled_ne_std(num_draws=4, dispersion_sigma=0.005, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
         gaps.append(std_with - std_no)
 
     mean_gap = float(np.mean(gaps))
@@ -572,7 +574,9 @@ def test_covar_loss_function_builds_for_an_electron_only_fit(fitted_fixture):
     for name in ("blue", "red"):
         idx = np.asarray(getattr(loss_fn, f"covar_{name}_idx"))
         sub = np.asarray(getattr(loss_fn, f"covar_{name}_sub"))
-        k = np.asarray(loss_fn.calculate_covariance_matrix(jnp.asarray(ThryE[:, idx])))[:, sub][:, :, sub]
+        k = np.asarray(
+            loss_fn.calculate_covariance_matrix(jnp.asarray(ThryE[:, idx]), loss_fn.covar_throughput_e[idx])
+        )[:, sub][:, :, sub]
         resid = (e_data - ThryE)[:, idx][:, sub]
         quad = np.einsum("bi,bi->b", resid, np.linalg.solve(k, resid[..., None])[..., 0])
         expected += quad + np.linalg.slogdet(k)[1]
@@ -583,11 +587,14 @@ def test_covar_loss_function_builds_for_an_electron_only_fit(fitted_fixture):
     e_data_j, thry_j = jnp.asarray(e_data), jnp.asarray(ThryE)
     grad = jax.grad(
         lambda t: loss_fn._feature_error_(
-            e_data_j, t, None, None, t, None, False, covar_idx=idx, covar_submask=mask, covar_sub=sub
+            e_data_j, t, None, None, t, None, False, covar_idx=idx, covar_submask=mask, covar_sub=sub,
+            covar_throughput=loss_fn.covar_throughput_e,
         )[0]
     )(thry_j)
     pixels = np.asarray(idx)[np.asarray(sub)]
-    k = np.asarray(loss_fn.calculate_covariance_matrix(thry_j[:, np.asarray(idx)]))[:, np.asarray(sub)][:, :, np.asarray(sub)]
+    k = np.asarray(loss_fn.calculate_covariance_matrix(thry_j[:, np.asarray(idx)], loss_fn.covar_throughput_e[idx]))[
+        :, np.asarray(sub)
+    ][:, :, np.asarray(sub)]
     resid = (e_data - ThryE)[:, pixels]
     norm = pixels.size * e_data.shape[0] - loss_fn.num_free_params
     expected_grad = np.zeros_like(ThryE)
@@ -689,3 +696,109 @@ def test_log_jacobian_includes_an_active_ion_fraction(fitted_fixture):
     np.testing.assert_allclose(
         np.asarray(mcmc._log_jacobian_curvature(diff_params)), np.stack([np.diag(2.0 * row * (1.0 - row)) for row in s])
     )
+
+
+def test_covar_noise_covariance_carries_the_throughput_correction(fitted_fixture):
+    from tsadar.data.correct_throughput import throughput_correction
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+    loss_fn = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], cfg["optimizer"]["batch_size"])
+
+    # the loss function uses the same correction the electron data were multiplied by, and it is not trivial
+    correction = np.asarray(loss_fn.covar_throughput_e)
+    expected = throughput_correction(
+        cfg["other"]["extraoptions"]["spectype"], np.asarray(fitted_fixture["all_axes"]["epw_y"]), cfg["data"]["shotnum"]
+    )
+    np.testing.assert_allclose(correction, expected, rtol=1e-10)
+    idx = np.asarray(loss_fn.covar_red_idx)
+    c = correction[idx]
+    assert c.min() > 0 and c.max() / c.min() > 1.05
+
+    # corrected-unit covariance = C K_detector C, with K_detector built from the uncorrected signal
+    signal = jnp.asarray(np.linspace(20.0, 60.0, idx.size))[None, :]
+    corrected = np.asarray(loss_fn.calculate_covariance_matrix(signal, jnp.asarray(c)))
+    detector = np.asarray(loss_fn.calculate_covariance_matrix(signal / jnp.asarray(c)))
+    np.testing.assert_allclose(corrected, detector * np.outer(c, c)[None], rtol=1e-10)
+
+    # so the Gaussian quadratic form is the same in corrected and in detector units
+    resid = np.sin(np.arange(idx.size))[None, :]
+    quad_corrected = np.einsum("bi,bi->b", resid, np.linalg.solve(corrected, resid[..., None])[..., 0])
+    quad_detector = np.einsum("bi,bi->b", resid / c, np.linalg.solve(detector, (resid / c)[..., None])[..., 0])
+    np.testing.assert_allclose(quad_corrected, quad_detector, rtol=1e-8)
+
+
+def test_brem_model_background_is_sized_along_the_wavelength_axis():
+    from tsadar.data.evaluate_background import get_lineout_bg
+
+    config = {
+        "data": {
+            "background": {"type": "brem_model"},
+            "dpixel": 2,
+            "lineouts": {"val": [3, 4]},
+            "load_ele_spec": True,
+            "load_ion_spec": True,
+        }
+    }
+    image = np.zeros((8, 5))  # 8 wavelength pixels, 5 time pixels
+    noiseE, noiseI = get_lineout_bg(config, image, image, 0, 0, [], 0, [1, 2], [1, 2], np.arange(8), np.arange(8))
+    assert noiseE.shape == (2, 8) and noiseI.shape == (2, 8)
+
+
+def test_calibration_draws_keep_the_throughput_correction_applied_to_the_data(fitted_fixture):
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+    batch_size = cfg["optimizer"]["batch_size"]
+    nominal = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], batch_size)
+
+    cfg["other"]["calibration_uncertainty"] = {"num_draws": 2, "EPWDispersion_sigma": 0.005}
+    draws = mcmc_calibration.draw_calibration_realizations(
+        cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(7)
+    )
+    for cfg_k, all_data_k in draws:
+        # built on its own, a draw would evaluate the correction on its perturbed wavelength axis
+        own = _build_loss_fn_for_draw(cfg_k, fitted_fixture["sa"], all_data_k, batch_size)
+        assert not np.allclose(np.asarray(own.covar_throughput_e), np.asarray(nominal.covar_throughput_e))
+        # the data were corrected on the nominal axis, so the noise model keeps that correction
+        loss_fn_k = _build_loss_fn_for_draw(cfg_k, fitted_fixture["sa"], all_data_k, batch_size, nominal)
+        np.testing.assert_array_equal(np.asarray(loss_fn_k.covar_throughput_e), np.asarray(nominal.covar_throughput_e))
+
+
+def test_covar_throughput_correction_does_not_depend_on_points_per_pixel(fitted_fixture):
+    from tsadar.data.correct_throughput import throughput_correction
+    from tsadar.inverse.postprocess.mcmc_postprocess import _build_loss_fn_for_draw
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["optimizer"]["loss_method"] = "covar"
+    cfg["data"]["background"]["bg_subtract"] = False
+    # oversample the model: its binned wavelength axis is still the detector pixel centers
+    cfg["other"]["points_per_pixel"] = 2
+    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][0] * 2)
+    loss_fn = _build_loss_fn_for_draw(cfg, fitted_fixture["sa"], fitted_fixture["all_data"], cfg["optimizer"]["batch_size"])
+
+    # the correction is the one applied to the data, on the detector pixel centers
+    expected = throughput_correction(
+        cfg["other"]["extraoptions"]["spectype"], np.asarray(fitted_fixture["all_axes"]["epw_y"]), cfg["data"]["shotnum"]
+    )
+    np.testing.assert_allclose(np.asarray(loss_fn.covar_throughput_e), expected, rtol=1e-10)
+
+
+@pytest.mark.parametrize("points_per_pixel", [1, 2, 5])
+def test_binned_model_axis_matches_the_detector_pixel_centers(fitted_fixture, points_per_pixel):
+    from tsadar.inverse.loss_function import LossFunction
+
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    batch_size = cfg["optimizer"]["batch_size"]
+    cfg["other"]["points_per_pixel"] = points_per_pixel
+    cfg["other"]["npts"] = int(cfg["other"]["CCDsize"][0] * points_per_pixel)
+    sample = {k: v[:batch_size] for k, v in fitted_fixture["all_data"].items()}
+    sample = {"noise_e": sample["noiseE"], "noise_i": sample["noiseI"]} | sample
+    loss_fn = LossFunction(cfg, fitted_fixture["sa"], sample)
+
+    _, _, lamAxisE, _ = loss_fn.ts_diag(fitted_fixture["fitted_weights"][0], fitted_fixture["batch"])
+    np.testing.assert_allclose(np.asarray(lamAxisE)[0], np.asarray(fitted_fixture["all_axes"]["epw_y"]), rtol=0, atol=1e-9)

@@ -1,0 +1,107 @@
+name: release
+
+# Cuts a release for every merge to main. The merged PR's labels decide what happens:
+#   (none)          patch release, published
+#   release:minor   minor release
+#   release:major   major release
+#   release:draft   tag is pushed, but the release is left as a draft to be written by hand
+#   release:skip    no tag and no release; the PR is picked up by the next release's notes
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version part to bump"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      draft:
+        description: "Leave the release as a draft"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # a manual run only releases main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide the bump
+        id: plan
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_DRAFT: ${{ inputs.draft }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            bump="$INPUT_BUMP"
+            draft="$INPUT_DRAFT"
+            skip=false
+          else
+            labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+              --jq '.[] | select(.merged_at != null and .base.ref == "main") | .labels[].name')
+            echo "PR labels: $labels"
+            has() { printf '%s\n' "$labels" | grep -qxF "$1"; }
+            bump=patch
+            if has "release:major"; then bump=major; elif has "release:minor"; then bump=minor; fi
+            draft=false; if has "release:draft"; then draft=true; fi
+            skip=false; if has "release:skip"; then skip=true; fi
+          fi
+
+          # A commit that is already tagged keeps its tag, so a rerun can finish a release
+          # whose tag was pushed but whose release was never created.
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -n "$tag" ]; then
+            push_tag=false
+            if gh release view "$tag" > /dev/null 2>&1; then
+              echo "$tag is already released."
+              skip=true
+            fi
+          else
+            push_tag=true
+            latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            case "$bump" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              *) patch=$((patch + 1)) ;;
+            esac
+            tag="v$major.$minor.$patch"
+            echo "Latest tag $latest, bump $bump"
+          fi
+
+          echo "Tag $tag, push tag $push_tag, draft $draft, skip $skip"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "push_tag=$push_tag" >> "$GITHUB_OUTPUT"
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and release
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          DRAFT: ${{ steps.plan.outputs.draft }}
+          PUSH_TAG: ${{ steps.plan.outputs.push_tag }}
+        run: |
+          if [ "$PUSH_TAG" = "true" ]; then
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
+          args=(--verify-tag --generate-notes --title "$TAG")
+          if [ "$DRAFT" = "true" ]; then args+=(--draft); fi
+          gh release create "$TAG" "${args[@]}"

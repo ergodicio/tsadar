@@ -12,15 +12,19 @@ BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "external")
 
 
 def correctThroughput(data, tstype, axisy, shotNum):
+    """Multiplies data by the throughput correction of throughput_correction, one factor per wavelength row."""
+    return data * throughput_correction(tstype, axisy, shotNum).reshape(-1, 1)
+
+
+def throughput_correction(tstype, axisy, shotNum):
     """
     Applies throughput correction to the input data based on the specified Thomson scattering type. This correction comes from the transmission function of all the optics in the diagnostic.
     Parameters:
-        data (np.ndarray): The input data matrix to be corrected.
         tstype (str): The type of Thomson scattering. Can be "angular", "temporal", or "imageing".
         axisy (np.ndarray): The spectral axis values (e.g., wavelength or pixel indices) used for interpolation.
         shotNum (int): The shot number.
     Returns:
-        np.ndarray: The throughput-corrected data matrix.
+        np.ndarray: The correction factor at each value of axisy (1D); corrected data = data * factor.
     Notes:
         - For "angular" tstype, uses 'spectral_sensitivity.mat' and applies different calibration for shotNum < 95000.
         - For "temporal" tstype, uses sensitivity data from an Excel file and handles unusable sensitivity values.
@@ -80,8 +84,6 @@ def correctThroughput(data, tstype, axisy, shotNum):
         vq1 = speccalshift(axisy)
 
     # Note that C has NaN in it.
-    C = np.asarray(vq1).reshape(-1, 1)  # per-row wavelength correction, broadcasts across all columns
+    C = np.asarray(vq1, dtype=float).reshape(-1)
     C[np.isnan(C)] = 0
-    cdata = data * C
-    # Correct each wavelength/Row of the matrix
-    return cdata
+    return C
