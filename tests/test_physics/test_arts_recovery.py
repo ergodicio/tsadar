@@ -29,6 +29,7 @@ def _arts_config(*, refined=False):
     }
     cfg["other"].update(
         iawfilter=[False, 0, 0, 0],
+        points_per_pixel=1,
         npts=64,
         CCDsize=[64, 3],
         lamrangE=[440.0, 515.0],

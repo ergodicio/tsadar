@@ -245,15 +245,13 @@ class LossFunction:
         if cfg["data"]["fit_EPWb"] or cfg["data"]["fit_EPWr"]:
             lamAxisE = np.asarray(lamAxisE)[0]
             # the electron data were multiplied by this throughput correction (data.prepare), so the
-            # detector noise has to be carried into the same units. It is evaluated on the detector pixel
-            # centers the data were corrected on, which the binned model axis only matches exactly for
-            # points_per_pixel == 1.
+            # detector noise has to be carried into the same units. The binned model axis is the detector
+            # pixel centers the data were corrected on.
             shotnum = cfg["data"]["shotnum"]
-            detector_axis = np.linspace(cfg["other"]["lamrangE"][0], cfg["other"]["lamrangE"][1], lamAxisE.shape[0])
             self.covar_throughput_e = jnp.asarray(
                 throughput_correction(
                     cfg["other"]["extraoptions"]["spectype"],
-                    detector_axis,
+                    lamAxisE,
                     shotnum[0] if isinstance(shotnum, list) else shotnum,
                 )
             )

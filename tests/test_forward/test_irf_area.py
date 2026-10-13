@@ -18,17 +18,14 @@ from tsadar.core.instrument.irf import (
     _gaussian_bin_response,
     add_ATS_IRF,
 )
+from tsadar.utils.detector_grid import detector_edges_from_centers, grouped_detector_edges, oversampled_axis
 from tsadar.core import thomson_diagnostic
 from tsadar.core.thomson_diagnostic import (
     ThomsonScatteringDiagnostic,
     _ensure_angular_detector_edges,
 )
 from tsadar.data import prepare
-from tsadar.data.calibration import (
-    detector_edges_from_centers,
-    get_calibrations,
-    grouped_detector_edges,
-)
+from tsadar.data.calibration import get_calibrations
 from tsadar.utils.misc import merge_defaults_and_inputs
 
 
@@ -69,7 +66,38 @@ def test_grouped_detector_edges_reject_invalid_group_size(bad_group):
         grouped_detector_edges(np.arange(4.0), bad_group)
 
 
-def test_prepare_data_retains_exact_arts_spectral_edges(monkeypatch):
+@pytest.mark.parametrize("points_per_pixel", [1, 2, 5])
+def test_oversampled_axis_groups_are_centered_on_the_detector_pixels(points_per_pixel):
+    centers = np.linspace(400.0, 700.0, 7)
+
+    fine = oversampled_axis(centers, points_per_pixel)
+
+    assert fine.shape == (centers.size * points_per_pixel,)
+    np.testing.assert_allclose(np.diff(fine), 50.0 / points_per_pixel, rtol=0, atol=1e-10)
+    np.testing.assert_allclose(fine.reshape(centers.size, -1).mean(axis=1), centers, rtol=0, atol=1e-10)
+
+
+def test_oversampled_axis_stays_inside_each_pixel_of_a_nonuniform_axis():
+    centers = np.array([400.0, 400.5, 401.0, 402.0, 404.0])
+    edges = detector_edges_from_centers(centers)
+
+    fine = oversampled_axis(centers, 5).reshape(centers.size, -1)
+
+    assert np.all(np.diff(fine.ravel()) > 0)
+    assert np.all(fine > edges[:-1, None]) and np.all(fine < edges[1:, None])
+    np.testing.assert_allclose(fine.mean(axis=1), 0.5 * (edges[:-1] + edges[1:]), rtol=0, atol=1e-10)
+
+
+@pytest.mark.parametrize("bad_points_per_pixel", [0, -1, 1.5, True])
+def test_oversampled_axis_rejects_invalid_points_per_pixel(bad_points_per_pixel):
+    with pytest.raises(ValueError):
+        oversampled_axis(np.arange(4.0), bad_points_per_pixel)
+
+
+@pytest.mark.parametrize("fe_dim, detector_binned", [(2, True), (1, False)])
+def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_bins(
+    monkeypatch, fe_dim, detector_binned
+):
     electron_data = np.arange(20.0).reshape(5, 4)
     ion_data = np.zeros_like(electron_data)
     wavelength_centers = np.arange(5.0) + 0.5
@@ -122,6 +150,7 @@ def test_prepare_data_retains_exact_arts_spectral_edges(monkeypatch):
         },
         "feature_detector": {"estimate_lineouts_epw": False, "estimate_lineouts_iaw": False},
         "optimizer": {"batch_size": 1},
+        "parameters": {"electron": {"fe": {"dim": fe_dim}}},
         "other": {
             "CCDsize": [5, 4],
             "ang_res_unit": 2,
@@ -134,16 +163,32 @@ def test_prepare_data_retains_exact_arts_spectral_edges(monkeypatch):
 
     all_data, _, all_axes = prepare.prepare_data(cfg, 1)
 
-    np.testing.assert_array_equal(all_axes["epw_y"].squeeze(), np.array([1.0, 3.0, 4.5]))
-    np.testing.assert_array_equal(
-        cfg["other"]["detector_specs"]["electron_wavelength_edges"], np.array([0.0, 2.0, 4.0, 5.0])
-    )
-    np.testing.assert_array_equal(
-        cfg["other"]["detector_specs"]["electron_wavelength_centers"],
-        np.array([1.0, 3.0, 4.5]),
-    )
-    assert all_data["e_data"].shape == (2, 3)
-    assert cfg["other"]["CCDsize"] == (2, 3)
+    # 5 wavelength pixels in units of 2. The detector-bin quadrature keeps the fifth pixel as a
+    # half-width unit; the uniform model grid drops it.
+    if detector_binned:
+        centers, edges = np.array([1.0, 3.0, 4.5]), np.array([0.0, 2.0, 4.0, 5.0])
+    else:
+        centers, edges = np.array([1.0, 3.0]), np.array([0.0, 2.0, 4.0])
+    np.testing.assert_array_equal(all_axes["epw_y"].squeeze(), centers)
+    np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_edges"], edges)
+    np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_centers"], centers)
+    assert all_data["e_data"].shape == (2, centers.size)
+    assert cfg["other"]["CCDsize"] == (2, centers.size)
+    assert cfg["other"]["lamrangE"] == [centers[0], centers[-1]]
+    assert cfg["other"]["npts"] == centers.size
+
+
+def test_angular_irf_can_be_jit_compiled():
+    import jax
+
+    irf = AngularIRF(spect_stddev=0.5, ang_stddev=1.0, ang_axis=np.linspace(50.0, 70.0, 6), normalize=0)
+    wavelengths = jnp.linspace(400.0, 500.0, 16)
+    model = jnp.arange(96.0).reshape(6, 16)
+
+    expected = add_ATS_IRF(irf, wavelengths, model, _instrument_params())[1]
+    compiled = jax.jit(lambda values: add_ATS_IRF(irf, wavelengths, values, _instrument_params())[1])(model)
+
+    np.testing.assert_allclose(compiled, expected, rtol=1e-12)
 
 
 def test_forward_arts_bounds_remain_first_and_last_detector_centers():

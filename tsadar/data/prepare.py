@@ -8,15 +8,15 @@ import os
 from .evaluate_background import get_shot_bg
 from .load_ts_data import loadData
 from .correct_throughput import correctThroughput
-from .calibration import (
-    detector_edges_from_centers,
-    get_calibrations,
-    get_scattering_angles,
-    grouped_detector_edges,
-)
+from .calibration import get_calibrations, get_scattering_angles
 from .lineouts import get_lineouts
 from .data_visualizer import launch_data_visualizer
 from .feature_detector import first_guess
+from ..utils.detector_grid import (
+    detector_edges_from_centers,
+    electron_spectrum_is_detector_binned,
+    grouped_detector_edges,
+)
 
 
 def prepare_data(config: Dict, shotNum: int) -> Dict:
@@ -146,6 +146,22 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         # down sample image to resolution units by summation
         ang_res_unit = config["other"]["ang_res_unit"]  # in pixels
         lam_res_unit = config["other"]["lam_res_unit"]  # in pixels
+        # The detector-bin quadrature (2D distribution functions) integrates a partial final wavelength
+        # unit over its true width. The uniform model grid needs every unit to have the same width, so
+        # there the partial unit is dropped.
+        if not electron_spectrum_is_detector_binned(config):
+            n_lam = (elecData.shape[0] // lam_res_unit) * lam_res_unit
+            if n_lam == 0:
+                raise ValueError(
+                    f"lam_res_unit={lam_res_unit} is larger than the {elecData.shape[0]} wavelength pixels."
+                )
+            if n_lam < elecData.shape[0]:
+                print(
+                    f"lam_res_unit={lam_res_unit} does not divide the {elecData.shape[0]} wavelength "
+                    f"pixels; the final {elecData.shape[0] - n_lam} pixels "
+                    f"({axisyE[n_lam]:.2f} to {axisyE[-1]:.2f} nm) have been removed"
+                )
+            elecData, BGele, axisyE = elecData[:n_lam], BGele[:n_lam], axisyE[:n_lam]
         electron_wavelength_edges = grouped_detector_edges(axisyE, lam_res_unit)
 
         data_res_unit = np.array(
@@ -216,6 +232,6 @@ def prepare_data(config: Dict, shotNum: int) -> Dict:
         config["other"]["detector_specs"]["electron_wavelength_centers"] = np.ravel(axisyE)
     config["other"]["lamrangE"] = [axisyE[0], axisyE[-1]]
     config["other"]["lamrangI"] = [axisyI[0], axisyI[-1]]
-    config["other"]["npts"] = int(config["other"]["CCDsize"][1] * config["other"]["points_per_pixel"])
+    config["other"]["npts"] = int(len(axisyE) * config["other"]["points_per_pixel"])
 
     return all_data, sa, all_axes

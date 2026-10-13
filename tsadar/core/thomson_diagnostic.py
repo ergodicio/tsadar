@@ -7,6 +7,7 @@ from scipy.signal import find_peaks
 
 from .instrument import irf
 from .instrument import AngularIRF, SpectrometerIRF
+from ..utils.detector_grid import detector_edges_from_centers
 from .modules.ts_params import ThomsonParams
 from .physics.generate_spectra import FitModel
 from .physics.bremsstrahlung import brem_spectrum
@@ -86,14 +87,7 @@ def _ensure_angular_detector_edges(cfg):
         edges = np.asarray([lower, upper])
     else:
         centers = np.linspace(lower, upper, n_spectral_bins)
-        spacing = np.diff(centers)
-        edges = np.concatenate(
-            (
-                centers[:1] - 0.5 * spacing[:1],
-                centers[:-1] + 0.5 * spacing,
-                centers[-1:] + 0.5 * spacing[-1:],
-            )
-        )
+        edges = detector_edges_from_centers(centers)
     detector_specs["electron_wavelength_edges"] = edges
     detector_specs["electron_wavelength_centers"] = centers
 
@@ -117,12 +111,9 @@ def _irfs_from_config(cfg, scattering_angles):
     spectype = cfg["other"]["extraoptions"]["spectype"]
 
     # The IRF-convolved spectrum is computed on a fine grid of `npts` points and then
-    # averaged down onto the detector's wavelength pixels. That pixel count is the length
-    # of the calibrated wavelength axis, which is CCDsize[0] (see
-    # calibration.get_calibrations) -- not the 1024 this code used to hardcode. The two
-    # agree only because OMEGA's CCD is square.
-    n_spectral_pixels = int(cfg["other"]["CCDsize"][0])
-    npts = int(cfg["other"]["npts"])
+    # averaged down onto the detector's wavelength pixels, `points_per_pixel` points to a
+    # pixel -- the same grouping FormFactor builds the grid with.
+    n_spectral_pixels = int(cfg["other"]["npts"]) // int(cfg["other"].get("points_per_pixel", 1))
 
     # the model amplitude is measured over the same fit ranges the data amplitude is
     # (see data.lineouts.get_lineouts)
@@ -133,13 +124,6 @@ def _irfs_from_config(cfg, scattering_angles):
     }
 
     def _spectrometer_irf(channel, stddev):
-        if npts % n_spectral_pixels:
-            raise ValueError(
-                f"Cannot bin the {channel} spectrum onto the detector: npts={npts} is not a "
-                f"multiple of n_spectral_pixels={n_spectral_pixels}. npts is derived from "
-                f"CCDsize[1] * points_per_pixel, but the wavelength axis has CCDsize[0] "
-                f"pixels, so this fails for a non-square CCD."
-            )
         return SpectrometerIRF(
             spect_stddev=stddev,
             n_spectral_pixels=n_spectral_pixels,
