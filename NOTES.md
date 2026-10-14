@@ -322,3 +322,23 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - Final objective (data term) `455.525` (`352.475`); `epoch loss` at step 100 `893.5`, step 300 `625.6`, step 500 `502.9`; steps 0 and 1 identical to update-10.
 - Final objective across repeats: old code (update-10, -11, -12) mean `455.038`, sample standard deviation `0.244`; new code (update-13, -14, -15) mean `456.597`, standard deviation `2.573`, median `455.525`.
 - Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-14 — SUMMARY: regression check of `arts-reinstate-on-main` against the old branch
+
+- USER (verbatim): "No need to run more just document our current findings in your research notes."
+- Question: does moving the ARTS 1D work onto main (`arts-reinstate-on-main`, code at `0b3e9185`) change the fit of the run 10 deck (shot 94475, lineouts 20–1000, `nvx: 256`, `lam` active, roll-off corners masked, root-aware quadrature, ±8 vTe grid) relative to the old branch (`ac31a4ca` and its predecessors)?
+- Deterministic comparison (local CPU): at the `s94475-update-10` fitted weights both codes give loss `455.062650191577120` and identical values for all 261 gradient components; the prepared data image, background, and axes are identical; the logged configs differ only in the gain keys renamed by #162.
+- GPU repeats, all on one A100 under `shared_interactive`, identical `epoch loss` at steps 0 and 1 in every run except update-12 (`2.6e-09` at step 1):
+
+  | run | code | final objective | loss at step 100 | loss at step 500 | fit time (s) | Te (keV) | Te × ⟨v²⟩ (keV) | ne (1e20 cm⁻³) | lam (nm) |
+  |---|---|---|---|---|---|---|---|---|---|
+  | update-10 | old | 455.063 | 892.2 | 501.7 | 514.8 | 1.3836 | 1.1188 | 0.42815 | 525.2322 |
+  | update-11 | old | 455.269 | 894.4 | 502.3 | 529.7 | 1.3835 | 1.1189 | 0.42814 | 525.2343 |
+  | update-12 | old | 454.783 | 892.9 | 501.2 | 530.1 | 1.3879 | 1.1192 | 0.42818 | 525.2341 |
+  | update-13 | new | 459.533 | 910.3 | 512.9 | 600.0 | 1.3489 | 1.1168 | 0.42796 | 525.2382 |
+  | update-14 | new | 454.734 | 894.6 | 501.2 | 519.1 | 1.3876 | 1.1189 | 0.42822 | 525.2325 |
+  | update-15 | new | 455.525 | 893.5 | 502.9 | 518.5 | 1.3799 | 1.1190 | 0.42808 | 525.2318 |
+
+- Observations: the runs separate from one another at step 1 or 2 by `1e-9`–`4e-7` relative, with identical code included (update-10/-11/-12, update-13/-14/-15). Final objectives: old code mean `455.038` (sample s.d. `0.244`); new code mean `456.597` (s.d. `2.573`), or `455.130` without update-13. Update-13 is the only run whose loss stays above the others from step 100 onward; it also has the lowest fitted Te and the highest second moment, with Te × ⟨v²⟩ within `0.003` keV of the other five runs.
+- Status: no further runs requested. The data do not show a difference between the two codes apart from update-13; with three GPU runs per code, a GPU-only effect smaller than the run-to-run spread, or one that occurs in a minority of runs, is not excluded.
+- Shared-vault mirror skipped: no vault resolved on this host.
