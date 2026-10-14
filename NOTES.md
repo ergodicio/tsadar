@@ -315,3 +315,10 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - `epoch loss` at steps 0 and 1 is identical in update-10, -11, -13 and -14 (`2739.025166917294`, `2658.272188261109`); update-12 differs at step 1 by `2.6e-09`. At step 100: `892.2`, `894.4`, `892.9`, `910.3`, `894.6`; at step 500: `501.7`, `502.3`, `501.2`, `512.9`, `501.2`.
 - Update-13 logged config differs from update-10 only in the renamed gain keys. Its saved data image and axes are identical to update-10. Loss and gradient at the update-10 fitted weights, evaluated on local CPU with the `ac31a4ca` code (separate worktree) and with the `arts-reinstate-on-main` code: loss `455.062650191577120` in both, all 261 gradient components identical.
 - Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-14 — RESULT: third new-branch repeat `s94475-update-15`
+
+- Run `3a2a4afb2af147c3ae5d43d3e1242031`, Slurm job `59778542`, source `939e21bbe0f2` (code identical to `0b3e9185`), deck as update-13 with the run name changed; exit code 0; fit time `518.5` s.
+- Final objective (data term) `455.525` (`352.475`); `epoch loss` at step 100 `893.5`, step 300 `625.6`, step 500 `502.9`; steps 0 and 1 identical to update-10.
+- Final objective across repeats: old code (update-10, -11, -12) mean `455.038`, sample standard deviation `0.244`; new code (update-13, -14, -15) mean `456.597`, standard deviation `2.573`, median `455.525`.
+- Shared-vault mirror skipped: no vault resolved on this host.
