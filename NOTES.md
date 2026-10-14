@@ -300,3 +300,18 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - Tests on local CPU: `tests/test_forward/test_irf_area.py`, `test_angular_1v.py`, `test_angular_2v.py`, `test_resonance_notch_filter.py`, `test_1d.py`, `tests/test_inverse/test_validate_inputs.py`, `test_angular_1v.py`, `test_angular_2v.py`: `50 passed, 4 skipped` before the new tests; `test_irf_area.py` and `test_validate_inputs.py` with the new cases: `57 passed`.
 - Not done: a GPU fit on the new branch. The NERSC certificate expired on 2026-10-08.
 - Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-14 — LAUNCHED: `s94475-update-13`, run 10 deck on `arts-reinstate-on-main`
+
+- USER (verbatim): "rerun the GPU run 10 deck and when it completes compare to run 10 to check for any regression or behaviour change".
+- Source: `arts-reinstate-on-main` at `0b3e91853176` (no tracked changes), session fingerprint `69ef03ebc968`. Deck: `s94475-update-10` inputs with `include_gains: false` replaced by `LPI_gain: {include_LPI_gains: false}` and the run name changed; current `configs/arts-1d/defaults.yaml` (detector gain key renamed by #162). Stored at `C:\tmp\run_u13`.
+- Slurm job `59777060`, `shared_interactive`, one A100, 1 h. State: LAUNCHED.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-14 — RESULT: `s94475-update-13` and repeat `s94475-update-14` on `arts-reinstate-on-main`
+
+- Both exit code 0 on Slurm job `59777060`; same source (`0b3e91853176`) and deck (`C:\tmp\run_u13`, run name changed for update-14). Runs: update-13 `5a3365206022450dad89caa4f960e070`, update-14 `59ba7f9addbb4b409773fcc23cd0dd57`.
+- Final objective (data term): update-10 `455.063` (`352.041`), update-11 `455.269` (`352.354`), update-12 `454.783` (`351.899`), update-13 `459.533` (`356.033`), update-14 `454.734` (`351.804`). Fit time (s): `514.8`, `529.7`, `530.1`, `600.0`, `519.1`.
+- `epoch loss` at steps 0 and 1 is identical in update-10, -11, -13 and -14 (`2739.025166917294`, `2658.272188261109`); update-12 differs at step 1 by `2.6e-09`. At step 100: `892.2`, `894.4`, `892.9`, `910.3`, `894.6`; at step 500: `501.7`, `502.3`, `501.2`, `512.9`, `501.2`.
+- Update-13 logged config differs from update-10 only in the renamed gain keys. Its saved data image and axes are identical to update-10. Loss and gradient at the update-10 fitted weights, evaluated on local CPU with the `ac31a4ca` code (separate worktree) and with the `arts-reinstate-on-main` code: loss `455.062650191577120` in both, all 261 gradient components identical.
+- Shared-vault mirror skipped: no vault resolved on this host.
