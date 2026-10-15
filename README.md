@@ -64,8 +64,8 @@ inventory, tolerance rationale, and contribution checklist.
 
 Run `python -m tsadar.benchmarks.arts2d --preset smoke --output results/iss140-smoke`
 for a CPU check of four EDF parameterizations, held-out prediction, and a common
-noise-weighted detector Jacobian/SVD. The [benchmark guide](docs/source/arts2d_recovery_benchmark.rst)
-defines the controlled inputs, artifacts, and multi-seed GPU experiment.
+noise-weighted detector Jacobian/SVD. The benchmark design, preflight results, and
+artifacts are recorded in [NOTES.md](NOTES.md).
 
 ### Windows note
 If cloning onto Windows you may need `git config --global core.protectNTFS false`.

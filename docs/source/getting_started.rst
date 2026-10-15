@@ -160,8 +160,29 @@ The values entered for these fields should be in nanometers and must have logica
             iaw_cf_min: 351.01
             iaw_cf_max: 351.02
             iaw_max: 351.75
-            
 
+
+Spectral ranges and the calibrated wavelength axis
+"""""""""""""""""""""""""""""""""""""""""""""""""""
+
+The ``fit_rng`` values are not applied to the raw pixel columns of the CCD. They are compared against the *calibrated* wavelength axis of each detector, which is built from the pixel index as
+
+.. math::
+
+    \lambda = \text{pixel} \times \text{dispersion} + \text{offset}
+
+using a separate dispersion (nm/pixel) and offset (nm) for the EPW and IAW spectrometers. Only pixels whose calibrated wavelength falls inside a range are used. If a range lies partly outside the calibrated axis, it is silently truncated to the part that overlaps. If it lies entirely outside the axis, no pixels are selected, and the run stops with an error. Typically this is a ``ValueError`` about a zero-size array when the lineout amplitudes are computed, or, with ``loss_method: covar``, a message that the fit range "selects no pixels on the calibrated wavelength axis". When you see either error, compare your ``fit_rng`` values against the wavelength axis of the data plots before changing anything else.
+
+.. important::
+   **The calibrated axis is selected by shot number.** The dispersion, offset, and spectral instrument response widths for each shot are stored in a table of shot-number ranges in ``tsadar/data/calibration.py`` (``get_calibrations``), with separate tables for temporal, imaging, and angular data. Data from a new shot, or from a shot day that has not been added to that table yet, will not match any entry.
+
+   In that case, TSADAR falls back to the values in ``other.detector_specs`` of the defaults deck (``EPWDispersion``, ``EPWoffset``, ``IAWDispersion``, ``IAWoffset``, and ``widIRF``, plus ``EPWtcc``/``IAWtcc`` for imaging data). It also uses nominal values for the time or space scale of the x-axis. It prints the warning::
+
+       No calibration available for shot <shotnum>, using values from detector_specs in the default deck.
+
+   **These fallback values are generic and are probably not the correct calibration for your shot.** Spectral ranges chosen against the wrong axis can select the wrong part of the spectrum or fall off the axis entirely, and fitted parameters such as density and temperature depend directly on the wavelength calibration. If the fallback values are missing from the deck, a ``KeyError`` is raised instead.
+
+   If you see this warning, either add a calibration entry for your shot to ``tsadar/data/calibration.py``, or set the correct dispersion, offset, and instrument-response values for your shot in ``other.detector_specs`` (see :doc:`defaults`). Then re-check your ``fit_rng`` values against the new axis.
 
 
 Lineout and background selection
