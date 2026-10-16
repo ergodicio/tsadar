@@ -1,0 +1,168 @@
+# forward deck reproducing MLflow run 548792b2ce8748e88220b8fc9689783a (experiment 298), translated to the current deck format
+data:
+  background:
+    slice: 10002
+    type: Fit
+  lineouts:
+    end: 1024
+    skip: 20
+    start: 0
+    type: range
+  shot_rot: 90.0
+  shotnum: 10011
+  fit_EPWb: true
+  fit_EPWr: true
+  fit_IAW: false
+  load_ele_spec: true
+  load_ion_spec: false
+machine: gpu
+mlflow:
+  experiment: arts2d-recovery
+  run: truth_M_Kr
+other:
+  calc_sigmas: false
+  extraoptions:
+    spectype: angular
+  refit: false
+  refit_thresh: 5.0
+  detector_specs:
+    widIRF:
+      ang_FWHM_ele: 1.0
+      spect_FWHM_ele: 0.9
+      spect_stddev_ele: 0.1
+      spect_stddev_ion: 0.015
+parameters:
+  electron:
+    Te:
+      active: true
+      gradient_scalar: 10.0
+      lb: 0.01
+      ub: 2.0
+      val: 1.0
+    fe:
+      active: true
+      dim: 1
+      nvx: 320
+      params:
+        m:
+          lb: 2.0
+          ub: 5.0
+          val: 2.0
+      type: dlm
+    ne:
+      active: true
+      gradient_scalar: 10.0
+      lb: 0.03
+      ub: 2.0
+      val: 0.4
+  general:
+    Te_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 10.0
+      val: 0.0
+    amp1:
+      active: true
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp2:
+      active: true
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    amp3:
+      active: false
+      lb: 0.01
+      ub: 3.75
+      val: 1.0
+    lam:
+      active: false
+      lb: 525.0
+      ub: 528.0
+      val: 526.5
+    ne_gradient:
+      active: false
+      lb: 0.0
+      num_grad_points: 1
+      ub: 15.0
+      val: 0.0
+    ud:
+      active: false
+      angle: 0.0
+      lb: -10.0
+      ub: 30.0
+      val: 0.0
+  ion-1:
+    A:
+      active: false
+      val: 84.0
+    Ti:
+      active: false
+      lb: 0.01
+      same: false
+      ub: 2.0
+      val: 0.1
+    Z:
+      active: false
+      lb: 0.5
+      ub: 36.0
+      val: 18.0
+    fract:
+      active: false
+      val: 0.1
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: 0.0
+  ion-2:
+    A:
+      active: false
+      val: 1.0
+    Ti:
+      active: false
+      lb: 0.01
+      same: false
+      ub: 1.0
+      val: 0.03
+    Z:
+      active: false
+      lb: 0.5
+      ub: 18.0
+      val: 1.0
+    fract:
+      active: false
+      val: 0.85
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: 0.0
+  ion-3:
+    A:
+      active: false
+      val: 40.0
+    Ti:
+      active: false
+      lb: 0.01
+      same: false
+      ub: 2.0
+      val: 0.1
+    Z:
+      active: false
+      lb: 0.5
+      ub: 36.0
+      val: 16.0
+    fract:
+      active: false
+      val: 0.05
+    Va:
+      active: false
+      angle: 0.0
+      lb: -20.5
+      ub: 20.5
+      val: 0.0

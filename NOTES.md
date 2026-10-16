@@ -350,3 +350,28 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - Generating parameters logged by those runs (old deck format `species1`/`species2`): `Te = 1.0` keV, `ne = 0.4` (1e20 cm⁻³), `lam = 526.5` nm, `ud = 5.0`, `Va = 0`, `amp1 = amp2 = 1`, ion `A = 1`, `Z = 1`, `Ti = 0.03` keV, `fract = 1`; IRF `spect_FWHM_ele = 0.9` nm, `ang_FWHM_ele = 1.0` deg; `CCDsize [1024, 1024]`, `ang_res_unit 10`, `lam_res_unit 5`, `points_per_pixel 1`; `data.shotnum 94475` (calibration source); `bgscaleE 0`. 1D runs: `fe.dim 1`, DLM, `m = 2.0` (`10000`) or `4.0` (`10001`), `v_res 0.01`. 2D runs: `fe.dim 2`, DLM, `m = 2.0`, `m_asym = 1.5`, `temp_asym = 1.5`, `m_theta = 0, 15, 30, 45, 60, 90` deg for `10002`–`10007`, `v_res 0.02`. `10011` run: `fe.dim 1`, DLM `m = 2.0`, `nvx 320`, `Te = 1.0`, `ne = 0.4`, `lam = 526.5`, ion `A = 1`, `Z = 1`, `Ti = 0.03`.
 - Not resolved: the processing between the run image and the file (scale ~92, noise, orientation) is not recorded in the files or the runs; the notebook named in the Perlmutter checkout (`create_synthetic_arts_data.ipynb`) could not be read because the NERSC certificate had expired.
 - Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-16 — RESULT: Phase 1 drift check of the synthetic ARTS images
+
+- USER (verbatim): "Regenerate a hydrogen case for the fits but first try to reporduce the Kr version for the drift check" and "Dont move from phase 1 to phase 2 without confirmations from me".
+- Data provenance found this session: the Perlmutter `ATS-s10011`/`ATS-s10012` were regenerated on 2025-10-28 from krypton runs `548792b2` (m=2) and `c3fbd2e3` (m=4) (ions Kr A=84 Z=18 fract 0.1, H fract 0.85, A=40 Z=16 fract 0.05; Ti 0.1/0.03/0.1); they store `EDF` and `Vx` datasets. The 2025-10-27 Maxwellian fits match the local hydrogen `ATS-s10011` (`dd544aed`): ratio roughness 0.034 against 0.065 for the krypton file and 0.045 for two independent noise draws. The SG4 fits match the Perlmutter krypton `ATS-s10012` at 0.0625, the independent-draw level; the hydrogen SG4 file they used (`f80ab7af`) is no longer present. Copies of the Perlmutter files are in `C:\tmp\synth_pm`.
+- Generation recipe (`create_synthetic_arts_data.ipynb`, Perlmutter checkout): `Poisson(100 * fit)`, `np.rot90(., 3)`, multiplied by `spectral_sensitivity.mat` throughput on the axis `0.214116 * px + 449.5272`; frame 1 is the run `data` array (zeros); attributes `title`, `data_source`, `input_deck`; datasets `EDF`, `Vx` from `csv/learned_dist.csv`. The saved `fit` of all four generating runs has every angle row normalized to a peak of 1.
+- Calibration entry added for shots 10000–10099 (0.214116 nm/px, 449.5272 nm), commit `8ae020c6`. Forward decks for the four generating runs, translated to the current format (`PhysParams` to `detector_specs`, `general.Va` to per-species `Va`, `extraoptions.fit_*` to `data`), in `configs/arts-2d-recovery/truth_{M_H,M_Kr,SG4_H,SG4_Kr}`. Forward runs on local CPU (`MLFLOW_TRACKING_URI=file:///C:/tmp/mlr`), each with `resonance_quadrature.enabled` false (legacy grid) and `auto` (root-aware); 20 s to 2 min each.
+- Wavelength axis: today's `fit_and_data.nc` axis runs 449.7400–668.7800 nm; the 2025 axis 449.8363–668.6837 nm (difference −0.096 nm at the blue end, 0 near 559 nm, +0.096 nm at the red end). Angle axes identical.
+- Comparison after normalizing each new row to its peak (rms and max of the difference; correlation) in rows 150–950 (43.2–121.9 deg, the old fits' window) and rms in rows 0–149:
+
+  | truth | variant | rows 150–950 rms | max | corr | rows 0–149 rms |
+  |---|---|---|---|---|---|
+  | M_H | legacy | 0.0045 | 0.106 | 0.999836 | 0.0094 |
+  | M_H | root-aware | 0.0122 | 0.482 | 0.998783 | 0.0181 |
+  | M_Kr | legacy | 0.0011 | 0.013 | 0.999991 | 0.0053 |
+  | M_Kr | root-aware | 0.0089 | 0.386 | 0.999362 | 0.0102 |
+  | SG4_H | legacy | 0.0065 | 0.180 | 0.999653 | 0.0758 |
+  | SG4_H | root-aware | 0.0161 | 0.649 | 0.997982 | 0.1350 |
+  | SG4_Kr | legacy | 0.0029 | 0.441 | 0.999931 | 0.1182 |
+  | SG4_Kr | root-aware | 0.0096 | 0.399 | 0.999232 | 0.1069 |
+
+- Against the `.hdf` frame 0 in the same window (recipe applied to each image, correlation): M_H old 0.98402, legacy 0.98386, root-aware 0.98280; M_Kr old 0.98400, legacy 0.98399, root-aware 0.98334; SG4_Kr old 0.98396, legacy 0.98391, root-aware 0.98318.
+- Lineouts at 32.4, 37.4, 58.7 and 95.2 deg: `C:\tmp\drift\drift_lineouts.png`; numbers `C:\tmp\drift\drift_report.json`. At 32.4 deg the SG4 images differ in kind between the 2025 run, the legacy grid and the root-aware quadrature (peak heights and the continuum between 480 and 570 nm).
+- State: Phase 1 complete; waiting for user confirmation before Phase 2.
+- Shared-vault mirror skipped: no vault resolved on this host.
