@@ -224,7 +224,12 @@ def get_calibrations(shotNum, tstype, t0, CCDsize, detector_specs: Dict):
     stddev = dict()
     # Dispersions and calibrations
     if tstype == "angular":
-        if shotNum < 95000:
+        if 10000 <= shotNum < 10100:
+            # synthetic ARTS test images (ATS-s100xx): generated with the angular calibration below as it stood
+            # in 2025, so they keep it when the real-shot offset changes
+            EPWDisp = 0.214116
+            EPWoff = 449.5272
+        elif shotNum < 95000:
             EPWDisp = 0.214116
             # EPWoff = 449.5272
             EPWoff = 445.39  # 4.13 nm below 449.5272 to center the notch filter in s94475
