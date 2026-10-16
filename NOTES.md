@@ -341,12 +341,6 @@ Append-only record of numerical-physics investigations and the decisions needed 
 
 - Observations: the runs separate from one another at step 1 or 2 by `1e-9`–`4e-7` relative, with identical code included (update-10/-11/-12, update-13/-14/-15). Final objectives: old code mean `455.038` (sample s.d. `0.244`); new code mean `456.597` (s.d. `2.573`), or `455.130` without update-13. Update-13 is the only run whose loss stays above the others from step 100 onward; it also has the lowest fitted Te and the highest second moment, with Te × ⟨v²⟩ within `0.003` keV of the other five runs.
 - Status: no further runs requested. The data do not show a difference between the two codes apart from update-13; with three GPU runs per code, a GPU-only effect smaller than the run-to-run spread, or one that occurs in a minority of runs, is not excluded.
-MLflow is optional. When enabled, each run name contains the actual fit model,
-truth, seed and photon level; histories, best metrics, configurations, observed
-data, checkpoints and common SVD artifacts are uploaded. A final summary run
-contains the seed intervals and links to the individual run IDs. Local artifacts remain
-the complete record even without a tracking service.
-
 ## 2026-10-16 — RESULT: provenance of the synthetic ARTS datasets `ATS-s10000`–`ATS-s10007` and `ATS-s10011`
 
 - USER (verbatim): "Inspect those files and determine if they carry data or metadata the tells what they are and what the plasma conditions to generate them are".
