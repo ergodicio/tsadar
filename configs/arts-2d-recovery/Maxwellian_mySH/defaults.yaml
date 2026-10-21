@@ -122,7 +122,7 @@ other:
     bisection_iterations: 48
     tail_sigma: 6.0
     scan_phase: 0.0
-    map_batch_size: 8
+    map_batch_size: 1
   refit: false
   refit_thresh: 0.25
 parameters:
