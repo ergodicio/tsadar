@@ -167,10 +167,13 @@ def forward_pass(config):
                         index=velocity,
                     )
                 else:
+                    # Arbitrary2V returns a 1D velocity axis; keep the mesh indexing for 2D velocity arrays
+                    v_axis = np.asarray(velocity)
+                    columns, index = (v_axis, v_axis) if v_axis.ndim == 1 else (velocity[0][0], velocity[0][:, 0])
                     final_dist = pandas.DataFrame(
                         data=np.squeeze(fe_val),
-                        columns=velocity[0][0],
-                        index=velocity[0][:,0],
+                        columns=columns,
+                        index=index,
                     )
             final_dist.to_csv(os.path.join(td, "csv", "learned_dist.csv"))
         else:
