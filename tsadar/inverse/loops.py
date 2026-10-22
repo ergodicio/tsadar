@@ -61,6 +61,39 @@ def _require_finite(tree, quantity: str, *, step: int, stage: int) -> None:
         raise NonFiniteOptimizationError(quantity, step=step, stage=stage)
 
 
+def _log_nonfinite_failure(error, checkpoint, candidate_params, static_params, state_weights) -> None:
+    """Log the last finite checkpoint and the failing candidate parameters before a nonfinite stop.
+
+    A fit that stops on a nonfinite value otherwise leaves nothing to reproduce it from: the
+    periodic state snapshots are only written when the loop completes. The candidate is the
+    parameter tree on which the nonfinite quantity was evaluated (None if the update itself was
+    nonfinite). Both are written with eqx.tree_serialise_leaves, as fitter._save_fit_artifacts does.
+    """
+    import json, os, tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        eqx.tree_serialise_leaves(os.path.join(td, "nonfinite_last_finite_weights.eqx"), checkpoint.weights)
+        if candidate_params is not None:
+            eqx.tree_serialise_leaves(
+                os.path.join(td, "nonfinite_candidate_weights.eqx"), eqx.combine(candidate_params, static_params)
+            )
+        with open(os.path.join(td, "nonfinite_state_weights.txt"), "wb") as file:
+            file.write(pickle.dumps(state_weights))
+        with open(os.path.join(td, "nonfinite_failure.json"), "w") as file:
+            json.dump(
+                {
+                    "quantity": error.quantity,
+                    "step": error.step,
+                    "stage": error.stage,
+                    "last_finite_loss": checkpoint.loss,
+                    "last_finite_step": checkpoint.step,
+                    "candidate_saved": candidate_params is not None,
+                },
+                file,
+            )
+        mlflow.log_artifacts(td)
+
+
 def _gradient_norm(grad) -> float:
     leaves = _numeric_leaves(grad)
     if not leaves:
@@ -881,15 +914,20 @@ def angular_multiple_optax(
     for i_epoch in (pbar := trange(config["optimizer"]["num_epochs"])):
         updates, opt_state = solver.update(grad, opt_state, diff_params)
         global_step = previous_epoch + i_epoch + 1
-        _require_finite(updates, "update", step=global_step, stage=stage)
-        candidate_params = eqx.apply_updates(diff_params, updates)
-        _require_finite(candidate_params, "parameters", step=global_step, stage=stage)
+        candidate_params = None
+        try:
+            _require_finite(updates, "update", step=global_step, stage=stage)
+            candidate_params = eqx.apply_updates(diff_params, updates)
+            _require_finite(candidate_params, "parameters", step=global_step, stage=stage)
 
-        (candidate_raw_loss, aux), candidate_grad = loss_fn.vg_loss(
-            candidate_params, static_params, actual_data
-        )
-        _require_finite(candidate_raw_loss, "loss", step=global_step, stage=stage)
-        _require_finite(candidate_grad, "gradient", step=global_step, stage=stage)
+            (candidate_raw_loss, aux), candidate_grad = loss_fn.vg_loss(
+                candidate_params, static_params, actual_data
+            )
+            _require_finite(candidate_raw_loss, "loss", step=global_step, stage=stage)
+            _require_finite(candidate_grad, "gradient", step=global_step, stage=stage)
+        except NonFiniteOptimizationError as error:
+            _log_nonfinite_failure(error, checkpoint, candidate_params, static_params, state_weights)
+            raise
         candidate_loss = float(candidate_raw_loss)
 
         improvement = checkpoint.loss - candidate_loss

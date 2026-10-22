@@ -125,6 +125,44 @@ def test_angular_nonfinite_initial_loss_fails_structurally(isolated_optimizer):
     assert exc_info.value.step == 0
 
 
+def test_angular_nonfinite_mid_run_logs_reproduction_artifacts(tmp_path, monkeypatch, isolated_optimizer):
+    class NonFiniteAfterFirstUpdate(_QuadraticLoss):
+        def vg_loss(self, diff_params, static_params, batch):
+            (value, aux), grad = super().vg_loss(diff_params, static_params, batch)
+            value = jnp.where(diff_params.electron.normed_Te == 0.0, value, jnp.nan)
+            return (value, aux), grad
+
+    logged = {}
+
+    def fake_log_artifacts(directory):
+        for name in os.listdir(directory):
+            with open(os.path.join(directory, name), "rb") as file:
+                logged[name] = file.read()
+
+    monkeypatch.setattr(loops.mlflow, "log_artifacts", fake_log_artifacts)
+    initial = _FakeParams(_FakeElectron(jnp.asarray(0.0), _FakeDistribution()))
+    with pytest.raises(NonFiniteOptimizationError, match="Nonfinite loss") as exc_info:
+        angular_multiple_optax(
+            _fake_angular_config(), None, NonFiniteAfterFirstUpdate(), {}, previous_weights=initial
+        )
+    assert exc_info.value.step == 1
+    assert set(logged) == {
+        "nonfinite_last_finite_weights.eqx",
+        "nonfinite_candidate_weights.eqx",
+        "nonfinite_state_weights.txt",
+        "nonfinite_failure.json",
+    }
+
+    # The candidate is the exact tree the nonfinite loss was evaluated on (SGD moves 0 -> 6),
+    # and the last finite checkpoint is the initial evaluated state.
+    for name, expected in (("nonfinite_candidate_weights.eqx", 6.0), ("nonfinite_last_finite_weights.eqx", 0.0)):
+        path = os.path.join(tmp_path, name)
+        with open(path, "wb") as file:
+            file.write(logged[name])
+        restored = eqx.tree_deserialise_leaves(path, initial)
+        assert float(restored.electron.normed_Te) == pytest.approx(expected)
+
+
 def test_angular_continuation_returns_global_best_stage(monkeypatch, isolated_optimizer):
     loss_functions = []
 
