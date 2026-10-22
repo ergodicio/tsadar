@@ -20,7 +20,7 @@ data:
 machine: gpu
 mlflow:
   experiment: arts2d-recovery
-  run: Maxwellian_nnSH_baseline_2
+  run: Maxwellian_nnSH_baseline_3
 other:
   calc_sigmas: false
   extraoptions:
