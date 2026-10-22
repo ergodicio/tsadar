@@ -383,3 +383,106 @@ Append-only record of numerical-physics investigations and the decisions needed 
 - New data files (untracked, `tsadar/external/data`): `ATS-s10021.hdf` (Maxwellian) and `ATS-s10022.hdf` (SG4). Frame 0 = `rot90(Poisson(k * fit), 3) * spectral_sensitivity` with one scale `k` for the image (912.7 and 1094) chosen so the median row peak in rows 150–950 is 100 counts; numpy `default_rng` seeds 21 and 22; frame 1 = zeros. Row-peak counts in rows 150–950: 94.8–229.4 (M), 91.9–181.9 (SG4). Attributes `title`, `data_source` (S3 path of the truth run), `input_deck`, `generation`; datasets `EDF`, `Vx` from the truth run.
 - Fit decks: `configs/arts-2d-recovery/{Maxwellian,SG4}_{dlm,arb1D,arb2D,arbSH,nnSH,mySH}`, translated from the 12 `tsadar-tests-2` runs (inputs as logged, with `PhysParams`→`detector_specs`, per-species `Va`, `extraoptions.fit_*`→`data`; defaults = current `configs/arts-1d/defaults.yaml` with `bgscaleE: 0`, the only differing old default). Data changed to `[10021, 10021]` / `[10022, 10022]` with `shot_rot: 90`. All 12 pass `_validate_inputs_` and build `ThomsonParams`; root-aware quadrature is on for all (1D resolved by the input check, 2D by default).
 - Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-21 — RESULT: the fit model at the truth reproduces the synthetic ARTS images; the mismatch was the inverse activation
+
+- USER (verbatim): "I am concerned that you do not reporduce the test data and would like to dig into that first."
+- Data-file fix made earlier in this phase: the first `ATS-s10021`/`10022` applied the throughput along the angle axis after `rot90` (a 0.90→1.47 tilt across wavelength, truth data term 67). They were regenerated with `counts * speccal` (speccal shape (1, 1024), along wavelength) before `rot90`, as the notebook does; prepared data / truth ≈ 0.99–1.0 in every wavelength band.
+- 2D decks carry `resonance_quadrature.map_batch_size: 1` (commit `5b6afa6e`); a 2D fit step still needed about 59 GB on one A100 (unresolved).
+- Symptom: the fit-mode model "at truth" (Te 1, ne 0.4, DLM m 2, shot 10021) differed from the forward truth image binned 5 (wavelength) x 10 (angle) by 4.5% rms, 12.7% max, 15% rms in the lowest-angle row (43.7 deg), with the peak 7% high and weight moved to the outside of both EPW peaks. Ruled out: data files (chi2 0.85 per pixel against the scaled truth with the true Poisson variance), variance model (objective / true variance 0.94), profiled gains (894 against a true scale ~900), nvx 128/320, Ti 0.1/0.03, angle and wavelength axes, IRF widths (calibration gives 0.9 nm / 1.0 deg, the truth deck has the same), scattering angles and weights (both from `get_scattering_angles`).
+- Cause: the diagnostic built `ThomsonParams(..., activate=True)`. For active parameters the stored value is `log(1e-2 + x / (1 - x + 1e-2))` of the normalized value (`ts_params.get_act_and_inv_act`, and the same expression in `DLM1V`), which `sigmoid` does not invert exactly. Deck values decode to Te 0.9953, ne 0.4093, m 2.0297 (Maxwellian; m 4 → 3.9837). Forward mode uses `activate=False` (identity), so the truth images are at the exact values.
+- At the exact values (`activate=False`), fit model vs truth image, rows 15–94 of the binned image:
+
+  | dataset | rms | max | row 0 rms | median row rms | data term per pixel |
+  |---|---|---|---|---|---|
+  | Maxwellian 10021, activated | 4.54e-2 | 1.27e-1 | 0.154 | 0.028 | 3.66 |
+  | Maxwellian 10021, exact | 1.41e-3 | 3.52e-3 | 0.0021 | 0.0014 | 1.02 |
+  | SG4 10022, activated | 5.70e-2 | 2.15e-1 | 0.246 | 0.030 | 5.68 |
+  | SG4 10022, exact | 2.22e-3 | 5.48e-3 | 0.0044 | 0.0022 | 0.98 |
+
+  The remaining ~0.2% is within the differences between the two set-ups (nvx 128 against 320, 205 five-pixel detector bins against 1024 one-pixel bins). The earlier GPU "truth" objectives (data term 7.3 M, 11.4 SG4, both shots) were evaluated with the activated values and overstate the truth misfit.
+- Consequence for fits: every active parameter starts slightly away from its deck `val` (here +2.3% in ne, −0.5% in Te); this moves only the initial point. Not changed in the code (it touches every fit path). Diagnostics that evaluate a model at given values must use `activate=False`.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-21 — RESULT: the 2D-fe ARTS gradient's memory grows linearly with scattering angle; per-angle rematerialization bounds it
+
+- USER (verbatim): "There have been a large number of commits and PR focused on correcting the memory usage of 2D EDFs additionaly you can see that the previous runs ran which means they did not run out of memory. Try running with the higher memory fraction and while that is running look through the repo history to see if you can identify the problem and a potential fix". The GPU run is pending: Perlmutter was down for maintenance.
+- History: the 2025 fits (code at `8ce493b0`) evaluated the 2D susceptibility on the 1024-point wavelength grid at 241 angles, with the per-point EDF rotation wrapped in `jax.checkpoint`. Since #143 (`c5360f74`) 2D fe defaults to the root-aware detector-bin quadrature, `FitModel.detector_integrated_electron_spectrum` in `generate_spectra.py`: a `lax.map` over gradient x angle, each iteration a full `integrate_detector_bins` (4097 root-scan points, 256 panels x 8 regular nodes, 16 roots x 3 panels x 32 tan-mapped nodes, each node a sinogram gather and `ratintn` over `nvx`). Nothing in it is rematerialized, so reverse mode stores every iteration's residuals. `map_batch_size` already defaults to 1, which is why setting it in the decks changed nothing.
+- Measurement: CPU, XLA buffer plan (`memory_analysis().temp_size_in_bytes`) of the jitted loss + gradient for `Maxwellian_arb2D` (both multiplexed shots), with the angle set subsampled to N angles (`sa` and the weight columns sliced). Script: scratchpad `mem_arts2d.py`.
+
+  | N angles | as is | `jax.checkpoint` around the per-angle integration |
+  |---|---|---|
+  | 2 | 1.065 GB | 0.265 GB |
+  | 4 | 1.867 GB | 0.265 GB |
+  | 8 | 3.470 GB | 0.265 GB |
+  | 32 | — | 0.265 GB |
+
+  As is: 0.40 GB per angle, extrapolating to about 97 GB at 241 angles, above an 80 GB A100 at any `XLA_PYTHON_CLIENT_MEM_FRACTION`. With the checkpoint the plan is independent of N.
+- Proposed fix (not applied, awaiting the user): `lax.map(jax.checkpoint(integrate_one), ...)` in `detector_integrated_electron_spectrum`. Values are unchanged; the backward pass recomputes each angle's forward integration once, so a step should cost up to roughly one extra forward evaluation. To be timed on the GPU.
+- Shared-vault mirror skipped: no vault resolved on this host.
+- Gradient check of the proposed checkpoint (CPU, float64, `Maxwellian_arb2D` at its initial parameters, 4 subsampled angles, both shots; scratchpad `remat_grad_check.py`): loss identical bit for bit (2.312641206946842e+03); gradient over all 5 leaves including the 128 x 128 EDF (16384 entries) agrees to max |diff| / max |g| 2.3e-16 overall and 1.8e-15 on the EDF leaf, ||diff|| / ||g|| 4.4e-16, cosine 1 to 15 digits. Rematerialization recomputes the same forward from the same inputs; the only conceivable difference is a recomputed root-panel selection flipping under a non-bitwise-reproducible GPU reduction, which would change the result only at the quadrature-error level.
+- USER (verbatim): "Make this change at this location so it impacts both 1D and 2D arts fits. And add to the plan a set of test moving the checkpoint location further into formfactor or ratintn so that we can compare the speed and memory requirements of the different implementations". Applied: `lax.map(checkpoint(integrate_one), ...)` in `FitModel.detector_integrated_electron_spectrum`, for every root-aware ARTS fit (1D and 2D fe). Targeted tests (`tests/test_forward/`: `test_unresolved_arts2d`, `test_resonance_notch_filter`, `test_angular_1v`, `test_angular_2v`, `test_irf_area`; `tests/test_inverse/test_angular_objective`; `tests/test_physics/test_arts_recovery`; the inverse `test_angular_1v`/`2v` fits were not run): 58 passed, 1 skipped, 284 s on CPU. The placement comparison (geometry / quadrature nodes / form factor / `calc_chi_vals` / `ratintn`, and checkpoint policies) is Phase 2b of the plan; GPU memory and step time still to be measured when Perlmutter returns.
+
+## 2026-10-22 — RESULT: GPU memory and step time of the recovery decks with the per-angle checkpoint; map_batch_size 64 for 2D
+
+- USER (verbatim): "Perlmutter should now be available. Resume the plan" and "I believe that the batch size effects the accuracy right?"
+- Session `20261022T084315Z-963-15789`, Slurm job `60099517`, one A100 80 GB (`shared_interactive`), source `5b6afa6e` dirty (fingerprint `dd065df7e3de`: the `checkpoint(integrate_one)` change), `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`. Script `C:\tmp\step_check_arts2d.py`: 10 loss+gradient steps (`lf.vg_loss`, both multiplexed shots) at each deck's initial parameters, then 4 forward-only `lf._loss_`; peak = `memory_stats()["peak_bytes_in_use"]`.
+- Six Maxwellian decks, deck settings (`map_batch_size` 1 for 2D, 8 for 1D):
+
+  | deck | fe dim | peak | step 1 | step 2 | median steps 3–10 | forward | 1000 steps |
+  |---|---|---|---|---|---|---|---|
+  | arb2D | 2 | 1.28 GB | 157.0 s | 30.2 s | 30.18 s | 9.89 s | 505 min |
+  | arbSH | 2 | 1.28 GB | 156.2 s | 30.2 s | 30.21 s | 9.84 s | 506 min |
+  | nnSH | 2 | 1.28 GB | 155.2 s | 30.3 s | 30.30 s | 9.81 s | 507 min |
+  | mySH | 2 | 1.28 GB | 154.3 s | 30.2 s | 30.36 s | 9.84 s | 508 min |
+  | dlm | 1 | ≤1.28 GB | 86.1 s | 1.0 s | 0.96 s | 0.27 s | 17.5 min |
+  | arb1D | 1 | ≤1.28 GB | 80.2 s | 1.0 s | 0.97 s | 0.27 s | 17.5 min |
+
+  (The 1D peaks are the process peak, already 1.28 GB from the 2D decks run first.) The checkpoint removes the out-of-memory failure; a 2D gradient step costs about 3x a forward evaluation.
+- `map_batch_size` sweep, `Maxwellian_arb2D`, one process per value:
+
+  | map_batch_size | peak | step 1 | median steps 3–10 | forward | 1000 steps |
+  |---|---|---|---|---|---|
+  | 1 | 1.28 GB | 157.0 s | 30.18 s | 9.89 s | 505 min |
+  | 8 | 1.52 GB | 250.5 s | 5.78 s | 1.54 s | 101 min |
+  | 32 | 6.48 GB | 255.8 s | 3.15 s | 0.58 s | 57 min |
+  | 64 | 18.26 GB | 264.1 s | 2.32 s | 0.47 s | 43 min |
+  | 128 | 64.15 GB | 311.8 s | 2.65 s | 0.60 s | 49 min |
+  | 241 | out of memory (88 GB allocation) | | | | |
+
+  Loss at the initial point 4.119704e+02 for every value. Set `map_batch_size: 64` in the eight 2D recovery decks (`configs/arts-2d-recovery/{Maxwellian,SG4}_{arb2D,arbSH,nnSH,mySH}/defaults.yaml`); the 1D decks keep 8.
+- Accuracy: `map_batch_size` only sets how many independent gradient x angle integrations `lax.map` vectorizes per iteration; each keeps its own root search and quadrature nodes. CPU float64 check (scratchpad `mbs_grad_check.py`, `Maxwellian_arb2D`, 8 angles, both shots): loss 1.595985967385055e+03 at 1 and 4, ...054e+03 at 8; gradient max |diff| / max |g| 2.6e-16 (4 vs 1) and 1.9e-16 (8 vs 1). The accuracy controls are `integration_panels`, `root_scan_panels`, `regular_order`, `root_order`, `max_roots`, unchanged.
+- Shared-vault mirror skipped: no vault resolved on this host.
+
+## 2026-10-22 — LAUNCH: Phase 2 baseline fits of the synthetic ARTS images (12 decks)
+
+- Session `20261022T100730Z-1938-9542`, Slurm job `60100768` (`--kind gpu`, one 4 x A100 80 GB node, 3 h), source `5b6afa6e` dirty (fingerprint `f51bcdf7e8af`: per-angle `checkpoint(integrate_one)`, `map_batch_size: 64` in the eight 2D decks). Command per deck: `python -u run_tsadar.py --cfg configs/arts-2d-recovery/<deck> --mode fit`, through `C:\tmp\run_queue_arts2d.sh` (one queue per GPU, `CUDA_VISIBLE_DEVICES` = queue index; logs `workdir/fits/<deck>.log`, `workdir/fits/queue.log`). MLflow experiment `arts2d-recovery` (189144). A first launch at 03:10 PDT failed for every deck with `python: command not found` (venv not activated in the queue script) before any run was created; those logs are in `workdir/fits_failed_launch/`.
+- Queues: GPU 0 `Maxwellian_arb2D`, `Maxwellian_arbSH`, `Maxwellian_dlm`; GPU 1 `Maxwellian_nnSH`, `Maxwellian_mySH`, `Maxwellian_arb1D`; GPU 2 `SG4_arb2D`, `SG4_arbSH`, `SG4_dlm`; GPU 3 `SG4_nnSH`, `SG4_mySH`, `SG4_arb1D`. Expected about 45–50 min per 2D fit and 20 min per 1D fit.
+- First runs (03:11 PDT): `Maxwellian_arb2D_baseline` `1af2600f5b424719b64d7ee0b4d89dc3`, `Maxwellian_nnSH_baseline` `e6385ff874e94529a6b437596ecd07fd`, `SG4_arb2D_baseline` `e45d563a379c4cb7a7c3c289ebf8ee7b`, `SG4_nnSH_baseline` `aa16dcb19503479fb857ad20ec479aef`.
+- Shared-vault mirror skipped: no vault resolved on this host.
+- Gain-prior check (USER, verbatim: "Add two more runs to the queue that try those two other options for the prior. Only do it for one model as it's just a check to see if the prior is effecting the parameters. This prior will be heavily effected by phase 3 so these should just be quick tests"). The default per-row gain prior (`prior_mean` 1, `prior_strength` 0.01) is 93% of the objective on these images (27.6 of 29.75 for `Maxwellian_arb2D`, both shots) because the data/model scale is ~900, and it rewards a brighter model (amp1/amp2 drifted to 1.00–1.04 in all four first fits). Two decks identical to `Maxwellian_dlm` apart from the run name and one gain option: `Maxwellian_dlm_prior0` (`optimizer.angular_objective.gain.prior_strength: 0.0`) and `Maxwellian_dlm_priormean900` (`prior_mean: 900.0`, the known scale: generation k 912.7 after the throughput correction; profiled gains at truth ~894). Queued at 04:39 PDT by `C:\tmp\run_after_arts2d.sh`: `prior0` on GPU 0 after `Maxwellian_dlm` ends, `priormean900` on GPU 2 after `SG4_dlm` ends; same session and source.
+
+## 2026-10-22 — RESULT: Phase 2 baseline fits (current per-row gains) and the gain-prior check
+
+- All 12 baseline fits ended with exit 0 (03:11–05:32 PDT, job `60100768`); artifacts in `C:\tmp\newfits\<M|S>_<model>`, comparison `compare_arts2d_recovery.py --fits old=C:/tmp/oldfits new=C:/tmp/newfits --truth-root C:/tmp/newdata --out C:/tmp/compare_phase2` (`summary.csv`, `summary.md`, `fe_*.png`). Wall time per fit: 2D 44–60 min (arbSH ~60), 1D ~20 min.
+- New fits (truth Te 1, ne 0.4; data term summed over the two shots, truth level ≈ 2.05; Te_eff = Te <v^2>; L2 = log10 fe for |v|<3 after standardizing to <v^2> = 1):
+
+  | dataset | model | Te err | ne err | Te_eff err | L2 new (old) | ratio 3–4 | data | gain prior |
+  |---|---|---|---|---|---|---|---|---|
+  | M | dlm | +0.5% | −0.2% | +0.5% | 0.0085 (0.0085) | 0.86 | 3.06 | 28.0 |
+  | M | arb1D | +19.3% | −0.0% | +0.1% | 0.0009 (0.0043) | 1.00 | 2.09 | 27.9 |
+  | M | arb2D | +15.8% | −1.3% | +2.5% | 0.060 (0.086) | 0.53 | 2.13 | 27.6 |
+  | M | arbSH | −1.7% | −0.3% | −1.7% | 0.0003 (0.012) | 1.00 | 29.8 | 27.6 |
+  | M | nnSH | −2.3% | −0.0% | −2.3% | 0.0043 (0.036) | 0.99 | 4.42 | 27.9 |
+  | M | mySH | −1.6% | −0.2% | −1.4% | 0.0062 (0.012) | 1.00 | 28.7 | 27.5 |
+  | S | dlm | +0.0% | −0.0% | +0.0% | 0.0007 (0.028) | 1.03 | 1.98 | 25.7 |
+  | S | arb1D | −16.5% | −0.1% | +0.1% | 0.0014 (0.042) | 1.24 | 2.08 | 25.6 |
+  | S | arb2D | −6.2% | +0.3% | −4.3% | 0.054 (0.104) | 12.1 | 2.07 | 24.8 |
+  | S | arbSH | −1.4% | −1.3% | −1.4% | 0.013 (0.011) | 0.71 | 70.6 | 24.8 |
+  | S | nnSH | −3.6% | +0.6% | −3.4% | 0.0098 (0.016) | 1.09 | 7.07 | 26.2 |
+  | S | mySH | −0.8% | −0.1% | −0.6% | 0.070 (0.019) | 1.05 | 56.4 | 24.8 |
+
+- Arbitrary 1D fe: Te and the EDF width are degenerate (Te off by +19% / −16.5% while Te_eff is within 0.1%); only Te_eff is constrained by the spectrum.
+- SH models (arbSH, mySH; nnSH partly) did not train: loss flat from step ~99 to 1000 (Maxwellian_arbSH 57.4, SG4_arbSH 95.4, Maxwellian_mySH 56.2) with data terms 14–35x the truth level. CPU gradient at the arbSH initial point (`sh_grad_check.py`, 4 angles): the l=1 coefficients start at exactly zero and `flm_mag` has an exactly zero gradient there (stationary start); Te, ne, m, amp1/2 have finite gradients. Final Maxwellian arbSH m = 2.000 sits on its lower bound. Open question: at the true parameters (activate=False, 4 subsampled angles, `sh_vs_1d_truth.py`) the arbSH and mySH model images differ from the 1D DLM image by ~15% in amplitude and 19–22% rms in shape for both shots; whether that is an SH-specific representation problem or a 2D-path difference is not yet separated (arb2D in that test was at its init_m 3 shape, not a Maxwellian).
+- Gain-prior check: `Maxwellian_dlm_priormean900` (`54d4ac8898d44ee188a0c28138fda79b`): Te 1.0043, ne 0.3991, m 2.085, amp1/amp2 1.029/1.030, data 2.79, gain prior 0.003, total 2.80; baseline `Maxwellian_dlm`: Te 1.0046, ne 0.3991, m 2.083, amp 1.040/1.041, data 3.06, prior 28.0. The prior mean does not move Te, ne or m; amp1/amp2 still drift (to 1.03), so the drift is not only the prior's pull. `Maxwellian_dlm_prior0` failed at start (`loss_function.py:338`: unanchored per-row gains with active amp1/amp2 are rejected); proposed fix (amp1/amp2 inactive in that deck) not applied, allocation ended first.
+- Shared-vault mirror skipped: no vault resolved on this host.
