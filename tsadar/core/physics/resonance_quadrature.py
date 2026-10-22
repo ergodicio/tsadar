@@ -31,7 +31,7 @@ spectrum is ``numerator / abs(epsilon)**2``.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Optional
 
 import jax
 from jax import lax
@@ -51,9 +51,12 @@ class ResonanceQuadratureDiagnostics(NamedTuple):
     means the numerical value must not be used; ``bin_mean`` is poisoned with
     ``nan`` in that case so compiled fit code cannot consume a partial result.
     The fixed-size root arrays are padded with finite values; ``root_mask``
-    identifies populated entries.
+    identifies populated entries. ``scan_root_count`` counts every ``Re(epsilon)``
+    sign change on the scan; ``root_count`` counts those resolved with tan-mapped
+    panels (all of them unless width gating is enabled).
     """
 
+    scan_root_count: Array
     root_count: Array
     used_root_count: Array
     root_overflow: Array
@@ -285,6 +288,27 @@ def _root_crossings(real_epsilon):
     return finite & (strict_crossing | left_root | right_root_at_end)
 
 
+def _scan_half_widths(scan_edges_nm, epsilon_scan):
+    """Estimate each scan panel's resonance half-width from the scan values alone.
+
+    At a sign change of ``Re(epsilon)`` the resonance half-width is
+    ``|Im(epsilon)| / |dRe(epsilon)/dlambda|``; both are taken from the panel's two
+    endpoints (``Im`` interpolated to the zero of ``Re``), so no extra evaluations are
+    needed. Panels without a usable estimate return ``inf`` only if ``Re`` does not
+    change there; a degenerate slope returns ``0`` so the root is treated as narrow.
+    """
+
+    re, im = jnp.real(epsilon_scan), jnp.imag(epsilon_scan)
+    d_re = re[1:] - re[:-1]
+    d_lam = scan_edges_nm[1:] - scan_edges_nm[:-1]
+    safe_d_re = jnp.where(d_re != 0, d_re, 1.0)
+    fraction = jnp.clip(jnp.where(d_re != 0, re[:-1] / (re[:-1] - re[1:]), 0.5), 0.0, 1.0)
+    im_at_root = im[:-1] + fraction * (im[1:] - im[:-1])
+    slope = jnp.abs(safe_d_re / d_lam)
+    width = jnp.abs(im_at_root) / slope
+    return jnp.where(d_re != 0, width, 0.0)
+
+
 def _selected_root_panels(crossings, max_roots: int):
     panel_ids = jnp.arange(crossings.shape[0], dtype=jnp.int32)
     sentinel = jnp.asarray(crossings.shape[0], dtype=jnp.int32)
@@ -470,6 +494,7 @@ def integrate_detector_bins(
     bisection_iterations: int = 48,
     tail_sigma: float = 6.0,
     scan_phase: float = 0.0,
+    resolve_width_nodes: Optional[float] = None,
 ) -> ResonanceQuadratureResult:
     """Integrate one possibly unresolved spectrum into detector bins.
 
@@ -505,6 +530,14 @@ def integrate_detector_bins(
             the source endpoints and exact integration breakpoints. Values must lie
             strictly between -1 and 1. This is primarily useful for convergence
             checks against arbitrary numerical-grid phase.
+        resolve_width_nodes: Width gate, in units of the regular quadrature's mean
+            node spacing (source span / (integration_panels * regular_order)). Only
+            roots whose scan-estimated half-width is below this many node spacings are
+            bisected and tan-mapped; broader resonances are already resolved by the
+            regular panels and do not use a root slot or count toward ``max_roots``.
+            Narrow roots are resolved wherever they lie, so sharp features (including
+            ones from spiky distribution functions) keep their exact treatment.
+            ``None`` or ``<= 0`` resolves every root (the original behavior).
 
     Returns:
         :class:`ResonanceQuadratureResult`. ``bin_mean`` is a spectral density,
@@ -589,7 +622,17 @@ def integrate_detector_bins(
     if epsilon_scan.shape != root_scan_edges_nm.shape:
         raise ValueError("terms_fn epsilon must have the same 1-D shape as its wavelength input")
     real_epsilon_scan = jnp.real(epsilon_scan)
-    crossings = _root_crossings(real_epsilon_scan)
+    scan_crossings = _root_crossings(real_epsilon_scan)
+    scan_root_count = jnp.sum(scan_crossings, dtype=jnp.int32)
+    if resolve_width_nodes is not None and float(resolve_width_nodes) > 0:
+        node_spacing = (safe_source_upper - safe_source_lower) / (integration_panels * regular_order)
+        width_limit = float(resolve_width_nodes) * node_spacing
+        scan_widths = _scan_half_widths(root_scan_edges_nm, epsilon_scan)
+        # a nonfinite estimate is treated as narrow, so it is resolved (or flagged) as before
+        narrow = ~(jnp.isfinite(scan_widths) & (scan_widths >= width_limit))
+        crossings = scan_crossings & lax.stop_gradient(narrow)
+    else:
+        crossings = scan_crossings
     root_count = jnp.sum(crossings, dtype=jnp.int32)
     used_root_count = jnp.minimum(root_count, max_roots)
     root_overflow = root_count > max_roots
@@ -765,6 +808,7 @@ def integrate_detector_bins(
     bin_mean = jnp.where(fatal, jnp.full_like(bin_mean, jnp.nan), bin_mean)
 
     diagnostics = ResonanceQuadratureDiagnostics(
+        scan_root_count=scan_root_count,
         root_count=root_count,
         used_root_count=used_root_count,
         root_overflow=root_overflow,

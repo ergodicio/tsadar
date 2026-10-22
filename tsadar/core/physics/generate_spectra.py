@@ -104,6 +104,9 @@ class FitModel:
                 ),
                 "tail_sigma": tail_sigma,
                 "scan_phase": float(quadrature_config.get("scan_phase", 0.0)),
+                # only resonances narrower than this many regular-quadrature node spacings
+                # are tan-mapped; broader ones are resolved by the regular panels
+                "resolve_width_nodes": float(quadrature_config.get("resolve_width_nodes", 3.0)),
             }
             # ``lax.map`` keeps the expensive node-by-detector response matrix bounded
             # in memory. A small explicit batch can recover device parallelism without

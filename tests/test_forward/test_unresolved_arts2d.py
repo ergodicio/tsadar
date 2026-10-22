@@ -331,6 +331,10 @@ def test_fit_model_integrates_each_geometry_then_aperture_weights(monkeypatch):
                 "root_order": 16,
                 "max_roots": MAX_ROOTS,
                 "map_batch_size": 1,
+                # this test exercises the tan-mapped plumbing; its 0.02 nm resonance is
+                # 2 node spacings wide on this coarse grid, which the width gate would
+                # (correctly) leave to the regular panels
+                "resolve_width_nodes": 0.0,
             },
             "lamrangE": [0.0, 2.0],
             "lamrangI": [0.0, 2.0],
@@ -370,6 +374,7 @@ def test_fit_model_integrates_each_geometry_then_aperture_weights(monkeypatch):
     assert model.electron_spectrum_is_detector_binned
     assert raw_bins.shape == (2, detector_edges.size - 1, 2)
     assert model_bins.shape == (2, detector_edges.size - 1)
+    assert np.all(np.asarray(diagnostics.scan_root_count) == 1)
     assert np.all(np.asarray(diagnostics.root_count) == 1)
     assert np.all(np.isfinite(np.asarray(raw_bins)))
     np.testing.assert_array_equal(np.asarray(axis), detector_centers)

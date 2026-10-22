@@ -126,6 +126,9 @@ other:
     bisection_iterations: 48
     tail_sigma: 6.0
     scan_phase: 0.0
+    # tan-map only resonances narrower than this many regular-quadrature node spacings;
+    # broader ones are resolved by the regular panels and do not count toward max_roots
+    resolve_width_nodes: 3.0
     # scattering angles integrated at once; raise for speed, lower if memory runs out
     map_batch_size: 8
   refit: false

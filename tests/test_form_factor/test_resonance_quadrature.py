@@ -506,3 +506,61 @@ def test_diagnostics_report_overflow_nonfinite_and_zero_width():
         assert np.all(np.isnan(np.asarray(bad_breakpoints.bin_mean)))
     with pytest.raises(ValueError, match="integration breakpoints"):
         raise_for_diagnostics(bad_breakpoints)
+
+
+def _many_root_terms(wavelengths_nm, narrow_nm=474.125, period_nm=1.7):
+    """Re(epsilon) oscillates through ~11 zeros; Im(epsilon) is large (broad resonances)
+    except at one zero, where it nearly vanishes (one unresolved resonance)."""
+    real = jnp.cos(2.0 * jnp.pi * (wavelengths_nm - 470.3) / period_nm)
+    imag = 0.5 - 0.4997 * jnp.exp(-(((wavelengths_nm - narrow_nm) / 0.05) ** 2))
+    return jnp.ones_like(wavelengths_nm), real + 1j * imag
+
+
+def _many_root_result(max_roots, resolve_width_nodes):
+    edges = jnp.linspace(471.0, 479.0, 17)
+    return integrate_detector_bins(
+        _many_root_terms,
+        edges,
+        0.1,
+        root_scan_panels=2048,
+        integration_panels=64,
+        regular_order=8,
+        root_order=32,
+        max_roots=max_roots,
+        resolve_width_nodes=resolve_width_nodes,
+    )
+
+
+def test_width_gate_resolves_only_narrow_roots_and_keeps_the_integral():
+    ungated = _many_root_result(max_roots=16, resolve_width_nodes=None)
+    gated = _many_root_result(max_roots=16, resolve_width_nodes=2.0)
+    assert int(ungated.diagnostics.scan_root_count) == int(gated.diagnostics.scan_root_count) >= 8
+    assert int(ungated.diagnostics.root_count) == int(ungated.diagnostics.scan_root_count)
+    assert int(gated.diagnostics.root_count) == 1  # only the unresolved resonance is tan-mapped
+    np.testing.assert_allclose(np.asarray(gated.bin_mean), np.asarray(ungated.bin_mean), rtol=1e-6)
+    # the resolved root is the narrow one
+    resolved = np.asarray(gated.diagnostics.roots_nm)[np.asarray(gated.diagnostics.root_mask)]
+    np.testing.assert_allclose(resolved, [474.125], atol=1e-6)
+
+
+def test_width_gate_prevents_overflow_from_broad_roots():
+    ungated = _many_root_result(max_roots=4, resolve_width_nodes=None)
+    gated = _many_root_result(max_roots=4, resolve_width_nodes=2.0)
+    assert bool(ungated.diagnostics.root_overflow) and np.all(np.isnan(np.asarray(ungated.bin_mean)))
+    assert not bool(gated.diagnostics.root_overflow) and np.all(np.isfinite(np.asarray(gated.bin_mean)))
+
+
+def test_width_gate_keeps_gradients():
+    def total(shift, gate):
+        def terms(wavelengths_nm):
+            return _many_root_terms(wavelengths_nm - shift)
+        result = integrate_detector_bins(
+            terms, jnp.linspace(471.0, 479.0, 17), 0.1, root_scan_panels=2048, integration_panels=64,
+            regular_order=8, root_order=32, max_roots=16, resolve_width_nodes=gate,
+        )
+        return jnp.sum(result.bin_mean * jnp.linspace(0.5, 1.5, 16))
+
+    g_gated = float(jax.grad(lambda s: total(s, 2.0))(0.01))
+    g_ungated = float(jax.grad(lambda s: total(s, None))(0.01))
+    assert np.isfinite(g_gated) and g_gated != 0.0
+    np.testing.assert_allclose(g_gated, g_ungated, rtol=1e-5)
