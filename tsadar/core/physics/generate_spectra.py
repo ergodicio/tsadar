@@ -6,7 +6,7 @@ from .form_factor import DEFAULT_N_BETA, FormFactor
 from .resonance_quadrature import integrate_detector_bins
 from ...utils.detector_grid import electron_spectrum_is_detector_binned
 
-from jax import lax, numpy as jnp
+from jax import checkpoint, lax, numpy as jnp
 from jax.tree_util import tree_map
 
 
@@ -418,8 +418,13 @@ class FitModel:
                 **self.resonance_quadrature_options,
             )
 
+        # Rematerialize each geometry's integration in the backward pass. Without this,
+        # reverse mode keeps every geometry's quadrature-node residuals at once, which
+        # grows linearly with the number of scattering angles (about 0.4 GB per angle for
+        # a two-shot 2D-fe fit, ~97 GB at 241 angles); with it the buffer plan does not
+        # depend on the angle count. Values and gradients are unchanged.
         result = lax.map(
-            integrate_one,
+            checkpoint(integrate_one),
             flat_indices,
             batch_size=self.resonance_quadrature_map_batch_size,
         )
