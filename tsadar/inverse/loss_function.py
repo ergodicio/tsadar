@@ -14,7 +14,6 @@ from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..data.correct_throughput import throughput_correction
 
 # from ..core.modules import exchange_params, get_filter_spec
-from ..utils.vector_tools import rotate
 
 
 _ANGULAR_OBJECTIVE_DEFAULTS = {
