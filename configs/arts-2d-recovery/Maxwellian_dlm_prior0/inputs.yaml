@@ -20,7 +20,7 @@ data:
 machine: gpu
 mlflow:
   experiment: arts2d-recovery
-  run: Maxwellian_dlm_prior0
+  run: Maxwellian_dlm_prior0_2
 other:
   calc_sigmas: false
   extraoptions:
@@ -71,12 +71,12 @@ parameters:
       ub: 10.0
       val: 0.0
     amp1:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
     amp2:
-      active: true
+      active: false
       lb: 0.01
       ub: 3.75
       val: 1.0
