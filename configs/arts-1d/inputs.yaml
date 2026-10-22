@@ -54,7 +54,7 @@ parameters:
         init_m: 3.0
         learn_log: true
         m:
-          lb: 2.0
+          lb: 1.8
           ub: 5.0
           val: 4.0
         nvr: 128

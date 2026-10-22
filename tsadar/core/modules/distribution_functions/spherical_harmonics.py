@@ -251,12 +251,17 @@ class SphericalHarmonics(DistributionFunction2V):
 
         init_m = dist_cfg["params"]["init_m"]
 
-        self.m_scale = 3.0
-        self.m_shift = 2.0
+        # m is bounded by the deck like any other parameter (default [2, 5])
+        m_cfg = dist_cfg["params"].get("m", {})
+        m_lb, m_ub = float(m_cfg.get("lb", 2.0)), float(m_cfg.get("ub", 5.0))
+        if not 0.0 < m_lb < m_ub:
+            raise ValueError(f"m bounds must satisfy 0 < lb < ub, got lb={m_lb}, ub={m_ub}")
+        self.m_scale = m_ub - m_lb
+        self.m_shift = m_lb
         self.act_fun = _clip_unit_interval
         initial_fraction = (init_m - self.m_shift) / self.m_scale
         if not 0.0 <= initial_fraction <= 1.0:
-            raise ValueError("init_m must lie in the closed interval [2, 5]")
+            raise ValueError(f"init_m must lie in the closed interval [{m_lb}, {m_ub}] set by the m bounds")
         # Store the normalized physical fraction directly. JAX gives ``clip`` its
         # centered boundary subgradient, so exact endpoints remain trainable toward
         # the feasible interior rather than being frozen at an infinite logit.

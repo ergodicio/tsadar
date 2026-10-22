@@ -11,11 +11,32 @@ from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
 from jax.scipy.special import gamma, sph_harm_y
 from scipy.io import loadmat
+from scipy.special import gamma as scipy_gamma, gammaincc
+import numpy as np
 import equinox as eqx
 from tsadar.utils.vector_tools import rotate
 from interpax import interp2d
 
 cwd = os.path.dirname(os.path.realpath(__file__))
+
+# Range of the DLM shape parameter m that DLM1V can represent. The stored table covers m = 2..5; the
+# columns below 2 are computed in DLM1V so that m = 2 (the Maxwellian) is an interior point with a
+# two-sided gradient. Values below 2 are not physical and exist only so that 2 can be reached.
+DLM_M_MIN = 1.8
+DLM_M_MAX = 5.0
+DLM_EXTENDED_M = (1.8, 1.9)
+
+
+def dlm_projection_1d(m: float, x) -> np.ndarray:
+    """1D projection of the isotropic 3D DLM exp(-(v/a)^m), normalized to unit area and <x^2> = 1.
+
+    f(x) = 2 pi N int_|x|^inf exp(-(r/a)^m) r dr, which in closed form is
+    Gamma(2/m) Q(2/m, (|x|/a)^m) / (2 a Gamma(3/m)) with a = sqrt(3 Gamma(3/m) / Gamma(5/m)); this
+    reproduces the stored DLM table columns to ~1e-8.
+    """
+    x = np.asarray(x, dtype=float)
+    a = np.sqrt(3.0 * scipy_gamma(3.0 / m) / scipy_gamma(5.0 / m))
+    return scipy_gamma(2.0 / m) / (2.0 * a * scipy_gamma(3.0 / m)) * gammaincc(2.0 / m, (np.abs(x) / a) ** m)
 
 
 def smooth1d(array, window_size):
@@ -304,10 +325,19 @@ class DLM1V(DistributionFunction1V):
             interpolate_f_in_m (callable): Vectorized interpolation function for the 'm' axis.
         Raises:
             KeyError: If required keys are missing from dist_cfg.
+            ValueError: If the deck bounds on m fall outside [DLM_M_MIN, DLM_M_MAX].
         """
         super().__init__(dist_cfg)
-        self.m_scale = 3.0
-        self.m_shift = 2.0
+        # m is bounded by the deck like any other parameter (default [2, 5])
+        m_cfg = dist_cfg["params"]["m"]
+        m_lb, m_ub = float(m_cfg.get("lb", 2.0)), float(m_cfg.get("ub", DLM_M_MAX))
+        if not DLM_M_MIN <= m_lb < m_ub <= DLM_M_MAX:
+            raise ValueError(
+                f"DLM m bounds must satisfy {DLM_M_MIN} <= lb < ub <= {DLM_M_MAX} (the tabulated range), "
+                f"got lb={m_lb}, ub={m_ub}"
+            )
+        self.m_scale = m_ub - m_lb
+        self.m_shift = m_lb
 
         if activate and dist_cfg["active"]:
             inv_act_fun = lambda x: jnp.log(1e-2 + x / (1 - x + 1e-2))
@@ -325,7 +355,10 @@ class DLM1V(DistributionFunction1V):
         #     os.path.join(cwd, "..", "..", "..", "external", "numDistFuncs", "DLM_x_-3_-10_10_m_-1_2_5.mat")
         # )["IT"]
         # vx_ax = jnp.linspace(-10, 10, 20001)
-        self.m_ax = jnp.linspace(2, 5, 31)
+        # prepend the sub-Maxwellian columns; the stored m >= 2 columns and their m nodes are kept exactly
+        extended = np.stack([dlm_projection_1d(m, np.asarray(vx_ax)) for m in DLM_EXTENDED_M], axis=1)
+        projected_distributions = np.concatenate([extended, projected_distributions], axis=1)
+        self.m_ax = jnp.concatenate([jnp.asarray(DLM_EXTENDED_M), jnp.linspace(2, 5, 31)])
         self.f_vx_m = vmap(jnp.interp, in_axes=(None, None, 1), out_axes=1)(self.vx, vx_ax, projected_distributions)
         self.interpolate_f_in_m = vmap(jnp.interp, in_axes=(None, None, 0), out_axes=0)
 
