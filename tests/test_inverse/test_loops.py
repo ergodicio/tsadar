@@ -163,6 +163,34 @@ def test_angular_nonfinite_mid_run_logs_reproduction_artifacts(tmp_path, monkeyp
         assert float(restored.electron.normed_Te) == pytest.approx(expected)
 
 
+def test_angular_state_snapshots_do_not_touch_the_working_directory(tmp_path, monkeypatch, isolated_optimizer):
+    """Concurrent fits share a working directory, and a re-synced source tree can replace it mid-run."""
+    import pickle
+
+    logged = {}
+
+    def fake_log_artifact(path):
+        with open(path, "rb") as file:
+            logged[os.path.basename(path)] = (os.path.dirname(path), pickle.loads(file.read()))
+
+    class _SnapshotParams(_FakeParams):
+        def get_unnormed_params(self):
+            return {"Te": float(self.electron.normed_Te)}
+
+    monkeypatch.setattr(loops.mlflow, "log_artifact", fake_log_artifact)
+    monkeypatch.chdir(tmp_path)
+    initial = _SnapshotParams(_FakeElectron(jnp.asarray(0.0), _FakeDistribution()))
+    angular_multiple_optax(
+        _fake_angular_config(save_state=True, learning_rate_init=0.1, learning_rate_final=0.1,
+                             param_learning_rate=0.1, patience=10),
+        None, _QuadraticLoss(), {}, previous_weights=initial,
+    )
+    assert os.listdir(tmp_path) == []
+    directory, snapshots = logged["state_weights.txt"]
+    assert os.path.realpath(directory) != os.path.realpath(str(tmp_path))
+    assert sorted(snapshots) == [1, 2, 3]
+
+
 def test_angular_continuation_returns_global_best_stage(monkeypatch, isolated_optimizer):
     loss_functions = []
 

@@ -973,10 +973,16 @@ def angular_multiple_optax(
             break
         
     if config["optimizer"]["save_state"]:
-        with open("state_weights.txt", "wb") as file:
-            file.write(pickle.dumps(state_weights))
+        # written to a private temporary directory, not the working directory: concurrent fits that
+        # share a working directory would overwrite each other's file, and a working directory replaced
+        # while a fit runs (e.g. a source re-sync on a shared filesystem) makes the write fail at the end.
+        import os, tempfile
 
-        mlflow.log_artifact("state_weights.txt")
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "state_weights.txt")
+            with open(path, "wb") as file:
+                file.write(pickle.dumps(state_weights))
+            mlflow.log_artifact(path)
     return (
         checkpoint.weights,
         checkpoint.loss,
