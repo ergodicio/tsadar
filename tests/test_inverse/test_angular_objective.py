@@ -455,3 +455,29 @@ def test_log_curvature_regularizer_is_reported_and_validated():
     assert terms["regularization_log_curvature"] == pytest.approx(4.0e-3, rel=1e-4)
     with pytest.raises(ValueError, match="log_curvature must be non-negative"):
         _objective(regularization={"log_curvature": -1.0})
+
+
+def test_uniform_full_grid_log_curvature_covers_the_tails():
+    from tsadar.inverse.loss_function import _log_curvature
+
+    velocity = jnp.linspace(-8.0, 8.0, 129)
+    dv = velocity[1] - velocity[0]
+    vx, vy = jnp.meshgrid(velocity, velocity)
+    maxwellian = jnp.exp(-0.5 * (vx**2 + vy**2))
+    # a bump at 5 vTe, far below the default 1e-4 floor
+    bump = maxwellian * (1.0 + 0.5 * jnp.exp(-((vx - 5.0) ** 2 + vy**2) / 0.05))
+    core = _log_curvature(bump, dv)
+    full = _log_curvature(bump, dv, floor_fraction=1e-30, weighting="uniform")
+    # the default (core) form cannot see it; the full-grid form does (a few cells of the grid mean)
+    assert float(core) == pytest.approx(float(_log_curvature(maxwellian, dv)), rel=1e-4)
+    smooth_full = float(_log_curvature(maxwellian, dv, floor_fraction=1e-30, weighting="uniform"))
+    assert float(full) - smooth_full > 0.05
+    # a floor below float32's range does not produce nonfinite values
+    assert bool(jnp.isfinite(_log_curvature(bump, dv, floor_fraction=1e-100, weighting="uniform")))
+
+
+def test_log_curvature_options_are_validated():
+    with pytest.raises(ValueError, match="log_curvature_floor must lie in"):
+        _objective(regularization={"log_curvature_floor": 0.0})
+    with pytest.raises(ValueError, match="log_curvature_weighting must be edf or uniform"):
+        _objective(regularization={"log_curvature_weighting": "flat"})
