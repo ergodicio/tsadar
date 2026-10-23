@@ -7,22 +7,21 @@ angle theta = atan2(vy, vx). cos(m theta) and sin(m theta) are the eigenfunction
 operator (eigenvalue m^2), the 2-V counterpart of the spherical harmonics of VFP codes (eigenvalue l(l + 1)), and the
 expansion is the one used for the gyrophase in magnetized kinetic theory:
 
-    f2(rho, theta) = F0(rho) exp(L tanh(sum_{m=1..M} [c_m(rho) cos m theta + s_m(rho) sin m theta] / L))
+    f2(rho, theta) = F0(rho) exp(L tanh(sum_{m=1..M} rho^m/(1+rho^m) [c_m(rho) cos m theta + s_m(rho) sin m theta] / L))
 
-F0 is the in-plane marginal of the isotropic 3-V super-Gaussian exp(-(r / v0)^m) with <r^2> = 3, so the shape
-parameter and Te mean what they mean in the 3-V models (<vx^2 + vy^2> = 2 for the isotropic part), and an
-isotropic 3-V EDF is represented exactly. The radial coefficients are the uncapped (1 + v^4) radial functions of the
-spherical-harmonic model (arbitrary or nn), times rho^m / (1 + rho^m) so mode m vanishes like rho^m at the origin,
-as the Fourier coefficients of any smooth 2-V function do. m = 1 carries flow and heat flux, m = 2 the in-plane
-temperature anisotropy (cos 2 theta) and its tilt (sin 2 theta), m = 3 the third moments; a bi-temperature EDF also
-needs m = 4. By default (``free_isotropic: true``) an m = 0 radial function c_0(rho) is added to the exponent, so the
-isotropic part is trained as f_0(v) is in VFP codes (the 2-V marginal of a 3-V log-anisotropic EDF has an isotropic part that is
-not exactly a super-Gaussian marginal); it trades against Te and m like any free radial shape, so fit it with the
-in-plane <v^2> gauge (regularization temperature, target 2).
+F0 is the trained isotropic part, F0(rho) = F_init(rho) exp(g0(rho)), the single source of isotropy, as f_0(v) is in VFP
+codes. g0 is a free radial function on the nvr-node radial grid (the uncapped (1 + v^4) arbitrary or nn form, zero at
+start); F_init, the in-plane marginal of the isotropic 3-V super-Gaussian exp(-(r / v0)^m) with <r^2> = 3 at m =
+init_m, only sets the starting shape (no shape parameter is fitted). F0 is free in width as well as shape, so fit it
+with the in-plane <v^2> gauge (regularization temperature, target 2), which defines Te as half the in-plane second
+moment. The angular coefficients are the same radial functions times rho^m / (1 + rho^m), so mode m vanishes like rho^m
+at the origin, as the Fourier coefficients of any smooth 2-V function do. m = 1 carries flow and heat flux, m = 2 the
+in-plane temperature anisotropy (cos 2 theta) and its tilt (sin 2 theta), m = 3 the third moments; a bi-temperature EDF
+also needs m = 4.
 """
 
 from collections import defaultdict
-from typing import Dict, Optional
+from typing import Dict
 
 import jax
 from jax import numpy as jnp, Array
@@ -32,32 +31,28 @@ import equinox as eqx
 from numpy.polynomial.legendre import leggauss
 
 from .base import DistributionFunction2V
-from .spherical_harmonics import ArbitraryVr, FLM_NN, _clip_unit_interval
+from .spherical_harmonics import ArbitraryVr, FLM_NN
 
 
 class PolarHarmonics(DistributionFunction2V):
-    """In-plane polar-harmonic (cos m theta, sin m theta) model of the 2-V marginal, m = 1..M.
+    """In-plane polar-harmonic (cos m theta, sin m theta) model of the 2-V marginal, m = 1..M, with a trained F0.
 
     Attributes:
-        vr (Array): Radial grid of the radial coefficients and of F0.
+        vr (Array): Radial grid of the radial functions.
         rho (Array): In-plane speed on the (vy, vx) grid.
         theta (Array): In-plane angle atan2(vy, vx) on the (vy, vx) grid.
-        vz (Array), vz_weights (Array): Gauss-Legendre nodes and weights for F0's integral over vz.
+        log_f_init (Array): log F_init on the (vy, vx) grid (fixed).
+        f0 (eqx.Module): Radial function g0 of the trained isotropic part, F0 = F_init exp(g0).
         M (int): Highest angular mode.
         modes (Dict[int, Dict[str, eqx.Module]]): Radial coefficient of cos and sin for each m.
-        normed_m (Array): Super-Gaussian order of the isotropic part, as a fraction of its bounds.
     """
     vr: Array
     rho: Array
     theta: Array
-    vz: Array
-    vz_weights: Array
+    log_f_init: Array
+    f0: eqx.Module
     M: int
     modes: Dict[int, Dict[str, eqx.Module]]
-    free0: Optional[eqx.Module]
-    m_scale: float
-    m_shift: float
-    normed_m: Array
     flm_type: str
     anisotropy_log_limit: float
 
@@ -71,12 +66,9 @@ class PolarHarmonics(DistributionFunction2V):
         vx, vy = jnp.meshgrid(self.vx, self.vx)
         self.rho = jnp.hypot(vx, vy)
         self.theta = jnp.arctan2(vy, vx)
-        nvz = int(params.get("nvz", max(64, nvr)))
-        if nvz < 2:
-            raise ValueError("nvz must contain at least two quadrature nodes")
-        nodes, weights = leggauss(nvz)
-        self.vz = jnp.asarray(8.0 * nodes)
-        self.vz_weights = jnp.asarray(8.0 * weights)
+        self.log_f_init = _log_super_gaussian_marginal(
+            self.rho, float(params["init_m"]), int(params.get("nvz", max(64, nvr)))
+        )
         self.M = int(params["M"])
         if self.M < 1:
             raise ValueError("polarharmonic M must be at least 1")
@@ -84,76 +76,69 @@ class PolarHarmonics(DistributionFunction2V):
         if self.anisotropy_log_limit <= 0:
             raise ValueError("anisotropy_log_limit must be positive")
 
-        m_cfg = params.get("m", {})
-        m_lb, m_ub = float(m_cfg.get("lb", 2.0)), float(m_cfg.get("ub", 5.0))
-        if not 0.0 < m_lb < m_ub:
-            raise ValueError(f"m bounds must satisfy 0 < lb < ub, got lb={m_lb}, ub={m_ub}")
-        self.m_scale, self.m_shift = m_ub - m_lb, m_lb
-        initial_fraction = (params["init_m"] - self.m_shift) / self.m_scale
-        if not 0.0 <= initial_fraction <= 1.0:
-            raise ValueError(f"init_m must lie in the closed interval [{m_lb}, {m_ub}] set by the m bounds")
-        self.normed_m = jnp.asarray(initial_fraction)
-
         self.flm_type = params["flm_type"]
+        kind = self.flm_type.casefold()
+        if kind not in ("arbitrary", "nn"):
+            raise NotImplementedError(f"polarharmonic supports flm_type arbitrary or nn, not {self.flm_type}")
+
+        def radial(key_index, scaled=True):
+            if kind == "arbitrary":
+                return ArbitraryVr(self.vr)
+            return FLM_NN(self.vr, key=jax.random.fold_in(PRNGKey(1), key_index), scaled=scaled)
+
+        # g0 is outside the bounded exponent; the nn form shares its weights over all v, so it is not 1 + v^4
+        # scaled (each arbitrary node moves on its own, and nodes in the empty tail get no gradient)
+        self.f0 = radial(0, scaled=False)
         self.modes = defaultdict(dict)
         for m in range(1, self.M + 1):
             for k, part in enumerate(("cos", "sin")):
-                if self.flm_type.casefold() == "arbitrary":
-                    self.modes[m][part] = ArbitraryVr(self.vr)
-                elif self.flm_type.casefold() == "nn":
-                    self.modes[m][part] = FLM_NN(self.vr, key=jax.random.fold_in(PRNGKey(1), 10 * m + k))
-                else:
-                    raise NotImplementedError(f"polarharmonic supports flm_type arbitrary or nn, not {self.flm_type}")
-        if bool(params.get("free_isotropic", True)):
-            self.free0 = (ArbitraryVr(self.vr) if self.flm_type.casefold() == "arbitrary"
-                          else FLM_NN(self.vr, key=jax.random.fold_in(PRNGKey(1), 0)))
-        else:
-            self.free0 = None
-
-    def get_unnormed_m(self):
-        """The physical super-Gaussian order of the isotropic part."""
-        return _clip_unit_interval(self.normed_m) * self.m_scale + self.m_shift
-
-    def _log_f0(self, radius):
-        """log of the in-plane marginal of exp(-(r / v0)^m), <r^2> = 3, at in-plane speed ``radius`` (unnormalized).
-
-        The vz integral is evaluated on a radial grid 16x finer than ``vr`` (a 1-D integral, cheap next to the 2-D
-        grid) so the linear interpolation of the strongly curved super-Gaussian log stays below ~1e-4.
-        """
-        shape = self.get_unnormed_m()
-        v0 = jnp.sqrt(3.0 * gamma(3.0 / shape) / gamma(5.0 / shape))
-        fine_r = jnp.linspace(0.0, self.vr[-1], 16 * self.vr.shape[0])
-        r3 = jnp.sqrt(fine_r[:, None] ** 2 + self.vz[None, :] ** 2)
-        f0_r = jnp.sum(jnp.exp(-((r3 / v0) ** shape)) * self.vz_weights[None, :], axis=1)
-        log_f0_r = jnp.log(jnp.maximum(f0_r, jnp.finfo(f0_r.dtype).tiny))
-        return jnp.interp(radius, fine_r, log_f0_r)
+                self.modes[m][part] = radial(10 * m + k)
 
     def relative_coefficients(self):
         """Radial coefficients r_m(vr) of cos and sin, before the regularity factor: {m: {"cos": .., "sin": ..}}."""
         ones = jnp.ones_like(self.vr)
         return {m: {part: self.modes[m][part](f00=ones) for part in ("cos", "sin")} for m in range(1, self.M + 1)}
 
+    def log_f0(self):
+        """log F0 = log F_init + g0 on the (vy, vx) grid (unnormalized)."""
+        return self.log_f_init + jnp.interp(self.rho, self.vr, self.f0(f00=jnp.ones_like(self.vr)))
+
     def get_unnormed_params(self):
-        return {"m": self.get_unnormed_m(), "f": self()}
+        return {"f": self()}
 
     def log_anisotropy(self):
-        """c_0(rho) + sum_m rho^m / (1 + rho^m) [c_m(rho) cos m theta + s_m(rho) sin m theta] on the (vy, vx) grid
-        (unbounded; c_0 unless free_isotropic is false)."""
+        """sum_m rho^m / (1 + rho^m) [c_m(rho) cos m theta + s_m(rho) sin m theta] on the (vy, vx) grid (unbounded)."""
         log_anisotropy = jnp.zeros_like(self.rho)
         for m, parts in self.relative_coefficients().items():
             regularity = self.rho**m / (1.0 + self.rho**m)
             cos_r = jnp.interp(self.rho, self.vr, parts["cos"])
             sin_r = jnp.interp(self.rho, self.vr, parts["sin"])
             log_anisotropy += regularity * (cos_r * jnp.cos(m * self.theta) + sin_r * jnp.sin(m * self.theta))
-        if self.free0 is not None:
-            log_anisotropy += jnp.interp(self.rho, self.vr, self.free0(f00=jnp.ones_like(self.vr)))
         return log_anisotropy
 
     def __call__(self):
         """Normalized in-plane EDF on the (vy, vx) grid."""
         log_anisotropy = self.log_anisotropy()
         bounded = self.anisotropy_log_limit * jnp.tanh(log_anisotropy / self.anisotropy_log_limit)
-        log_f = self._log_f0(self.rho) + bounded
+        log_f = self.log_f0() + bounded
         f = jnp.exp(log_f - jax.lax.stop_gradient(jnp.max(log_f)))
         dv = self.vx[1] - self.vx[0]
         return f / (jnp.sum(f) * dv**2)
+
+
+def _log_super_gaussian_marginal(radius, shape, nvz):
+    """log of the in-plane marginal of exp(-(r / v0)^shape), <r^2> = 3, at in-plane speed ``radius`` (unnormalized).
+
+    Evaluated once (it only sets F0's starting shape): Gauss-Legendre over vz on [-8, 8] on a fine radial grid,
+    interpolated in log (< ~1e-4 against the direct 3-V marginal for shapes 2-5).
+    """
+    if nvz < 2:
+        raise ValueError("nvz must contain at least two quadrature nodes")
+    nodes, weights = leggauss(nvz)
+    vz, vz_weights = jnp.asarray(8.0 * nodes), jnp.asarray(8.0 * weights)
+    v0 = jnp.sqrt(3.0 * gamma(3.0 / shape) / gamma(5.0 / shape))
+    fine_r = jnp.linspace(0.0, float(jnp.max(radius)) * 1.01, 2048)
+    r3 = jnp.sqrt(fine_r[:, None] ** 2 + vz[None, :] ** 2)
+    f_r = jnp.sum(jnp.exp(-((r3 / v0) ** shape)) * vz_weights[None, :], axis=1)
+    log_f_r = jnp.log(jnp.maximum(f_r, jnp.finfo(f_r.dtype).tiny))
+    return jnp.interp(radius, fine_r, log_f_r)

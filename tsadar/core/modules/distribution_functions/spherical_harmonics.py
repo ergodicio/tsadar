@@ -63,7 +63,7 @@ class FLM_NN(eqx.Module):
     vr: Array
     scale: Array
 
-    def __init__(self, vr, key=PRNGKey(0)):
+    def __init__(self, vr, key=PRNGKey(0), scaled=True):
         super().__init__()
         net = eqx.nn.MLP(1, 1, 32, 3, key=key)
         self.net = eqx.tree_at(
@@ -72,7 +72,9 @@ class FLM_NN(eqx.Module):
             (jnp.zeros_like(net.layers[-1].weight), jnp.zeros_like(net.layers[-1].bias)),
         )
         self.vr = vr
-        self.scale = _collisional_scale(vr)
+        # scaled=False for a coefficient outside a bounded exponent: shared weights would otherwise move the
+        # 1 + v^4-amplified tail by orders of magnitude on every step
+        self.scale = _collisional_scale(vr) if scaled else jnp.ones_like(vr)
 
     def __call__(self, **kwargs):
         return self.scale * vmap(self.net)(self.vr[:, None])[:, 0] * kwargs["f00"]

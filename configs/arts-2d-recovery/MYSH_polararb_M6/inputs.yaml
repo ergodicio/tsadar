@@ -1,4 +1,4 @@
-# Phase 4d: MYSH with the in-plane polar-harmonic EDF (fd2a4541), flm_type arbitrary, M = 6, trained isotropic term, <v^2> gauge
+# Phase 4d: MYSH with the in-plane polar-harmonic EDF (fd2a4541), flm_type arbitrary, M = 6, trained F0 (single isotropic part, no shape parameter), <v^2> gauge
 # Phase 4: MYSH_arbSH with gain mode global_wing (closed-form blue/red scales replace amp1/amp2, now inactive; no gain prior)
 # anisotropic recovery test, ported from tsadar-tests-2 HighFluxMY_wrot_test_model_arbSH (same settings as the Maxwellian/SG4 decks);
 # data: un-normalized root-aware images of truth deck truth_MYSH (run 8f66a558 with dtx lowered 1e-2 -> 6e-3: no bump-on-tail) + rotated partner, second image rotated by shot_rot
@@ -44,7 +44,6 @@ parameters:
       nvx: 256
       params:
         M: 6
-        free_isotropic: true
         dtx: 0.0005
         dty: 0.0005
         flm_type: arbitrary

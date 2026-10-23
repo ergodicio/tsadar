@@ -104,7 +104,7 @@ def test_modes_start_isotropic_with_order_one_gradient_and_are_in_the_filter(flm
         for part in ("cos", "sin"):
             assert norm(grads.modes[m][part]) > 1.0
     assert grads.vr is None and grads.rho is None
-    assert set(params.get_unnormed_params()["electron"]) >= {"m", "f"}
+    assert "f" in params.get_unnormed_params()["electron"]
 
 
 def test_mode_m_vanishes_like_rho_to_the_m_at_the_origin():
@@ -138,27 +138,22 @@ def _parameters(fe):
 
 
 @pytest.mark.parametrize("flm_type", ["arbitrary", "nn"])
-def test_free_isotropic_term_is_on_by_default_trainable_and_isotropic(flm_type):
-    off = _config(flm_type=flm_type)
-    off["params"]["free_isotropic"] = False
-    assert PolarHarmonics(off).free0 is None
+def test_f0_is_the_single_trained_isotropic_part(flm_type):
     cfg = _config(flm_type=flm_type)
     model = PolarHarmonics(cfg)
-    assert model.free0 is not None
-    # zero at the start: the same EDF as without the term
-    np.testing.assert_allclose(model(), PolarHarmonics(off)(), rtol=1e-12, atol=0)
+    assert not hasattr(model, "normed_m")
+    assert "m" not in model.get_unnormed_params()
 
     parameters = _parameters(cfg)
     params = ThomsonParams(parameters, num_params=1, batch=False, activate=False)
-    spec = get_filter_spec(parameters, params).electron.distribution_functions.free0
-    trainable = jax.tree_util.tree_leaves(spec)
-    assert trainable and all(leaf is True for leaf in trainable if isinstance(leaf, bool) and leaf)
-    assert spec.scale is False
+    spec = get_filter_spec(parameters, params).electron.distribution_functions
+    assert any(leaf is True for leaf in jax.tree_util.tree_leaves(spec.f0))
+    assert spec.f0.scale is False and spec.log_f_init is False
 
     if flm_type == "arbitrary":
-        bumped = eqx.tree_at(lambda tree: tree.free0.coeff, model, jnp.full_like(model.free0.coeff, 1e-3))
+        bumped = eqx.tree_at(lambda tree: tree.f0.coeff, model, jnp.full_like(model.f0.coeff, 1e-3))
         f = np.asarray(bumped())
-        # an m = 0 term keeps the EDF isotropic but changes its radial shape
+        # F0 changes the radial shape and keeps the EDF isotropic
         np.testing.assert_allclose(f, np.flip(f, axis=1), rtol=1e-10)
         np.testing.assert_allclose(f, f.T, rtol=1e-10)
         assert not np.allclose(f, np.asarray(model()))
