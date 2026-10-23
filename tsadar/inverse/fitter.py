@@ -198,10 +198,12 @@ def _validate_inputs_(config: Dict) -> Dict:
         if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary"]:
             raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary")
     elif config["parameters"]["electron"]["fe"]["dim"] == 2:
-        if config["parameters"]["electron"]["fe"]["type"] not in ["sphericalharmonic", "arbitrary"]:
-            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 2D EDFs, please choose one of the allowed types: sphericalharmonic or arbitrary")
+        if config["parameters"]["electron"]["fe"]["type"] not in ["sphericalharmonic", "polarharmonic", "arbitrary"]:
+            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 2D EDFs, please choose one of the allowed types: sphericalharmonic, polarharmonic or arbitrary")
         elif config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic" and config["parameters"]["electron"]["fe"]["params"]["flm_type"].casefold() not in ["mora-yahi", "nn", "arbitrary"]:
             raise ValueError(f"Electron distribution function params type {config['parameters']['electron']['fe']['params']['type']} is not supported for spherical harmonic EDFs, please choose one of the allowed flm types: Mora-Yahi, NN, arbitrary")
+        elif config["parameters"]["electron"]["fe"]["type"] == "polarharmonic" and config["parameters"]["electron"]["fe"]["params"]["flm_type"].casefold() not in ["nn", "arbitrary"]:
+            raise ValueError("polarharmonic EDFs take flm_type nn or arbitrary (Mora-Yahi is a 3-V model; fit it with sphericalharmonic)")
     if "matte" in config["parameters"]["electron"]["fe"]["params"]["m"] and config["parameters"]["electron"]["fe"]["params"]["m"]["matte"]:
         if config["parameters"]["electron"]["fe"]["type"] != "dlm" or config["parameters"]["electron"]["fe"]["dim"] != 1:
             raise ValueError("Matte based m-values are only supported for 1D DLM electron distribution functions")

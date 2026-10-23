@@ -735,6 +735,31 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict, replace: 
             else:
                 raise NotImplementedError(f"Unknown flm_type: {dist_params['flm_type']}")
 
+    elif dist_params["type"].casefold() == "polarharmonic":
+        filter_spec = eqx.tree_at(
+            lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=replace
+        )
+        flm_type = dist_params["params"]["flm_type"].casefold()
+        radial_paths = [
+            (lambda m, part: lambda tree: tree.electron.distribution_functions.modes[m][part])(m, part)
+            for m in range(1, dist_params["params"]["M"] + 1)
+            for part in ("cos", "sin")
+        ]
+        if dist_params["params"].get("free_isotropic", True):
+            radial_paths.append(lambda tree: tree.electron.distribution_functions.free0)
+        for radial in radial_paths:
+            if flm_type == "arbitrary":
+                filter_spec = eqx.tree_at(lambda tree: radial(tree).coeff, filter_spec, replace=replace)
+            else:
+                for layer_index, layer in enumerate(radial(filter_spec).net.layers):
+                    filter_spec = eqx.tree_at(
+                        lambda tree: radial(tree).net.layers[layer_index].weight, filter_spec, replace=replace
+                    )
+                    if layer.bias is not None:
+                        filter_spec = eqx.tree_at(
+                            lambda tree: radial(tree).net.layers[layer_index].bias, filter_spec, replace=replace
+                        )
+
     else:
         raise NotImplementedError(f"Untrainable distribution type: {dist_params['type']}")
 

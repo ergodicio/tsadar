@@ -18,6 +18,7 @@ from .distribution_functions.base import (
     get_distribution_filter_spec,
 )
 from .distribution_functions.spherical_harmonics import SphericalHarmonics
+from .distribution_functions.polar_harmonics import PolarHarmonics
 
 
 class ElectronParams(eqx.Module):
@@ -162,6 +163,8 @@ class ElectronParams(eqx.Module):
             else:
                 if "sph" in dist_cfg["type"].casefold():
                     distribution_functions = SphericalHarmonics(dist_cfg)
+                elif dist_cfg["type"].casefold() == "polarharmonic":
+                    distribution_functions = PolarHarmonics(dist_cfg)
                 elif dist_cfg["type"].casefold() == "arbitrary":
                     distribution_functions = Arbitrary2V(dist_cfg)
                 else:
