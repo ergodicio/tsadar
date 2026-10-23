@@ -16,8 +16,8 @@ from typing import Dict, Callable
 from collections import defaultdict
 from functools import partial
 
+import jax
 from jax import numpy as jnp, vmap, Array
-from jax.nn import sigmoid, relu
 from jax.random import PRNGKey
 from jax.scipy.special import gamma, sph_harm_y
 import equinox as eqx
@@ -32,52 +32,50 @@ def _clip_unit_interval(value: Array) -> Array:
     return jnp.clip(value, 0.0, 1.0)
 
 
-class FLM_NN(eqx.Module):
+def _collisional_scale(vr: Array) -> Array:
+    """Velocity scaling of the trainable relative coefficients, ``1 + v^4``.
+
+    As in Vlasov-Fokker-Planck spherical-harmonic codes, the anisotropic coefficients
+    f_lm(v) are free radial functions; no bound on f_lm / f00 is imposed (the positive
+    log-density form of SphericalHarmonics, bounded by ``anisotropy_log_limit``, keeps
+    the EDF positive and finite). In collisional transport f_1 / f_0 grows like the mean
+    free path, ~v^4, reaching O(1) and beyond in the heat-carrying tail (3-4 vTe). Scaling
+    the trainable function by ``1 + v^4`` keeps its values O(1) over both the thermal core
+    and that tail, which the dist optimizer (a few 1e-3 per step) could not otherwise span.
     """
-    A neural network module for modeling spherical harmonics coefficients (FLM) as a function of the radial velocity `vr`. This module uses two separate MLPs to predict the magnitude and sign of the FLM coefficients, combining them to produce the final output.
+
+    return 1.0 + vr**4
+
+
+class FLM_NN(eqx.Module):
+    """Neural-network radial coefficient f_lm(v) = (1 + v^4) g(v) f00(v) of one harmonic.
+
+    ``g`` is an MLP of the radial velocity whose final layer starts at zero, so the EDF
+    starts isotropic while every final-layer weight has an O(1) gradient. The coefficient
+    is unbounded (see ``_collisional_scale``).
 
     Attributes:
-        
-        flm_mag (eqx.nn.MLP): MLP that predicts the (logarithmic) magnitude of the FLM coefficients.
-        flm_sign (eqx.nn.MLP): MLP that predicts the sign of the FLM coefficients.
-        vr (Array): Radial velocity array over which the FLM coefficients are evaluated.
-    
-    Args:
-        
-        vr (Array): The radial velocity array.
-    
-    Methods:
-        
-        __call__(**kwargs):
-            
-            Computes the FLM coefficients for the given input.
-            Args:
-                
-                f00 (float or Array): The normalization factor for the magnitude.
-            
-            Returns:
-                
-                flm (Array): The computed FLM coefficients as a function of `vr`.
-    
+        net (eqx.nn.MLP): MLP giving g(v).
+        vr (Array): Radial velocity grid on which the coefficient is evaluated.
+        scale (Array): ``1 + vr^4``.
     """
-    flm_mag: eqx.nn.MLP
-    flm_sign: eqx.nn.MLP
+    net: eqx.nn.MLP
     vr: Array
+    scale: Array
 
-    def __init__(self, vr):
+    def __init__(self, vr, key=PRNGKey(0)):
         super().__init__()
-        self.flm_mag = eqx.nn.MLP(1, 1, 32, 3, final_activation=relu, key=PRNGKey(0))
-        self.flm_sign = eqx.nn.MLP(1, 1, 32, 3, final_activation=jnp.tanh, key=PRNGKey(42))
+        net = eqx.nn.MLP(1, 1, 32, 3, key=key)
+        self.net = eqx.tree_at(
+            lambda n: (n.layers[-1].weight, n.layers[-1].bias),
+            net,
+            (jnp.zeros_like(net.layers[-1].weight), jnp.zeros_like(net.layers[-1].bias)),
+        )
         self.vr = vr
+        self.scale = _collisional_scale(vr)
 
     def __call__(self, **kwargs):
-        f00 = kwargs["f00"]
-        flm_mag = -vmap(self.flm_mag)(self.vr[:, None])[:, 0]  # from minus inf to 0
-        flm_mag = jnp.power(10.0, flm_mag)  # from 0 to 1
-        flm_mag *= f00  # from 0 to f00
-        flm_sign = vmap(self.flm_sign)(self.vr[:, None])[:, 0]
-        flm = flm_mag * flm_sign
-        return flm
+        return self.scale * vmap(self.net)(self.vr[:, None])[:, 0] * kwargs["f00"]
 
 
 class FLM_MY(eqx.Module):
@@ -133,38 +131,30 @@ class FLM_MY(eqx.Module):
 
 
 class ArbitraryVr(eqx.Module):
-    """
-    ArbitraryVr is a model for generating numerical radial functions for the spherical harmonics to produce a 2D distribution function.
-    
+    """Numerical radial coefficient f_lm(v) = (1 + v^4) smooth(c)(v) f00(v) of one harmonic.
+
+    ``c`` holds one trainable value per radial grid point, smoothed with a Hanning window
+    of nvr / 4 points. It starts at zero (isotropic EDF) with an O(1) gradient, and the
+    coefficient is unbounded (see ``_collisional_scale``).
+
     Attributes:
-        smooth (Callable): A function that applies 1D smoothing to input arrays, parameterized by window size.
-        flm_sign (Array): Learnable parameters representing the sign component of the function, initialized to zeros.
-        flm_mag (Array): Learnable parameters representing the magnitude component of the function, initialized to zeros.
-    Args:
-        nvr (int): The number of radial velocity grid points, used to set the size of parameters and smoothing window.
-    Methods:
-        __call__(**kwargs):
-            Computes the radial function by applying smoothing, nonlinearities (tanh and sigmoid), and scaling.
-            Returns the resulting array representing the function values.
+        smooth (Callable): Hanning smoothing of the trainable values.
+        coeff (Array): Trainable values on the radial grid.
+        scale (Array): ``1 + vr^4``.
     """
     smooth: Callable
-    flm_sign: Array
-    flm_mag: Array
+    coeff: Array
+    scale: Array
 
-    def __init__(self, nvr):
+    def __init__(self, vr):
         super().__init__()
+        nvr = vr.shape[0]
         self.smooth = partial(smooth1d, window_size=nvr // 4)
-        self.flm_sign = jnp.zeros(nvr)
-        self.flm_mag = jnp.zeros(nvr)
+        self.coeff = jnp.zeros(nvr)
+        self.scale = _collisional_scale(vr)
 
     def __call__(self, **kwargs):
-        flm_sign = jnp.tanh(self.smooth(self.flm_sign))
-        flm_mag = -sigmoid(self.smooth(self.flm_mag)) * 10
-        # This module parameterizes the harmonic coefficient relative to f00. Keeping
-        # the ratio bounded makes it suitable for the positive log-anisotropy model.
-        flm = 10**flm_mag * flm_sign * kwargs["f00"]
-
-        return flm
+        return self.scale * self.smooth(self.coeff) * kwargs["f00"]
 
 
 class SphericalHarmonics(DistributionFunction2V):
@@ -273,7 +263,8 @@ class SphericalHarmonics(DistributionFunction2V):
         for i in range(1, self.Nl + 1):
             for j in range(i + 1):
                 if self.flm_type.casefold() == "nn":
-                    self.flm[i][j] = FLM_NN(self.vr)
+                    # a distinct initialization per (l, m), so harmonics do not start identical
+                    self.flm[i][j] = FLM_NN(self.vr, key=jax.random.fold_in(PRNGKey(0), 100 * i + j))
 
                 elif self.flm_type.casefold() == "mora-yahi":
                     if i == 1 and j == 0:
@@ -284,7 +275,7 @@ class SphericalHarmonics(DistributionFunction2V):
                         raise NotImplementedError("Mora-Yahi only supports l=1, m=0 and l=1, m=1")
 
                 elif self.flm_type.casefold() == "arbitrary":
-                    self.flm[i][j] = ArbitraryVr(dist_cfg["params"]["nvr"])
+                    self.flm[i][j] = ArbitraryVr(self.vr)
 
                 else:
                     raise NotImplementedError(f"Unknown flm_type: {dist_cfg['params']['flm_type']}")

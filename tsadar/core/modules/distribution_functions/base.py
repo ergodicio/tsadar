@@ -704,25 +704,10 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict, replace: 
                 lambda tree: tree.electron.distribution_functions.normed_m, filter_spec, replace=replace
             )
             if dist_params["params"]["flm_type"].casefold() == "arbitrary":
-                # filter_spec = eqx.tree_at(
-                #     lambda tree: tree.electron.distribution_functions.flm[1][0].flm_mag, filter_spec, replace=replace
-                # )
-                # filter_spec = eqx.tree_at(
-                #     lambda tree: tree.electron.distribution_functions.flm[1][0].flm_sign, filter_spec, replace=replace
-                # )
-                # filter_spec = eqx.tree_at(
-                #     lambda tree: tree.electron.distribution_functions.flm[1][1].flm_mag, filter_spec, replace=replace
-                # )
-                # filter_spec = eqx.tree_at(
-                #     lambda tree: tree.electron.distribution_functions.flm[1][1].flm_sign, filter_spec, replace=replace
-                # )
                 for l in range(1, dist_params["params"]["Nl"]+1):
                     for m in range(1+l):
                         filter_spec = eqx.tree_at(
-                            lambda tree: tree.electron.distribution_functions.flm[l][m].flm_mag, filter_spec, replace=replace
-                        )
-                        filter_spec = eqx.tree_at(
-                            lambda tree: tree.electron.distribution_functions.flm[l][m].flm_sign, filter_spec, replace=replace
+                            lambda tree: tree.electron.distribution_functions.flm[l][m].coeff, filter_spec, replace=replace
                         )
             elif dist_params["params"]["flm_type"].casefold() == "mora-yahi":
                 filter_spec =eqx.tree_at(
@@ -734,25 +719,19 @@ def get_distribution_filter_spec(filter_spec: Dict, dist_params: Dict, replace: 
             elif dist_params["params"]["flm_type"].casefold() == "nn":
                 for l in range(1, dist_params["params"]["Nl"] + 1):
                     for m in range(l + 1):
-                        df = filter_spec.electron.distribution_functions.flm[l][m]
-                        for network_name in ("flm_mag", "flm_sign"):
-                            network = getattr(df, network_name)
-                            for layer_index, layer in enumerate(network.layers):
+                        network = filter_spec.electron.distribution_functions.flm[l][m].net
+                        for layer_index, layer in enumerate(network.layers):
+                            filter_spec = eqx.tree_at(
+                                lambda tree: tree.electron.distribution_functions.flm[l][m].net.layers[layer_index].weight,
+                                filter_spec,
+                                replace=replace,
+                            )
+                            if layer.bias is not None:
                                 filter_spec = eqx.tree_at(
-                                    lambda tree: getattr(
-                                        tree.electron.distribution_functions.flm[l][m], network_name
-                                    ).layers[layer_index].weight,
+                                    lambda tree: tree.electron.distribution_functions.flm[l][m].net.layers[layer_index].bias,
                                     filter_spec,
                                     replace=replace,
                                 )
-                                if layer.bias is not None:
-                                    filter_spec = eqx.tree_at(
-                                        lambda tree: getattr(
-                                            tree.electron.distribution_functions.flm[l][m], network_name
-                                        ).layers[layer_index].bias,
-                                        filter_spec,
-                                        replace=replace,
-                                    )
             else:
                 raise NotImplementedError(f"Unknown flm_type: {dist_params['flm_type']}")
 

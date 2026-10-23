@@ -3,6 +3,7 @@
 from io import BytesIO
 
 import equinox as eqx
+import jax
 import numpy as np
 import pytest
 from jax import config, grad, numpy as jnp
@@ -227,10 +228,56 @@ def test_nn_filter_includes_every_weight_and_bias_for_nl_greater_than_one():
     for degree in (1, 2):
         for order in range(degree + 1):
             mode_spec = spec.electron.distribution_functions.flm[degree][order]
-            for network_name in ("flm_mag", "flm_sign"):
-                for layer in getattr(mode_spec, network_name).layers:
-                    assert layer.weight is True
-                    assert layer.bias is True
+            for layer in mode_spec.net.layers:
+                assert layer.weight is True
+                assert layer.bias is True
+            assert mode_spec.vr is False
+            assert mode_spec.scale is False
+
+
+def _edf_observable_gradients(flm_type):
+    """Gradient norms of an x-odd EDF observable with respect to normed_m and the l = 1 leaves."""
+    config_params = _parameter_config(flm_type=flm_type, nl=1)
+    params = ThomsonParams(config_params, num_params=1, batch=False, activate=False)
+    diff_params, static_params = eqx.partition(params, get_filter_spec(config_params, params))
+    vx, vy = jnp.meshgrid(params.electron.distribution_functions.vx, params.electron.distribution_functions.vx)
+    weight = vx + 0.1 * (vx**2 + vy**2)
+
+    def observable(differentiable):
+        combined = eqx.combine(differentiable, static_params)
+        return jnp.sum(combined.electron.distribution_functions() * weight)
+
+    gradients = eqx.filter_grad(observable)(diff_params).electron.distribution_functions
+    norm = lambda tree: float(jnp.sqrt(sum(jnp.sum(leaf**2) for leaf in jax.tree_util.tree_leaves(tree))))
+    return params, norm(gradients.normed_m), norm(gradients.flm[1][0])
+
+
+@pytest.mark.parametrize("flm_type", ["arbitrary", "nn"])
+def test_free_radial_coefficients_start_isotropic_with_order_one_gradient(flm_type):
+    params, m_gradient, l1_gradient = _edf_observable_gradients(flm_type)
+    edf = params.electron.distribution_functions()
+    np.testing.assert_allclose(edf, jnp.flip(edf, axis=1), rtol=1e-12, atol=1e-14 * float(jnp.max(edf)))
+    # The capped sign/magnitude parameterization gave ~4e-6 of the shape-parameter gradient here.
+    assert l1_gradient > 1e-2 * m_gradient
+
+
+def test_free_radial_coefficients_are_not_capped_and_keep_the_edf_finite():
+    model = SphericalHarmonics(_distribution_config(flm_type="arbitrary"))
+    radial = model.flm[1][0]
+    model = eqx.tree_at(lambda tree: tree.flm[1][0].coeff, model, jnp.full_like(radial.coeff, 0.5))
+    kwargs = {"m_f0": model.get_unnormed_m(), "f00": model.get_f00()}
+    relative = model.flm[1][0](**kwargs) / model.get_f00()
+    assert float(jnp.max(relative[(model.vr > 2.0) & (model.vr < 4.0)])) > 1.0
+    edf = model()
+    assert bool(jnp.all(jnp.isfinite(edf))) and bool(jnp.all(edf > 0))
+
+
+def test_nn_harmonics_start_with_distinct_hidden_layers():
+    model = SphericalHarmonics(_distribution_config(flm_type="nn", nl=2))
+    first_layers = [model.flm[l][m].net.layers[0].weight for l in (1, 2) for m in range(l + 1)]
+    for i in range(len(first_layers)):
+        for j in range(i + 1, len(first_layers)):
+            assert not np.allclose(first_layers[i], first_layers[j])
 
 
 def test_nl_greater_than_one_round_trips_state_and_unnormalized_coefficients():

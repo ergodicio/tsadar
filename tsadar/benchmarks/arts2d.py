@@ -22,6 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
+from tsadar.core.modules.distribution_functions.spherical_harmonics import FLM_NN
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from tsadar.inverse.loss_function import LossFunction
@@ -360,38 +361,18 @@ def initialize_model(config, seed):
         config["parameters"], num_params=1, batch=False, activate=True
     )
     distribution = params.electron.distribution_functions
-    if config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic":
+    if (
+        config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic"
+        and distribution.flm_type == "nn"
+    ):
+        # Arbitrary coefficients already start at zero with an O(1) gradient; the
+        # network coefficients (zero output at start) get a seed-dependent hidden layer.
         for degree in range(1, distribution.Nl + 1):
             for order in range(degree + 1):
-                radial = distribution.flm[degree][order]
-                if distribution.flm_type == "nn":
-                    key = jax.random.fold_in(
-                        jax.random.PRNGKey(seed), degree * 100 + order
-                    )
-                    mag_key, sign_key = jax.random.split(key)
-                    magnitude = eqx.nn.MLP(
-                        1, 1, 32, 3, final_activation=jax.nn.relu, key=mag_key
-                    )
-                    sign = eqx.nn.MLP(
-                        1, 1, 32, 3, final_activation=jnp.tanh, key=sign_key
-                    )
-                    sign = eqx.tree_at(
-                        lambda m: (m.layers[-1].weight, m.layers[-1].bias),
-                        sign,
-                        (
-                            jnp.zeros_like(sign.layers[-1].weight),
-                            jnp.zeros_like(sign.layers[-1].bias),
-                        ),
-                    )
-                    radial = eqx.tree_at(
-                        lambda r: (r.flm_mag, r.flm_sign), radial, (magnitude, sign)
-                    )
-                elif distribution.flm_type == "arbitrary":
-                    # Zero sign gives the same isotropic EDF; O(1) magnitude avoids
-                    # imposing a 1e-5 coefficient learning-rate penalty at startup.
-                    radial = eqx.tree_at(
-                        lambda r: r.flm_mag, radial, jnp.full_like(radial.flm_mag, -4.0)
-                    )
+                radial = FLM_NN(
+                    distribution.flm[degree][order].vr,
+                    key=jax.random.fold_in(jax.random.PRNGKey(seed), degree * 100 + order),
+                )
                 distribution = eqx.tree_at(
                     lambda d: d.flm[degree][order], distribution, radial
                 )
