@@ -1,5 +1,5 @@
 # anisotropic recovery test, ported from tsadar-tests-2 HighFluxMY_wrot_test_model_arb1D (same settings as the Maxwellian/SG4 decks);
-# data: un-normalized root-aware images of truth run 8f66a558 (dtx 1e-2) + rotated partner, second image rotated by shot_rot
+# data: un-normalized root-aware images of truth deck truth_MYSH (run 8f66a558 with dtx lowered 1e-2 -> 6e-3: no bump-on-tail) + rotated partner, second image rotated by shot_rot
 data:
   background:
     slice: 10002

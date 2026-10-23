@@ -1,4 +1,5 @@
 # forward deck reproducing MLflow run 8f66a55859fb42f2a319c3888646c164 (experiment 298), translated to the current deck format
+# dtx lowered 0.01 -> 0.006 (user, 2026-10-22): at 0.01 the corrected MY model has a bump-on-tail at u ~ 3.15 vTe along the flux (near-undamped EPW at low angles in the rotated image)
 # second image of the multiplexed pair: the same EDF rotated by shot_rot = 90 deg; run with
 # forward_rotated.py (dist_rot = 90), as the fit models the second shot
 data:
@@ -22,7 +23,7 @@ data:
 machine: gpu
 mlflow:
   experiment: arts2d-recovery
-  run: truth_MYSH_rot90
+  run: truth_MYSH_rot90_2
 other:
   calc_sigmas: false
   extraoptions:
@@ -48,7 +49,7 @@ parameters:
       nvx: 320
       params:
         Nl: 1
-        dtx: 0.01
+        dtx: 0.006
         dty: 0.0
         flm_type: mora-yahi
         init_m: 3.0
