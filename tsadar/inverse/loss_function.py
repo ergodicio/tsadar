@@ -276,9 +276,11 @@ class LossFunction:
         """Return the complete ARTS objective config or reject unsupported choices."""
         options = _merge_known_options(_ANGULAR_OBJECTIVE_DEFAULTS, supplied, "optimizer.angular_objective")
         supplied_gain = supplied.get("gain", {}) if isinstance(supplied, dict) else {}
-        if options["gain"]["mode"] in {"none", "global"} and "smoothness" not in supplied_gain:
+        if options["gain"]["mode"] in {"none", "global", "global_wing"} and "smoothness" not in supplied_gain:
             options["gain"]["smoothness"] = 0.0
-        if options["gain"]["mode"] == "none" and "prior_strength" not in supplied_gain:
+        # global_wing solves the blue and red scales exactly in place of amp1/amp2, so
+        # it needs no anchoring prior (amp1/amp2 must then be inactive; checked below).
+        if options["gain"]["mode"] in {"none", "global_wing"} and "prior_strength" not in supplied_gain:
             options["gain"]["prior_strength"] = 0.0
 
         if self.cfg["optimizer"].get("loss_method", "l2") != "l2":
@@ -301,9 +303,9 @@ class LossFunction:
             raise ValueError("optimizer.angular_objective.noise.averaged_pixels must be auto or positive")
 
         gain = options["gain"]
-        if gain["mode"] not in {"none", "global", "per_row", "per_row_wing"}:
+        if gain["mode"] not in {"none", "global", "global_wing", "per_row", "per_row_wing"}:
             raise ValueError(
-                "optimizer.angular_objective.gain.mode must be none, global, per_row, or per_row_wing"
+                "optimizer.angular_objective.gain.mode must be none, global, global_wing, per_row, or per_row_wing"
             )
         for key in ("smoothness", "prior_strength", "minimum"):
             if float(gain[key]) < 0.0:
@@ -312,7 +314,7 @@ class LossFunction:
             float(gain["smoothness"]) > 0.0 or float(gain["prior_strength"]) > 0.0
         ):
             raise ValueError("ARTS gain smoothness/prior_strength require a profiled gain mode")
-        if gain["mode"] == "global" and float(gain["smoothness"]) > 0.0:
+        if gain["mode"] in {"global", "global_wing"} and float(gain["smoothness"]) > 0.0:
             raise ValueError("ARTS gain smoothness requires per_row or per_row_wing gain mode")
         fitted_amplitudes = (
             ("amp1", bool(self.cfg.get("data", {}).get("fit_EPWb", False))),
@@ -892,9 +894,14 @@ class LossFunction:
         return gains, gain_standard_error, prior_quadratic, smooth_quadratic
 
     def _profile_angular_gains(
-        self, signal, target, inverse_variance, valid, blue, red
+        self, signal, target, inverse_variance, valid, blue, red, blue_side=None
     ):
-        """Analytically profile global, row, or row/wing linear detector gains."""
+        """Analytically profile global, wing, row, or row/wing linear detector gains.
+
+        ``blue_side`` marks the detector columns on the blue side of the probe; global_wing
+        uses it to scale pixels outside both fit windows, so the fitted theory is continuous
+        across the image as amp1/amp2 make it.
+        """
         mode = self.angular_objective["gain"]["mode"]
         weighted = jnp.where(valid, inverse_variance, 0.0)
         zero = jnp.asarray(0.0, dtype=signal.dtype)
@@ -914,6 +921,34 @@ class LossFunction:
                 information, rhs
             )
             return gains[0] * signal, gains, standard_error, prior, smooth
+
+        if mode == "global_wing":
+            # One blue and one red scale for the whole image, so relative amplitudes
+            # between angle rows are kept. Smoothness is rejected for this mode in
+            # validation: the Laplacian would couple the blue and red scales.
+            blue_weight = jnp.where(blue & valid, weighted, 0.0)
+            red_weight = jnp.where(red & valid, weighted, 0.0)
+            information = jnp.stack(
+                (jnp.sum(blue_weight * signal**2), jnp.sum(red_weight * signal**2))
+            )
+            rhs = jnp.stack(
+                (jnp.sum(blue_weight * signal * target), jnp.sum(red_weight * signal * target))
+            )
+            gains, standard_error, prior, smooth = self._solve_gain_series(
+                information, rhs
+            )
+            # A wing without fitted pixels (e.g. fit_EPWr false) has no information; show it
+            # with the other wing's scale rather than the bound.
+            blue_scale = jnp.where(information[0] > 0.0, gains[0], gains[1])
+            red_scale = jnp.where(information[1] > 0.0, gains[1], gains[0])
+            if blue_side is None:
+                blue_side = blue
+            fitted_signal = jnp.where(
+                blue, blue_scale * signal,
+                jnp.where(red, red_scale * signal,
+                          jnp.where(blue_side, blue_scale, red_scale) * signal),
+            )
+            return fitted_signal, gains, standard_error, prior, smooth
 
         def profile_rows(group_mask):
             group_weight = jnp.where(group_mask, weighted, 0.0)
@@ -977,6 +1012,12 @@ class LossFunction:
         raw_target = raw_data - raw_background
         raw_variance = self._angular_variance(batch)
         blue, red, wavelength_mask = self._angular_fit_masks(lam_axis, raw_data.shape)
+        fit_range = self.cfg["data"]["fit_rng"]
+        # The probe sits in the unfitted gap between the wings; split the image there.
+        blue_side = jnp.broadcast_to(
+            (jnp.ravel(lam_axis) < 0.5 * (fit_range["blue_max"] + fit_range["red_min"]))[None, :],
+            raw_data.shape,
+        )
         supplied_mask = jnp.broadcast_to(
             jnp.asarray(batch.get("e_mask", True), dtype=bool), raw_data.shape
         )
@@ -1012,7 +1053,7 @@ class LossFunction:
         for _ in range(iterations):
             fitted_signal, gains, gain_standard_error, gain_prior, gain_smoothness = (
                 self._profile_angular_gains(
-                    signal, target, inverse_variance * robust_weight, valid, blue, red
+                    signal, target, inverse_variance * robust_weight, valid, blue, red, blue_side
                 )
             )
             whitened = jnp.where(
