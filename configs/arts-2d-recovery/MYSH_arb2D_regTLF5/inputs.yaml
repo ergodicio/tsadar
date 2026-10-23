@@ -135,6 +135,6 @@ optimizer:
       mode: global_wing
     regularization:
       temperature: 10.0
-      log_curvature: 1e-05
+      log_curvature: 1.0e-05
       log_curvature_floor: 1.0e-30
       log_curvature_weighting: uniform
