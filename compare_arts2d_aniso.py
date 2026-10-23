@@ -87,12 +87,61 @@ def load_fit(fit_dir, truth_v):
     return params, regrid_2d(v * scale, f / scale**2, truth_v), None
 
 
+def sh_coefficients(fit_dir, vmax=3.5):
+    """For a spherical-harmonic fit: max |f_lm / f00| for v < vmax per (l, m), and the share of the in-plane
+    log-anisotropy carried by l >= 2 (rms of the l >= 2 part over the rms of the total, |v| < vmax). None otherwise."""
+    import yaml
+    import equinox as eqx
+    import jax.numpy as jnp
+    from tsadar.utils import misc
+    from tsadar.core.modules.ts_params import ThomsonParams
+
+    weights = os.path.join(fit_dir, "fitted_weights.eqx")
+    if not os.path.exists(weights):
+        return None
+    cfg = misc.merge_defaults_and_inputs(*(yaml.safe_load(open(os.path.join(fit_dir, f"{k}.yaml"))) for k in ("defaults", "inputs")))
+    if cfg["parameters"]["electron"]["fe"]["type"] != "sphericalharmonic":
+        return None
+    like = ThomsonParams(cfg["parameters"], num_params=1, batch=False, activate=True)
+    try:
+        sh = eqx.tree_deserialise_leaves(weights, like).electron.distribution_functions
+    except Exception:  # saved with an older radial-coefficient structure
+        return None
+    radial = sh.flm[1][0]
+    if hasattr(radial, "coeff") and not np.allclose(np.asarray(radial.scale), 1.0 + np.asarray(sh.vr) ** 4):
+        return None  # older arbitrary weights (flm_sign, flm_mag) load into (coeff, scale) without error
+    f00 = sh.get_f00()
+    kwargs = {"m_f0": sh.get_unnormed_m(), "f00": f00}
+    vr = np.asarray(sh.vr)
+    core = vr < vmax
+    radius = np.asarray(sh.vr_vxvy)
+    in_plane = radius < vmax
+    out, low, high = {}, np.zeros_like(radius), np.zeros_like(radius)
+    for l in range(1, sh.Nl + 1):
+        for m in range(l + 1):
+            rel = np.asarray(sh.flm[l][m](**kwargs)) / np.maximum(np.asarray(f00), 1e-300)
+            out[f"max|f{l}{m}/f00|"] = float(np.abs(rel[core]).max())
+            term = np.interp(radius, vr, rel) * np.asarray(sh._real_harmonic(l, m))
+            if l == 1:
+                low += term
+            else:
+                high += term
+    total = low + high
+    out["l>=2 share"] = float(np.sqrt(np.mean(high[in_plane] ** 2)) / max(np.sqrt(np.mean(total[in_plane] ** 2)), 1e-300))
+    out["Nl"] = sh.Nl
+    return out
+
+
 def main():
+    global MODELS
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dataset", required=True, help="label, e.g. biDLM")
     ap.add_argument("--fits", nargs="+", required=True, help="label=root:prefix:truth_csv, e.g. new=C:/tmp/anifits:B:C:/tmp/t.csv")
+    ap.add_argument("--models", nargs="+", default=None, help="fit directory suffixes, default the six models")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    if args.models:
+        MODELS = tuple(args.models)
     os.makedirs(args.out, exist_ok=True)
     rows, shown = [], {}
     for item in args.fits:
@@ -130,6 +179,13 @@ def main():
                 row["Txx"] = row["Tyy"] = float((tv**2 * f1).sum() * dv)
             row["log10_L2_vx_marginal"] = log_l2(tv, fx, tmx)
             row["log10_L2_vy_marginal"] = log_l2(tv, fy, tmy)
+            terms = os.path.join(fit_dir, "angular_objective_terms.json")
+            if os.path.exists(terms):
+                import json
+                row["data"] = json.load(open(terms))["data"]
+            coefficients = sh_coefficients(fit_dir)
+            if coefficients:
+                row |= coefficients
             shown[(label, model, "marg")] = (fx, fy)
             rows.append(row)
         shown[(label, "truth")] = (tv, tf, tmx, tmy)
@@ -140,7 +196,7 @@ def main():
         fh.write(df.to_markdown(index=False, floatfmt=".4g"))
     with pd.option_context("display.width", 260, "display.max_columns", 40):
         cols = ["fit", "model", "Te_err_%", "ne_err_%", "ux", "uy", "Txx", "Tyy", "Txy", "Txx/Tyy", "axis_deg",
-                "log10_L2_2D", "log10_L2_vx_marginal", "log10_L2_vy_marginal"]
+                "log10_L2_2D", "log10_L2_vx_marginal", "log10_L2_vy_marginal", "data", "l>=2 share"]
         print(df[[c for c in cols if c in df]].round(4).to_string(index=False))
 
     labels = [item.split("=", 1)[0] for item in args.fits]
@@ -161,7 +217,7 @@ def main():
         fig.savefig(os.path.join(args.out, f"fe2d_{label}.png"), dpi=130)
         plt.close(fig)
     # marginals, log scale, every model; all fit sets overlaid
-    fig, axes = plt.subplots(2, 6, figsize=(18, 6.2), sharex=True, sharey=True, layout="constrained")
+    fig, axes = plt.subplots(2, len(MODELS), figsize=(3 * len(MODELS), 6.2), sharex=True, sharey=True, layout="constrained", squeeze=False)
     for j, model in enumerate(MODELS):
         for i, comp in enumerate(("vx", "vy")):
             ax = axes[i, j]
