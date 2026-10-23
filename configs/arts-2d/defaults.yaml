@@ -90,6 +90,7 @@ optimizer:
       radial_smoothness: 0.0
       angular_smoothness: 0.0
       kl_to_maxwellian: 0.0
+      log_curvature: 0.0
       density: 0.0
       temperature: 0.0
       momentum: 0.0

@@ -37,6 +37,7 @@ _ANGULAR_OBJECTIVE_DEFAULTS = {
         "radial_smoothness": 0.0,
         "angular_smoothness": 0.0,
         "kl_to_maxwellian": 0.0,
+        "log_curvature": 0.0,
         "density": 0.0,
         "temperature": 0.0,
         "momentum": 0.0,
@@ -60,6 +61,32 @@ def _merge_known_options(defaults, supplied, path):
         value = supplied.get(key, default)
         merged[key] = _merge_known_options(default, value, f"{path}.{key}") if isinstance(default, dict) else value
     return merged
+
+
+def _log_curvature(distribution, dv, floor_fraction=1.0e-4):
+    """f-weighted mean of the squared Laplacian of log f over the resolved part of the EDF.
+
+    The resolved region is f > floor_fraction * max f (with every stencil neighbour resolved). There
+    log f is defined by the data rather than by the floor, so bumps, spikes and noise in the tails
+    are penalized as much as in the core, unlike roughness normalized by int f^2. A Maxwellian has
+    |laplacian log f|^2 = (d / T)^2 in d velocity dimensions (4 in 2D at the gauge T = 1). The region
+    and the weights carry no gradient: the penalty acts only on the curvature of log f.
+    """
+    peak = jax.lax.stop_gradient(jnp.max(distribution))
+    resolved = jax.lax.stop_gradient(distribution > floor_fraction * peak)
+    log_f = jnp.log(jnp.maximum(distribution, floor_fraction * peak))
+    if distribution.ndim == 2:
+        centre = log_f[1:-1, 1:-1]
+        laplacian = (log_f[2:, 1:-1] + log_f[:-2, 1:-1] + log_f[1:-1, 2:] + log_f[1:-1, :-2] - 4.0 * centre) / dv**2
+        inside = (resolved[1:-1, 1:-1] & resolved[2:, 1:-1] & resolved[:-2, 1:-1]
+                  & resolved[1:-1, 2:] & resolved[1:-1, :-2])
+        weight = jax.lax.stop_gradient(jnp.where(inside, distribution[1:-1, 1:-1] / peak, 0.0))
+    else:
+        laplacian = (log_f[2:] + log_f[:-2] - 2.0 * log_f[1:-1]) / dv**2
+        inside = resolved[1:-1] & resolved[2:] & resolved[:-2]
+        weight = jax.lax.stop_gradient(jnp.where(inside, distribution[1:-1] / peak, 0.0))
+    laplacian = jnp.where(inside, laplacian, 0.0)
+    return jnp.sum(weight * laplacian**2) / jnp.maximum(jnp.sum(weight), jnp.finfo(distribution.dtype).tiny)
 
 
 class LossFunction:
@@ -355,6 +382,7 @@ class LossFunction:
             "radial_smoothness",
             "angular_smoothness",
             "kl_to_maxwellian",
+            "log_curvature",
             "density",
             "temperature",
             "momentum",
@@ -1100,6 +1128,7 @@ class LossFunction:
             "regularization_radial",
             "regularization_angular",
             "regularization_kl",
+            "regularization_log_curvature",
             "regularization_density",
             "regularization_temperature",
             "regularization_momentum",
@@ -1108,6 +1137,7 @@ class LossFunction:
             "radial_smoothness",
             "angular_smoothness",
             "kl_to_maxwellian",
+            "log_curvature",
             "density",
             "temperature",
             "momentum",
@@ -1169,6 +1199,8 @@ class LossFunction:
             "regularization_radial": float(regularization["radial_smoothness"]) * radial_roughness,
             "regularization_angular": float(regularization["angular_smoothness"]) * angular_roughness,
             "regularization_kl": float(regularization["kl_to_maxwellian"]) * kl,
+            "regularization_log_curvature": float(regularization["log_curvature"])
+            * _log_curvature(distribution, dv),
             "regularization_density": float(regularization["density"])
             * (density - float(regularization["density_target"])) ** 2,
             "regularization_temperature": float(regularization["temperature"])

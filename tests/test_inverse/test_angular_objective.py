@@ -177,6 +177,7 @@ def test_configured_physical_edf_regularizers_are_reported_term_by_term():
         "regularization_radial",
         "regularization_angular",
         "regularization_kl",
+        "regularization_log_curvature",
         "regularization_density",
         "regularization_temperature",
         "regularization_momentum",
@@ -422,3 +423,35 @@ def test_global_wing_scales_unfitted_columns_by_the_gain_of_their_side():
     _, _, fitted, _, diagnostics = loss._angular_data_objective(batch, signal, lam_axis)
     assert float(diagnostics["profiled_gains"][0]) == pytest.approx(blue_gain, rel=1e-6)
     np.testing.assert_allclose(fitted[:, 5:], blue_gain * signal[:, 5:], rtol=1e-6)
+
+
+def test_log_curvature_of_a_maxwellian_is_the_analytic_value_and_noise_raises_it():
+    from tsadar.inverse.loss_function import _log_curvature
+
+    velocity = jnp.linspace(-8.0, 8.0, 129)
+    dv = velocity[1] - velocity[0]
+    vx, vy = jnp.meshgrid(velocity, velocity)
+    maxwellian_2d = jnp.exp(-0.5 * (vx**2 + vy**2)) / (2 * jnp.pi)
+    maxwellian_1d = jnp.exp(-0.5 * velocity**2) / jnp.sqrt(2 * jnp.pi)
+    # the five-point stencil is exact on the quadratic log f: (d / T)^2 in d dimensions (float32 roundoff)
+    assert float(_log_curvature(maxwellian_2d, dv)) == pytest.approx(4.0, rel=1e-4)
+    assert float(_log_curvature(maxwellian_1d, dv)) == pytest.approx(1.0, rel=1e-4)
+    assert float(_log_curvature(maxwellian_2d, dv / 2.0 ** 0.5)) == pytest.approx(16.0, rel=1e-4)
+
+    noise = 1.0 + 0.01 * jax.random.normal(jax.random.PRNGKey(0), maxwellian_2d.shape)
+    # 1% pixel noise adds ~(0.01 sqrt(20) / dv^2)^2 ~ 8 to the noise-free 4
+    assert float(_log_curvature(maxwellian_2d * noise, dv)) > 8.0
+    gradient = jax.grad(lambda f: _log_curvature(f, dv))(maxwellian_2d * noise)
+    assert bool(jnp.all(jnp.isfinite(gradient)))
+
+
+def test_log_curvature_regularizer_is_reported_and_validated():
+    loss = _objective(regularization={"log_curvature": 1.0e-3})
+    velocity = jnp.linspace(-8.0, 8.0, 65)
+    vx, vy = jnp.meshgrid(velocity, velocity)
+    edf = jnp.exp(-0.5 * (vx**2 + vy**2))
+    edf = edf / (jnp.sum(edf) * (velocity[1] - velocity[0]) ** 2)
+    terms = loss._regularization_terms(lambda: {"electron": {"fe": edf, "v": velocity}})
+    assert terms["regularization_log_curvature"] == pytest.approx(4.0e-3, rel=1e-4)
+    with pytest.raises(ValueError, match="log_curvature must be non-negative"):
+        _objective(regularization={"log_curvature": -1.0})

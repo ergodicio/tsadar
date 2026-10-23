@@ -263,7 +263,7 @@ The ``optimizer:`` section includes options specifying the behavior of the optim
 
     - ``robust.kind`` is ``gaussian``, ``huber``, or ``student_t``. Huber uses ``threshold`` in whitened-residual units; Student-t uses ``dof``. Robust modes update the profiled linear gains with ``iterations`` IRLS passes.
 
-    - ``regularization`` supplies non-negative weights for ``radial_smoothness``, ``angular_smoothness``, ``kl_to_maxwellian``, and the ``density``, ``temperature``, and two-component ``momentum`` moment priors. These act on the normalized, positive physical EDF. Their targets default to 1, 2, and [0, 0] for a Cartesian two-velocity marginal. Unknown settings and invalid one-dimensional constraints are rejected rather than ignored.
+    - ``regularization`` supplies non-negative weights for ``radial_smoothness``, ``angular_smoothness``, ``kl_to_maxwellian``, ``log_curvature`` (the f-weighted mean of the squared Laplacian of log f where f > 1e-4 of its peak; 4 for a 2-V Maxwellian at unit temperature, and sensitive to bumps in the tails), and the ``density``, ``temperature``, and two-component ``momentum`` moment priors. These act on the normalized, positive physical EDF. Their targets default to 1, 2, and [0, 0] for a Cartesian two-velocity marginal. Unknown settings and invalid one-dimensional constraints are rejected rather than ignored.
 
   Angular postprocessing saves ``angular_objective_diagnostics.npz`` (whitened residuals, variance, valid mask, profiled gains and their Gaussian standard errors, and raw/fitted theory) and ``angular_objective_terms.json``; every term is also logged as an MLflow metric.
 
