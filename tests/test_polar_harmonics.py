@@ -149,9 +149,12 @@ def test_f0_is_the_single_trained_isotropic_part(flm_type):
     spec = get_filter_spec(parameters, params).electron.distribution_functions
     assert any(leaf is True for leaf in jax.tree_util.tree_leaves(spec.f0))
     assert spec.f0.scale is False and spec.log_f_init is False
+    # F0's radial function sits outside the bounded exponent and is scaled by 1 + v^2, not 1 + v^4
+    np.testing.assert_allclose(np.asarray(model.f0.scale), 1.0 + np.asarray(model.vr) ** 2)
 
     if flm_type == "arbitrary":
-        bumped = eqx.tree_at(lambda tree: tree.f0.coeff, model, jnp.full_like(model.f0.coeff, 1e-3))
+        # a radially varying correction (a constant shift of log f is removed by the normalization)
+        bumped = eqx.tree_at(lambda tree: tree.f0.coeff, model, 0.05 * model.vr**2)
         f = np.asarray(bumped())
         # F0 changes the radial shape and keeps the EDF isotropic
         np.testing.assert_allclose(f, np.flip(f, axis=1), rtol=1e-10)

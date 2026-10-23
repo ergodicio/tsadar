@@ -32,7 +32,7 @@ def _clip_unit_interval(value: Array) -> Array:
     return jnp.clip(value, 0.0, 1.0)
 
 
-def _collisional_scale(vr: Array) -> Array:
+def _collisional_scale(vr: Array, power: int = 4) -> Array:
     """Velocity scaling of the trainable relative coefficients, ``1 + v^4``.
 
     As in Vlasov-Fokker-Planck spherical-harmonic codes, the anisotropic coefficients
@@ -44,7 +44,7 @@ def _collisional_scale(vr: Array) -> Array:
     and that tail, which the dist optimizer (a few 1e-3 per step) could not otherwise span.
     """
 
-    return 1.0 + vr**4
+    return 1.0 + vr**power if power else jnp.ones_like(vr)
 
 
 class FLM_NN(eqx.Module):
@@ -63,7 +63,7 @@ class FLM_NN(eqx.Module):
     vr: Array
     scale: Array
 
-    def __init__(self, vr, key=PRNGKey(0), scaled=True):
+    def __init__(self, vr, key=PRNGKey(0), scale_power=4):
         super().__init__()
         net = eqx.nn.MLP(1, 1, 32, 3, key=key)
         self.net = eqx.tree_at(
@@ -72,9 +72,9 @@ class FLM_NN(eqx.Module):
             (jnp.zeros_like(net.layers[-1].weight), jnp.zeros_like(net.layers[-1].bias)),
         )
         self.vr = vr
-        # scaled=False for a coefficient outside a bounded exponent: shared weights would otherwise move the
-        # 1 + v^4-amplified tail by orders of magnitude on every step
-        self.scale = _collisional_scale(vr) if scaled else jnp.ones_like(vr)
+        # a smaller scale_power for a coefficient outside a bounded exponent: shared weights would otherwise move
+        # the 1 + v^4-amplified tail by orders of magnitude on every step
+        self.scale = _collisional_scale(vr, scale_power)
 
     def __call__(self, **kwargs):
         return self.scale * vmap(self.net)(self.vr[:, None])[:, 0] * kwargs["f00"]
@@ -148,12 +148,14 @@ class ArbitraryVr(eqx.Module):
     coeff: Array
     scale: Array
 
-    def __init__(self, vr):
+    def __init__(self, vr, scale_power=4):
         super().__init__()
         nvr = vr.shape[0]
         self.smooth = partial(smooth1d, window_size=nvr // 4)
         self.coeff = jnp.zeros(nvr)
-        self.scale = _collisional_scale(vr)
+        # a smaller scale_power for a coefficient outside a bounded exponent: every rmsprop step moves a node by
+        # about the learning rate, which the 1 + v^4 scale turns into tens in log f in the data-free tail over a fit
+        self.scale = _collisional_scale(vr, scale_power)
 
     def __call__(self, **kwargs):
         return self.scale * self.smooth(self.coeff) * kwargs["f00"]

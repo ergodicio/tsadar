@@ -10,7 +10,7 @@ expansion is the one used for the gyrophase in magnetized kinetic theory:
     f2(rho, theta) = F0(rho) exp(L tanh(sum_{m=1..M} rho^m/(1+rho^m) [c_m(rho) cos m theta + s_m(rho) sin m theta] / L))
 
 F0 is the trained isotropic part, F0(rho) = F_init(rho) exp(g0(rho)), the single source of isotropy, as f_0(v) is in VFP
-codes. g0 is a free radial function on the nvr-node radial grid (the uncapped (1 + v^4) arbitrary or nn form, zero at
+codes. g0 is a free radial function on the nvr-node radial grid (the arbitrary or nn form scaled by 1 + v^2, zero at
 start); F_init, the in-plane marginal of the isotropic 3-V super-Gaussian exp(-(r / v0)^m) with <r^2> = 3 at m =
 init_m, only sets the starting shape (no shape parameter is fitted). F0 is free in width as well as shape, so fit it
 with the in-plane <v^2> gauge (regularization temperature, target 2), which defines Te as half the in-plane second
@@ -81,14 +81,15 @@ class PolarHarmonics(DistributionFunction2V):
         if kind not in ("arbitrary", "nn"):
             raise NotImplementedError(f"polarharmonic supports flm_type arbitrary or nn, not {self.flm_type}")
 
-        def radial(key_index, scaled=True):
+        def radial(key_index, scale_power=4):
             if kind == "arbitrary":
-                return ArbitraryVr(self.vr)
-            return FLM_NN(self.vr, key=jax.random.fold_in(PRNGKey(1), key_index), scaled=scaled)
+                return ArbitraryVr(self.vr, scale_power=scale_power)
+            return FLM_NN(self.vr, key=jax.random.fold_in(PRNGKey(1), key_index), scale_power=scale_power)
 
-        # g0 is outside the bounded exponent; the nn form shares its weights over all v, so it is not 1 + v^4
-        # scaled (each arbitrary node moves on its own, and nodes in the empty tail get no gradient)
-        self.f0 = radial(0, scaled=False)
+        # g0 is outside the bounded exponent, so it is scaled by 1 + v^2, not 1 + v^4: with v^4 shared nn weights moved
+        # the tail by ~1e4 in log f on the first step and arbitrary nodes random-walked by tens in log f beyond 5 vTe
+        # over a fit (Phase 4d session 3); unscaled, F0 cannot reach shapes far from its start (biDLM from m = 3)
+        self.f0 = radial(0, scale_power=2)
         self.modes = defaultdict(dict)
         for m in range(1, self.M + 1):
             for k, part in enumerate(("cos", "sin")):
