@@ -152,7 +152,7 @@ def main():
         axes = axes[0]
         levels = np.linspace(-5, 0, 11)
         for ax, (name, f) in zip(axes, [("truth", tf)] + [(m, shown[(label, m)]) for m in models2d]):
-            ax.contourf(tv, tv, np.log10(np.clip(f / tf.max(), 1e-12, None)), levels=levels, cmap="viridis", extend="min")
+            ax.contourf(tv, tv, np.log10(np.clip(f / tf.max(), 1e-12, None)), levels=levels, cmap="viridis", extend="both")
             ax.contour(tv, tv, np.log10(np.clip(tf / tf.max(), 1e-12, None)), levels=levels[::2], colors="w", linewidths=0.5)
             ax.set_xlim(-3.5, 3.5); ax.set_ylim(-3.5, 3.5); ax.set_aspect("equal"); ax.set_title(f"{name}", fontsize=10)
             ax.set_xlabel("vx / vTe")
