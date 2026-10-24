@@ -1,6 +1,7 @@
 # Phase 4b: Maxwellian_arbSH with uncapped (1 + v^4) radial coefficients (2c9164ac), Nl = 2, global_wing gains
 # Phase 4: Maxwellian_arbSH with gain mode global_wing (closed-form blue/red scales replace amp1/amp2, now inactive; no gain prior)
 # session 9: cloned from biDLM_arbSH_Nl2 for the isotropic matrix cells; data ATS-s10021 (both images, second rotated by shot_rot, as the other Maxwellian/SG4 decks)
+# 300 epochs (2026-10-24): SH settles on the isotropic sets by step ~100-230; cosine decay over 225 steps
 data:
   background:
     slice: 10002
@@ -129,6 +130,7 @@ parameters:
       ub: 20.5
       val: 0.0
 optimizer:
+  num_epochs: 300
   angular_objective:
     gain:
       mode: global_wing
