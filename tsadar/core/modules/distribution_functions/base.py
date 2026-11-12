@@ -2,8 +2,12 @@
 Arbitrary2V) and shape-parameterized super-Gaussian EDFs (DLM1V/DLM2V), used by ThomsonParams to build the
 electron velocity distribution that the forward model integrates over."""
 import os
+import warnings
 from typing import Dict, Callable, Union
 from functools import partial
+
+import numpy as np
+import pandas
 
 from jax import numpy as jnp, vmap, Array
 from jax.lax import scan
@@ -361,6 +365,28 @@ class DLM1V(DistributionFunction1V):
         fdlm = self.interpolate_f_in_m(unnormed_m, self.m_ax, self.f_vx_m)
 
         return fdlm / jnp.sum(fdlm) / (self.vx[1] - self.vx[0])
+
+
+class Numeric1V(DistributionFunction1V):
+    """
+    Fixed 1D distribution function loaded from the csv file at dist_cfg["file"], with columns "v" and "f".
+    v is on a uniform grid in units of the species thermal velocity sqrt(T/m), using the T given in the deck.
+    """
+    fval: Array
+
+    def __init__(self, dist_cfg):
+        df = pandas.read_csv(dist_cfg["file"], comment="#")
+        v, f = df["v"].to_numpy(), df["f"].to_numpy()
+        if np.abs(v[f > 1e-6 * f.max()]).max() > 8.2:
+            warnings.warn(f"{dist_cfg['file']} extends past the form factor's |v| <= 8.2 grid, rescale it with a larger T")
+        self.vx = jnp.asarray(v)
+        self.fval = jnp.asarray(f / np.sum(f) / (v[1] - v[0]))
+
+    def get_unnormed_params(self):
+        return {"f": self()}
+
+    def __call__(self):
+        return self.fval
 
 
 class DistributionFunction2V(eqx.Module):

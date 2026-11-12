@@ -195,8 +195,8 @@ def _validate_inputs_(config: Dict) -> Dict:
             "please choose 1 or 2"
         )
     if config["parameters"]["electron"]["fe"]["dim"] == 1:
-        if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary"]:
-            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary")
+        if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary", "numeric"]:
+            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary, numeric")
     elif config["parameters"]["electron"]["fe"]["dim"] == 2:
         if config["parameters"]["electron"]["fe"]["type"] not in ["sphericalharmonic", "arbitrary"]:
             raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 2D EDFs, please choose one of the allowed types: sphericalharmonic or arbitrary")

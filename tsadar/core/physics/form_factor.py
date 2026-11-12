@@ -381,33 +381,24 @@ class FormFactor:
         electron_omgdop = omg - k * electron_flow
         xie = electron_omgdop / (k * vTe)
 
-        #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
-        fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
+        chiE, fe_vphi = self._numeric_chi(fe, vx, xie, klde)
 
-        df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
-        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]),1)), 1) 
+        fi_vphi = jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
+        for s, species in enumerate([species for species in params.keys() if "ion" in species]):
+            if "fi" in params[species]:
+                chi_s, fi_s = self._numeric_chi(
+                    params[species]["fi"], params[species]["vi"], jnp.sqrt(2.0) * xii[..., s : s + 1], kldi[..., s : s + 1], ion=True
+                )
+                chiI = chiI.at[..., s : s + 1].set(chi_s)
+                fi_vphi = fi_vphi.at[..., s : s + 1].set(fi_s)
 
-        chiEI = -jnp.pi / (klde**2) * 1j * df
-        
-        ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
-        ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
-
-        # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
-        chiERratprim = self.chiERratprim_op @ ratdf
-        chiERrat = jnp.reshape(interp_uniform(xie.flatten(), self.xi2, chiERratprim), xie.shape)
-        chiERrat = -1.0 / (klde**2) * chiERrat
-
-        chiE = chiERrat + chiEI
         chiI = jnp.sum(chiI, 3) # Sum over ion species to get total ion susceptibility
         chiI = chiI[..., jnp.newaxis]
         epsilon = 1.0 + chiE + chiI
 
-        # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = fract * Z**2 / Zbar / vTi
         #ion_comp_fact = fract * Zbar / vTi
-        ion_comp = ion_comp_fact * (
-            (jnp.abs(chiE)) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
-        )
+        ion_comp = ion_comp_fact * (jnp.abs(chiE)) ** 2.0 * fi_vphi
 
         ele_comp = (jnp.abs(1.0 + chiI)) ** 2.0 * fe_vphi / vTe
 
@@ -445,6 +436,35 @@ class FormFactor:
 
 
         return formfactor, jnp.squeeze(lams, axis=-1)
+
+    def _numeric_chi(self, f, v, xi, kld, ion=False):
+        """
+        Susceptibility of a numerical 1D distribution f(v), with v and xi in units of the thermal velocity
+        sqrt(T/m), and f evaluated at xi. xi and kld have shape [ng, npts, na, 1].
+        ion=True takes df/dv on the velocity grid rather than along the wavelength axis, which is too coarse for
+        the ion feature in an EPW window, and uses the 1/xi**2 asymptote past the tabulated |xi| <= 8.2.
+        """
+        #f_vphi = jnp.exp(jnp.interp(xi, v, jnp.log(f)))
+        f_vphi = jnp.exp(jnp.apply_along_axis(interp1d, 0, jnp.squeeze(xi), v, jnp.log(jnp.squeeze(f)), extrap=[-50, -50])).reshape(jnp.shape(xi))
+
+        ratmod = jnp.exp(interp1d(self.xi1, v, jnp.log(f), extrap=[-50, -50]))
+        ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
+
+        if ion:
+            df = interp_uniform(xi, self.xi1, ratdf, left=0.0, right=0.0)
+        else:
+            df = jnp.diff(f_vphi, 1, 1) / jnp.diff(xi, 1, 1)
+            df = jnp.append(df, jnp.zeros_like(xi[:, :1]), 1)
+
+        chiI = -jnp.pi / (kld**2) * 1j * df
+
+        # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
+        chiRratprim = self.chiERratprim_op @ ratdf
+        tail = xi.flatten() ** -2 if ion else None
+        chiRrat = jnp.reshape(interp_uniform(xi.flatten(), self.xi2, chiRratprim, left=tail, right=tail), xi.shape)
+        chiRrat = -1.0 / (kld**2) * chiRrat
+
+        return chiRrat + chiI, f_vphi
 
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """
