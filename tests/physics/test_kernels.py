@@ -72,3 +72,46 @@ def test_numeric_susceptibility_matches_faddeeva_mixture(form_factor, components
         )
     f_error = np.max(np.abs(np.squeeze(np.asarray(f_at_xi)) - oracles.mixture_density(XI, components)))
     assert f_error < F_TOL, f"A3-L1: f(xi) interpolated with error {f_error:.2e}"
+
+
+# --------------------------------------------------------------------------- Z' for Maxwellian ions
+
+
+def test_zprime_default_is_exact_and_legacy_reproduces_the_old_table():
+    from scipy.interpolate import interp1d
+    from scipy.special import dawsn
+
+    from tsadar.core.physics.form_factor import _load_zprime_tables, zprimeMaxw
+
+    xi = np.arange(-8.2, 8.2, 0.01)  # FormFactor's xi2 grid
+    # Re Z' = -2 (1 - 2 xi F(xi)) with the Dawson function F, an evaluation independent of the Faddeeva function
+    exact_real = -2.0 * (1.0 - 2.0 * xi * dawsn(xi))
+    exact_imag = -2.0 * np.sqrt(np.pi) * xi * np.exp(-(xi**2))
+    default = zprimeMaxw(xi)
+    np.testing.assert_allclose(default[0], exact_real, rtol=0, atol=1e-13, err_msg="Re Z' (faddeeva)")
+    np.testing.assert_allclose(default[1], exact_imag, rtol=0, atol=1e-13, err_msg="Im Z' (faddeeva)")
+
+    # legacy: the tables, interpolated exactly as before
+    rd, idt = _load_zprime_tables()
+    legacy = zprimeMaxw(xi, "legacy")
+    np.testing.assert_array_equal(legacy[0], interp1d(rd[:, 0], rd[:, 1], "linear")(xi))
+    np.testing.assert_array_equal(legacy[1], interp1d(idt[:, 0], idt[:, 1], "linear")(xi))
+    # and the known difference between them: up to 1.63e-3 in the real part, 5e-6 in the imaginary part
+    assert 1.5e-3 < np.abs(legacy[0] - exact_real).max() < 1.7e-3
+    assert np.abs(legacy[1] - exact_imag).max() < 1e-5
+
+    with pytest.raises(ValueError, match="other.zprime"):
+        zprimeMaxw(xi, "tabulated")
+
+
+@pytest.mark.parametrize("source", ["faddeeva", "legacy"])
+def test_the_deck_selects_the_zprime_source_for_both_form_factors(source):
+    from tsadar.core.physics.form_factor import zprimeMaxw
+    from tsadar.core.physics.generate_spectra import FitModel
+
+    case = SPECTRUM_CASES[0]
+    cfg = harness.diagnostic_config(case.plasma, case.detector)
+    cfg["other"]["zprime"] = source
+    model = FitModel(cfg, {"sa": np.array([60.0]), "weights": np.ones((1, 1))})
+    for ff in (model.electron_form_factor, model.ion_form_factor):
+        np.testing.assert_array_equal(np.asarray(ff.Zpi), zprimeMaxw(np.asarray(ff.xi2), source))

@@ -5,9 +5,11 @@ from jax import numpy as jnp, vmap, device_put, device_count, devices
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
+import scipy.interpolate as sp
 from scipy.special import wofz
-from functools import partial
+from functools import partial, lru_cache
 
+import os
 import numpy as np
 from interpax import interp2d, interp1d
 from jax.lax import scan, map as jmap
@@ -17,6 +19,15 @@ from . import ratintn
 from ...utils.detector_grid import oversampled_axis
 from .interpolation import interp_uniform
 from ...utils.vector_tools import vsub, vdot, vdiv
+
+BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
+
+# Sources of Z'(xi) for the Maxwellian ion susceptibility, selected by config["other"]["zprime"].
+# "faddeeva" (default): Z' = -2 [1 + xi Z(xi)] with Z = i sqrt(pi) w(xi), exact to machine precision.
+# "legacy": the rdWT/idWT tables tsadar used before 2026-11. Their real part differs from the exact Z' by
+# up to 1.6e-3 (xi = +-1.37; e.g. Re Z'(1) = 0.153356 vs 0.152318), which puts ~0.65 % on an IAW feature.
+# Kept so results can be compared with codes that use the same table.
+ZPRIME_SOURCES = ("faddeeva", "legacy")
 
 # Angles in the tabulated projection used by the 2D form factor (see
 # FormFactor._build_sinogram). Single source of truth: the config layer defers to this
@@ -76,23 +87,49 @@ def _principal_value_integral(df, vx, xi):
     return jnp.squeeze(ratintn.ratintn(df, vx - xi, vx))
 
 
-def zprimeMaxw(xi):
+@lru_cache(maxsize=1)
+def _load_zprime_tables():
+    rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
+    idWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "idWT.txt")))
+    return rdWT, idWT
+
+
+def zprimeMaxw(xi, source="faddeeva"):
     """
     Derivative of the plasma dispersion function, Z'(xi) = -2 [1 + xi Z(xi)], for real xi.
 
-    Z(xi) = i sqrt(pi) w(xi) is evaluated with the Faddeeva function, which is accurate to machine
-    precision on the whole real line (Fried & Conte 1961; Sheffield et al. 2011, sec. 3.3). This
-    replaces the earlier tabulated values (rdWT.txt, idWT.txt), whose real part was off by up to 1.6e-3.
+    FormFactor evaluates this once, on its uniform xi2 grid, and interpolates that table on every forward
+    pass, so the choice of source does not change the cost of a fit.
 
     Args:
-        xi (np.ndarray): Normalized phase velocities.
+        xi (np.ndarray): Normalized phase velocities (ascending for "legacy").
+        source (str): "faddeeva" evaluates Z(xi) = i sqrt(pi) w(xi) with the Faddeeva function, exact on the
+            whole real line (Fried & Conte 1961; Sheffield et al. 2011, sec. 3.3). "legacy" interpolates the
+            rdWT/idWT tables used before 2026-11, with the asymptote of Sheffield eq. 5.2.10 beyond |xi| = 10;
+            see ZPRIME_SOURCES for how they differ.
     Returns:
         Zp (np.ndarray): Shape ``(2, len(xi))``: real and imaginary parts of Z'(xi).
     """
 
-    xi = np.asarray(xi, dtype=float)
-    Zp = -2.0 * (1.0 + xi * 1j * np.sqrt(np.pi) * wofz(xi))
-    return np.vstack((Zp.real, Zp.imag))
+    if source == "faddeeva":
+        xi = np.asarray(xi, dtype=float)
+        Zp = -2.0 * (1.0 + xi * 1j * np.sqrt(np.pi) * wofz(xi))
+        return np.vstack((Zp.real, Zp.imag))
+    if source != "legacy":
+        raise ValueError(f"Unknown Z' source {source!r}; other.zprime must be one of {ZPRIME_SOURCES}")
+
+    rdWT, idWT = _load_zprime_tables()
+
+    ai = xi < -10
+    bi = xi > 10
+
+    rinterp = sp.interp1d(rdWT[:, 0], rdWT[:, 1], "linear")
+    rZp = np.concatenate((xi[ai] ** -2, rinterp(xi), xi[bi] ** -2))
+    iinterp = sp.interp1d(idWT[:, 0], idWT[:, 1], "linear")
+    iZp = np.concatenate((0 * xi[ai], iinterp(xi), 0 * xi[bi]))
+
+    Zp = np.vstack((rZp, iZp))
+    return Zp
 
 
 class FormFactor:
@@ -191,6 +228,7 @@ class FormFactor:
         calc_gain,
         n_beta=DEFAULT_N_BETA,
         points_per_pixel=1,
+        zprime="faddeeva",
     ):
         """
         Args:
@@ -200,6 +238,7 @@ class FormFactor:
                     Ipump (float): pump intensity in 1e14 W/cm^2, from Ipump_14
                     beam_diam_um (float): pump beam diameter in microns, from beam_diam_um
                     gain_cap (float): upper limit on the gain exponent, from LPI_gain_cap
+            zprime (str): source of Z' for Maxwellian ions, "faddeeva" (default) or "legacy"; see zprimeMaxw.
         """
 
         # basic quantities
@@ -227,7 +266,7 @@ class FormFactor:
 
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
-        self.Zpi = jnp.array(zprimeMaxw(self.xi2))
+        self.Zpi = jnp.array(zprimeMaxw(self.xi2, zprime))
 
         # `ratintn` is exactly linear in its first argument and, in the 1D path, the other two are
         # built from the fixed grids above. The quadrature is therefore a constant matrix applied to

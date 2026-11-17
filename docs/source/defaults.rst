@@ -410,6 +410,8 @@ The ``other:`` section includes options specifying the types of data that are be
 
 - ``iawfilter`` is an alternative to ``iawoff`` that suppresses the IAW with a notch filter. The list has 4 elements: boolean for on/off, OD of the filter, spectral width of the filter in nm, and central wavelength of the filter in nm.
 
+- ``zprime`` selects how the derivative of the plasma dispersion function, Z', is evaluated for Maxwellian ions. ``faddeeva`` (the default) computes it exactly from the Faddeeva function; ``legacy`` uses the rdWT/idWT tables tsadar used before November 2026, whose real part differs from the exact Z' by up to 1.6e-3 (about 0.65 % on an ion-acoustic feature). Use ``legacy`` to reproduce older results or to compare with codes that use the same table. Either way Z' is tabulated once when the form factor is built, so the choice does not change the cost of a fit.
+
 - ``CCDsize`` size of the CCD in pixels
 
 - ``flatbg`` flat (applied to all pixes) value added to the background

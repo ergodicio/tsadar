@@ -82,6 +82,8 @@ parameters:
         active: False
 
 other:
+    # Z' for Maxwellian ions: faddeeva (exact) or legacy (the rdWT/idWT tables used before 2026-11)
+    zprime: faddeeva
     crop_window: 1
     BinWidth: 10
     NumBinInRng: 0

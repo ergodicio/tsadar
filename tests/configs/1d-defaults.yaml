@@ -77,6 +77,8 @@ parameters:
             ub: 100.0
 
 other:
+    # Z' for Maxwellian ions: faddeeva (exact) or legacy (the rdWT/idWT tables used before 2026-11)
+    zprime: faddeeva
     expandedions: False
     extraoptions:
         spectype: 1d
