@@ -56,6 +56,7 @@ TREES = {"1d": _one_d, "angular": _angular, "ion_only": _ion_only, "no_spectrogr
 
 def _masked(built):
     built = json.loads(json.dumps(built))
+    assert isinstance(built["tsadar_version"], str) and built["tsadar_version"].strip()
     built["tsadar_version"] = "<masked>"
     for entry in built["files"]:
         assert isinstance(entry["bytes"], int) and entry["bytes"] > 0, entry
