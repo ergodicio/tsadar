@@ -136,27 +136,25 @@ def _angular_frequency(lam_nm):
     return 2.0 * np.pi * C_CM_PER_S / (np.asarray(lam_nm, dtype=float) * 1.0e-7)
 
 
-def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
-    r"""Collisionless Thomson spectral density per unit wavelength, in tsadar's units.
+def plasma_frequency(ne_1e20):
+    """Electron plasma frequency in rad/s for a density in 1e20 cm^-3."""
+    return np.sqrt(4.0 * np.pi * ELECTRON_CHARGE_SQUARED * ne_1e20 * 1.0e20 / ELECTRON_MASS)
 
-    ``S(k, w) = (2 pi / k) [ |1 + chi_i|^2 f_e(w/k) + |chi_e|^2 sum_s (Z_s^2 n_s/n_e) f_s(w/k) ] / |eps|^2``
-    with every ``chi`` from the Faddeeva function. tsadar's output also carries the
-    first-order scattered-power factor ``(1 + 2 w / w_L)``, ``r_e^2 n_e`` and the
-    ``dw/dlambda`` Jacobian; those are included so the comparison is absolute.
 
-    With ``terms=True`` returns ``(total, electron_term, ion_term, chi_e, chi_i)``.
+def form_factor_terms(k, omega, plasma: Plasma):
+    r"""Electron and ion parts of ``S(k, w)`` at wavenumber ``k`` (1/cm) and frequency shift ``w`` (rad/s).
+
+    ``S(k, w) = (1/k) [ |1 + chi_i|^2 f_e(w/k) + |chi_e|^2 sum_s (Z_s^2 n_s/n_e) f_s(w/k) ] / |eps|^2``
+    with every ``chi`` from the Faddeeva function and each ``f`` normalized to one. With this
+    normalization ``integral S dw`` is the static structure factor (Salpeter 1960; Sheffield et al.
+    2011, ch. 3 and 5 write ``2 pi / k`` and integrate over ``dw / 2 pi``).
+
+    Returns ``(electron_part, ion_part, chi_e, chi_i)``; ``k`` and ``omega`` broadcast.
     """
-    lam_nm = np.asarray(lam_nm, dtype=float)
+    k = np.asarray(k, dtype=float)
+    omega = np.asarray(omega, dtype=float)
     ne = plasma.ne * 1.0e20
-    omega_pe = np.sqrt(4.0 * np.pi * ELECTRON_CHARGE_SQUARED * ne / ELECTRON_MASS)
-
-    omega_s = _angular_frequency(lam_nm)
-    omega_l = _angular_frequency(plasma.lam)
-    omega = omega_s - omega_l
-    k_s = np.sqrt(omega_s**2 - omega_pe**2) / C_CM_PER_S
-    k_l = np.sqrt(omega_l**2 - omega_pe**2) / C_CM_PER_S
-    theta = np.deg2rad(plasma.angle_deg)
-    k = np.sqrt(k_s**2 + k_l**2 - 2.0 * k_s * k_l * np.cos(theta))
+    omega_pe = plasma_frequency(plasma.ne)
 
     z = np.array([ion.Z for ion in plasma.ions], dtype=float)
     fract = np.array([ion.fract for ion in plasma.ions], dtype=float)
@@ -187,9 +185,37 @@ def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
     eps2 = np.abs(1.0 + chi_e + chi_i) ** 2
     electron_part = np.abs(1.0 + chi_i) ** 2 * f_e / eps2 / k
     ion_part = np.abs(chi_e) ** 2 * ion_term / eps2 / k
+    return electron_part, ion_part, chi_e, chi_i
+
+
+def scattering_geometry(lam_nm, plasma: Plasma):
+    """``(k, omega, omega_l)`` along the spectrometer axis: the frequency shift and the Bragg wavenumber
+    of light scattered at ``lam_nm`` through ``plasma.angle_deg``, with the plasma dispersion of both waves."""
+    omega_pe = plasma_frequency(plasma.ne)
+    omega_s = _angular_frequency(lam_nm)
+    omega_l = _angular_frequency(plasma.lam)
+    k_s = np.sqrt(omega_s**2 - omega_pe**2) / C_CM_PER_S
+    k_l = np.sqrt(omega_l**2 - omega_pe**2) / C_CM_PER_S
+    theta = np.deg2rad(plasma.angle_deg)
+    k = np.sqrt(k_s**2 + k_l**2 - 2.0 * k_s * k_l * np.cos(theta))
+    return k, omega_s - omega_l, omega_l
+
+
+def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
+    r"""Collisionless Thomson spectral density per unit wavelength, in tsadar's units.
+
+    :func:`form_factor_terms` along the spectrometer axis, times tsadar's first-order
+    scattered-power factor ``(1 + 2 w / w_L)``, ``r_e^2 n_e`` and the ``dw/dlambda`` Jacobian, so the
+    comparison is absolute.
+
+    With ``terms=True`` returns ``(total, electron_term, ion_term, chi_e, chi_i)``.
+    """
+    lam_nm = np.asarray(lam_nm, dtype=float)
+    k, omega, omega_l = scattering_geometry(lam_nm, plasma)
+    electron_part, ion_part, chi_e, chi_i = form_factor_terms(k, omega, plasma)
 
     # tsadar's absolute scale: (1 + 2 w/w_L) r_e^2 n_e, then dw/dlambda = 2 pi c / lambda^2
-    scale = (1.0 + 2.0 * omega / omega_l) * CLASSICAL_ELECTRON_RADIUS_CM**2 * ne
+    scale = (1.0 + 2.0 * omega / omega_l) * CLASSICAL_ELECTRON_RADIUS_CM**2 * plasma.ne * 1.0e20
     jacobian = 2.0 * np.pi * C_CM_PER_S / (lam_nm * 1.0e-7) ** 2
     electron_part = electron_part * scale * jacobian
     ion_part = ion_part * scale * jacobian
