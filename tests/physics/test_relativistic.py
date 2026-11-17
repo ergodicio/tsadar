@@ -79,8 +79,8 @@ def test_first_order_relativistic_accuracy_against_the_exact_spectrum(te, theta,
 
     shape = float(np.abs(model - exact).max())
     shift = _peak(eps, model) - _peak(eps, exact)
-    record_property("shape error / (Te/mc^2)", shape / beta2)
-    record_property("peak error / second-order shift", shift / second_order_shift)
+    record_property("shape error / (Te/mc^2)", float(shape / beta2))
+    record_property("peak error / second-order shift", float(shift / second_order_shift))
     assert shape < SHAPE_TOL * beta2, f"A12: shape off the exact spectrum by {shape:.2e} = {shape / beta2:.2f} Te/mc^2"
     assert abs(shift) < PEAK_TOL * second_order_shift, (
         f"A12: peak off by {shift:+.5f} = {shift / second_order_shift:.2f} of the second-order shift"
