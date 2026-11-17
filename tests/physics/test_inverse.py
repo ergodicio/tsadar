@@ -174,7 +174,7 @@ def test_mcmc_posterior_matches_laplace_at_high_counts(epw_at_truth, record_prop
     cfg["other"] = dict(cfg["other"]) | {
         "mcmc": {"num_steps": 6000, "burn_in": 1000, "thin": 5, "adapt_every": 50, "use_laplace_seed": True, "seed": 0}
     }
-    samples, static, _ = mcmc.run_mcmc_for_batch(
+    samples, static, diagnostics = mcmc.run_mcmc_for_batch(
         cfg, epw_at_truth["loss"], epw_at_truth["params"], epw_at_truth["batch"], jax.random.PRNGKey(7)
     )
 
@@ -191,6 +191,10 @@ def test_mcmc_posterior_matches_laplace_at_high_counts(epw_at_truth, record_prop
         record_property(f"{name}: std / laplace", float(std[i] / laplace[i]))
     np.testing.assert_array_less(np.abs(mean - truth), S3_MEAN_SIGMAS * laplace, err_msg="S3: posterior mean off truth")
     np.testing.assert_allclose(std, laplace, rtol=S3_STD_RTOL, err_msg="S3: posterior width != Laplace sigma")
+    # the robust adaptive Metropolis targets an acceptance rate of 0.234
+    acceptance = float(np.asarray(diagnostics["acceptance_rate"]).ravel()[0])
+    record_property("acceptance rate", acceptance)
+    assert abs(acceptance - 0.234) < 0.1, f"S3: acceptance rate {acceptance:.3f}, target 0.234"
 
 
 # measured (5000 steps after burn-in, thin 5, fixed seed): std / Laplace 0.972 (ne), 0.975 (Te); mean - truth
