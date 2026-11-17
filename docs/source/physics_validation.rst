@@ -281,18 +281,20 @@ The production pipeline
 -----------------------
 
 ``tests/pipeline/test_real_shot.py`` fits shot 101675 (two EPW lineouts) through
-``runner.run`` twice, with L-BFGS-B and with LSQ plus a forced refit with the lineouts in
-separate batches, and reuses those fits for every check:
+``runner.run`` three times: with L-BFGS-B, with LSQ plus a forced refit with the lineouts in
+separate batches, and with LSQ and ``fe`` inactive in separate batches for MCMC. It reuses
+those fits for every check:
 
 * the known-good fit values of lineout 0 for both optimizers;
 * the refit path;
 * every postprocess entry point (local folder with ``defaults.yaml``/``inputs.yaml`` or
   with ``config.yaml``; remote run id with either layout), which must reproduce the fit
   to 1e-6;
-* MCMC postprocessing with 60-step chains and two chains: the logged artifacts, the
-  covariance diagonal against the sigmas, overrides reaching the postprocessor, R-hat,
-  and the remote entry point. The sampler cannot sample an active EDF, so it runs with
-  ``fe`` inactive, conditioned on the fitted shape.
+* MCMC postprocessing with 60-step chains and two chains over two fit batches: the logged
+  artifacts, the covariance diagonal against the sigmas, overrides reaching the
+  postprocessor, R-hat, and the remote entry point. The sampler cannot sample an active
+  EDF, so its fit is made with ``fe`` inactive from the start, as :doc:`mcmc` requires;
+  deactivating ``fe`` by override on a fit with :math:`m` free is not supported.
 
 The sampler's statistics are checked by S3, not here.
 

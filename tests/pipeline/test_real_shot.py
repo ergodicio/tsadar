@@ -1,4 +1,4 @@
-"""The production pipeline on shot 101675: fits, refit, postprocess entry points and MCMC wiring, sharing two fits."""
+"""The production pipeline on shot 101675: fits, refit, postprocess entry points and MCMC wiring, sharing three fits."""
 
 import os
 import shutil
@@ -38,9 +38,6 @@ SHORT_MCMC = {
     "compare_to_laplace": False,
 }
 
-MCMC_OVERRIDES = {"parameters": {"electron": {"fe": {"active": False}}}}
-
-
 def _deck(method, **other):
     with open(os.path.join(CONFIGS, "time_test_defaults.yaml")) as fi:
         defaults = yaml.safe_load(fi)
@@ -52,11 +49,12 @@ def _deck(method, **other):
     return defaults, inputs
 
 
-def _fit(tmp_path_factory, name, method, batch_size=None, **other):
+def _fit(tmp_path_factory, name, method, batch_size=None, fe_active=True, **other):
     folder = tmp_path_factory.mktemp(name)
     defaults, inputs = _deck(method, **other)
     if batch_size is not None:
         inputs["optimizer"]["batch_size"] = batch_size
+    inputs["parameters"]["electron"]["fe"]["active"] = fe_active
     for file_name, cfg in (("defaults.yaml", defaults), ("inputs.yaml", inputs)):
         with open(folder / file_name, "w") as fi:
             yaml.dump(cfg, fi)
@@ -67,12 +65,17 @@ def _fit(tmp_path_factory, name, method, batch_size=None, **other):
 
 @pytest.fixture(scope="module")
 def lbfgs(tmp_path_factory):
-    return _fit(tmp_path_factory, "lbfgs", "l-bfgs-b", mcmc=dict(SHORT_MCMC))
+    return _fit(tmp_path_factory, "lbfgs", "l-bfgs-b")
 
 
 @pytest.fixture(scope="module")
 def lsq_refit(tmp_path_factory):
     return _fit(tmp_path_factory, "lsq_refit", "lsq", batch_size=1, refit=True, refit_thresh=-1.0)
+
+
+@pytest.fixture(scope="module")
+def fe_fixed(tmp_path_factory):
+    return _fit(tmp_path_factory, "fe_fixed", "lsq", batch_size=1, fe_active=False, mcmc=dict(SHORT_MCMC))
 
 
 def _assert_two_sane_lineouts(params):
@@ -115,15 +118,14 @@ def test_every_postprocess_entry_point_reproduces_the_fit(lbfgs):
     _assert_same_fit(run_postprocess_remote(lbfgs.run_id), reference, "remote config.yaml")
 
 
-def test_mcmc_postprocess_wiring(lbfgs):
+def test_mcmc_postprocess_wiring(fe_fixed):
     overrides = {
-        **MCMC_OVERRIDES,
         "other": {
             "mcmc": {"save_samples": False, "init_dispersion_factor": 3.0},
             "calibration_uncertainty": {"num_draws": 2},
         },
     }
-    params = run_mcmc_postprocess_local(str(lbfgs.folder), overrides=overrides)
+    params = run_mcmc_postprocess_local(str(fe_fixed.folder), overrides=overrides)
     run_id = mlflow.last_active_run().info.run_id
     client = mlflow.tracking.MlflowClient()
 
@@ -149,5 +151,5 @@ def test_mcmc_postprocess_wiring(lbfgs):
     for a, name in enumerate(covariance["param_i"].values):
         np.testing.assert_allclose(covariance["covariance"].values[:, a, a], sigmas[str(name)].values ** 2, rtol=1e-8)
 
-    remote = run_mcmc_postprocess_remote(lbfgs.run_id, overrides=MCMC_OVERRIDES)
+    remote = run_mcmc_postprocess_remote(fe_fixed.run_id)
     _assert_two_sane_lineouts(remote)
