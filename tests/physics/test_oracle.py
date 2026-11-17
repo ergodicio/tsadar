@@ -8,6 +8,10 @@ normalization and its collective modes against independent results:
   factor of a classical weakly coupled plasma, the Debye-Hueckel result
   ``S(k) = (k^2 + sum_s k_s^2) / (k^2 + k_e^2 + sum_s k_s^2)``, ``k_s^2 = 4 pi n_s Z_s^2 e^2 / T``.
   This fixes the absolute scale of both features and the ion weights Z_s^2 n_s / n_e.
+These checks evaluate only the oracle (Faddeeva functions, exact at any alpha), never tsadar's
+sampled form factor, so the small k lambda_De of the Bohm-Gross limit is not a resolution
+concern here; the tsadar tests stay at alpha <= 3.5 (cases.py).
+
 * A2, the collective modes in their analytic limits: at small k lambda_De the EPW
   peak follows the kinetic Bohm-Gross expansion, and for cold ions the ion-acoustic
   peak sits at the screened sound speed.

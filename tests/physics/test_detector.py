@@ -30,4 +30,4 @@ def test_diagnostic_matches_analytic_detector_spectrum(case):
         err_msg=f"{case}: detector pixel centres moved",
     )
     expected = oracle_detector(det, centers, lambda lam: oracles.spectral_density(lam, case.plasma))
-    assert_detector_matches(f"{case.problem}-L3/{case}", det, centers, model, expected, case.l3_tol_scale)
+    assert_detector_matches(f"{case.problem}-L3/{case}", det, centers, model, expected)

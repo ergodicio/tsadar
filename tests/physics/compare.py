@@ -10,11 +10,14 @@ import numpy as np
 
 from .. import oracles
 
-# Compared inside the fit ranges, away from the notch edges: tsadar applies the rectangular notch on its
-# sampled grid, so each edge is placed only to a grid step (up to 6e-3 of peak there, halving with twice
-# the points per pixel). The notch itself is checked in test_notch.py. Measured on the fixed code over A1
-# and A3: Linf <= 1.0e-3, L1 <= 6e-4, peaks within 1e-3 nm. Before the velocity-grid f' and the Faddeeva
-# Z', the A1 EPW case was Linf 2.4e-2 with peaks moved -0.039/-0.030 nm, and IAW Linf 1.2e-3 to 2.4e-3.
+# Compared inside the fit ranges, away from the notch edges. The notch is not modelled exactly (a rectangular
+# attenuation on tsadar's sampled grid, so each edge is placed only to a grid step) and its band is excluded
+# from every fit; the pixels within NOTCH_EDGE_SIGMAS IRF widths of an edge are left out here. Measured on the
+# fixed code over A1 and A3: Linf <= 1.0e-3, L1 <= 7.3e-4, peaks within 1e-3 nm. Before the velocity-grid f'
+# and the Faddeeva Z', the A1 EPW case was Linf 2.4e-2 with peaks moved -0.039/-0.030 nm, and IAW Linf 1.2e-3
+# to 2.4e-3.
+#
+# Well-resolved regime only (alpha = 1/(k lambda_De) <= 3.5 and no nearly undamped resonance); see cases.py.
 LINF_TOL = {"EPW": 1.5e-3, "IAW": 1.0e-3}
 L1_TOL = {"EPW": 1.0e-3, "IAW": 1.0e-3}
 NOTCH_EDGE_SIGMAS = 2.0
