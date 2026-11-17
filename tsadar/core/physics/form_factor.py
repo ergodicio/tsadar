@@ -5,10 +5,9 @@ from jax import numpy as jnp, vmap, device_put, device_count, devices
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
-import scipy.interpolate as sp
-from functools import partial, lru_cache
+from scipy.special import wofz
+from functools import partial
 
-import os
 import numpy as np
 from interpax import interp2d, interp1d
 from jax.lax import scan, map as jmap
@@ -18,8 +17,6 @@ from . import ratintn
 from ...utils.detector_grid import oversampled_axis
 from .interpolation import interp_uniform
 from ...utils.vector_tools import vsub, vdot, vdiv
-
-BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
 # Angles in the tabulated projection used by the 2D form factor (see
 # FormFactor._build_sinogram). Single source of truth: the config layer defers to this
@@ -79,38 +76,23 @@ def _principal_value_integral(df, vx, xi):
     return jnp.squeeze(ratintn.ratintn(df, vx - xi, vx))
 
 
-@lru_cache(maxsize=1)
-def _load_zprime_tables():
-    rdWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "rdWT.txt")))
-    idWT = np.vstack(np.loadtxt(os.path.join(BASE_FILES_PATH, "files", "idWT.txt")))
-    return rdWT, idWT
-
-
 def zprimeMaxw(xi):
     """
-    Calculates the derivative of the plasma dispersion function (Z-prime) for an array of normalized phase velocities (xi)
-    using a combination of tabulated values and asymptotic approximations.
-    For values of xi between -10 and 10, the function uses interpolated data from precomputed tables. For values outside
-    this range, it applies the asymptotic approximation as described in Eqn. 5.2.10 of the Thomson scattering reference.
+    Derivative of the plasma dispersion function, Z'(xi) = -2 [1 + xi Z(xi)], for real xi.
+
+    Z(xi) = i sqrt(pi) w(xi) is evaluated with the Faddeeva function, which is accurate to machine
+    precision on the whole real line (Fried & Conte 1961; Sheffield et al. 2011, sec. 3.3). This
+    replaces the earlier tabulated values (rdWT.txt, idWT.txt), whose real part was off by up to 1.6e-3.
+
     Args:
-        xi (np.ndarray): Array of normalized phase velocities (must be in ascending order).
+        xi (np.ndarray): Normalized phase velocities.
     Returns:
-        Zp (np.ndarray): 2D array where the first row contains the real components and the second row contains the imaginary
-        components of Z-prime evaluated at each value of xi.
+        Zp (np.ndarray): Shape ``(2, len(xi))``: real and imaginary parts of Z'(xi).
     """
 
-    rdWT, idWT = _load_zprime_tables()
-
-    ai = xi < -10
-    bi = xi > 10
-
-    rinterp = sp.interp1d(rdWT[:, 0], rdWT[:, 1], "linear")
-    rZp = np.concatenate((xi[ai] ** -2, rinterp(xi), xi[bi] ** -2))
-    iinterp = sp.interp1d(idWT[:, 0], idWT[:, 1], "linear")
-    iZp = np.concatenate((0 * xi[ai], iinterp(xi), 0 * xi[bi]))
-
-    Zp = np.vstack((rZp, iZp))
-    return Zp
+    xi = np.asarray(xi, dtype=float)
+    Zp = -2.0 * (1.0 + xi * 1j * np.sqrt(np.pi) * wofz(xi))
+    return np.vstack((Zp.real, Zp.imag))
 
 
 class FormFactor:
