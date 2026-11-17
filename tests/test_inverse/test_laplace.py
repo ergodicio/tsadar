@@ -9,10 +9,13 @@ from jax import config as jax_config
 
 jax_config.update("jax_enable_x64", True)
 
-from tsadar.core.modules.ts_params import get_filter_spec
+from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.inverse.loops import build_batch, one_d_loop, unbatch_fitted_params
 from tsadar.inverse.postprocess.laplace import get_sigmas, recalculate_with_chosen_weights
 
+from ..oracles import Plasma
+from ..physics import harness
+from ..physics.cases import HYDROGEN
 from .shared import base_config
 
 
@@ -96,6 +99,58 @@ def test_get_sigmas_raises_when_fe_active():
     fitted_params = {"electron": {"Te": None, "m": None}, "general": {}, "ion-1": {}}
     with pytest.raises(NotImplementedError):
         get_sigmas(None, None, None, fitted_params, batch_size=2)
+
+
+MIXED_FREE = (("electron", "ne"), ("electron", "Te"), ("general", "amp1"), ("ion-1", "Ti"))
+
+
+def _physical_columns(params, columns, lineout):
+    unnormed = params.get_unnormed_params()
+    return np.array([np.asarray(unnormed[s][k]).ravel()[lineout] for s, k in columns])
+
+
+def test_get_sigmas_propagates_a_known_hessian_through_mixed_parameters():
+    cfg = harness.diagnostic_config(Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,)), harness.EPW_DETECTOR)
+    p = cfg["parameters"]
+    for species, key in MIXED_FREE:
+        p[species][key]["active"] = True
+    params = ThomsonParams(p, num_params=2, activate=True)
+    diff, static = eqx.partition(params, get_filter_spec(p, params))
+    diff = jax.tree_util.tree_map(lambda x: x + np.array([0.0, 0.4]), diff)
+    leaves, treedef = jax.tree_util.tree_flatten(diff)
+    n = len(leaves)
+
+    rng = np.random.default_rng(3)
+    hessians = []
+    for _ in range(2):
+        a = rng.normal(size=(n, n))
+        hessians.append(a @ a.T + n * np.diag(10.0 ** rng.uniform(-1, 2, n)))
+    hess = jax.tree_util.tree_unflatten(
+        treedef,
+        [
+            jax.tree_util.tree_unflatten(treedef, [np.array([h[k1, k2] for h in hessians]) for k2 in range(n)])
+            for k1 in range(n)
+        ],
+    )
+
+    fitted, _ = eqx.combine(static, diff).get_fitted_params(p)
+    columns = [(species, key) for species, keys in fitted.items() for key in keys if key not in ("fe", "f", "flm")]
+    assert sorted(columns) == sorted(MIXED_FREE)
+    sigmas = get_sigmas(hess, diff, static, fitted, batch_size=2)
+
+    step = 1.0e-6
+    for i, h in enumerate(hessians):
+        jac = np.zeros((len(columns), n))
+        for k in range(n):
+            shifted = []
+            for sign in (1.0, -1.0):
+                bumped = [leaf.at[i].add(sign * step) if j == k else leaf for j, leaf in enumerate(leaves)]
+                weights = eqx.combine(static, jax.tree_util.tree_unflatten(treedef, bumped))
+                shifted.append(_physical_columns(weights, columns, i))
+            jac[:, k] = (shifted[0] - shifted[1]) / (2 * step)
+        expected = np.sqrt(np.diag(jac @ (2.0 * np.linalg.inv(h)) @ jac.T))
+        np.testing.assert_allclose(sigmas[i], expected, rtol=1e-6)
+    assert np.all(sigmas[0] != sigmas[1])
 
 
 def test_a_failed_sigma_calculation_is_reported_as_nan(fitted_fixture, monkeypatch):
