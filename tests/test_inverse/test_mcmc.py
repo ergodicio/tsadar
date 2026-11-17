@@ -575,3 +575,40 @@ def test_binned_model_axis_matches_the_detector_pixel_centers(fitted_fixture, po
 
     _, _, lamAxisE, _ = loss_fn.ts_diag(fitted_fixture["fitted_weights"][0], fitted_fixture["batch"])
     np.testing.assert_allclose(np.asarray(lamAxisE)[0], np.asarray(fitted_fixture["all_axes"]["epw_y"]), rtol=0, atol=1e-9)
+
+
+class _ShiftedGaussianLikelihood:
+    def __init__(self, cfg, centre, width):
+        self.cfg, self.centre, self.width = cfg, centre, width
+
+    def neg_log_likelihood(self, weights, batch, per_lineout=True):
+        te = weights.get_unnormed_params()["electron"]["Te"]
+        return ((te - self.centre) / self.width) ** 2
+
+
+def test_calibration_draws_propagate_into_the_pooled_posterior():
+    from tsadar.core.modules.ts_params import ThomsonParams
+
+    from ..oracles import Plasma
+    from ..physics import harness
+    from ..physics.cases import HYDROGEN
+
+    cfg = harness.diagnostic_config(Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,)), harness.EPW_DETECTOR)
+    cfg["parameters"]["electron"]["Te"]["active"] = True
+    cfg["other"]["mcmc"] = {
+        "num_steps": 1500, "burn_in": 500, "thin": 2, "adapt_every": 50,
+        "use_laplace_seed": False, "init_step_scale": 0.05, "init_dispersion_factor": 0.0,
+    }
+    ts_params = ThomsonParams(cfg["parameters"], num_params=2, activate=True)
+    centres, width = np.array([0.55, 0.65, 0.75]), 0.01
+    loss_fns = [_ShiftedGaussianLikelihood(cfg, c, width) for c in centres]
+    pooled, static, _, _, _ = mcmc.run_mcmc_pooled(
+        cfg, loss_fns, [ts_params], [[{}] for _ in centres], jax.random.PRNGKey(5)
+    )
+    te_of = eqx.filter_vmap(lambda dp: eqx.combine(dp, static).get_unnormed_params()["electron"]["Te"])
+    te = np.asarray(te_of(jax.tree_util.tree_map(lambda x: x[0], pooled)))
+    per_draw = te.reshape(len(centres), -1, te.shape[-1])
+
+    np.testing.assert_allclose(per_draw.mean(axis=1), np.repeat(centres[:, None], 2, axis=1), atol=0.4 * width)
+    np.testing.assert_allclose(per_draw.std(axis=1), width, rtol=0.3)
+    np.testing.assert_allclose(te.std(axis=0), np.sqrt(width**2 + centres.var()), rtol=0.1)
