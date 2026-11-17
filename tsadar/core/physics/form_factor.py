@@ -122,6 +122,26 @@ def zprimeMaxw(xi, source="faddeeva"):
     return Zp
 
 
+def _zprime_tail(xi, source):
+    """Re Z'(xi) beyond the tabulated range: the asymptotic series for "faddeeva", the leading term for "legacy"."""
+    inv2 = xi**-2
+    if source == "legacy":
+        return inv2
+    return inv2 * (1.0 + inv2 * (1.5 + inv2 * (3.75 + inv2 * 13.125)))
+
+
+def _moment_tail(x, edge, edge_value, moments):
+    """
+    int f(t)/(t - x)^2 dt beyond the tabulated range, from the moments of f, plus a residual decaying as
+    (edge/x)^5 that matches the table at the edge.
+    """
+
+    def series(y):
+        return sum((n + 1.0) * m / y ** (n + 2) for n, m in enumerate(moments))
+
+    return series(x) + (edge_value - series(edge)) * (edge / x) ** 5
+
+
 class FormFactor:
     """
     FormFactor class for calculating the Thomson scattering structure factor or spectral density function.
@@ -256,6 +276,7 @@ class FormFactor:
 
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
+        self.zprime = zprime
         self.Zpi = jnp.array(zprimeMaxw(self.xi2, zprime))
 
         # `ratintn` is exactly linear in its first argument and, in the 1D path, the other two are
@@ -379,7 +400,13 @@ class FormFactor:
 
         # num_ion_pts = jnp.shape(xii)
         # chiI = jnp.zeros(num_ion_pts)
-        ZpiR = interp_uniform(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
+        ZpiR = interp_uniform(
+            xii,
+            self.xi2,
+            self.Zpi[0, :],
+            left=_zprime_tail(jnp.minimum(xii, self.xi2[0]), self.zprime),
+            right=_zprime_tail(jnp.maximum(xii, self.xi2[-1]), self.zprime),
+        )
         ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
         #chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
         chiI = -0.5 / (kldi**2) * (ZpiR + 1j * ZpiI) 
@@ -398,7 +425,7 @@ class FormFactor:
         for s, species in enumerate([species for species in params.keys() if "ion" in species]):
             if "fi" in params[species]:
                 chi_s, fi_s = self._numeric_chi(
-                    params[species]["fi"], params[species]["vi"], jnp.sqrt(2.0) * xii[..., s : s + 1], kldi[..., s : s + 1], ion=True
+                    params[species]["fi"], params[species]["vi"], jnp.sqrt(2.0) * xii[..., s : s + 1], kldi[..., s : s + 1]
                 )
                 chiI = chiI.at[..., s : s + 1].set(chi_s)
                 fi_vphi = fi_vphi.at[..., s : s + 1].set(fi_s)
@@ -448,12 +475,12 @@ class FormFactor:
 
         return formfactor, jnp.squeeze(lams, axis=-1)
 
-    def _numeric_chi(self, f, v, xi, kld, ion=False):
+    def _numeric_chi(self, f, v, xi, kld):
         """
         Susceptibility of a numerical 1D distribution f(v), with v and xi in units of the thermal velocity
         sqrt(T/m), and f evaluated at xi. xi and kld have shape [ng, npts, na, 1].
-        df/dv is taken on the velocity grid xi1 and interpolated to xi. ion=True uses the 1/xi**2 asymptote past
-        the tabulated |xi| <= 8.2.
+        df/dv is taken on the velocity grid xi1 and interpolated to xi. Past the tabulated |xi| <= 8.2 the
+        principal value continues as a moment series of f matched to the table (see _moment_tail).
         """
         #f_vphi = jnp.exp(jnp.interp(xi, v, jnp.log(f)))
         f_vphi = jnp.exp(jnp.apply_along_axis(interp1d, 0, jnp.squeeze(xi), v, jnp.log(jnp.squeeze(f)), extrap=[-50, -50])).reshape(jnp.shape(xi))
@@ -467,8 +494,12 @@ class FormFactor:
 
         # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
         chiRratprim = self.chiERratprim_op @ ratdf
-        tail = xi.flatten() ** -2 if ion else None
-        chiRrat = jnp.reshape(interp_uniform(xi.flatten(), self.xi2, chiRratprim, left=tail, right=tail), xi.shape)
+        x = xi.flatten()
+        dx1 = self.xi1[1] - self.xi1[0]
+        moments = [jnp.sum(self.xi1**n * ratmod) * dx1 for n in range(6)]
+        left = _moment_tail(jnp.minimum(x, self.xi2[0]), self.xi2[0], chiRratprim[0], moments)
+        right = _moment_tail(jnp.maximum(x, self.xi2[-1]), self.xi2[-1], chiRratprim[-1], moments)
+        chiRrat = jnp.reshape(interp_uniform(x, self.xi2, chiRratprim, left=left, right=right), xi.shape)
         chiRrat = -1.0 / (kld**2) * chiRrat
 
         return chiRrat + chiI, f_vphi
