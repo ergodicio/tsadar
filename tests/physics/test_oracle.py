@@ -107,3 +107,21 @@ def test_ion_acoustic_peak_sits_at_the_screened_sound_speed(k_lambda_de, ti_over
     peak = _fixed_k_peak(plasma, k, np.linspace(0.5, 1.5, 200001) * k * c_s)
     # warm-fluid sound speed with Debye screening; measured within 1e-3 for Ti/Te <= 0.1
     assert peak / (k * c_s) == pytest.approx(1.0, abs=3e-3), f"A2: ion-acoustic peak at {peak / (k * c_s):.5f} k c_s"
+
+
+def test_quadrature_susceptibility_reproduces_faddeeva_for_a_maxwellian():
+    """The Cauchy-quadrature path used for kappa (A5) and other non-Gaussian EDFs, applied to a Maxwellian."""
+    x = np.linspace(-20.0, 20.0, 4001)
+    np.testing.assert_allclose(
+        oracles.GaussianEDF().response(x), oracles.maxwellian_response(x), rtol=0, atol=2e-7,
+        err_msg="quadrature response != Faddeeva response",
+    )
+
+
+@pytest.mark.parametrize("kappa", [3.0, 5.0])
+def test_kappa_edf_is_normalized_with_unit_variance(kappa):
+    from scipy.integrate import quad
+
+    edf = oracles.KappaEDF(kappa)
+    assert quad(edf.density, -np.inf, np.inf)[0] == pytest.approx(1.0, abs=1e-10)
+    assert quad(lambda v: v * v * edf.density(v), -np.inf, np.inf)[0] == pytest.approx(1.0, abs=1e-8)

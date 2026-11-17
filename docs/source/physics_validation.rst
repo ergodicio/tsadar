@@ -102,6 +102,13 @@ IDs follow ``TEST_SUITE_AUDIT.md``. Measured values are CPU float64.
      - L1 :math:`\chi` 4e-4 of max :math:`|\chi|` (1.1e-4 to 2.9e-4); L2 2.5e-3 /
        1.5e-3 (up to 1.8e-3 for the two-humped ions, falling to 1.2e-4 with a
        4096-point internal grid)
+   * - A5
+     - same, ``test_oracle``
+     - A heavy-tailed EDF through the numeric input (TSADAR has no kappa model): kappa 3 and 5
+       electrons (Student-t, unit variance) on the EPW and IAW. The oracle's :math:`\chi` is its
+       own singularity-subtracted quadrature, checked against Faddeeva for a Gaussian
+     - As A1: L1 :math:`\chi` 2.0e-4 / 2.9e-4; L2 6.0e-4 / 3.9e-4; L3 3.5e-4. Quadrature vs
+       Faddeeva 2e-7
    * - A10
      - ``test_averaging``
      - 20 % ne and Te gradient over 5 points; zero gradient = one point; three-angle
@@ -191,11 +198,10 @@ Remaining coverage
 ------------------
 
 1. ARTS-1V (angular, 1-D EDF) at L3, with the ARTS / 2-V work on that code.
-2. Kappa distributions (A5).
-3. The high-phase-velocity regime, with the resonance quadrature and collisions; the collective
+2. The high-phase-velocity regime, with the resonance quadrature and collisions; the collective
    relativistic regime with Palastro et al.'s fully relativistic form factor (Phys. Rev. E 81, 036411,
    2010), where the first-order factor fails at :math:`T_e \gtrsim 5` keV for :math:`n_e/n_c \sim 0.05`.
-4. The 2-D (ARTS2D) cases, which return with that code.
+3. The 2-D (ARTS2D) cases, which return with that code.
 
 Adding a case
 -------------

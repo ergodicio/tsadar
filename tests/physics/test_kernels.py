@@ -5,7 +5,8 @@ through the rational-integral operator on the internal velocity grid, and the La
 term from df/dv on that grid. The oracle is the exact sum of shifted, scaled Faddeeva
 terms. Comparing chi directly removes the conditioning of the spectrum (S ~ 1/|eps|^2),
 so one tolerance holds for every EDF; the spectrum depths inherit whatever this
-kernel error becomes for each case.
+kernel error becomes for each case. For a kappa EDF (A5) the oracle's chi comes from its own
+adaptive quadrature instead of the Faddeeva function.
 """
 
 import numpy as np
@@ -19,7 +20,8 @@ from .cases import SPECTRUM_CASES
 pytestmark = pytest.mark.physics
 
 # Error relative to max|chi| (k lambda_D = 1), set by the 1024-point internal velocity grid. Measured
-# 1.1e-4 to 1.4e-4 for every EDF except the two-humped ions, 2.9e-4 (it falls with a 4096-point grid).
+# 1.1e-4 to 1.4e-4 for the Gaussian mixtures, 2.0e-4 / 2.9e-4 for kappa 5 / 3, and 2.9e-4 for the two-humped
+# ions (it falls with a 4096-point grid).
 # The sampled EDF itself is interpolated to 1e-7.
 CHI_TOL = 4.0e-4
 F_TOL = 1.0e-6
@@ -51,7 +53,7 @@ def form_factor():
 
 
 @pytest.mark.parametrize("components, ion", _edfs())
-def test_numeric_susceptibility_matches_faddeeva_mixture(form_factor, components, ion):
+def test_numeric_susceptibility_matches_the_analytic_one(form_factor, components, ion):
     v = harness.NUMERIC_V
     chi, f_at_xi = form_factor._numeric_chi(
         jnp.asarray(oracles.mixture_density(v, components)),

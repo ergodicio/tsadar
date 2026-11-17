@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..oracles import GaussianComponent as G
-from ..oracles import Ion, Plasma
+from ..oracles import Ion, KappaEDF, Plasma
 from .harness import EPW_DETECTOR, IAW_DETECTOR, Detector
 
 
@@ -68,6 +68,7 @@ A1_CASES = [
 # numeric distributions (csv, ``type: numeric``). Narrow components sit on the floor of tsadar's internal
 # velocity grid (1024 points): L2 errors up to 1.8e-3 for the two-humped ions, falling to 1.2e-4 with 4096.
 A3_L2_TOL = (2.5e-3, 1.5e-3)
+A5_L2_TOL = (1.0e-3, 5.0e-4)  # measured: Linf <= 6.0e-4, L1 <= 3.9e-4
 A3_CASES = [
     PhysicsCase(
         "A3-epw-two-temperature",
@@ -124,4 +125,21 @@ A3_CASES = [
     ),
 ]
 
-SPECTRUM_CASES = A1_CASES + A3_CASES
+# A5: a heavy-tailed EDF through tsadar's numeric input. tsadar has no kappa model; the kappa distribution (a
+# Student-t with nu = 2 kappa - 1, unit variance) is written to the csv like the A3 mixtures. Unlike them it has
+# power-law tails, which exercise the principal value of a slowly decaying f', the truncation and renormalization at
+# |v| = 8 v_T, and the interpolation of a non-Gaussian shape. chi comes from the oracle's own quadrature.
+# kappa >= 3 only: the mass beyond 8 v_T is 1.5e-4 (kappa 3) and 8e-6 (kappa 5), but 8e-4 for kappa 2.
+A5_CASES = [
+    PhysicsCase(
+        f"A5-{det.channel.lower()}-kappa-{kappa}",
+        Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,), electrons=KappaEDF(float(kappa))),
+        det,
+        "A5",
+        A5_L2_TOL,
+    )
+    for kappa in (3, 5)
+    for det in (EPW_DETECTOR, IAW_DETECTOR)
+]
+
+SPECTRUM_CASES = A1_CASES + A3_CASES + A5_CASES

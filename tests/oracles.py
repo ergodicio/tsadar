@@ -25,6 +25,7 @@ the same CODATA-style numbers tsadar uses; they are inputs, not algorithms.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import numpy as np
 from scipy.special import ndtr, wofz
@@ -85,6 +86,8 @@ class Plasma:
 
     def __post_init__(self):
         for label, components in [("electron", self.electrons)] + [(f"ion {i}", ion.components) for i, ion in enumerate(self.ions)]:
+            if isinstance(components, QuadratureEDF):
+                continue
             total = sum(c.weight for c in components)
             if not np.isclose(total, 1.0, rtol=0, atol=1e-12):
                 raise ValueError(f"{label} mixture weights must sum to 1, got {total}")
@@ -108,13 +111,104 @@ def maxwellian_response(x):
     return 1.0 + zeta * plasma_dispersion(zeta)
 
 
+class QuadratureEDF:
+    r"""An EDF given by its density and derivative, with ``chi`` from adaptive quadrature.
+
+    ``(k lambda_D)^2 chi(x) = -P.V.∫ f'(t)/(t - x) dt - i pi f'(x)`` (Landau prescription), the principal value
+    by singularity subtraction and adaptive quadrature. It shares nothing with tsadar's grids. The response is tabulated
+    once per EDF on ``|x| <= X_MAX`` (step ``X_STEP``) and interpolated with a cubic spline; beyond, the
+    asymptote ``-1/x^2 - 3 <v^2>/x^4`` (unit variance) is used. Subclasses define ``density`` and ``derivative``
+    on unit-variance velocity.
+    """
+
+    X_MAX = 25.0
+    X_STEP = 0.02
+    LIMIT = 200.0  # integration domain |t| <= LIMIT
+
+    def density(self, x):
+        raise NotImplementedError
+
+    def derivative(self, x):
+        raise NotImplementedError
+
+    def response(self, x):
+        x = np.asarray(x, dtype=float)
+        table = _quadrature_response_table(self)
+        inside = np.abs(x) <= self.X_MAX
+        with np.errstate(divide="ignore", invalid="ignore"):
+            tail = -1.0 / x**2 - 3.0 / x**4
+        real = np.where(inside, table[0](np.clip(x, -self.X_MAX, self.X_MAX)), tail)
+        return real - 1j * np.pi * self.derivative(x)
+
+
+@lru_cache(maxsize=None)
+def _quadrature_response_table(edf):
+    from scipy.integrate import quad
+    from scipy.interpolate import CubicSpline
+
+    a, b = -edf.LIMIT, edf.LIMIT
+
+    def principal_value(x):
+        # P.V. int_a^b f'(t)/(t - x) dt = int_a^b [f'(t) - f'(x)]/(t - x) dt + f'(x) ln((b - x)/(x - a)): the first
+        # integrand is smooth, so plain adaptive quadrature with x as a breakpoint is reliable
+        fx = edf.derivative(x)
+        smooth = quad(lambda t: (edf.derivative(t) - fx) / (t - x), a, b, points=[x], limit=500, epsabs=1e-13)[0]
+        return smooth + fx * np.log((b - x) / (x - a))
+
+    grid = np.arange(-edf.X_MAX, edf.X_MAX + edf.X_STEP / 2, edf.X_STEP)
+    return (CubicSpline(grid, -np.array([principal_value(x) for x in grid])),)
+
+
+@dataclass(frozen=True, eq=True)
+class GaussianEDF(QuadratureEDF):
+    """A unit-variance Maxwellian through the quadrature path: the check that the path reproduces Faddeeva."""
+
+    def density(self, x):
+        return np.exp(-0.5 * np.asarray(x) ** 2) / np.sqrt(2.0 * np.pi)
+
+    def derivative(self, x):
+        return -np.asarray(x) * self.density(x)
+
+
+@dataclass(frozen=True, eq=True)
+class KappaEDF(QuadratureEDF):
+    r"""The 1-D kappa distribution, a Student-t with ``nu = 2 kappa - 1`` degrees of freedom, scaled to unit
+    variance (``kappa > 1.5``): ``f(x) = g(x/s)/s``, ``s = sqrt((nu - 2)/nu)``, ``g(t) ~ (1 + t^2/nu)^-(nu+1)/2``
+    (Summers & Thorne, Phys. Fluids B 3, 1835, 1991; Mace & Hellberg, Phys. Plasmas 2, 2098, 1995).
+    """
+
+    kappa: float
+
+    @property
+    def nu(self):
+        return 2.0 * self.kappa - 1.0
+
+    @property
+    def scale(self):
+        return np.sqrt((self.nu - 2.0) / self.nu)
+
+    def density(self, x):
+        from scipy.special import gammaln
+
+        nu = self.nu
+        log_norm = gammaln((nu + 1.0) / 2.0) - gammaln(nu / 2.0) - 0.5 * np.log(nu * np.pi)
+        u = np.asarray(x) / self.scale
+        return np.exp(log_norm - (nu + 1.0) / 2.0 * np.log1p(u**2 / nu)) / self.scale
+
+    def derivative(self, x):
+        u = np.asarray(x) / self.scale
+        return -(self.nu + 1.0) * u / (self.nu + u**2) * self.density(x) / self.scale
+
+
 def mixture_susceptibility(x, k_lambda_d, components):
     r"""``chi`` of a Gaussian-mixture EDF at normalized phase velocity ``x`` (units of v_T).
 
     For a component of weight ``w``, shift ``u`` and width ``s``, substituting
     ``v = u + s t`` gives ``chi_j = w (1 + zeta_j Z(zeta_j)) / (s^2 (k lambda_D)^2)`` with
-    ``zeta_j = (x - u) / (sqrt(2) s)``.
+    ``zeta_j = (x - u) / (sqrt(2) s)``. A :class:`QuadratureEDF` uses its own response.
     """
+    if isinstance(components, QuadratureEDF):
+        return components.response(x) / k_lambda_d**2
     chi = 0.0
     for c in components:
         chi = chi + c.weight * maxwellian_response((x - c.shift) / c.width) / c.width**2
@@ -122,7 +216,9 @@ def mixture_susceptibility(x, k_lambda_d, components):
 
 
 def mixture_density(x, components):
-    """The normalized EDF ``f(x)`` (units of v_T) of a Gaussian mixture."""
+    """The normalized EDF ``f(x)`` (units of v_T) of a Gaussian mixture or a :class:`QuadratureEDF`."""
+    if isinstance(components, QuadratureEDF):
+        return components.density(x)
     f = 0.0
     for c in components:
         f = f + c.weight * np.exp(-0.5 * ((x - c.shift) / c.width) ** 2) / (c.width * np.sqrt(2.0 * np.pi))
