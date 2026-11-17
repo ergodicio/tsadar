@@ -1,18 +1,4 @@
-"""Scheduled lane: the Maxwellian (A1) FormFactor check over a density, temperature and angle matrix.
-
-Plasmas from a 3 x 3 x 3 grid (ne 0.05-0.5, Te 0.1-2 keV, 30-120 deg), on a 300 nm window
-with 4096 wavelengths, compared on the EPW wings (the ion feature in an EPW window is
-checked by the IAW cases). Only the well-resolved regime is kept: a plasma is dropped
-if alpha = 1/(k lambda_De) > 3.5 at either EPW peak (18 of 27 remain).
-
-Above that the resonance is weakly damped and tsadar's sampled form factor is accurate
-only when the resonance is resolved: measured 1-8 % of the EPW peak at k lambda_De
-0.15-0.25 with the 1024-point internal velocity grid.
-
-NOTE FOR THE NEXT AGENT: when ready, extend this sweep to high phase velocity (alpha > 3.5)
-using the resonance quadrature (peak refinement) together with the collisional model from
-the arts2d-logspace branch, and drop the alpha filter below.
-"""
+"""Scheduled lane: the A1 FormFactor check over a density, temperature and angle matrix (alpha <= 3.5)."""
 
 import itertools
 

@@ -18,5 +18,5 @@ def base_config():
     cfg["data"]["lineouts"]["val"] = list(
         range(cfg["data"]["lineouts"]["start"], cfg["data"]["lineouts"]["end"], cfg["data"]["lineouts"]["skip"])
     )
-    cfg["optimizer"]["num_epochs"] = 10  # fast fit; the tests only need *a* fitted point, not a good one
+    cfg["optimizer"]["num_epochs"] = 10
     return cfg

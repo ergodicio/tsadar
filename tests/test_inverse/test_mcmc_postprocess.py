@@ -57,29 +57,18 @@ def test_mad_flagged_chains_returns_shape_matching_num_chains_batch_and_params()
     assert flagged.dtype == bool
 
 
-# Chain-selection scenarios for _finalize_chain_selection.
-# (chains, lineouts, parameters, within-chain flags, outlier flags, max dropped fraction,
-#  dropped chains per lineout, unreliable lineouts, (lineout, parameter) excluded from voting)
-# Flags are (chain, lineout, parameter). An unreliable lineout keeps no chain at all.
 CHAIN_SELECTION = [
     pytest.param(6, 2, 3, [], [], 0.2, [set(), set()], [], [], id="nothing-flagged"),
-    # one parameter, 2 of 10 flagged, the cap allows floor(0.2*10) = 2: exactly at the cap
     pytest.param(10, 1, 1, [], [(2, 0, 0), (5, 0, 0)], 0.2, [{2, 5}], [], [], id="drops-under-the-cap"),
-    # never converged on its own (within) + converged to a different answer (outlier): the union is dropped
     pytest.param(10, 1, 1, [(1, 0, 0)], [(3, 0, 0)], 0.5, [{1, 3}], [], [], id="within-and-outlier-union"),
-    # two parameters each under their own cap, but 4 distinct chains together exceed the shared cap: not any
-    # single parameter's fault, too much disagreement overall
     pytest.param(
         10, 1, 2, [(0, 0, 0), (1, 0, 0), (2, 0, 1), (3, 0, 1)], [], 0.2, [{0, 1, 2, 3}], [0], [],
         id="voting-parameters-exceed-the-cap",
     ),
-    # a weakly identified parameter (6 of 10 chains disagree, e.g. a near-flat marginal) must not veto chain
-    # selection for a well-behaved one; it is excluded from voting and the lineout stays reliable
     pytest.param(
         10, 1, 2, [(c, 0, 0) for c in range(6)], [(7, 0, 1)], 0.2, [{7}], [], [(0, 0)],
         id="unreliable-parameter-excluded-from-voting",
     ),
-    # if no parameter can vote there is no informative subset: keep every chain, flag the parameter
     pytest.param(10, 1, 1, [(c, 0, 0) for c in range(5)], [], 0.2, [set()], [], [(0, 0)], id="nobody-can-vote"),
     pytest.param(
         10, 2, 1, [(c, 0, 0) for c in range(5)], [(7, 1, 0)], 0.2, [set(), {7}], [], [(0, 0)],
@@ -93,6 +82,7 @@ CHAIN_SELECTION = [
     CHAIN_SELECTION,
 )
 def test_finalize_chain_selection(num_chains, batch_size, n_active, within, outlier, cap, dropped, unreliable_lineouts, excluded):
+    """Flags are (chain, lineout, parameter); an unreliable lineout keeps no chain."""
     num_kept = 5
     bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
     bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
@@ -102,7 +92,6 @@ def test_finalize_chain_selection(num_chains, batch_size, n_active, within, outl
 
     keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, cap, num_kept)
 
-    # the true (uncapped) number of dropped chains is reported, also for an unreliable lineout
     np.testing.assert_array_equal(n_dropped, [len(d) for d in dropped])
     np.testing.assert_array_equal(np.flatnonzero(unreliable), unreliable_lineouts)
     assert {tuple(i) for i in np.argwhere(param_unreliable)} == set(excluded)
@@ -143,7 +132,6 @@ def test_reorder_columns_matches_parameters_by_name():
 
 
 def test_mcmc_postprocess_raises_on_angular():
-    # the angular guard runs before any data is touched
     config = {"other": {"extraoptions": {"spectype": "angular_full"}}}
     with pytest.raises(NotImplementedError):
         mcmc_postprocess(config, [], {}, {}, None, None, [], 0)

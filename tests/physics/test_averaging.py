@@ -1,13 +1,4 @@
-"""A10: the averages the diagnostic takes over the scattering volume and aperture.
-
-tsadar models a gradient by scaling ``ne`` and ``Te`` over ``linspace(1 - g/200,
-1 + g/200, n)`` and averaging the spectra with equal weights, and a finite aperture
-by a weighted sum over scattering angles. The oracle does the same averages of the
-analytic spectrum, so the plumbing of both (shapes, weights, the order of averaging
-and normalization) is checked against physics at detector depth. Splitting an ion
-species, or reordering species, describes the same plasma and must leave the
-detector spectrum unchanged.
-"""
+"""A10: gradient, aperture and species averaging against the averaged analytic spectrum."""
 
 import dataclasses
 
@@ -68,9 +59,7 @@ def test_aperture_weighted_sum_matches_the_analytic_one():
 @pytest.mark.parametrize(
     "case, same_plasma",
     [
-        # the two species of the CH case in the opposite order
         (CH_CASE, dataclasses.replace(CH_CASE.plasma, ions=CH_CASE.plasma.ions[::-1])),
-        # one hydrogen population written as two identical ones with fractions 0.3 and 0.7
         (
             IAW_CASE,
             dataclasses.replace(

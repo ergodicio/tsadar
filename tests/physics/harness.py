@@ -1,8 +1,4 @@
-"""Drive tsadar from an oracle ``Plasma`` at each depth of the code.
-
-This is the only place in the physics suite that knows how tsadar's inputs are laid
-out. The tests compare its outputs with :mod:`tests.oracles`.
-"""
+"""Builds tsadar inputs (FormFactor parameters, input decks, the diagnostic) from an oracle ``Plasma``."""
 
 from __future__ import annotations
 
@@ -27,19 +23,11 @@ from ..oracles import GaussianComponent, Plasma, mixture_density
 
 DECK = Path(__file__).parents[1] / "configs" / "1d-defaults.yaml"
 MAXWELLIAN = (GaussianComponent(),)
-# Numeric EDFs are sampled inside the form factor's |v| <= 8.2 table.
 NUMERIC_V = np.linspace(-8.0, 8.0, 513)
 
 
-# --------------------------------------------------------------------------- L2: FormFactor
-
-
 def form_factor_params(plasma: Plasma, *, vmax=10.0, nv=513):
-    """FormFactor parameter dict for ``plasma``.
-
-    The electron EDF is sampled on ``[-vmax, vmax]``. A non-Maxwellian ion reaches FormFactor the way a
-    numeric ion EDF does, as ``fi`` on the grid ``vi``.
-    """
+    """FormFactor parameters for ``plasma``; a non-Maxwellian ion is passed as numeric ``fi``/``vi``."""
     v = np.linspace(-vmax, vmax, nv)
     params = {
         "electron": {
@@ -76,24 +64,17 @@ def form_factor(plasma: Plasma, lam_range, npts, **edf):
     return np.squeeze(np.asarray(lam_cm)) * 1.0e7, np.squeeze(np.asarray(spectrum))
 
 
-# --------------------------------------------------------------------------- L3: full diagnostic
-
-
 @dataclass(frozen=True)
 class Detector:
-    """One spectrometer channel of the production diagnostic.
+    """One spectrometer channel: pixel centres, IRF width, fit ranges and an optional notch."""
 
-    ``lam_range`` is the first and last pixel centre. ``amp_ranges`` are the fit windows
-    that set the amplitude; for the ion channel they straddle the excluded line centre.
-    """
-
-    channel: str  # "EPW" or "IAW"
+    channel: str
     lam_range: tuple[float, float]
     pixels: int
     points_per_pixel: int
     sigma: float
     amp_ranges: tuple[tuple[float, float], ...]
-    notch: tuple[float, float, float] | None = None  # (center, width, optical density), EPW only
+    notch: tuple[float, float, float] | None = None
     amplitude: float = 100.0
 
 
@@ -156,12 +137,7 @@ class Gradients:
 
 
 def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None, gradients: Gradients = Gradients()):
-    """A complete 1-D input deck that makes the diagnostic model ``plasma`` on ``det``.
-
-    A Maxwellian species uses tsadar's own EDF (DLM m = 2 for electrons, the built-in ion
-    Maxwellian). Any other EDF is written to a csv in ``edf_folder`` and loaded as
-    ``type: numeric``, the user-facing path for a given distribution.
-    """
+    """An input deck for ``plasma`` on ``det``; non-Maxwellian EDFs are written to csv as ``type: numeric``."""
     cfg = deepcopy(_deck())
     p = cfg["parameters"]
     p["electron"]["Te"]["val"] = plasma.Te
@@ -216,11 +192,7 @@ def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None, gradients:
 
 
 def build_diagnostic(plasma: Plasma, det: Detector, *, gradients: Gradients = Gradients(), aperture=None):
-    """Return ``(diagnostic, params, batch)`` that model ``plasma`` on ``det`` through the production path.
-
-    ``aperture`` is ``(angles_deg, weights)``: the 1-D model sums the spectra at those scattering angles with
-    those weights. By default the plasma's single angle with weight one.
-    """
+    """``(diagnostic, params, batch)`` for ``plasma`` on ``det``. ``aperture`` is ``(angles_deg, weights)``."""
     angles_deg, weights = aperture if aperture is not None else ([plasma.angle_deg], [1.0])
     angles = {"sa": np.asarray(angles_deg, dtype=float), "weights": np.asarray(weights, dtype=float)[None, :]}
     with tempfile.TemporaryDirectory() as folder:
@@ -240,10 +212,7 @@ def build_diagnostic(plasma: Plasma, det: Detector, *, gradients: Gradients = Gr
 
 
 def detector(plasma: Plasma, det: Detector, **geometry):
-    """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``.
-
-    ``geometry`` is passed to :func:`build_diagnostic` (``gradients``, ``aperture``).
-    """
+    """``(pixel_centers_nm, detector_spectrum)`` from the diagnostic."""
     diag, params, batch = build_diagnostic(plasma, det, **geometry)
     out = diag(params, batch)
     channel = 0 if det.channel == "EPW" else 1

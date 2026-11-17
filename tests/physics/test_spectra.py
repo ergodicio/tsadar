@@ -1,10 +1,4 @@
-"""L2: the production 1-D ``FormFactor`` against the analytic spectral density.
-
-The oracle evaluates every susceptibility with the Faddeeva function, so this checks
-tsadar's tabulated Z', the rational principal-value quadrature of the sampled EDF,
-the sampled Landau-damping derivative, and the k, omega, Jacobian bookkeeping, all on
-an absolute scale.
-"""
+"""L2: FormFactor against the analytic spectral density."""
 
 import pytest
 
@@ -13,10 +7,6 @@ from . import harness
 from .cases import SPECTRUM_CASES
 
 pytestmark = pytest.mark.physics
-
-# Tolerances are per case (cases.py). A1 measured on the fixed code: Linf <= 6.2e-4, L1 <= 3.2e-4, the same
-# at 256 and 2048 wavelengths. Before f' was taken on the velocity grid and Z' from the Faddeeva function they
-# were up to 2.2e-2 and 8.8e-3 at 2048 wavelengths, and grew as the wavelength grid coarsened.
 
 
 @pytest.mark.parametrize("npts", [256, 2048])

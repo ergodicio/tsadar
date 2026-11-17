@@ -1,11 +1,4 @@
-"""L3: the full ``ThomsonScatteringDiagnostic`` against the analytic detector spectrum.
-
-The oracle side takes the same analytic S(k, w) as L2 and pushes it through an
-independent detector model (see compare.py). Anything between the form factor and
-the detector that shifts, scales, or smears the spectrum (IRF centring, pixel
-grouping, the oversampled grid, the notch, the amplitude rule) fails here against
-physics rather than against a frozen array.
-"""
+"""L3: the full diagnostic against the analytic detector spectrum."""
 
 import numpy as np
 import pytest

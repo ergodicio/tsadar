@@ -1,25 +1,6 @@
-"""Analytic oracles for the tsadar physics suite.
+"""Analytic reference spectra for the physics tests, computed with NumPy and SciPy only (no tsadar imports).
 
-Nothing here imports tsadar. Every quantity is computed from closed-form plasma
-physics with NumPy/SciPy, so a test that compares tsadar against these functions
-checks tsadar's algorithms (tabulated Z', rational principal-value quadrature,
-sampled EDF derivatives, IRF convolution, pixel reduction, normalization), not a
-copy of them.
-
-The same oracle is meant to be evaluated at several depths of the code:
-
-* L2 ``spectral_density``: compare directly with ``FormFactor``.
-* L3 ``detector_spectrum``: push the L2 oracle through an independent detector
-  model (continuous Gaussian blur, exact pixel-box average, fit-range
-  normalization) and compare with ``ThomsonScatteringDiagnostic``. This is the
-  plumbing test: a shift, scale, or smearing introduced anywhere between the form
-  factor and the detector shows up as a mismatch against physics.
-
-Conventions follow the collisionless Salpeter form factor (Sheffield et al.,
-*Plasma Scattering of Electromagnetic Radiation*, 2nd ed., ch. 3 and 5).
-Units match tsadar's input deck: ``ne`` in 1e20 cm^-3, temperatures in keV,
-flows in 1e6 cm/s (projected on k), wavelengths in nm. The physical constants are
-the same CODATA-style numbers tsadar uses; they are inputs, not algorithms.
+Units follow tsadar's deck: ne in 1e20 cm^-3, temperatures in keV, flows in 1e6 cm/s along k, wavelengths in nm.
 """
 
 from __future__ import annotations
@@ -32,22 +13,15 @@ from scipy.special import ndtr, wofz
 
 C_CM_PER_S = 2.99792458e10
 ELECTRON_MASS_KEV = 510.9896
-ELECTRON_MASS = ELECTRON_MASS_KEV / C_CM_PER_S**2  # keV s^2 / cm^2
+ELECTRON_MASS = ELECTRON_MASS_KEV / C_CM_PER_S**2
 PROTON_MASS = 1836.1 * ELECTRON_MASS
 CLASSICAL_ELECTRON_RADIUS_CM = 2.8179e-13
-ELECTRON_CHARGE_SQUARED = ELECTRON_MASS * C_CM_PER_S**2 * CLASSICAL_ELECTRON_RADIUS_CM  # keV cm
-
-
-# --------------------------------------------------------------------------- plasma description
+ELECTRON_CHARGE_SQUARED = ELECTRON_MASS * C_CM_PER_S**2 * CLASSICAL_ELECTRON_RADIUS_CM
 
 
 @dataclass(frozen=True)
 class GaussianComponent:
-    """One drifting Maxwellian in an EDF, in units of the species' v_T = sqrt(T/m).
-
-    ``f(x) = weight / (width sqrt(2 pi)) exp(-(x - shift)^2 / (2 width^2))``. A single
-    component ``(1, 0, 1)`` is the Maxwellian at the species temperature.
-    """
+    """One drifting Maxwellian of an EDF, in units of the species' v_T: weight, shift and width."""
 
     weight: float = 1.0
     shift: float = 0.0
@@ -69,11 +43,8 @@ class Ion:
 
 @dataclass(frozen=True)
 class Plasma:
-    """A homogeneous plasma probed at one scattering angle.
-
-    ``ud`` is the electron drift relative to the charge-weighted ion fluid (tsadar's
-    definition), in 1e6 cm/s along k. ``electrons`` is a Gaussian mixture; weights
-    must sum to one.
+    """A homogeneous plasma at one scattering angle. ``ud`` is the electron drift relative to the charge-weighted
+    ion fluid; ``electrons`` is a Gaussian mixture or a :class:`QuadratureEDF`.
     """
 
     ne: float
@@ -93,37 +64,26 @@ class Plasma:
                 raise ValueError(f"{label} mixture weights must sum to 1, got {total}")
 
 
-# --------------------------------------------------------------------------- susceptibilities
-
-
 def plasma_dispersion(zeta):
     r"""Fried–Conte plasma dispersion function ``Z(zeta) = i sqrt(pi) w(zeta)``."""
     return 1j * np.sqrt(np.pi) * wofz(zeta)
 
 
 def maxwellian_response(x):
-    r"""``1 + zeta Z(zeta)`` with ``zeta = x / sqrt(2)``.
-
-    For a unit-variance Gaussian ``g``, ``-P.V.∫ g'(t)/(t - x) dt - i pi g'(x)`` equals this
-    (Landau prescription), so ``chi = response / (k lambda_D)^2``.
-    """
+    """``1 + zeta Z(zeta)``, ``zeta = x / sqrt(2)``: ``(k lambda_D)^2 chi`` of a unit-variance Maxwellian."""
     zeta = np.asarray(x) / np.sqrt(2.0)
     return 1.0 + zeta * plasma_dispersion(zeta)
 
 
 class QuadratureEDF:
-    r"""An EDF given by its density and derivative, with ``chi`` from adaptive quadrature.
+    """An EDF with ``(k lambda_D)^2 chi(x) = -P.V. int f'(t)/(t - x) dt - i pi f'(x)`` by numerical quadrature.
 
-    ``(k lambda_D)^2 chi(x) = -P.V.∫ f'(t)/(t - x) dt - i pi f'(x)`` (Landau prescription), the principal value
-    by singularity subtraction and adaptive quadrature. It shares nothing with tsadar's grids. The response is tabulated
-    once per EDF on ``|x| <= X_MAX`` (step ``X_STEP``) and interpolated with a cubic spline; beyond, the
-    asymptote ``-1/x^2 - 3 <v^2>/x^4`` (unit variance) is used. Subclasses define ``density`` and ``derivative``
-    on unit-variance velocity.
+    Subclasses define ``density`` and ``derivative`` on unit-variance velocity.
     """
 
     X_MAX = 25.0
     X_STEP = 0.02
-    LIMIT = 200.0  # integration domain |t| <= LIMIT
+    LIMIT = 200.0
 
     def density(self, x):
         raise NotImplementedError
@@ -149,8 +109,6 @@ def _quadrature_response_table(edf):
     a, b = -edf.LIMIT, edf.LIMIT
 
     def principal_value(x):
-        # P.V. int_a^b f'(t)/(t - x) dt = int_a^b [f'(t) - f'(x)]/(t - x) dt + f'(x) ln((b - x)/(x - a)): the first
-        # integrand is smooth, so plain adaptive quadrature with x as a breakpoint is reliable
         fx = edf.derivative(x)
         smooth = quad(lambda t: (edf.derivative(t) - fx) / (t - x), a, b, points=[x], limit=500, epsabs=1e-13)[0]
         return smooth + fx * np.log((b - x) / (x - a))
@@ -172,10 +130,7 @@ class GaussianEDF(QuadratureEDF):
 
 @dataclass(frozen=True, eq=True)
 class KappaEDF(QuadratureEDF):
-    r"""The 1-D kappa distribution, a Student-t with ``nu = 2 kappa - 1`` degrees of freedom, scaled to unit
-    variance (``kappa > 1.5``): ``f(x) = g(x/s)/s``, ``s = sqrt((nu - 2)/nu)``, ``g(t) ~ (1 + t^2/nu)^-(nu+1)/2``
-    (Summers & Thorne, Phys. Fluids B 3, 1835, 1991; Mace & Hellberg, Phys. Plasmas 2, 2098, 1995).
-    """
+    """1-D kappa distribution: a Student-t with ``nu = 2 kappa - 1``, scaled to unit variance."""
 
     kappa: float
 
@@ -201,11 +156,8 @@ class KappaEDF(QuadratureEDF):
 
 
 def mixture_susceptibility(x, k_lambda_d, components):
-    r"""``chi`` of a Gaussian-mixture EDF at normalized phase velocity ``x`` (units of v_T).
-
-    For a component of weight ``w``, shift ``u`` and width ``s``, substituting
-    ``v = u + s t`` gives ``chi_j = w (1 + zeta_j Z(zeta_j)) / (s^2 (k lambda_D)^2)`` with
-    ``zeta_j = (x - u) / (sqrt(2) s)``. A :class:`QuadratureEDF` uses its own response.
+    """``chi`` at normalized phase velocity ``x`` for a Gaussian mixture (sum of shifted, scaled Faddeeva terms)
+    or a :class:`QuadratureEDF`.
     """
     if isinstance(components, QuadratureEDF):
         return components.response(x) / k_lambda_d**2
@@ -225,9 +177,6 @@ def mixture_density(x, components):
     return f
 
 
-# --------------------------------------------------------------------------- spectral density (L2)
-
-
 def _angular_frequency(lam_nm):
     return 2.0 * np.pi * C_CM_PER_S / (np.asarray(lam_nm, dtype=float) * 1.0e-7)
 
@@ -238,14 +187,8 @@ def plasma_frequency(ne_1e20):
 
 
 def form_factor_terms(k, omega, plasma: Plasma):
-    r"""Electron and ion parts of ``S(k, w)`` at wavenumber ``k`` (1/cm) and frequency shift ``w`` (rad/s).
-
-    ``S(k, w) = (1/k) [ |1 + chi_i|^2 f_e(w/k) + |chi_e|^2 sum_s (Z_s^2 n_s/n_e) f_s(w/k) ] / |eps|^2``
-    with every ``chi`` from the Faddeeva function and each ``f`` normalized to one. With this
-    normalization ``integral S dw`` is the static structure factor (Salpeter 1960; Sheffield et al.
-    2011, ch. 3 and 5 write ``2 pi / k`` and integrate over ``dw / 2 pi``).
-
-    Returns ``(electron_part, ion_part, chi_e, chi_i)``; ``k`` and ``omega`` broadcast.
+    """Electron and ion parts of the collisionless ``S(k, omega)`` (normalized so ``int S d omega`` is the static
+    structure factor), with ``chi_e`` and ``chi_i``.
     """
     k = np.asarray(k, dtype=float)
     omega = np.asarray(omega, dtype=float)
@@ -258,7 +201,6 @@ def form_factor_terms(k, omega, plasma: Plasma):
     zbar = float(np.sum(z * fract))
     flows = np.array([ion.Va for ion in plasma.ions], dtype=float) * 1.0e6
 
-    # ions
     chi_i = 0.0
     ion_term = 0.0
     for ion, frac in zip(plasma.ions, fract):
@@ -270,7 +212,6 @@ def form_factor_terms(k, omega, plasma: Plasma):
         chi_i = chi_i + mixture_susceptibility(x, v_t * k / omega_ps, ion.components)
         ion_term = ion_term + (frac * ion.Z**2 / zbar) * mixture_density(x, ion.components) / v_t
 
-    # electrons: drift is relative to the charge-weighted ion fluid
     electron_flow = float(np.sum(z * fract * flows) / np.sum(z * fract)) + plasma.ud * 1.0e6
     v_te = np.sqrt(plasma.Te / ELECTRON_MASS)
     k_lambda_de = v_te * k / omega_pe
@@ -298,19 +239,13 @@ def scattering_geometry(lam_nm, plasma: Plasma):
 
 
 def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
-    r"""Collisionless Thomson spectral density per unit wavelength, in tsadar's units.
-
-    :func:`form_factor_terms` along the spectrometer axis, times tsadar's first-order
-    scattered-power factor ``(1 + 2 w / w_L)``, ``r_e^2 n_e`` and the ``dw/dlambda`` Jacobian, so the
-    comparison is absolute.
-
-    With ``terms=True`` returns ``(total, electron_term, ion_term, chi_e, chi_i)``.
+    """``S`` per unit wavelength in tsadar's absolute units: :func:`form_factor_terms` times ``(1 + 2 omega/omega_L)``,
+    ``r_e^2 n_e`` and ``d omega / d lambda``. ``terms=True`` also returns the parts and susceptibilities.
     """
     lam_nm = np.asarray(lam_nm, dtype=float)
     k, omega, omega_l = scattering_geometry(lam_nm, plasma)
     electron_part, ion_part, chi_e, chi_i = form_factor_terms(k, omega, plasma)
 
-    # tsadar's absolute scale: (1 + 2 w/w_L) r_e^2 n_e, then dw/dlambda = 2 pi c / lambda^2
     scale = (1.0 + 2.0 * omega / omega_l) * CLASSICAL_ELECTRON_RADIUS_CM**2 * plasma.ne * 1.0e20
     jacobian = 2.0 * np.pi * C_CM_PER_S / (lam_nm * 1.0e-7) ** 2
     electron_part = electron_part * scale * jacobian
@@ -321,18 +256,10 @@ def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
     return total
 
 
-# --------------------------------------------------------------------------- relativistic (A12)
-
-
 def selden_spectrum(eps, theta_deg, te_kev):
-    r"""Exact non-collective relativistic Thomson spectrum for a Maxwellian (Juttner) plasma, per unit wavelength.
+    """Exact non-collective relativistic spectrum shape, Selden, Phys. Lett. A 79, 405 (1980), eq. (1).
 
-    Selden, Phys. Lett. A 79, 405 (1980), eq. (1), from Zhuravlev & Petrov (1979):
-    ``S(eps, theta) = c(alpha) A^-1 exp(-2 alpha B)`` with ``2 alpha = m_e c^2 / T_e``,
-    ``eps = lambda_s / lambda_i - 1``, ``A = (1 + eps)^3 [2 (1 - cos theta)(1 + eps) + eps^2]^(1/2)`` and
-    ``B = {1 + eps^2 / [2 (1 - cos theta)(1 + eps)]}^(1/2) - 1``. The normalizing constant ``c(alpha)`` is
-    omitted: compare shapes. Valid for 100 eV to 100 keV at 90 degrees (Selden: 0.1 % against Matoba et al.'s
-    numerical integration at 20 keV).
+    ``eps = lambda_s / lambda_i - 1``; the normalizing constant is omitted.
     """
     eps = np.asarray(eps, dtype=float)
     alpha = ELECTRON_MASS_KEV / te_kev / 2.0
@@ -340,9 +267,6 @@ def selden_spectrum(eps, theta_deg, te_kev):
     a = (1.0 + eps) ** 3 * np.sqrt(2.0 * one_minus_cos * (1.0 + eps) + eps**2)
     b = np.sqrt(1.0 + eps**2 / (2.0 * one_minus_cos * (1.0 + eps))) - 1.0
     return np.exp(-2.0 * alpha * b) / a
-
-
-# --------------------------------------------------------------------------- detector (L3)
 
 
 def pixel_edges(centers):
@@ -355,15 +279,7 @@ def pixel_edges(centers):
 
 
 def detector_spectrum(spectrum, centers, sigma, *, transmission=None, samples_per_sigma=40, pad_sigmas=8.0):
-    r"""Pixel means of the Gaussian-blurred, filtered continuous spectrum.
-
-    ``D_j = (1/Δ_j) ∫_{e_j}^{e_{j+1}} [(T S) * G_sigma](y) dy
-         = (1/Δ_j) ∫ T(x) S(x) [Phi((e_{j+1}-x)/sigma) - Phi((e_j-x)/sigma)] dx``.
-
-    The outer integral is exact (normal CDF); the inner one is a fine trapezoid on a
-    grid far finer than tsadar's. ``spectrum`` and ``transmission`` are callables of
-    wavelength in nm.
-    """
+    """Pixel means of the Gaussian-blurred spectrum (optionally filtered by ``transmission``), exact over each pixel."""
     edges = pixel_edges(centers)
     pixel = edges[1] - edges[0]
     step = min(sigma / samples_per_sigma, pixel / 400.0)
@@ -375,7 +291,6 @@ def detector_spectrum(spectrum, centers, sigma, *, transmission=None, samples_pe
     weights = np.full(fine.size, fine[1] - fine[0])
     weights[[0, -1]] *= 0.5
     weighted = source * weights
-    # cumulative response at every edge: I(e) = ∫ S(x) Phi((e - x)/sigma) dx
     cumulative = np.array([np.dot(weighted, ndtr((e - fine) / sigma)) for e in edges])
     return np.diff(cumulative) / np.diff(edges)
 
@@ -391,20 +306,12 @@ def rectangular_notch(center, width, optical_density):
 
 
 def normalize_in_ranges(centers, values, ranges, amplitude=100.0):
-    """Scale so the maximum over the pixels inside ``ranges`` equals ``amplitude``.
-
-    This is the fit-range amplitude convention of tsadar's detector model
-    (``detector_specs.norm == 0``): data and model are both scaled by their maximum
-    inside the fit windows, so an unfitted feature never sets the scale.
-    """
+    """Scale so the maximum over the pixels inside ``ranges`` equals ``amplitude`` (tsadar's ``norm: 0`` rule)."""
     centers = np.asarray(centers)
     mask = np.zeros(centers.shape, dtype=bool)
     for low, high in ranges:
         mask |= (centers > low) & (centers < high)
     return amplitude * np.asarray(values) / np.max(np.asarray(values)[mask])
-
-
-# --------------------------------------------------------------------------- comparisons
 
 
 def relative_errors(actual, expected, mask=None):

@@ -22,11 +22,6 @@ from ...utils.vector_tools import vsub, vdot, vdiv
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
 
-# Sources of Z'(xi) for the Maxwellian ion susceptibility, selected by config["other"]["zprime"].
-# "faddeeva" (default): Z' = -2 [1 + xi Z(xi)] with Z = i sqrt(pi) w(xi), exact to machine precision.
-# "legacy": the rdWT/idWT tables tsadar used before 2026-11. Their real part differs from the exact Z' by
-# up to 1.6e-3 (xi = +-1.37; e.g. Re Z'(1) = 0.153356 vs 0.152318), which puts ~0.65 % on an IAW feature.
-# Kept so results can be compared with codes that use the same table.
 ZPRIME_SOURCES = ("faddeeva", "legacy")
 
 # Angles in the tabulated projection used by the 2D form factor (see
@@ -98,15 +93,10 @@ def zprimeMaxw(xi, source="faddeeva"):
     """
     Derivative of the plasma dispersion function, Z'(xi) = -2 [1 + xi Z(xi)], for real xi.
 
-    FormFactor evaluates this once, on its uniform xi2 grid, and interpolates that table on every forward
-    pass, so the choice of source does not change the cost of a fit.
-
     Args:
         xi (np.ndarray): Normalized phase velocities (ascending for "legacy").
-        source (str): "faddeeva" evaluates Z(xi) = i sqrt(pi) w(xi) with the Faddeeva function, exact on the
-            whole real line (Fried & Conte 1961; Sheffield et al. 2011, sec. 3.3). "legacy" interpolates the
-            rdWT/idWT tables used before 2026-11, with the asymptote of Sheffield eq. 5.2.10 beyond |xi| = 10;
-            see ZPRIME_SOURCES for how they differ.
+        source (str): "faddeeva" (exact, from the Faddeeva function) or "legacy" (the rdWT/idWT tables,
+            with the asymptote of Sheffield eq. 5.2.10 beyond |xi| = 10).
     Returns:
         Zp (np.ndarray): Shape ``(2, len(xi))``: real and imaginary parts of Z'(xi).
     """
@@ -462,10 +452,8 @@ class FormFactor:
         """
         Susceptibility of a numerical 1D distribution f(v), with v and xi in units of the thermal velocity
         sqrt(T/m), and f evaluated at xi. xi and kld have shape [ng, npts, na, 1].
-        df/dv is taken on the fine uniform velocity grid xi1 and interpolated to xi, so it does not depend on the
-        wavelength sampling (a difference along the wavelength axis is too coarse for the ion feature in an EPW
-        window, and a forward one biased the EPW peaks blue). ion=True uses the 1/xi**2 asymptote past the
-        tabulated |xi| <= 8.2.
+        df/dv is taken on the velocity grid xi1 and interpolated to xi. ion=True uses the 1/xi**2 asymptote past
+        the tabulated |xi| <= 8.2.
         """
         #f_vphi = jnp.exp(jnp.interp(xi, v, jnp.log(f)))
         f_vphi = jnp.exp(jnp.apply_along_axis(interp1d, 0, jnp.squeeze(xi), v, jnp.log(jnp.squeeze(f)), extrap=[-50, -50])).reshape(jnp.shape(xi))

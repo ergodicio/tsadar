@@ -45,7 +45,6 @@ CONFIG = {
 
 # -- canonical_tags -----------------------------------------------------------
 
-# (config, mode, tags that must be present with these values, tags that must be absent)
 CANONICAL_TAGS = [
     pytest.param(
         CONFIG, "fit", {"tsadar.mode": "fit", "tsadar.shotnum": "101675", "tsadar.data": "epw", "tsadar.user": "avi"},
@@ -56,14 +55,10 @@ CANONICAL_TAGS = [
         for ele, ion, kind in [(True, False, "epw"), (False, True, "iaw"), (True, True, "both"), (False, False, "none")]
     ],
     pytest.param(CONFIG, "Fit", {"tsadar.mode": "fit"}, [], id="mode-normalized"),
-    # fitter.load_data_for_fitting accepts a list of shots; a LIKE filter on any one of them still has to match
     pytest.param({"data": {"shotnum": [101675, 101676]}}, "fit", {"tsadar.shotnum": "101675,101676"}, [], id="multi-shot"),
-    # an absent tag means "unknown"; "" would claim the run genuinely had no shot number
     pytest.param({"data": {"load_ele_spec": True}}, "fit", {}, ["tsadar.shotnum", "tsadar.user"], id="unknown-omitted"),
-    # decks in the wild carry null sections; this runs at the top of every run, so it must not break one
     pytest.param({"data": None, "other": None}, "fit", {"tsadar.data": "none"}, [], id="null-sections"),
     pytest.param({"data": {"shotnum": None}}, "fit", {"tsadar.data": "none"}, ["tsadar.shotnum"], id="null-shot"),
-    # forward-only decks do not carry the data section the fit path assumes
     pytest.param({}, "forward", {"tsadar.mode": "forward", "tsadar.data": "none"}, [], id="forward-empty"),
 ]
 
@@ -90,8 +85,8 @@ def test_tag_values_are_clipped_to_the_mlflow_limit():
 @pytest.mark.parametrize(
     "error, expected",
     [
-        (ValueError("something\n  broke   badly"), "ValueError: something broke badly"),  # one readable line
-        (KeyboardInterrupt(), "KeyboardInterrupt"),  # empty message
+        (ValueError("something\n  broke   badly"), "ValueError: something broke badly"),
+        (KeyboardInterrupt(), "KeyboardInterrupt"),
     ],
 )
 def test_format_error_is_one_readable_line(error, expected):
@@ -134,18 +129,14 @@ def _fit_raises(config):
 
 
 def _fit_is_cancelled(config):
-    # a Batch timeout arrives as a KeyboardInterrupt, which is not an Exception
     raise KeyboardInterrupt
 
 
 def _fit_dies_mid_stage(config):
-    # fitter/postprocess overwrite `status` with progress stages; the failure branch has to win over the stage
-    # the run died in, since a run stuck at "minimizing" is what #115 makes distinguishable
     mlflow.set_tag("status", "minimizing")
     raise RuntimeError("boom")
 
 
-# (fit behaviour, run mode, exception raised, terminal status, expected error tag or None)
 LIFECYCLE = [
     pytest.param(_fit_returns, "fit", None, misc.STATUS_COMPLETED, None, id="completed"),
     pytest.param(_fit_raises, "fit", RuntimeError, misc.STATUS_FAILED, "RuntimeError: minimizer diverged", id="raises"),

@@ -1,13 +1,4 @@
-"""L1: tsadar's susceptibility kernel against the analytic Gaussian-mixture susceptibility.
-
-``FormFactor._numeric_chi`` turns a sampled EDF into ``chi(xi)``: the principal value
-through the rational-integral operator on the internal velocity grid, and the Landau
-term from df/dv on that grid. The oracle is the exact sum of shifted, scaled Faddeeva
-terms. Comparing chi directly removes the conditioning of the spectrum (S ~ 1/|eps|^2),
-so one tolerance holds for every EDF; the spectrum depths inherit whatever this
-kernel error becomes for each case. For a kappa EDF (A5) the oracle's chi comes from its own
-adaptive quadrature instead of the Faddeeva function.
-"""
+"""L1: tsadar's susceptibility kernel and Z' against the analytic ones."""
 
 import numpy as np
 import pytest
@@ -19,10 +10,6 @@ from .cases import SPECTRUM_CASES
 
 pytestmark = pytest.mark.physics
 
-# Error relative to max|chi| (k lambda_D = 1), set by the 1024-point internal velocity grid. Measured
-# 1.1e-4 to 1.4e-4 for the Gaussian mixtures, 2.0e-4 / 2.9e-4 for kappa 5 / 3, and 2.9e-4 for the two-humped
-# ions (it falls with a 4096-point grid).
-# The sampled EDF itself is interpolated to 1e-7.
 CHI_TOL = 4.0e-4
 F_TOL = 1.0e-6
 XI = np.linspace(-7.0, 7.0, 2801)
@@ -76,29 +63,23 @@ def test_numeric_susceptibility_matches_the_analytic_one(form_factor, components
     assert f_error < F_TOL, f"A3-L1: f(xi) interpolated with error {f_error:.2e}"
 
 
-# --------------------------------------------------------------------------- Z' for Maxwellian ions
-
-
 def test_zprime_default_is_exact_and_legacy_reproduces_the_old_table():
     from scipy.interpolate import interp1d
     from scipy.special import dawsn
 
     from tsadar.core.physics.form_factor import _load_zprime_tables, zprimeMaxw
 
-    xi = np.arange(-8.2, 8.2, 0.01)  # FormFactor's xi2 grid
-    # Re Z' = -2 (1 - 2 xi F(xi)) with the Dawson function F, an evaluation independent of the Faddeeva function
+    xi = np.arange(-8.2, 8.2, 0.01)
     exact_real = -2.0 * (1.0 - 2.0 * xi * dawsn(xi))
     exact_imag = -2.0 * np.sqrt(np.pi) * xi * np.exp(-(xi**2))
     default = zprimeMaxw(xi)
     np.testing.assert_allclose(default[0], exact_real, rtol=0, atol=1e-13, err_msg="Re Z' (faddeeva)")
     np.testing.assert_allclose(default[1], exact_imag, rtol=0, atol=1e-13, err_msg="Im Z' (faddeeva)")
 
-    # legacy: the tables, interpolated exactly as before
     rd, idt = _load_zprime_tables()
     legacy = zprimeMaxw(xi, "legacy")
     np.testing.assert_array_equal(legacy[0], interp1d(rd[:, 0], rd[:, 1], "linear")(xi))
     np.testing.assert_array_equal(legacy[1], interp1d(idt[:, 0], idt[:, 1], "linear")(xi))
-    # and the known difference between them: up to 1.63e-3 in the real part, 5e-6 in the imaginary part
     assert 1.5e-3 < np.abs(legacy[0] - exact_real).max() < 1.7e-3
     assert np.abs(legacy[1] - exact_imag).max() < 1e-5
 

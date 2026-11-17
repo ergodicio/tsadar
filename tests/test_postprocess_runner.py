@@ -1,5 +1,4 @@
-"""Unit contracts of the postprocess entry points. The entry points themselves run on a real fit in
-tests/pipeline/test_real_shot.py."""
+"""Unit contracts of the postprocess entry points."""
 
 import json
 

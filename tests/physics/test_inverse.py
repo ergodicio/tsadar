@@ -1,23 +1,4 @@
-"""L4: the inverse problem on data made by the oracle, never by tsadar.
-
-* S1, noiseless recovery: the production loss and optimizer, started away from the
-  truth, recover the plasma parameters from the analytic detector spectrum.
-* S2, Cramer-Rao: tsadar's Laplace uncertainty, from the Hessian of its
-  -2 ln L = sum (d - t)^2 / |d| (variance = counts), equals the inverse Fisher
-  information J^T diag(1/d) J built from finite differences of the oracle's
-  detector spectrum.
-* S3, Bernstein-von Mises: at high counts the MCMC posterior is centred on the truth
-  with the Laplace width.
-
-S2 and S3 use tsadar's own noiseless spectrum at the truth as data, so the residual
-term sum (d - t) d2t/d of the Hessian vanishes and the Hessian is the Fisher
-information. With oracle data at 1e4 counts the 1e-3 model/oracle difference is
-statistically significant on the low-count wings (-2 ln L = 424 at the truth) and that
-term moves the Laplace sigma by 8-15 %. The reference Fisher information still comes
-from the oracle's Jacobian, so the check stays independent of tsadar's derivatives.
-
-All cases are in the well-resolved regime (cases.py).
-"""
+"""L4: recovery from oracle data (S1), Laplace against Cramer-Rao (S2), MCMC against Laplace (S3)."""
 
 import dataclasses
 
@@ -43,7 +24,6 @@ pytestmark = pytest.mark.physics
 
 EPW_CASE, _, IAW_CASE, _ = A1_CASES
 ANGLES = {"sa": np.array([60.0]), "weights": np.ones((1, 1))}
-# high counts: the peak pixel holds 1e4, so the posterior is narrow and close to Gaussian
 COUNTS = 1.0e4
 
 
@@ -53,10 +33,7 @@ def _oracle_data(plasma, det):
 
 
 def _problem(case, free, starts=None, amplitude=COUNTS):
-    """Config, loss and batch for fitting the oracle's detector spectrum of ``case`` with ``free`` active.
-
-    ``free`` maps (species, name) to its true value; ``starts`` optionally to a displaced start.
-    """
+    """Config, loss and batch for fitting the oracle spectrum of ``case`` with ``free`` parameters active."""
     det = dataclasses.replace(case.detector, amplitude=amplitude)
     cfg = harness.diagnostic_config(case.plasma, det)
     cfg["optimizer"].update(method="l-bfgs-b", num_epochs=200, batch_size=1, y_norm=False, loss_method="l2")
@@ -71,9 +48,6 @@ def _problem(case, free, starts=None, amplitude=COUNTS):
 
 def _physical(params, species, name):
     return float(np.asarray(params.get_unnormed_params()[species][name]).ravel()[0])
-
-
-# --------------------------------------------------------------------------- S1
 
 
 S1_CASES = [
@@ -105,12 +79,8 @@ def test_noiseless_recovery_from_analytic_data(case, truth, start, record_proper
         )
 
 
-# measured: ne 5e-6, Te 9e-5, Va 6e-6 (1e6 cm/s), Ti 2.1e-4 relative error
 S1_RTOL = 1.0e-3
 S1_ATOL = {"Va": 1.0e-3}
-
-
-# --------------------------------------------------------------------------- S2, S3
 
 
 EPW_FREE = (("electron", "ne"), ("electron", "Te"))
@@ -118,12 +88,8 @@ EPW_FREE = (("electron", "ne"), ("electron", "Te"))
 
 @pytest.fixture(scope="module")
 def epw_at_truth():
-    """The A1 EPW problem with ne and Te free, at its truth, with tsadar's noiseless spectrum as data.
-
-    The truth is whatever physical values the activated parameters hold: the inverse activation in
-    ts_params is a stabilized logit, log(0.01 + x/(1.01 - x)), a deliberate offset that avoids failures of
-    the exact logit, so a deck value of ne = 0.2 starts the fit at 0.2044. Data, Laplace and Cramer-Rao are
-    all evaluated there.
+    """The A1 EPW problem (ne, Te free) at the values the activated parameters hold, with tsadar's noiseless
+    spectrum as data.
     """
     cfg, loss, batch = _problem(EPW_CASE, dict.fromkeys(EPW_FREE))
     params = ThomsonParams(cfg["parameters"], num_params=1, activate=True)
@@ -166,7 +132,6 @@ def test_laplace_uncertainty_equals_the_cramer_rao_bound(epw_at_truth, record_pr
     np.testing.assert_allclose(laplace, bound, rtol=S2_RTOL, err_msg="S2: Laplace sigma != Cramer-Rao bound")
 
 
-# measured: Laplace / Cramer-Rao = 1.0009 (ne), 1.0007 (Te)
 S2_RTOL = 0.01
 
 
@@ -183,7 +148,7 @@ def test_mcmc_posterior_matches_laplace_at_high_counts(epw_at_truth, record_prop
         unnormed = eqx.combine(static, sample).get_unnormed_params()
         return jnp.stack([jnp.ravel(unnormed[s][n])[0] for s, n in EPW_FREE])
 
-    draws = np.asarray(eqx.filter_vmap(physical)(samples))  # (num_kept, 2)
+    draws = np.asarray(eqx.filter_vmap(physical)(samples))
     truth = np.array([epw_at_truth["truth"][name] for name in EPW_FREE])
     laplace = epw_at_truth["laplace"]
     mean, std = draws.mean(axis=0), draws.std(axis=0)
@@ -192,13 +157,10 @@ def test_mcmc_posterior_matches_laplace_at_high_counts(epw_at_truth, record_prop
         record_property(f"{name}: std / laplace", float(std[i] / laplace[i]))
     np.testing.assert_array_less(np.abs(mean - truth), S3_MEAN_SIGMAS * laplace, err_msg="S3: posterior mean off truth")
     np.testing.assert_allclose(std, laplace, rtol=S3_STD_RTOL, err_msg="S3: posterior width != Laplace sigma")
-    # the robust adaptive Metropolis targets an acceptance rate of 0.234
     acceptance = float(np.asarray(diagnostics["acceptance_rate"]).ravel()[0])
     record_property("acceptance rate", acceptance)
     assert abs(acceptance - 0.234) < 0.1, f"S3: acceptance rate {acceptance:.3f}, target 0.234"
 
 
-# measured (5000 steps after burn-in, thin 5, fixed seed): std / Laplace 0.972 (ne), 0.975 (Te); mean - truth
-# -0.02 and -0.03 sigma. The width is a sample estimate from ~1000 correlated draws, hence 10 %.
 S3_MEAN_SIGMAS = 0.2
 S3_STD_RTOL = 0.10

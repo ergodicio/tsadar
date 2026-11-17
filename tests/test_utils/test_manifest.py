@@ -1,19 +1,4 @@
-"""
-The fit artifact contract (ergodicio/tsadar#116), as golden files.
-
-Each case builds an artifact tree the way the plotting code does -- real xarray
-datasets written with ``to_netcdf``, real csvs -- and compares the whole manifest
-with a checked-in ``golden/manifest_<case>.json``. The manifest format is the
-specification, so a golden file is the right reference here: any change to roles,
-schema, kind detection or field names shows up as a readable diff.
-
-Masked as platform-dependent: ``tsadar_version`` and each file's ``bytes`` (netCDF
-and csv sizes differ between libraries and line endings; checked to be positive
-instead). netCDF ``coords`` and ``data_vars`` are compared as sorted lists.
-
-To regenerate after an intended format change (and a ``SCHEMA_VERSION`` bump when a
-file or variable is renamed or removed): ``TSADAR_REGENERATE_GOLDEN=1 pytest tests/test_utils/test_manifest.py``.
-"""
+"""The fit artifact contract (ergodicio/tsadar#116): manifests compared with golden files."""
 
 import json
 import os
@@ -36,7 +21,6 @@ def spectrogram(x_label="Time (ps)", nx=4, nlam=8):
 
 
 def _one_d(root):
-    """1-D electron + ion fit, with csvs, plots, lineouts and a file of no known role."""
     for sub in ("binary", "csv", "plots", "lineouts"):
         os.makedirs(root / sub)
     spectrogram().to_netcdf(root / "binary" / "ele_fit_and_data.nc")
@@ -51,8 +35,6 @@ def _one_d(root):
 
 
 def _angular(root):
-    """Angular fit: the same two variables and dimensionality as 1-D, only the x coordinate differs, so the
-    manifest must state the kind outright. Plus the angular objective's diagnostics."""
     os.makedirs(root / "binary")
     spectrogram(x_label="Scattering angle (degrees)").to_netcdf(root / "binary" / "fit_and_data.nc")
     (root / "angular_objective_diagnostics.npz").write_bytes(b"npz")
@@ -65,7 +47,6 @@ def _ion_only(root):
 
 
 def _no_spectrogram(root):
-    """Nothing identifies the run, so its kind is unknown rather than guessed."""
     os.makedirs(root / "plots")
     (root / "plots" / "only.png").write_bytes(b"png")
 
@@ -79,7 +60,6 @@ def _masked(built):
     for entry in built["files"]:
         assert isinstance(entry["bytes"], int) and entry["bytes"] > 0, entry
         entry["bytes"] = "<masked>"
-        # netCDF coordinate and variable order follows xarray's iteration order, not the contract
         for key in ("coords", "data_vars"):
             if key in entry:
                 entry[key] = sorted(entry[key])
@@ -91,7 +71,6 @@ def test_manifest_matches_its_golden_file(case, tmp_path):
     TREES[case](tmp_path)
     written = manifest.write_manifest(str(tmp_path))
 
-    # written next to the artifacts, never describing itself, stable when rewritten
     with open(tmp_path / manifest.MANIFEST_NAME) as fi:
         assert json.load(fi) == written
     assert written == manifest.write_manifest(str(tmp_path))

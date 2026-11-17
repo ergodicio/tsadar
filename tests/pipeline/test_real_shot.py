@@ -1,19 +1,4 @@
-"""The whole production pipeline on real data, with as few fits as possible.
-
-Shot 101675 (two EPW lineouts) is fitted through ``runner.run``, the entry point that
-``run_tsadar.py`` uses, once per optimizer. Every check below reuses those fits:
-
-* the fitted plasma parameters against the known-good fit of this shot;
-* the forced refit path, with the two lineouts in separate batches;
-* the postprocess entry points (local folder with defaults/inputs or with the app's
-  config.yaml, and the remote run id with either layout), which must all reproduce
-  the fit;
-* MCMC postprocessing with short chains: artifacts, overrides, R-hat across chains,
-  and the remote entry point.
-
-The statistical behaviour of the sampler belongs to the inverse physics tests; here
-only the wiring is under test, so the chains are short.
-"""
+"""The production pipeline on shot 101675: fits, refit, postprocess entry points and MCMC wiring, sharing two fits."""
 
 import os
 import shutil
@@ -35,8 +20,6 @@ from tsadar.postprocess_runner import run_postprocess_local, run_postprocess_rem
 
 CONFIGS = os.path.join(os.path.dirname(__file__), "..", "configs")
 
-# Known-good fit of lineout 0. Values of 3/22/25 (lam updated 4/24/26 for the shot-day calibration), with
-# rtol as in the original test_1d_data.
 KNOWN_GOOD = {
     "amp1_general": (0.733, 1e-1),
     "amp2_general": (0.520, 1e-1),
@@ -55,7 +38,6 @@ SHORT_MCMC = {
     "compare_to_laplace": False,
 }
 
-# The sampler cannot sample an active EDF; condition on the fitted shape instead.
 MCMC_OVERRIDES = {"parameters": {"electron": {"fe": {"active": False}}}}
 
 
@@ -90,8 +72,6 @@ def lbfgs(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def lsq_refit(tmp_path_factory):
-    # every lineout flagged bad (losses are non-negative), and the two lineouts in separate batches, so the
-    # refit of the second reads its start from, and writes to, a different batch
     return _fit(tmp_path_factory, "lsq_refit", "lsq", batch_size=1, refit=True, refit_thresh=-1.0)
 
 
@@ -116,9 +96,8 @@ def _assert_same_fit(actual, expected, label):
 
 
 def test_every_postprocess_entry_point_reproduces_the_fit(lbfgs):
-    reference = lbfgs.params  # local folder, defaults.yaml + inputs.yaml
+    reference = lbfgs.params
 
-    # app-originated runs log one merged config.yaml instead of defaults/inputs
     with open(lbfgs.folder / "defaults.yaml") as fi:
         merged = flatten(yaml.safe_load(fi))
     with open(lbfgs.folder / "inputs.yaml") as fi:
@@ -159,7 +138,7 @@ def test_mcmc_postprocess_wiring(lbfgs):
     assert "csv/learned_parameters.csv" in {f.path for f in client.list_artifacts(run_id, "csv")}
     binary = {f.path for f in client.list_artifacts(run_id, "binary")}
     assert {"binary/mcmc_covariance.nc", "binary/mcmc_reliability.nc"} <= binary
-    assert "binary/mcmc_samples.nc" not in binary  # the override reached the postprocessor
+    assert "binary/mcmc_samples.nc" not in binary
 
     download = lambda path: mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=path)
     with open(download("overrides.yaml")) as fi:

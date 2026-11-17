@@ -90,7 +90,6 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
-  # Z' for Maxwellian ions: faddeeva (exact) or legacy (the rdWT/idWT tables used before 2026-11)
   zprime: faddeeva
   detector_specs:
     norm: 0

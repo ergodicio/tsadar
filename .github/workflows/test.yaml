@@ -20,8 +20,6 @@ jobs:
       - name: Install tsadar (CPU)
         run: uv pip install --system -e ".[test,hdf]"
       - name: Run tests
-        # Two workers: a worker peaks at ~4.7 GB, and the hosted runner has 16 GB. loadfile keeps each file's
-        # module-scoped fits on one worker.
         run: pytest -m "not slow" -n 2 --dist loadfile tests/
 
   test-tsadar-gpu:

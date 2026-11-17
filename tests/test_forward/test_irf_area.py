@@ -139,7 +139,6 @@ def test_prepare_data_drops_a_ragged_final_arts_spectral_unit_on_the_uniform_mod
 
     all_data, _, all_axes = prepare.prepare_data(cfg, 1)
 
-    # 5 wavelength pixels in units of 2: the uniform model grid drops the ragged fifth pixel.
     centers, edges = np.array([1.0, 3.0]), np.array([0.0, 2.0, 4.0])
     np.testing.assert_array_equal(all_axes["epw_y"].squeeze(), centers)
     np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_edges"], edges)

@@ -1,11 +1,4 @@
-"""A13: the detailed spectral breakdown agrees with the fitted model.
-
-The notch filter itself is not modelled exactly (a rectangular attenuation applied on
-the sampled wavelength grid) and its band is excluded from every fit, so no test
-asserts its shape: the detector comparisons in compare.py leave out the pixels within
-two IRF widths of its edges. What must hold is that ``spectrum_breakdown``, which the
-postprocessor plots, returns the same detector spectrum as the forward pass.
-"""
+"""A13: ``spectrum_breakdown`` returns the model spectrum."""
 
 import numpy as np
 import pytest
