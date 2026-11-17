@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "tsadar_version": "<masked>",
+  "mode": "fit",
+  "kind": "unknown",
+  "files": [
+    {
+      "path": "plots/only.png",
+      "role": "plot",
+      "bytes": "<masked>"
+    }
+  ]
+}

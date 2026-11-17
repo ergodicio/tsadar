@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "tsadar_version": "<masked>",
+  "mode": "fit",
+  "kind": "angular",
+  "files": [
+    {
+      "path": "angular_objective_diagnostics.npz",
+      "role": "diagnostics",
+      "bytes": "<masked>"
+    },
+    {
+      "path": "angular_objective_terms.json",
+      "role": "diagnostics",
+      "bytes": "<masked>"
+    },
+    {
+      "path": "binary/fit_and_data.nc",
+      "role": "spectrogram",
+      "bytes": "<masked>",
+      "dims": {
+        "Scattering angle (degrees)": 4,
+        "Wavelength": 8
+      },
+      "coords": [
+        "Scattering angle (degrees)",
+        "Wavelength"
+      ],
+      "data_vars": [
+        "data",
+        "fit"
+      ]
+    }
+  ]
+}

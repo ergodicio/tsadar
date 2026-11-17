@@ -1,16 +1,23 @@
 """
-Tests for the fit artifact contract (ergodicio/tsadar#116).
+The fit artifact contract (ergodicio/tsadar#116), as golden files.
 
-These build the artifact tree the way the plotting code does -- real xarray
-datasets written with ``to_netcdf``, real csvs -- and assert the manifest
-describes exactly what ended up on disk. Building the tree directly rather than
-running a fit keeps the test fast enough to be worth running, and it is the
-manifest, not the fit, that is under test; the coupling that actually matters is
-manifest-vs-disk, and that is what is asserted.
+Each case builds an artifact tree the way the plotting code does -- real xarray
+datasets written with ``to_netcdf``, real csvs -- and compares the whole manifest
+with a checked-in ``golden/manifest_<case>.json``. The manifest format is the
+specification, so a golden file is the right reference here: any change to roles,
+schema, kind detection or field names shows up as a readable diff.
+
+Masked as platform-dependent: ``tsadar_version`` and each file's ``bytes`` (netCDF
+and csv sizes differ between libraries and line endings; checked to be positive
+instead). netCDF ``coords`` and ``data_vars`` are compared as sorted lists.
+
+To regenerate after an intended format change (and a ``SCHEMA_VERSION`` bump when a
+file or variable is renamed or removed): ``TSADAR_REGENERATE_GOLDEN=1 pytest tests/test_utils/test_manifest.py``.
 """
 
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -19,174 +26,87 @@ import xarray as xr
 
 from tsadar.utils import manifest
 
+GOLDEN = Path(__file__).parent / "golden"
+
 
 def spectrogram(x_label="Time (ps)", nx=4, nlam=8):
     """A fit_and_data dataset shaped like the ones plotters.py writes."""
-
     coords = ((x_label, np.arange(nx, dtype=float)), ("Wavelength", np.linspace(520.0, 530.0, nlam)))
-
     return xr.Dataset({k: xr.DataArray(np.zeros((nx, nlam)), coords=coords) for k in ("fit", "data")})
 
 
-@pytest.fixture
-def one_d_tree(tmp_path):
-    """An artifact tree for a 1D electron+ion fit."""
-
+def _one_d(root):
+    """1-D electron + ion fit, with csvs, plots, lineouts and a file of no known role."""
     for sub in ("binary", "csv", "plots", "lineouts"):
-        os.makedirs(tmp_path / sub)
-
-    spectrogram().to_netcdf(tmp_path / "binary" / "ele_fit_and_data.nc")
-    spectrogram().to_netcdf(tmp_path / "binary" / "ion_fit_and_data.nc")
-
+        os.makedirs(root / sub)
+    spectrogram().to_netcdf(root / "binary" / "ele_fit_and_data.nc")
+    spectrogram().to_netcdf(root / "binary" / "ion_fit_and_data.nc")
     pd.DataFrame({"lineout pixel": [1, 2], "Te": [0.6, 0.7], "ne": [0.22, 0.23]}).to_csv(
-        tmp_path / "csv" / "learned_parameters.csv", index=False
+        root / "csv" / "learned_parameters.csv", index=False
     )
-    pd.DataFrame({"loss": [1.0, 0.5]}).to_csv(tmp_path / "csv" / "losses.csv", index=False)
-
-    (tmp_path / "plots" / "fit_and_data.png").write_bytes(b"png")
-    (tmp_path / "lineouts" / "lineout_1.png").write_bytes(b"png")
-
-    return tmp_path
+    pd.DataFrame({"loss": [1.0, 0.5]}).to_csv(root / "csv" / "losses.csv", index=False)
+    (root / "plots" / "fit_and_data.png").write_bytes(b"png")
+    (root / "lineouts" / "lineout_1.png").write_bytes(b"png")
+    (root / "state_weights.txt").write_text("weights")
 
 
-def entry_for(built, path):
-    return next(e for e in built["files"] if e["path"] == path)
+def _angular(root):
+    """Angular fit: the same two variables and dimensionality as 1-D, only the x coordinate differs, so the
+    manifest must state the kind outright. Plus the angular objective's diagnostics."""
+    os.makedirs(root / "binary")
+    spectrogram(x_label="Scattering angle (degrees)").to_netcdf(root / "binary" / "fit_and_data.nc")
+    (root / "angular_objective_diagnostics.npz").write_bytes(b"npz")
+    (root / "angular_objective_terms.json").write_text("{}")
 
 
-# -- what the manifest says ---------------------------------------------------
+def _ion_only(root):
+    os.makedirs(root / "binary")
+    spectrogram().to_netcdf(root / "binary" / "ion_fit_and_data.nc")
 
 
-def test_manifest_lists_every_file_on_disk(one_d_tree):
-    built = manifest.build_manifest(str(one_d_tree))
-
-    on_disk = {rel for rel, _ in manifest._walk(str(one_d_tree))}
-
-    assert {e["path"] for e in built["files"]} == on_disk
+def _no_spectrogram(root):
+    """Nothing identifies the run, so its kind is unknown rather than guessed."""
+    os.makedirs(root / "plots")
+    (root / "plots" / "only.png").write_bytes(b"png")
 
 
-def test_manifest_is_versioned_and_stamped(one_d_tree):
-    built = manifest.build_manifest(str(one_d_tree))
-
-    assert built["schema_version"] == manifest.SCHEMA_VERSION
-    assert built["tsadar_version"]
-    assert built["mode"] == "fit"
+TREES = {"1d": _one_d, "angular": _angular, "ion_only": _ion_only, "no_spectrogram": _no_spectrogram}
 
 
-def test_spectrogram_schema_is_recorded(one_d_tree):
-    entry = entry_for(manifest.build_manifest(str(one_d_tree)), "binary/ele_fit_and_data.nc")
-
-    assert entry["role"] == manifest.ROLE_SPECTROGRAM
-    assert entry["species"] == "ele"
-    assert entry["dims"] == {"Time (ps)": 4, "Wavelength": 8}
-    assert sorted(entry["data_vars"]) == ["data", "fit"]
-    assert "Time (ps)" in entry["coords"]
-
-
-def test_dataset_schema_matches_the_file_it_describes(one_d_tree):
-    # The point of recording dims is that a reader can trust them without opening
-    # the file, so they had better agree with the file.
-    entry = entry_for(manifest.build_manifest(str(one_d_tree)), "binary/ion_fit_and_data.nc")
-
-    with xr.open_dataset(one_d_tree / "binary" / "ion_fit_and_data.nc") as ds:
-        assert entry["dims"] == {str(k): int(v) for k, v in ds.sizes.items()}
-        assert sorted(entry["data_vars"]) == sorted(str(v) for v in ds.data_vars)
+def _masked(built):
+    built = json.loads(json.dumps(built))
+    built["tsadar_version"] = "<masked>"
+    for entry in built["files"]:
+        assert isinstance(entry["bytes"], int) and entry["bytes"] > 0, entry
+        entry["bytes"] = "<masked>"
+        # netCDF coordinate and variable order follows xarray's iteration order, not the contract
+        for key in ("coords", "data_vars"):
+            if key in entry:
+                entry[key] = sorted(entry[key])
+    return built
 
 
-def test_csv_columns_are_recorded(one_d_tree):
-    entry = entry_for(manifest.build_manifest(str(one_d_tree)), "csv/learned_parameters.csv")
+@pytest.mark.parametrize("case", TREES)
+def test_manifest_matches_its_golden_file(case, tmp_path):
+    TREES[case](tmp_path)
+    written = manifest.write_manifest(str(tmp_path))
 
-    assert entry["role"] == manifest.ROLE_PARAMETER_PROFILES
-    assert "Te" in entry["columns"]
-    assert entry["rows"] == 2
-
-
-def test_plots_are_rolled_up_by_directory(one_d_tree):
-    built = manifest.build_manifest(str(one_d_tree))
-
-    assert entry_for(built, "plots/fit_and_data.png")["role"] == manifest.ROLE_PLOT
-    assert entry_for(built, "lineouts/lineout_1.png")["role"] == manifest.ROLE_PLOT
-
-
-def test_unknown_files_get_a_role_rather_than_being_dropped(one_d_tree):
-    (one_d_tree / "state_weights.txt").write_text("weights")
-
-    entry = entry_for(manifest.build_manifest(str(one_d_tree)), "state_weights.txt")
-
-    assert entry["role"] == manifest.ROLE_OTHER
-
-
-def test_angular_objective_outputs_are_classified_as_diagnostics(tmp_path):
-    (tmp_path / "angular_objective_diagnostics.npz").write_bytes(b"npz")
-    (tmp_path / "angular_objective_terms.json").write_text("{}")
-
-    built = manifest.build_manifest(str(tmp_path))
-
-    assert entry_for(built, "angular_objective_diagnostics.npz")["role"] == manifest.ROLE_DIAGNOSTICS
-    assert entry_for(built, "angular_objective_terms.json")["role"] == manifest.ROLE_DIAGNOSTICS
-
-
-# -- 1D vs angular ------------------------------------------------------------
-
-
-def test_a_1d_run_is_identified_from_its_artifacts(one_d_tree):
-    assert manifest.build_manifest(str(one_d_tree))["kind"] == manifest.KIND_ONE_D
-
-
-def test_an_angular_run_is_identified_from_its_artifacts(tmp_path):
-    # Angular writes binary/fit_and_data.nc, with the same two variables and the
-    # same dimensionality as the 1D files -- only the x coord differs. A reader
-    # that switched on shape would get this wrong, which is why the manifest
-    # states the kind outright.
-    os.makedirs(tmp_path / "binary")
-    spectrogram(x_label="Scattering angle (degrees)").to_netcdf(tmp_path / "binary" / "fit_and_data.nc")
-
-    built = manifest.build_manifest(str(tmp_path))
-
-    assert built["kind"] == manifest.KIND_ANGULAR
-    assert entry_for(built, "binary/fit_and_data.nc")["role"] == manifest.ROLE_SPECTROGRAM
-
-
-def test_a_run_with_no_spectrogram_is_unknown_not_guessed(tmp_path):
-    os.makedirs(tmp_path / "plots")
-    (tmp_path / "plots" / "only.png").write_bytes(b"png")
-
-    assert manifest.build_manifest(str(tmp_path))["kind"] == manifest.KIND_UNKNOWN
-
-
-def test_an_ion_only_fit_has_no_electron_entry(tmp_path):
-    os.makedirs(tmp_path / "binary")
-    spectrogram().to_netcdf(tmp_path / "binary" / "ion_fit_and_data.nc")
-
-    built = manifest.build_manifest(str(tmp_path))
-
-    assert [e["path"] for e in built["files"]] == ["binary/ion_fit_and_data.nc"]
-    assert built["kind"] == manifest.KIND_ONE_D
-
-
-# -- writing ------------------------------------------------------------------
-
-
-def test_write_manifest_lands_next_to_the_artifacts(one_d_tree):
-    written = manifest.write_manifest(str(one_d_tree))
-
-    with open(one_d_tree / manifest.MANIFEST_NAME) as fi:
+    # written next to the artifacts, never describing itself, stable when rewritten
+    with open(tmp_path / manifest.MANIFEST_NAME) as fi:
         assert json.load(fi) == written
+    assert written == manifest.write_manifest(str(tmp_path))
+    on_disk = {rel for rel, _ in manifest._walk(str(tmp_path))} - {manifest.MANIFEST_NAME}
+    assert {e["path"] for e in written["files"]} == on_disk
 
-
-def test_the_manifest_does_not_describe_itself(one_d_tree):
-    manifest.write_manifest(str(one_d_tree))
-    built = manifest.build_manifest(str(one_d_tree))
-
-    assert manifest.MANIFEST_NAME not in {e["path"] for e in built["files"]}
-
-
-def test_rewriting_is_stable(one_d_tree):
-    # postprocess writes once, but a manifest that changed on every rebuild would
-    # make schema_version meaningless.
-    first = manifest.write_manifest(str(one_d_tree))
-    second = manifest.write_manifest(str(one_d_tree))
-
-    assert first == second
+    actual = _masked(written)
+    golden = GOLDEN / f"manifest_{case}.json"
+    if os.environ.get("TSADAR_REGENERATE_GOLDEN"):
+        golden.parent.mkdir(exist_ok=True)
+        golden.write_text(json.dumps(actual, indent=2) + "\n")
+    assert actual == json.loads(golden.read_text()), (
+        f"manifest for the {case} tree differs from {golden.name}; if the change is intended, regenerate "
+        "(see the module docstring) and bump SCHEMA_VERSION for a rename or removal"
+    )
 
 
 def test_a_broken_manifest_never_fails_the_fit(tmp_path, monkeypatch):
@@ -201,13 +121,10 @@ def test_an_unreadable_dataset_is_noted_not_fatal(tmp_path):
     os.makedirs(tmp_path / "binary")
     (tmp_path / "binary" / "ele_fit_and_data.nc").write_bytes(b"not actually netcdf")
 
-    entry = entry_for(manifest.build_manifest(str(tmp_path)), "binary/ele_fit_and_data.nc")
+    entry = next(e for e in manifest.build_manifest(str(tmp_path))["files"] if e["path"] == "binary/ele_fit_and_data.nc")
 
     assert entry["role"] == manifest.ROLE_SPECTROGRAM
     assert "unreadable" in entry
-
-
-# -- the wiring into postprocess ---------------------------------------------
 
 
 def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
@@ -234,6 +151,7 @@ def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
     # the laplace submodule, not the package attribute of the same name.
     monkeypatch.setattr(laplace, "process_data", fake_process_data)
 
+    previous_uri = mlflow.get_tracking_uri()
     mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
     client = mlflow.tracking.MlflowClient()
     client.create_experiment("manifest-tests", artifact_location=(tmp_path / "artifacts").as_uri())
@@ -246,6 +164,6 @@ def test_postprocess_logs_a_manifest_with_the_artifacts(tmp_path, monkeypatch):
 
         logged = {f.path for f in client.list_artifacts(run.info.run_id)}
     finally:
-        mlflow.set_tracking_uri(None)
+        mlflow.set_tracking_uri(previous_uri)
 
     assert manifest.MANIFEST_NAME in logged

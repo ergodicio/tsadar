@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "tsadar_version": "<masked>",
+  "mode": "fit",
+  "kind": "one_d",
+  "files": [
+    {
+      "path": "binary/ion_fit_and_data.nc",
+      "role": "spectrogram",
+      "bytes": "<masked>",
+      "species": "ion",
+      "dims": {
+        "Time (ps)": 4,
+        "Wavelength": 8
+      },
+      "coords": [
+        "Time (ps)",
+        "Wavelength"
+      ],
+      "data_vars": [
+        "data",
+        "fit"
+      ]
+    }
+  ]
+}

@@ -24,12 +24,13 @@ def tracking(tmp_path):
     a database backend is also what production runs against.
     """
 
+    previous_uri = mlflow.get_tracking_uri()
     mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
     client = mlflow.tracking.MlflowClient()
     client.create_experiment("tag-tests", artifact_location=(tmp_path / "artifacts").as_uri())
     mlflow.set_experiment("tag-tests")
     yield client
-    mlflow.set_tracking_uri(None)
+    mlflow.set_tracking_uri(previous_uri)
 
 
 def tags_of(client, run_id):
@@ -44,84 +45,57 @@ CONFIG = {
 
 # -- canonical_tags -----------------------------------------------------------
 
+# (config, mode, tags that must be present with these values, tags that must be absent)
+CANONICAL_TAGS = [
+    pytest.param(
+        CONFIG, "fit", {"tsadar.mode": "fit", "tsadar.shotnum": "101675", "tsadar.data": "epw", "tsadar.user": "avi"},
+        [], id="filterable-fields",
+    ),
+    *[
+        pytest.param({"data": {"load_ele_spec": ele, "load_ion_spec": ion}}, "fit", {"tsadar.data": kind}, [], id=f"data-{kind}")
+        for ele, ion, kind in [(True, False, "epw"), (False, True, "iaw"), (True, True, "both"), (False, False, "none")]
+    ],
+    pytest.param(CONFIG, "Fit", {"tsadar.mode": "fit"}, [], id="mode-normalized"),
+    # fitter.load_data_for_fitting accepts a list of shots; a LIKE filter on any one of them still has to match
+    pytest.param({"data": {"shotnum": [101675, 101676]}}, "fit", {"tsadar.shotnum": "101675,101676"}, [], id="multi-shot"),
+    # an absent tag means "unknown"; "" would claim the run genuinely had no shot number
+    pytest.param({"data": {"load_ele_spec": True}}, "fit", {}, ["tsadar.shotnum", "tsadar.user"], id="unknown-omitted"),
+    # decks in the wild carry null sections; this runs at the top of every run, so it must not break one
+    pytest.param({"data": None, "other": None}, "fit", {"tsadar.data": "none"}, [], id="null-sections"),
+    pytest.param({"data": {"shotnum": None}}, "fit", {"tsadar.data": "none"}, ["tsadar.shotnum"], id="null-shot"),
+    # forward-only decks do not carry the data section the fit path assumes
+    pytest.param({}, "forward", {"tsadar.mode": "forward", "tsadar.data": "none"}, [], id="forward-empty"),
+]
 
-def test_canonical_tags_covers_the_filterable_fields():
-    tags = misc.canonical_tags(CONFIG, mode="fit")
 
-    assert tags["tsadar.mode"] == "fit"
-    assert tags["tsadar.shotnum"] == "101675"
-    assert tags["tsadar.data"] == "epw"
-    assert tags["tsadar.user"] == "avi"
+@pytest.mark.parametrize("config, mode, present, absent", CANONICAL_TAGS)
+def test_canonical_tags(config, mode, present, absent):
+    tags = misc.canonical_tags(config, mode=mode)
+
     assert tags["tsadar.version"]
-
-
-@pytest.mark.parametrize(
-    "ele, ion, expected",
-    [(True, False, "epw"), (False, True, "iaw"), (True, True, "both"), (False, False, "none")],
-)
-def test_data_kind_follows_the_load_switches(ele, ion, expected):
-    config = {"data": {"load_ele_spec": ele, "load_ion_spec": ion}}
-
-    assert misc.canonical_tags(config)["tsadar.data"] == expected
-
-
-def test_mode_is_normalized():
-    assert misc.canonical_tags(CONFIG, mode="Fit")["tsadar.mode"] == "fit"
-
-
-def test_multi_shot_fits_join_their_shot_numbers():
-    # fitter.load_data_for_fitting accepts a list of shots; a LIKE filter on any
-    # one of them still has to match.
-    config = {"data": {"shotnum": [101675, 101676]}}
-
-    assert misc.canonical_tags(config)["tsadar.shotnum"] == "101675,101676"
-
-
-def test_unknown_fields_are_omitted_not_blanked():
-    # An absent tag means "unknown". A tag set to "" would claim the run genuinely
-    # had no shot number, which is a different and wrong statement.
-    tags = misc.canonical_tags({"data": {"load_ele_spec": True}})
-
-    assert "tsadar.shotnum" not in tags
-    assert "tsadar.user" not in tags
+    assert {k: tags.get(k) for k in present} == present
+    assert not set(absent) & set(tags)
 
 
 def test_tag_values_are_clipped_to_the_mlflow_limit():
-    config = {"data": {"shotnum": list(range(5000))}}
-
-    value = misc.canonical_tags(config)["tsadar.shotnum"]
+    value = misc.canonical_tags({"data": {"shotnum": list(range(5000))}})["tsadar.shotnum"]
 
     assert len(value) == misc.MAX_TAG_LEN
     assert value.endswith("...")
 
 
-@pytest.mark.parametrize("config", [{"data": None, "other": None}, {"data": {"shotnum": None}}, {}])
-def test_canonical_tags_survives_null_sections(config):
-    # Decks in the wild carry keys set to null. This runs at the top of every
-    # run, so it must not be the thing that breaks a run that would otherwise
-    # work.
-    assert misc.canonical_tags(config)["tsadar.data"] == "none"
-
-
-def test_canonical_tags_survives_a_config_missing_every_key():
-    # Forward-only decks do not carry the data section the fit path assumes.
-    tags = misc.canonical_tags({}, mode="forward")
-
-    assert tags["tsadar.mode"] == "forward"
-    assert tags["tsadar.data"] == "none"
-
-
 # -- format_error -------------------------------------------------------------
 
 
-def test_format_error_is_one_readable_line():
-    error = ValueError("something\n  broke   badly")
-
-    assert misc.format_error(error) == "ValueError: something broke badly"
-
-
-def test_format_error_handles_an_empty_message():
-    assert misc.format_error(KeyboardInterrupt()) == "KeyboardInterrupt"
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (ValueError("something\n  broke   badly"), "ValueError: something broke badly"),  # one readable line
+        (KeyboardInterrupt(), "KeyboardInterrupt"),  # empty message
+    ],
+)
+def test_format_error_is_one_readable_line(error, expected):
+    assert misc.format_error(error) == expected
 
 
 def test_format_error_is_clipped():
@@ -129,19 +103,6 @@ def test_format_error_is_clipped():
 
 
 # -- the lifecycle around _run_ ----------------------------------------------
-
-
-def test_successful_run_is_tagged_completed(tracking, monkeypatch):
-    monkeypatch.setattr(runner.fitter, "fit", lambda config: ({}, 0.0))
-
-    with mlflow.start_run() as run:
-        runner._run_(dict(CONFIG), mode="fit")
-
-    tags = tags_of(tracking, run.info.run_id)
-    assert tags["status"] == misc.STATUS_COMPLETED
-    assert tags["tsadar.shotnum"] == "101675"
-    assert tags["tsadar.mode"] == "fit"
-    assert "error" not in tags
 
 
 def test_canonical_tags_are_set_before_the_fit_starts(tracking, monkeypatch):
@@ -164,60 +125,56 @@ def test_canonical_tags_are_set_before_the_fit_starts(tracking, monkeypatch):
     assert seen["status"] == misc.STATUS_RUNNING
 
 
-def test_a_raising_fit_is_tagged_failed_and_reraises(tracking, monkeypatch):
-    def explode(config):
-        raise RuntimeError("minimizer diverged")
+def _fit_returns(config):
+    return {}, 0.0
 
-    monkeypatch.setattr(runner.fitter, "fit", explode)
 
-    with pytest.raises(RuntimeError, match="minimizer diverged"):
+def _fit_raises(config):
+    raise RuntimeError("minimizer diverged")
+
+
+def _fit_is_cancelled(config):
+    # a Batch timeout arrives as a KeyboardInterrupt, which is not an Exception
+    raise KeyboardInterrupt
+
+
+def _fit_dies_mid_stage(config):
+    # fitter/postprocess overwrite `status` with progress stages; the failure branch has to win over the stage
+    # the run died in, since a run stuck at "minimizing" is what #115 makes distinguishable
+    mlflow.set_tag("status", "minimizing")
+    raise RuntimeError("boom")
+
+
+# (fit behaviour, run mode, exception raised, terminal status, expected error tag or None)
+LIFECYCLE = [
+    pytest.param(_fit_returns, "fit", None, misc.STATUS_COMPLETED, None, id="completed"),
+    pytest.param(_fit_raises, "fit", RuntimeError, misc.STATUS_FAILED, "RuntimeError: minimizer diverged", id="raises"),
+    pytest.param(_fit_is_cancelled, "fit", KeyboardInterrupt, misc.STATUS_FAILED, "KeyboardInterrupt", id="cancelled"),
+    pytest.param(_fit_returns, "nonsense", NotImplementedError, misc.STATUS_FAILED, "NotImplementedError", id="unknown-mode"),
+    pytest.param(_fit_dies_mid_stage, "fit", RuntimeError, misc.STATUS_FAILED, "RuntimeError: boom", id="dies-mid-stage"),
+]
+
+
+@pytest.mark.parametrize("fit, mode, raises, status, error", LIFECYCLE)
+def test_runs_end_in_a_terminal_status(tracking, monkeypatch, fit, mode, raises, status, error):
+    monkeypatch.setattr(runner.fitter, "fit", fit)
+
+    if raises is None:
         with mlflow.start_run() as run:
-            runner._run_(dict(CONFIG), mode="fit")
+            runner._run_(dict(CONFIG), mode=mode)
+    else:
+        with pytest.raises(raises):
+            with mlflow.start_run() as run:
+                runner._run_(dict(CONFIG), mode=mode)
 
     tags = tags_of(tracking, run.info.run_id)
-    assert tags["status"] == misc.STATUS_FAILED
-    assert tags["error"] == "RuntimeError: minimizer diverged"
-
-
-def test_a_cancelled_run_is_tagged_failed(tracking, monkeypatch):
-    # A Batch timeout arrives as a KeyboardInterrupt, which is not an Exception.
-    def cancel(config):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(runner.fitter, "fit", cancel)
-
-    with pytest.raises(KeyboardInterrupt):
-        with mlflow.start_run() as run:
-            runner._run_(dict(CONFIG), mode="fit")
-
-    assert tags_of(tracking, run.info.run_id)["status"] == misc.STATUS_FAILED
-
-
-def test_an_unknown_mode_is_tagged_failed(tracking):
-    with pytest.raises(NotImplementedError):
-        with mlflow.start_run() as run:
-            runner._run_(dict(CONFIG), mode="nonsense")
-
-    tags = tags_of(tracking, run.info.run_id)
-    assert tags["status"] == misc.STATUS_FAILED
-    assert "NotImplementedError" in tags["error"]
-
-
-def test_status_ends_terminal_whatever_the_stage_tag_said(tracking, monkeypatch):
-    # fitter/postprocess overwrite `status` with their progress stages. The
-    # failure branch has to win over whichever stage the run died in, since a
-    # run stuck at "minimizing" is what #115 exists to make distinguishable.
-    def die_mid_stage(config):
-        mlflow.set_tag("status", "minimizing")
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(runner.fitter, "fit", die_mid_stage)
-
-    with pytest.raises(RuntimeError):
-        with mlflow.start_run() as run:
-            runner._run_(dict(CONFIG), mode="fit")
-
-    assert tags_of(tracking, run.info.run_id)["status"] in misc.TERMINAL_STATUSES
+    assert tags["status"] == status
+    assert tags["status"] in misc.TERMINAL_STATUSES
+    if error is None:
+        assert "error" not in tags
+        assert tags["tsadar.shotnum"] == "101675" and tags["tsadar.mode"] == "fit"
+    else:
+        assert error in tags["error"]
 
 
 def test_a_tagging_failure_does_not_bury_the_real_error(tracking, monkeypatch):
