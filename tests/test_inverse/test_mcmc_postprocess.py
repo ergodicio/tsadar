@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 
-from tsadar.inverse.postprocess.mcmc_postprocess import _finalize_chain_selection, _mad_flagged_chains
+from tsadar.inverse.postprocess.mcmc_postprocess import _finalize_chain_selection, _mad_flagged_chains, mcmc_postprocess
 
 
 def _make_stacked(chain_means, num_kept=50, noise=1e-3, seed=0):
@@ -210,3 +211,10 @@ def test_reorder_columns_matches_parameters_by_name():
     sigmas = np.array([[1.0, 3.0, 4.0, 5.0]])
 
     np.testing.assert_array_equal(_reorder_columns(sigmas, laplace_keys, active_keys), [[1.0, 4.0, 5.0, 3.0]])
+
+
+def test_mcmc_postprocess_raises_on_angular():
+    # the angular guard runs before any data is touched
+    config = {"other": {"extraoptions": {"spectype": "angular_full"}}}
+    with pytest.raises(NotImplementedError):
+        mcmc_postprocess(config, [], {}, {}, None, None, [], 0)
