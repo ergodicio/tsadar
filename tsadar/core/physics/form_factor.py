@@ -453,8 +453,10 @@ class FormFactor:
         if ion:
             df = interp_uniform(xi, self.xi1, ratdf, left=0.0, right=0.0)
         else:
-            df = jnp.diff(f_vphi, 1, 1) / jnp.diff(xi, 1, 1)
-            df = jnp.append(df, jnp.zeros_like(xi[:, :1]), 1)
+            # A centred difference along the wavelength samples. The forward difference used before put the
+            # derivative at i + 1/2 on sample i, an O(h) offset that biased both EPW peaks blue by ~0.15 of a
+            # wavelength sample (2 % of peak against the analytic Maxwellian; tests/physics).
+            df = jnp.gradient(f_vphi, axis=1) / jnp.gradient(xi, axis=1)
 
         chiI = -jnp.pi / (kld**2) * 1j * df
 
