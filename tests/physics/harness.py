@@ -145,7 +145,17 @@ def _ion_block(ion):
     }
 
 
-def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None):
+@dataclass(frozen=True)
+class Gradients:
+    """tsadar's gradient model: ``ne`` and ``Te`` scaled by ``linspace(1 - g/200, 1 + g/200, points)``,
+    with the spectra averaged with equal weights. ``ne`` and ``Te`` are in percent, as in the deck."""
+
+    ne: float = 0.0
+    Te: float = 0.0
+    points: int = 1
+
+
+def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None, gradients: Gradients = Gradients()):
     """A complete 1-D input deck that makes the diagnostic model ``plasma`` on ``det``.
 
     A Maxwellian species uses tsadar's own EDF (DLM m = 2 for electrons, the built-in ion
@@ -174,6 +184,8 @@ def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None):
             p[f"ion-{i + 1}"]["fi"] = _numeric_edf(ion.components, edf_folder, f"fi-{i + 1}")
     p["general"]["lam"]["val"] = plasma.lam
     p["general"]["ud"]["val"] = plasma.ud
+    for key, value in (("ne_gradient", gradients.ne), ("Te_gradient", gradients.Te)):
+        p["general"][key].update(val=value, num_grad_points=gradients.points)
 
     epw = det.channel == "EPW"
     lam_key = "lamrangE" if epw else "lamrangI"
@@ -203,11 +215,16 @@ def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None):
     return cfg
 
 
-def build_diagnostic(plasma: Plasma, det: Detector):
-    """Return ``(diagnostic, params, batch)`` that model ``plasma`` on ``det`` through the production path."""
-    angles = {"sa": np.array([plasma.angle_deg]), "weights": np.ones((1, 1))}
+def build_diagnostic(plasma: Plasma, det: Detector, *, gradients: Gradients = Gradients(), aperture=None):
+    """Return ``(diagnostic, params, batch)`` that model ``plasma`` on ``det`` through the production path.
+
+    ``aperture`` is ``(angles_deg, weights)``: the 1-D model sums the spectra at those scattering angles with
+    those weights. By default the plasma's single angle with weight one.
+    """
+    angles_deg, weights = aperture if aperture is not None else ([plasma.angle_deg], [1.0])
+    angles = {"sa": np.asarray(angles_deg, dtype=float), "weights": np.asarray(weights, dtype=float)[None, :]}
     with tempfile.TemporaryDirectory() as folder:
-        cfg = diagnostic_config(plasma, det, folder)
+        cfg = diagnostic_config(plasma, det, folder, gradients)
         diag = ThomsonScatteringDiagnostic(cfg, angles)
         params = ThomsonParams(cfg["parameters"], num_params=1, activate=False)
     n = det.pixels
@@ -222,9 +239,12 @@ def build_diagnostic(plasma: Plasma, det: Detector):
     return diag, params, batch
 
 
-def detector(plasma: Plasma, det: Detector):
-    """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``."""
-    diag, params, batch = build_diagnostic(plasma, det)
+def detector(plasma: Plasma, det: Detector, **geometry):
+    """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``.
+
+    ``geometry`` is passed to :func:`build_diagnostic` (``gradients``, ``aperture``).
+    """
+    diag, params, batch = build_diagnostic(plasma, det, **geometry)
     out = diag(params, batch)
     channel = 0 if det.channel == "EPW" else 1
     return np.asarray(out[channel + 2]).ravel(), np.asarray(out[channel]).ravel()
