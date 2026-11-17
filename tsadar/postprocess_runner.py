@@ -15,7 +15,7 @@ import yaml
 
 from .core.modules.ts_params import ThomsonParams
 from .inverse import postprocess
-from .inverse.fitter import _validate_inputs_, load_data_for_fitting
+from .inverse.fitter import _validate_inputs_, load_data_for_fitting, reject_numeric_distributions
 from .inverse.loops import (
     advance_refinement_shape,
     apply_ang_res_unit,
@@ -158,6 +158,7 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
     Returns:
         ReconstructedFitState
     """
+    reject_numeric_distributions(config)
     config = _validate_inputs_(config)
     all_data, sa, all_axes = load_data_for_fitting(config)
     sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
