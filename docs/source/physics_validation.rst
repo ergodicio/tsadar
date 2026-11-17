@@ -276,12 +276,6 @@ Defects found
 * **Numeric distributions with zero tails.** Zero density in the csv gave NaN in every
   pixel (log interpolation). Values below :math:`e^{-50}` are now raised to it with a
   warning, and negative values are rejected.
-* **MCMC replay of a DLM fit.** MCMC postprocessing runs with ``electron.fe.active:
-  false`` applied as an override. DLM stores :math:`m` in sigmoid space only when ``fe``
-  is active, so the replay decoded the saved value with the identity: on shot 101675
-  :math:`m` 3.19 → 0.73 (outside its [2, 5] bounds) and :math:`-2\ln L` at the fitted
-  point 616 → 1554. The chains then sampled that model (Te 0.47 against the fitted
-  0.64). The replay now builds ``fe`` as it was fit.
 
 The production pipeline
 -----------------------
@@ -295,11 +289,10 @@ separate batches, and reuses those fits for every check:
 * every postprocess entry point (local folder with ``defaults.yaml``/``inputs.yaml`` or
   with ``config.yaml``; remote run id with either layout), which must reproduce the fit
   to 1e-6;
-* a replay with ``fe`` deactivated keeps the fitted :math:`m` and likelihood to 1e-12;
-* MCMC postprocessing of the LSQ fit (two fit batches) with 60-step chains and two
-  chains: the logged artifacts, the covariance diagonal against the sigmas, overrides
-  reaching the postprocessor, R-hat, and the remote entry point. The sampler cannot
-  sample an active EDF, so it runs with ``fe`` inactive, conditioned on the fitted shape.
+* MCMC postprocessing with 60-step chains and two chains: the logged artifacts, the
+  covariance diagonal against the sigmas, overrides reaching the postprocessor, R-hat,
+  and the remote entry point. The sampler cannot sample an active EDF, so it runs with
+  ``fe`` inactive, conditioned on the fitted shape.
 
 The sampler's statistics are checked by S3, not here.
 
