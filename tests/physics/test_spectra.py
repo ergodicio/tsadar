@@ -14,15 +14,17 @@ from .cases import A1_CASES
 
 pytestmark = pytest.mark.physics
 
-# Measured on the fixed code (2048 wavelengths, 513-point EDF): Linf <= 5.7e-4, L1 <= 3.0e-4. Before the
-# centred f' and the Faddeeva Z' they were up to 2.2e-2 and 8.8e-3.
+# Measured on the fixed code (513-point EDF): Linf <= 6.2e-4, L1 <= 3.2e-4, the same at 256 and 2048
+# wavelengths. Before f' was taken on the velocity grid and Z' from the Faddeeva function they were up to
+# 2.2e-2 and 8.8e-3 at 2048 wavelengths, and grew as the wavelength grid coarsened.
 LINF_TOL = 1.0e-3
 L1_TOL = 5.0e-4
 
 
+@pytest.mark.parametrize("npts", [256, 2048])
 @pytest.mark.parametrize("case", A1_CASES, ids=str)
-def test_form_factor_matches_analytic_spectral_density(case):
-    lam, model = harness.form_factor(case.plasma, case.detector.lam_range, npts=2048)
+def test_form_factor_matches_analytic_spectral_density(case, npts):
+    lam, model = harness.form_factor(case.plasma, case.detector.lam_range, npts=npts)
     expected = oracles.spectral_density(lam, case.plasma)
     linf, l1 = oracles.relative_errors(model, expected)
     assert linf < LINF_TOL and l1 < L1_TOL, (

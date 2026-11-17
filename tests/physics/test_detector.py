@@ -19,8 +19,8 @@ from .cases import A1_CASES
 pytestmark = pytest.mark.physics
 
 # Measured on the fixed code. EPW: Linf <= 3.3e-3 at the notch edges, where tsadar samples the rectangular
-# filter on its grid (it halves at 16 points per pixel), L1 <= 7.5e-4, peaks within 1e-3 nm. IAW: Linf
-# <= 2.4e-4, L1 <= 1.8e-4. Before the centred f' and the Faddeeva Z', EPW was Linf 2.4e-2, L1 1.9e-2 with
+# filter on its grid (it halves at 16 points per pixel), L1 <= 8.8e-4, peaks within 1e-3 nm. IAW: Linf
+# <= 2.4e-4, L1 <= 1.8e-4. Before the velocity-grid f' and the Faddeeva Z', EPW was Linf 2.4e-2, L1 1.9e-2 with
 # peaks moved -0.039/-0.030 nm, and IAW was Linf 1.2e-3 to 2.4e-3.
 LINF_TOL = {"EPW": 5.0e-3, "IAW": 1.0e-3}
 L1_TOL = {"EPW": 1.5e-3, "IAW": 5.0e-4}

@@ -423,8 +423,10 @@ class FormFactor:
         """
         Susceptibility of a numerical 1D distribution f(v), with v and xi in units of the thermal velocity
         sqrt(T/m), and f evaluated at xi. xi and kld have shape [ng, npts, na, 1].
-        ion=True takes df/dv on the velocity grid rather than along the wavelength axis, which is too coarse for
-        the ion feature in an EPW window, and uses the 1/xi**2 asymptote past the tabulated |xi| <= 8.2.
+        df/dv is taken on the fine uniform velocity grid xi1 and interpolated to xi, so it does not depend on the
+        wavelength sampling (a difference along the wavelength axis is too coarse for the ion feature in an EPW
+        window, and a forward one biased the EPW peaks blue). ion=True uses the 1/xi**2 asymptote past the
+        tabulated |xi| <= 8.2.
         """
         #f_vphi = jnp.exp(jnp.interp(xi, v, jnp.log(f)))
         f_vphi = jnp.exp(jnp.apply_along_axis(interp1d, 0, jnp.squeeze(xi), v, jnp.log(jnp.squeeze(f)), extrap=[-50, -50])).reshape(jnp.shape(xi))
@@ -432,13 +434,7 @@ class FormFactor:
         ratmod = jnp.exp(interp1d(self.xi1, v, jnp.log(f), extrap=[-50, -50]))
         ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
 
-        if ion:
-            df = interp_uniform(xi, self.xi1, ratdf, left=0.0, right=0.0)
-        else:
-            # A centred difference along the wavelength samples. The forward difference used before put the
-            # derivative at i + 1/2 on sample i, an O(h) offset that biased both EPW peaks blue by ~0.15 of a
-            # wavelength sample (2 % of peak against the analytic Maxwellian; tests/physics).
-            df = jnp.gradient(f_vphi, axis=1) / jnp.gradient(xi, axis=1)
+        df = interp_uniform(xi, self.xi1, ratdf, left=0.0, right=0.0)
 
         chiI = -jnp.pi / (kld**2) * 1j * df
 
