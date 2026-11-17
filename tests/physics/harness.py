@@ -203,8 +203,8 @@ def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None):
     return cfg
 
 
-def detector(plasma: Plasma, det: Detector):
-    """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``."""
+def build_diagnostic(plasma: Plasma, det: Detector):
+    """Return ``(diagnostic, params, batch)`` that model ``plasma`` on ``det`` through the production path."""
     angles = {"sa": np.array([plasma.angle_deg]), "weights": np.ones((1, 1))}
     with tempfile.TemporaryDirectory() as folder:
         cfg = diagnostic_config(plasma, det, folder)
@@ -219,6 +219,12 @@ def detector(plasma: Plasma, det: Detector):
         "e_amps": jnp.full(1, det.amplitude),
         "i_amps": jnp.full(1, det.amplitude),
     }
+    return diag, params, batch
+
+
+def detector(plasma: Plasma, det: Detector):
+    """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``."""
+    diag, params, batch = build_diagnostic(plasma, det)
     out = diag(params, batch)
     channel = 0 if det.channel == "EPW" else 1
     return np.asarray(out[channel + 2]).ravel(), np.asarray(out[channel]).ravel()
