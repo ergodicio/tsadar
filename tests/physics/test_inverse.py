@@ -121,8 +121,9 @@ def epw_at_truth():
     """The A1 EPW problem with ne and Te free, at its truth, with tsadar's noiseless spectrum as data.
 
     The truth is whatever physical values the activated parameters hold: the inverse activation in
-    ts_params is a stabilized logit, log(0.01 + x/(1.01 - x)), not the inverse of the sigmoid, so a deck
-    value of ne = 0.2 starts the fit at 0.2044. Data, Laplace and Cramer-Rao are all evaluated there.
+    ts_params is a stabilized logit, log(0.01 + x/(1.01 - x)), a deliberate offset that avoids failures of
+    the exact logit, so a deck value of ne = 0.2 starts the fit at 0.2044. Data, Laplace and Cramer-Rao are
+    all evaluated there.
     """
     cfg, loss, batch = _problem(EPW_CASE, dict.fromkeys(EPW_FREE))
     params = ThomsonParams(cfg["parameters"], num_params=1, activate=True)

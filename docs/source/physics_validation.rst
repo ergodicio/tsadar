@@ -156,8 +156,8 @@ S2 and S3 use TSADAR's noiseless spectrum at the truth as data. With oracle data
 :math:`10^4` counts the :math:`10^{-3}` model/oracle difference is statistically
 significant on the low-count wings and adds a residual term to the Hessian. The truth
 is the physical value the activated parameters actually hold: the inverse activation
-in ``ts_params`` is a stabilized logit, :math:`\log(0.01 + x/(1.01 - x))`, so a deck
-value of ne = 0.2 starts a fit at 0.2044.
+in ``ts_params`` is a stabilized logit, :math:`\log(0.01 + x/(1.01 - x))`, a deliberate offset
+that avoids failures of the exact logit, so a deck value of ne = 0.2 starts a fit at 0.2044.
 
 Defects the suite found
 -----------------------
@@ -182,7 +182,7 @@ values, the refit path, every postprocess entry point and MCMC postprocessing.
 Remaining coverage
 ------------------
 
-1. ARTS-1V (angular, 1-D EDF) at L3.
+1. ARTS-1V (angular, 1-D EDF) at L3, with the ARTS / 2-V work on that code.
 2. Kappa distributions (A5) and the relativistic correction (A12) in the slow lane.
 3. The high-phase-velocity regime, with the resonance quadrature and collisions.
 4. The 2-D (ARTS2D) cases, which return with that code.
