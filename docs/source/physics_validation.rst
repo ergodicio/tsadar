@@ -131,6 +131,14 @@ IDs follow ``TEST_SUITE_AUDIT.md``. Measured values are CPU float64.
      - ``zprimeMaxw`` against the Dawson-function form; ``legacy`` reproduces the old
        table; ``other.zprime`` reaches both form factors
      - 1e-13; bit-identical
+   * - A12
+     - ``test_relativistic``
+     - The oracle reproduces Selden's tables (Phys. Lett. A 79, 405, 1980). tsadar's
+       first-order relativistic factor :math:`(1 + 2\omega/\omega_L)` against Selden's exact
+       non-collective spectrum at 0.5–5 keV, 45–135°
+     - Tables to 1e-4 / 5e-4; shape :math:`3\,T_e/m_ec^2` (0.66–2.31); peak within
+       1.2× Selden's second-order shift (0.47–0.93). Without the factor: 22–30
+       :math:`T_e/m_ec^2`
    * - S1
      - ``test_inverse``
      - Noiseless recovery from oracle data: (ne, Te) from the EPW, (Va, Ti) from the
@@ -183,8 +191,10 @@ Remaining coverage
 ------------------
 
 1. ARTS-1V (angular, 1-D EDF) at L3, with the ARTS / 2-V work on that code.
-2. Kappa distributions (A5) and the relativistic correction (A12) in the slow lane.
-3. The high-phase-velocity regime, with the resonance quadrature and collisions.
+2. Kappa distributions (A5).
+3. The high-phase-velocity regime, with the resonance quadrature and collisions; the collective
+   relativistic regime with Palastro et al.'s fully relativistic form factor (Phys. Rev. E 81, 036411,
+   2010), where the first-order factor fails at :math:`T_e \gtrsim 5` keV for :math:`n_e/n_c \sim 0.05`.
 4. The 2-D (ARTS2D) cases, which return with that code.
 
 Adding a case

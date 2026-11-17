@@ -225,6 +225,27 @@ def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
     return total
 
 
+# --------------------------------------------------------------------------- relativistic (A12)
+
+
+def selden_spectrum(eps, theta_deg, te_kev):
+    r"""Exact non-collective relativistic Thomson spectrum for a Maxwellian (Juttner) plasma, per unit wavelength.
+
+    Selden, Phys. Lett. A 79, 405 (1980), eq. (1), from Zhuravlev & Petrov (1979):
+    ``S(eps, theta) = c(alpha) A^-1 exp(-2 alpha B)`` with ``2 alpha = m_e c^2 / T_e``,
+    ``eps = lambda_s / lambda_i - 1``, ``A = (1 + eps)^3 [2 (1 - cos theta)(1 + eps) + eps^2]^(1/2)`` and
+    ``B = {1 + eps^2 / [2 (1 - cos theta)(1 + eps)]}^(1/2) - 1``. The normalizing constant ``c(alpha)`` is
+    omitted: compare shapes. Valid for 100 eV to 100 keV at 90 degrees (Selden: 0.1 % against Matoba et al.'s
+    numerical integration at 20 keV).
+    """
+    eps = np.asarray(eps, dtype=float)
+    alpha = ELECTRON_MASS_KEV / te_kev / 2.0
+    one_minus_cos = 1.0 - np.cos(np.deg2rad(theta_deg))
+    a = (1.0 + eps) ** 3 * np.sqrt(2.0 * one_minus_cos * (1.0 + eps) + eps**2)
+    b = np.sqrt(1.0 + eps**2 / (2.0 * one_minus_cos * (1.0 + eps))) - 1.0
+    return np.exp(-2.0 * alpha * b) / a
+
+
 # --------------------------------------------------------------------------- detector (L3)
 
 
