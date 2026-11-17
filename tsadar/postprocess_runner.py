@@ -1,5 +1,6 @@
 """Standalone postprocessor entry point: reruns postprocess() on an already-completed fit's saved results,
 loaded either from a local run directory or a remote MLflow run (by id or URL), without redoing the fit."""
+import copy
 import json
 import os
 import posixpath
@@ -145,7 +146,17 @@ def _load_fitted_weights(fitted_weights_path: str, skeleton):
         return eqx.tree_at(_absent, loaded, replace=defaults, is_leaf=lambda x: x is None)
 
 
-def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> ReconstructedFitState:
+def _apply_overrides(config: Dict, overrides: Optional[Dict]):
+    """Returns the config with ``overrides`` merged in, and the parameters the fit was made with."""
+    fit_parameters = copy.deepcopy(config["parameters"])
+    if overrides:
+        config = misc.merge_defaults_and_inputs(config, overrides)
+    return config, fit_parameters
+
+
+def _reconstruct_fit_state(
+    config: Dict, fitted_weights_path: str, fit_parameters: Optional[Dict] = None
+) -> ReconstructedFitState:
     """
     Reconstructs everything a postprocessor needs from a saved config + fitted_weights.eqx (rather than
     re-fitting): the loaded data/axes, the deserialized fitted weights, and a freshly-built LossFunction.
@@ -155,6 +166,8 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
     Args:
         config (Dict): The exact (merged) config the original fit used.
         fitted_weights_path (str): Local path to a fitted_weights.eqx saved by fitter._save_fit_artifacts.
+        fit_parameters (Optional[Dict]): config["parameters"] as the fit used them, before any overrides. The
+            electron distribution is rebuilt with the fit's ``fe.active``, which sets how DLM stores m.
     Returns:
         ReconstructedFitState
     """
@@ -174,11 +187,15 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
         )
         for _ in range(checkpoint_refinements):
             advance_refinement_shape(config)
-        skeleton = ThomsonParams(config["parameters"], num_params=1, batch=False, activate=True)
+    skeleton_parameters = copy.deepcopy(config["parameters"])
+    if fit_parameters is not None:
+        skeleton_parameters["electron"]["fe"]["active"] = fit_parameters["electron"]["fe"]["active"]
+    if is_angular:
+        skeleton = ThomsonParams(skeleton_parameters, num_params=1, batch=False, activate=True)
     else:
         num_batches = len(sample_indices) // config["optimizer"]["batch_size"] or 1
         skeleton = [
-            ThomsonParams(config["parameters"], config["optimizer"]["batch_size"], activate=True)
+            ThomsonParams(skeleton_parameters, config["optimizer"]["batch_size"], activate=True)
             for _ in range(num_batches)
         ]
     fitted_weights = _load_fitted_weights(fitted_weights_path, skeleton)
@@ -213,7 +230,9 @@ def _reconstruct_fit_state(config: Dict, fitted_weights_path: str) -> Reconstruc
     )
 
 
-def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None) -> Dict:
+def run_postprocess(
+    config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None, fit_parameters: Optional[Dict] = None
+) -> Dict:
     """
     Reconstructs everything postprocess.postprocess() needs from a saved config + fitted_weights.eqx
     (rather than re-fitting), and runs it inside a brand-new mlflow run - this never resumes or mutates
@@ -224,6 +243,7 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
         fitted_weights_path (str): Local path to a fitted_weights.eqx saved by fitter._save_fit_artifacts.
         source_run_id (Optional[str]): The mlflow run id the artifacts came from, if any - logged as a tag
             on the new run for traceability, but the source run itself is never touched.
+        fit_parameters (Optional[Dict]): see _reconstruct_fit_state.
     Returns:
         Dict: The final_params produced by postprocess.postprocess.
     """
@@ -240,7 +260,7 @@ def run_postprocess(config: Dict, fitted_weights_path: str, source_run_id: Optio
             mlflow.set_tag("source_run_id", source_run_id)
         misc.log_mlflow(config)
 
-        state = _reconstruct_fit_state(config, fitted_weights_path)
+        state = _reconstruct_fit_state(config, fitted_weights_path, fit_parameters)
 
         final_params = postprocess.postprocess(
             state.config,
@@ -267,19 +287,17 @@ def run_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) -> Di
         dir_path: path to the artifact directory.
         overrides: optional partial config (same nesting as inputs.yaml) deep-merged on top of the saved
             config in memory. Only override fields that affect postprocessing or plotting; fields the
-            reconstruction depends on (data.lineouts, optimizer.batch_size, parameters.*.active, ...) must
-            match the saved fitted_weights.eqx.
+            reconstruction depends on (data.lineouts, optimizer.batch_size, ...) must match the saved
+            fitted_weights.eqx. parameters.*.active may change.
     """
-    config = _load_merged_config(dir_path)
-    if overrides:
-        config = misc.merge_defaults_and_inputs(config, overrides)
+    config, fit_parameters = _apply_overrides(_load_merged_config(dir_path), overrides)
     fitted_weights_path = os.path.join(dir_path, "fitted_weights.eqx")
     if not os.path.exists(fitted_weights_path):
         raise FileNotFoundError(
             f"No fitted_weights.eqx found in {dir_path} - this fit may predate that artifact, or "
             "postprocessing/saving may have been disabled for it."
         )
-    return run_postprocess(config, fitted_weights_path)
+    return run_postprocess(config, fitted_weights_path, fit_parameters=fit_parameters)
 
 
 def run_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None) -> Dict:
@@ -320,8 +338,6 @@ def run_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None)
         except Exception:
             pass
 
-        config = _load_merged_config(td)
-        if overrides:
-            config = misc.merge_defaults_and_inputs(config, overrides)
+        config, fit_parameters = _apply_overrides(_load_merged_config(td), overrides)
         fitted_weights_path = os.path.join(td, "fitted_weights.eqx")
-        return run_postprocess(config, fitted_weights_path, source_run_id=run_id)
+        return run_postprocess(config, fitted_weights_path, source_run_id=run_id, fit_parameters=fit_parameters)
