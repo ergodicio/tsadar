@@ -22,7 +22,7 @@ parameters:
             val: 14.0
             active: False
             lb: 0.5
-            ub: 7.0
+            ub: 18.0
         A:
             val: 40.0
             active: False
