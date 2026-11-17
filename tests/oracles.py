@@ -41,27 +41,29 @@ ELECTRON_CHARGE_SQUARED = ELECTRON_MASS * C_CM_PER_S**2 * CLASSICAL_ELECTRON_RAD
 
 
 @dataclass(frozen=True)
+class GaussianComponent:
+    """One drifting Maxwellian in an EDF, in units of the species' v_T = sqrt(T/m).
+
+    ``f(x) = weight / (width sqrt(2 pi)) exp(-(x - shift)^2 / (2 width^2))``. A single
+    component ``(1, 0, 1)`` is the Maxwellian at the species temperature.
+    """
+
+    weight: float = 1.0
+    shift: float = 0.0
+    width: float = 1.0
+
+
+@dataclass(frozen=True)
 class Ion:
-    """One Maxwellian ion species. ``Va`` is the flow projected on k, in 1e6 cm/s."""
+    """One ion species. ``Va`` is the flow projected on k, in 1e6 cm/s; ``components`` is its EDF as a
+    Gaussian mixture in units of sqrt(Ti/mi) (default: Maxwellian)."""
 
     A: float
     Z: float
     Ti: float
     fract: float = 1.0
     Va: float = 0.0
-
-
-@dataclass(frozen=True)
-class GaussianComponent:
-    """One drifting Maxwellian in the electron EDF, in units of v_Te = sqrt(Te/me).
-
-    ``f(x) = weight / (width sqrt(2 pi)) exp(-(x - shift)^2 / (2 width^2))``. A single
-    component ``(1, 0, 1)`` is the Maxwellian at temperature ``Te``.
-    """
-
-    weight: float = 1.0
-    shift: float = 0.0
-    width: float = 1.0
+    components: tuple[GaussianComponent, ...] = (GaussianComponent(),)
 
 
 @dataclass(frozen=True)
@@ -82,9 +84,10 @@ class Plasma:
     electrons: tuple[GaussianComponent, ...] = field(default_factory=lambda: (GaussianComponent(),))
 
     def __post_init__(self):
-        total = sum(c.weight for c in self.electrons)
-        if not np.isclose(total, 1.0, rtol=0, atol=1e-12):
-            raise ValueError(f"electron mixture weights must sum to 1, got {total}")
+        for label, components in [("electron", self.electrons)] + [(f"ion {i}", ion.components) for i, ion in enumerate(self.ions)]:
+            total = sum(c.weight for c in components)
+            if not np.isclose(total, 1.0, rtol=0, atol=1e-12):
+                raise ValueError(f"{label} mixture weights must sum to 1, got {total}")
 
 
 # --------------------------------------------------------------------------- susceptibilities
@@ -170,8 +173,8 @@ def spectral_density(lam_nm, plasma: Plasma, *, terms=False):
         omega_ps = np.sqrt(4.0 * np.pi * ELECTRON_CHARGE_SQUARED * ion.Z**2 * n_s / mass)
         v_t = np.sqrt(ion.Ti / mass)
         x = (omega - k * ion.Va * 1.0e6) / (k * v_t)
-        chi_i = chi_i + maxwellian_response(x) / (v_t * k / omega_ps) ** 2
-        ion_term = ion_term + (frac * ion.Z**2 / zbar) * np.exp(-0.5 * x**2) / (np.sqrt(2.0 * np.pi) * v_t)
+        chi_i = chi_i + mixture_susceptibility(x, v_t * k / omega_ps, ion.components)
+        ion_term = ion_term + (frac * ion.Z**2 / zbar) * mixture_density(x, ion.components) / v_t
 
     # electrons: drift is relative to the charge-weighted ion fluid
     electron_flow = float(np.sum(z * fract * flows) / np.sum(z * fract)) + plasma.ud * 1.0e6

@@ -6,6 +6,7 @@ out. The tests compare its outputs with :mod:`tests.oracles`.
 
 from __future__ import annotations
 
+import tempfile
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
@@ -22,16 +23,23 @@ from tsadar.core.modules.ts_params import ThomsonParams
 from tsadar.core.physics.form_factor import FormFactor
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
-from ..oracles import Plasma, mixture_density
+from ..oracles import GaussianComponent, Plasma, mixture_density
 
 DECK = Path(__file__).parents[1] / "configs" / "1d-defaults.yaml"
+MAXWELLIAN = (GaussianComponent(),)
+# Numeric EDFs are sampled inside the form factor's |v| <= 8.2 table.
+NUMERIC_V = np.linspace(-8.0, 8.0, 513)
 
 
 # --------------------------------------------------------------------------- L2: FormFactor
 
 
 def form_factor_params(plasma: Plasma, *, vmax=10.0, nv=513):
-    """FormFactor parameter dict for ``plasma`` with the EDF sampled on ``[-vmax, vmax]``."""
+    """FormFactor parameter dict for ``plasma``.
+
+    The electron EDF is sampled on ``[-vmax, vmax]``. A non-Maxwellian ion reaches FormFactor the way a
+    numeric ion EDF does, as ``fi`` on the grid ``vi``.
+    """
     v = np.linspace(-vmax, vmax, nv)
     params = {
         "electron": {
@@ -44,6 +52,11 @@ def form_factor_params(plasma: Plasma, *, vmax=10.0, nv=513):
     }
     for i, ion in enumerate(plasma.ions):
         params[f"ion-{i + 1}"] = {"A": ion.A, "Z": ion.Z, "Ti": ion.Ti, "fract": ion.fract, "Va": ion.Va}
+        if ion.components != MAXWELLIAN:
+            params[f"ion-{i + 1}"] |= {
+                "vi": jnp.asarray(NUMERIC_V),
+                "fi": jnp.asarray(mixture_density(NUMERIC_V, ion.components)),
+            }
     return params
 
 
@@ -109,6 +122,19 @@ def _deck():
     return yaml.safe_load(DECK.read_text())
 
 
+def _numeric_edf(components, folder, name):
+    """Write a Gaussian-mixture EDF as the csv that a ``type: numeric`` distribution loads."""
+    path = Path(folder) / f"{name}.csv"
+    np.savetxt(
+        path,
+        np.column_stack([NUMERIC_V, mixture_density(NUMERIC_V, components)]),
+        delimiter=",",
+        header="v,f",
+        comments="",
+    )
+    return {"dim": 1, "type": "numeric", "file": str(path), "active": False, "nvx": NUMERIC_V.size, "params": {}}
+
+
 def _ion_block(ion):
     return {
         "Ti": {"val": ion.Ti, "active": False, "same": False, "lb": 1e-3, "ub": 10.0},
@@ -119,25 +145,33 @@ def _ion_block(ion):
     }
 
 
-def diagnostic_config(plasma: Plasma, det: Detector):
-    """A complete 1-D input deck that makes the diagnostic model ``plasma`` on ``det``."""
-    if len(plasma.electrons) != 1 or plasma.electrons[0] != type(plasma.electrons[0])():
-        raise NotImplementedError("the detector harness drives tsadar's Maxwellian (DLM m=2) EDF only")
+def diagnostic_config(plasma: Plasma, det: Detector, edf_folder=None):
+    """A complete 1-D input deck that makes the diagnostic model ``plasma`` on ``det``.
+
+    A Maxwellian species uses tsadar's own EDF (DLM m = 2 for electrons, the built-in ion
+    Maxwellian). Any other EDF is written to a csv in ``edf_folder`` and loaded as
+    ``type: numeric``, the user-facing path for a given distribution.
+    """
     cfg = deepcopy(_deck())
     p = cfg["parameters"]
     p["electron"]["Te"]["val"] = plasma.Te
     p["electron"]["ne"]["val"] = plasma.ne
-    p["electron"]["fe"] = {
-        "dim": 1,
-        "type": "dlm",
-        "active": False,
-        "nvx": 256,
-        "params": {"m": {"val": 2.0, "lb": 2.0, "ub": 5.0, "matte": False}},
-    }
+    if plasma.electrons == MAXWELLIAN:
+        p["electron"]["fe"] = {
+            "dim": 1,
+            "type": "dlm",
+            "active": False,
+            "nvx": 256,
+            "params": {"m": {"val": 2.0, "lb": 2.0, "ub": 5.0, "matte": False}},
+        }
+    else:
+        p["electron"]["fe"] = _numeric_edf(plasma.electrons, edf_folder, "fe")
     for key in [k for k in p if k.startswith("ion-")]:
         del p[key]
     for i, ion in enumerate(plasma.ions):
         p[f"ion-{i + 1}"] = _ion_block(ion)
+        if ion.components != MAXWELLIAN:
+            p[f"ion-{i + 1}"]["fi"] = _numeric_edf(ion.components, edf_folder, f"fi-{i + 1}")
     p["general"]["lam"]["val"] = plasma.lam
     p["general"]["ud"]["val"] = plasma.ud
 
@@ -171,8 +205,11 @@ def diagnostic_config(plasma: Plasma, det: Detector):
 
 def detector(plasma: Plasma, det: Detector):
     """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``."""
-    cfg = diagnostic_config(plasma, det)
     angles = {"sa": np.array([plasma.angle_deg]), "weights": np.ones((1, 1))}
+    with tempfile.TemporaryDirectory() as folder:
+        cfg = diagnostic_config(plasma, det, folder)
+        diag = ThomsonScatteringDiagnostic(cfg, angles)
+        params = ThomsonParams(cfg["parameters"], num_params=1, activate=False)
     n = det.pixels
     batch = {
         "e_data": jnp.ones((1, n)),
@@ -182,7 +219,6 @@ def detector(plasma: Plasma, det: Detector):
         "e_amps": jnp.full(1, det.amplitude),
         "i_amps": jnp.full(1, det.amplitude),
     }
-    diag = ThomsonScatteringDiagnostic(cfg, angles)
-    out = diag(ThomsonParams(cfg["parameters"], num_params=1, activate=False), batch)
+    out = diag(params, batch)
     channel = 0 if det.channel == "EPW" else 1
     return np.asarray(out[channel + 2]).ravel(), np.asarray(out[channel]).ravel()
