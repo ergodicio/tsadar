@@ -333,9 +333,8 @@ class FitModel:
                     modlE = jnp.where(indices, modlE * 10 ** (-self.config["other"]["iawfilter"][1]), modlE)
 
                     if want_thry:
-                        # the same attenuation as the model spectrum above
                         indices = (filterb < lamAxisE_orig) & (filterr > lamAxisE_orig)
-                        ThryE = jnp.where(indices, ThryE * 10 ** (-self.config["other"]["iawfilter"][1]), ThryE)
+                        ThryE = jnp.where(indices, ThryE * 10 ** (-9), ThryE)
 
             raw_thry = ThryE if want_thry else 0
         else:
