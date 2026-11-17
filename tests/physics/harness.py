@@ -1,0 +1,188 @@
+"""Drive tsadar from an oracle ``Plasma`` at each depth of the code.
+
+This is the only place in the physics suite that knows how tsadar's inputs are laid
+out. The tests compare its outputs with :mod:`tests.oracles`.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+import numpy as np
+import yaml
+from jax import config
+
+config.update("jax_enable_x64", True)
+from jax import numpy as jnp
+
+from tsadar.core.modules.ts_params import ThomsonParams
+from tsadar.core.physics.form_factor import FormFactor
+from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
+
+from ..oracles import Plasma, mixture_density
+
+DECK = Path(__file__).parents[1] / "configs" / "1d-defaults.yaml"
+
+
+# --------------------------------------------------------------------------- L2: FormFactor
+
+
+def form_factor_params(plasma: Plasma, *, vmax=10.0, nv=513):
+    """FormFactor parameter dict for ``plasma`` with the EDF sampled on ``[-vmax, vmax]``."""
+    v = np.linspace(-vmax, vmax, nv)
+    params = {
+        "electron": {
+            "ne": plasma.ne,
+            "Te": plasma.Te,
+            "v": jnp.asarray(v),
+            "fe": jnp.asarray(mixture_density(v, plasma.electrons)),
+        },
+        "general": {"lam": plasma.lam, "ud": plasma.ud, "ne_gradient": 0.0, "Te_gradient": 0.0},
+    }
+    for i, ion in enumerate(plasma.ions):
+        params[f"ion-{i + 1}"] = {"A": ion.A, "Z": ion.Z, "Ti": ion.Ti, "fract": ion.fract, "Va": ion.Va}
+    return params
+
+
+def form_factor(plasma: Plasma, lam_range, npts, **edf):
+    """Return ``(wavelength_nm, S)`` from the production 1-D ``FormFactor``."""
+    ff = FormFactor(
+        list(lam_range),
+        npts=npts,
+        lam_shift=0.0,
+        scattering_angles={"sa": np.array([plasma.angle_deg]), "weights": np.ones((1, 1))},
+        num_grad_points=1,
+        ud_ang=None,
+        va_ang=None,
+        calc_gain={"calc": False},
+    )
+    spectrum, lam_cm = ff(form_factor_params(plasma, **edf))
+    return np.squeeze(np.asarray(lam_cm)) * 1.0e7, np.squeeze(np.asarray(spectrum))
+
+
+# --------------------------------------------------------------------------- L3: full diagnostic
+
+
+@dataclass(frozen=True)
+class Detector:
+    """One spectrometer channel of the production diagnostic.
+
+    ``lam_range`` is the first and last pixel centre. ``amp_ranges`` are the fit windows
+    that set the amplitude; for the ion channel they straddle the excluded line centre.
+    """
+
+    channel: str  # "EPW" or "IAW"
+    lam_range: tuple[float, float]
+    pixels: int
+    points_per_pixel: int
+    sigma: float
+    amp_ranges: tuple[tuple[float, float], ...]
+    notch: tuple[float, float, float] | None = None  # (center, width, optical density), EPW only
+    amplitude: float = 100.0
+
+
+EPW_DETECTOR = Detector(
+    channel="EPW",
+    lam_range=(440.0, 630.0),
+    pixels=128,
+    points_per_pixel=8,
+    sigma=1.3,
+    amp_ranges=((442.0, 522.0), (531.0, 628.0)),
+    notch=(526.5, 24.0, 4.0),
+)
+
+IAW_DETECTOR = Detector(
+    channel="IAW",
+    lam_range=(524.5, 528.5),
+    pixels=128,
+    points_per_pixel=8,
+    sigma=0.05,
+    amp_ranges=((524.6, 526.4), (526.6, 528.4)),
+)
+
+
+@lru_cache(maxsize=1)
+def _deck():
+    return yaml.safe_load(DECK.read_text())
+
+
+def _ion_block(ion):
+    return {
+        "Ti": {"val": ion.Ti, "active": False, "same": False, "lb": 1e-3, "ub": 10.0},
+        "Z": {"val": ion.Z, "active": False, "lb": 0.5, "ub": 100.0},
+        "A": {"val": ion.A, "active": False},
+        "fract": {"val": ion.fract, "active": False},
+        "Va": {"val": ion.Va, "angle": 0.0, "active": False, "lb": -100.0, "ub": 100.0},
+    }
+
+
+def diagnostic_config(plasma: Plasma, det: Detector):
+    """A complete 1-D input deck that makes the diagnostic model ``plasma`` on ``det``."""
+    if len(plasma.electrons) != 1 or plasma.electrons[0] != type(plasma.electrons[0])():
+        raise NotImplementedError("the detector harness drives tsadar's Maxwellian (DLM m=2) EDF only")
+    cfg = deepcopy(_deck())
+    p = cfg["parameters"]
+    p["electron"]["Te"]["val"] = plasma.Te
+    p["electron"]["ne"]["val"] = plasma.ne
+    p["electron"]["fe"] = {
+        "dim": 1,
+        "type": "dlm",
+        "active": False,
+        "nvx": 256,
+        "params": {"m": {"val": 2.0, "lb": 2.0, "ub": 5.0, "matte": False}},
+    }
+    for key in [k for k in p if k.startswith("ion-")]:
+        del p[key]
+    for i, ion in enumerate(plasma.ions):
+        p[f"ion-{i + 1}"] = _ion_block(ion)
+    p["general"]["lam"]["val"] = plasma.lam
+    p["general"]["ud"]["val"] = plasma.ud
+
+    epw = det.channel == "EPW"
+    lam_key = "lamrangE" if epw else "lamrangI"
+    other = cfg["other"]
+    other["CCDsize"] = [det.pixels, det.pixels]
+    other["points_per_pixel"] = det.points_per_pixel
+    other["npts"] = det.pixels * det.points_per_pixel
+    other[lam_key] = list(det.lam_range)
+    if epw:
+        other["lamrangI"] = [524.5, 528.5]
+        other["detector_specs"]["widIRF"]["spect_stddev_ele"] = det.sigma
+        center, width, od = det.notch if det.notch else (526.5, 24.0, 4.0)
+        other["iawfilter"] = [det.notch is not None, od, width, center]
+    else:
+        other["lamrangE"] = [440.0, 630.0]
+        other["detector_specs"]["widIRF"]["spect_stddev_ion"] = det.sigma
+        other["iawfilter"] = [False, 4, 24, 526.5]
+    other["iawoff"] = 0
+
+    data = cfg["data"]
+    data.update(fit_EPWb=epw, fit_EPWr=epw, fit_IAW=not epw, load_ele_spec=epw, load_ion_spec=not epw)
+    rng = data["fit_rng"]
+    if epw:
+        (rng["blue_min"], rng["blue_max"]), (rng["red_min"], rng["red_max"]) = det.amp_ranges
+    else:
+        (rng["iaw_min"], rng["iaw_cf_min"]), (rng["iaw_cf_max"], rng["iaw_max"]) = det.amp_ranges
+    return cfg
+
+
+def detector(plasma: Plasma, det: Detector):
+    """Return ``(pixel_centers_nm, detector_spectrum)`` from ``ThomsonScatteringDiagnostic``."""
+    cfg = diagnostic_config(plasma, det)
+    angles = {"sa": np.array([plasma.angle_deg]), "weights": np.ones((1, 1))}
+    n = det.pixels
+    batch = {
+        "e_data": jnp.ones((1, n)),
+        "i_data": jnp.ones((1, n)),
+        "noise_e": jnp.zeros((1, n)),
+        "noise_i": jnp.zeros((1, n)),
+        "e_amps": jnp.full(1, det.amplitude),
+        "i_amps": jnp.full(1, det.amplitude),
+    }
+    diag = ThomsonScatteringDiagnostic(cfg, angles)
+    out = diag(ThomsonParams(cfg["parameters"], num_params=1, activate=False), batch)
+    channel = 0 if det.channel == "EPW" else 1
+    return np.asarray(out[channel + 2]).ravel(), np.asarray(out[channel]).ravel()
