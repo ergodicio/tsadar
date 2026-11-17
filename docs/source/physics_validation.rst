@@ -194,6 +194,14 @@ Tolerances are set from measured errors; the measured values are in brackets.
      - ``zprimeMaxw`` and ``other.zprime``
      - Default against the Dawson-function form to 1e-13; ``legacy`` equal to the table;
        the known difference (1.5e-3 to 1.7e-3); the deck setting reaches both form factors
+   * - Tails
+     - :math:`\chi` past the :math:`|\xi| \le 8.2` table: the Maxwellian-ion :math:`Z'` and
+       the numeric-EDF principal value, for every A3 distribution and for a beam at 6
+       :math:`v_T`; high-Z IAW (Au, Z = 40, :math:`T_i/T_e` = 0.25) at 8192 wavelengths
+     - Continuity at both edges 1e-5 (≤ 1.1e-6). At 0.5, 4 and 30 past each edge:
+       Maxwellian 2e-4 (9e-5), A3 3e-2 (≤ 1.7e-2); the beam is checked for continuity only
+       (13 % there, see *Defects found*). :math:`Z'` series against Faddeeva to 1e-5.
+       High-Z: :math:`L_\infty` 1e-2 (5.8e-3), peaks 5e-5 nm (1e-5)
    * - S1
      - Recovery of (ne, Te) from the EPW and (Va, Ti) from the IAW, from displaced starts,
        with the production loss and L-BFGS-B
@@ -252,6 +260,22 @@ Defects found
   to 1.6e-3 (:math:`\mathrm{Re}\,Z'(1)` = 0.153356 against 0.152318), about 0.65 % on an
   IAW feature. ``other.zprime: faddeeva`` (default) is exact; ``legacy`` restores the
   table for comparisons with codes that use it.
+* **Susceptibility past the table.** Past :math:`|\xi| = 8.2` the Maxwellian-ion
+  :math:`Z'` was clamped to its edge value and the numeric-EDF principal value switched
+  to :math:`1/\xi^2`. Both jumped at the edge (4.6e-2 for Maxwellian ions, 0.58 for a
+  beam at 6 :math:`v_T`), which shifted high-Z IAW peaks by 2.5–3e-3 nm
+  (:math:`Z T_e/T_i \gtrsim 130` Maxwellian, :math:`\gtrsim 64` numeric; 0.83 of the
+  peak on the high-Z test). The Maxwellian tail is now the asymptotic series
+  :math:`1/\zeta^2 + 3/2\zeta^4 + 15/4\zeta^6 + 105/8\zeta^8`; the numeric tail is the
+  moment series :math:`\sum_n (n+1) M_n/\xi^{n+2}` (moments 0–5 of :math:`f`) plus a
+  residual decaying as :math:`(\xi_{edge}/\xi)^5` that matches the table at the edge. A
+  distribution with a narrow feature near the edge, such as the 6 :math:`v_T` beam, is
+  continuous but still 13 % off just past the edge, because its moment series converges
+  slowly there. Its tail lies past the grid that resolves it, which is outside the scope
+  above.
+* **Numeric distributions with zero tails.** Zero density in the csv gave NaN in every
+  pixel (log interpolation). Values below :math:`e^{-50}` are now raised to it with a
+  warning, and negative values are rejected.
 
 The production pipeline
 -----------------------
@@ -290,6 +314,23 @@ Unit and contract tests
 * ``test_inverse/test_mcmc_postprocess.py`` holds the chain-selection rules as one table
   of flag patterns → dropped chains, unreliable lineouts and parameters excluded from
   voting.
+* ``test_inverse/test_laplace.py``: ``get_sigmas`` on a known Hessian with ne and Te
+  (electron), ``amp1`` (general) and Ti (ion) active over two lineouts with different
+  Hessians. The sigmas must equal :math:`\sqrt{\mathrm{diag}(J\,2H^{-1}J^T)}`, with
+  :math:`J` from central differences of the parameter transform, in the columns
+  ``get_fitted_params`` reports. It fails if a lineout's Hessian or Jacobian, or the
+  column labels, are mixed up.
+* ``test_inverse/test_mcmc.py``, calibration propagation: three draws with a Gaussian
+  likelihood in Te centred at 0.55, 0.65 and 0.75 (width 0.01) through
+  ``run_mcmc_pooled`` from a fit at 0.6. Each draw centres on its own shift with the
+  likelihood's width, and the pooled spread is :math:`\sqrt{w^2 + \mathrm{var}}` of the
+  shifts. Tolerances from 8 seeds: means 0.4 w (≤ 0.18 w), widths 30 % (≤ 24 %), pooled
+  10 % (≤ 1 %).
+* Numeric distributions are for forward calculations only (one spectrum cannot determine
+  an EDF). ``fitter.fit`` and the fit-replay path reject ``type: numeric`` for ``fe`` or
+  any ``fi``; ``calc_vs_data`` and every other distribution type are unaffected
+  (``test_inverse/test_validate_inputs.py``). ``test_forward/test_numeric_edf.py`` loads
+  electron and ion csvs with zero tails.
 
 Future work
 -----------
@@ -305,9 +346,12 @@ These are outside this suite on purpose and should be added with the code they n
   non-collective limit (Palastro et al., Phys. Rev. E 81, 036411, 2010, figs. 5–9:
   :math:`T_e \gtrsim 5` keV at :math:`n_e/n_c \sim 0.05`). The oracle needs Palastro's
   fully relativistic form factor.
-* **ARTS (angular), with the ARTS / 2-V work:** ARTS-1V at L3 against the oracle summed
-  over angles (the A10 aperture test shows the pattern); 2-D cases A4 (anisotropic
-  Gaussian mixtures with an analytic Radon projection) and A11 (l = 1 selection rules).
+* **ARTS (angular), with the ARTS / 2-V work** (`#165
+  <https://github.com/ergodicio/tsadar/issues/165>`_): ARTS-1V at L3 against the oracle
+  summed over angles (the A10 aperture test shows the pattern); 2-D cases A4 (anisotropic
+  Gaussian mixtures with an analytic Radon projection) and A11 (l = 1 selection rules);
+  the removed 2-D invariants as analytic checks; numeric ions on the 2-D path, which
+  currently ignores them.
 
 Adding a test
 -------------
