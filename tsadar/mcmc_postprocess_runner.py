@@ -13,7 +13,6 @@ import yaml
 from .inverse.postprocess import mcmc_postprocess as _mcmc_postprocess_module
 from .inverse.fitter import _check_spectral_smoothing_
 from .postprocess_runner import (
-    _apply_overrides,
     _download_run_artifact,
     _extract_run_id,
     _load_merged_config,
@@ -24,11 +23,7 @@ from .utils import misc
 
 
 def run_mcmc_postprocess(
-    config: Dict,
-    fitted_weights_path: str,
-    source_run_id: Optional[str] = None,
-    overrides: Optional[Dict] = None,
-    fit_parameters: Optional[Dict] = None,
+    config: Dict, fitted_weights_path: str, source_run_id: Optional[str] = None, overrides: Optional[Dict] = None
 ) -> Dict:
     """
     Reconstructs the fit state from a saved config + fitted_weights.eqx and runs the MCMC postprocessor
@@ -41,7 +36,6 @@ def run_mcmc_postprocess(
             on the new run.
         overrides (Optional[Dict]): the --overrides stub deck this run was launched with, if any. Saved as
             an overrides.yaml artifact on the new run.
-        fit_parameters (Optional[Dict]): see postprocess_runner._reconstruct_fit_state.
     Returns:
         Dict: The final_params produced by inverse.postprocess.mcmc_postprocess.mcmc_postprocess.
     """
@@ -64,7 +58,7 @@ def run_mcmc_postprocess(
         if _check_spectral_smoothing_(config) != 1:
             warnings.warn("The MCMC postprocessor uses unsmoothed data. Setting data.spectral_smoothing to 1.")
             config["data"]["spectral_smoothing"] = 1
-        state = _reconstruct_fit_state(config, fitted_weights_path, fit_parameters)
+        state = _reconstruct_fit_state(config, fitted_weights_path)
         if state.is_angular:
             raise NotImplementedError(
                 "MCMC postprocessing does not support angular fits; see "
@@ -94,14 +88,16 @@ def run_mcmc_postprocess_local(dir_path: str, overrides: Optional[Dict] = None) 
         overrides: optional partial config (same nesting as inputs.yaml) deep-merged on top of the saved
             config in memory. See postprocess_runner.run_postprocess_local.
     """
-    config, fit_parameters = _apply_overrides(_load_merged_config(dir_path), overrides)
+    config = _load_merged_config(dir_path)
+    if overrides:
+        config = misc.merge_defaults_and_inputs(config, overrides)
     fitted_weights_path = os.path.join(dir_path, "fitted_weights.eqx")
     if not os.path.exists(fitted_weights_path):
         raise FileNotFoundError(
             f"No fitted_weights.eqx found in {dir_path} - this fit may predate that artifact, or "
             "postprocessing/saving may have been disabled for it."
         )
-    return run_mcmc_postprocess(config, fitted_weights_path, overrides=overrides, fit_parameters=fit_parameters)
+    return run_mcmc_postprocess(config, fitted_weights_path, overrides=overrides)
 
 
 def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = None) -> Dict:
@@ -132,8 +128,8 @@ def run_mcmc_postprocess_remote(run_id_or_url: str, overrides: Optional[Dict] = 
                     "the run may predate that artifact, or postprocessing/saving may have been disabled for it."
                 ) from e
 
-        config, fit_parameters = _apply_overrides(_load_merged_config(td), overrides)
+        config = _load_merged_config(td)
+        if overrides:
+            config = misc.merge_defaults_and_inputs(config, overrides)
         fitted_weights_path = os.path.join(td, "fitted_weights.eqx")
-        return run_mcmc_postprocess(
-            config, fitted_weights_path, source_run_id=run_id, overrides=overrides, fit_parameters=fit_parameters
-        )
+        return run_mcmc_postprocess(config, fitted_weights_path, source_run_id=run_id, overrides=overrides)

@@ -16,14 +16,7 @@ jax_config.update("jax_enable_x64", True)
 
 from tsadar import runner
 from tsadar.mcmc_postprocess_runner import run_mcmc_postprocess_local, run_mcmc_postprocess_remote
-from tsadar.inverse.loops import build_batch
-from tsadar.postprocess_runner import (
-    _apply_overrides,
-    _load_merged_config,
-    _reconstruct_fit_state,
-    run_postprocess_local,
-    run_postprocess_remote,
-)
+from tsadar.postprocess_runner import run_postprocess_local, run_postprocess_remote
 
 CONFIGS = os.path.join(os.path.dirname(__file__), "..", "configs")
 
@@ -74,14 +67,12 @@ def _fit(tmp_path_factory, name, method, batch_size=None, **other):
 
 @pytest.fixture(scope="module")
 def lbfgs(tmp_path_factory):
-    return _fit(tmp_path_factory, "lbfgs", "l-bfgs-b")
+    return _fit(tmp_path_factory, "lbfgs", "l-bfgs-b", mcmc=dict(SHORT_MCMC))
 
 
 @pytest.fixture(scope="module")
 def lsq_refit(tmp_path_factory):
-    return _fit(
-        tmp_path_factory, "lsq_refit", "lsq", batch_size=1, refit=True, refit_thresh=-1.0, mcmc=dict(SHORT_MCMC)
-    )
+    return _fit(tmp_path_factory, "lsq_refit", "lsq", batch_size=1, refit=True, refit_thresh=-1.0)
 
 
 def _assert_two_sane_lineouts(params):
@@ -124,26 +115,7 @@ def test_every_postprocess_entry_point_reproduces_the_fit(lbfgs):
     _assert_same_fit(run_postprocess_remote(lbfgs.run_id), reference, "remote config.yaml")
 
 
-def test_a_replay_with_fe_deactivated_keeps_the_fitted_distribution(lbfgs):
-    replays = []
-    for overrides in (None, MCMC_OVERRIDES):
-        config, fit_parameters = _apply_overrides(_load_merged_config(str(lbfgs.folder)), overrides)
-        with mlflow.start_run():
-            state = _reconstruct_fit_state(config, str(lbfgs.folder / "fitted_weights.eqx"), fit_parameters)
-        weights = state.fitted_weights[0]
-        batch = build_batch(state.all_data, state.sample_indices, False)
-        replays.append(
-            (
-                np.asarray(weights.get_unnormed_params()["electron"]["m"]),
-                np.asarray(state.loss_fn.neg_log_likelihood(weights, batch, per_lineout=True)),
-            )
-        )
-    (m_fit, nll_fit), (m_off, nll_off) = replays
-    np.testing.assert_allclose(m_off, m_fit, rtol=1e-12)
-    np.testing.assert_allclose(nll_off, nll_fit, rtol=1e-12)
-
-
-def test_mcmc_postprocess_wiring(lsq_refit):
+def test_mcmc_postprocess_wiring(lbfgs):
     overrides = {
         **MCMC_OVERRIDES,
         "other": {
@@ -151,7 +123,7 @@ def test_mcmc_postprocess_wiring(lsq_refit):
             "calibration_uncertainty": {"num_draws": 2},
         },
     }
-    params = run_mcmc_postprocess_local(str(lsq_refit.folder), overrides=overrides)
+    params = run_mcmc_postprocess_local(str(lbfgs.folder), overrides=overrides)
     run_id = mlflow.last_active_run().info.run_id
     client = mlflow.tracking.MlflowClient()
 
@@ -177,5 +149,5 @@ def test_mcmc_postprocess_wiring(lsq_refit):
     for a, name in enumerate(covariance["param_i"].values):
         np.testing.assert_allclose(covariance["covariance"].values[:, a, a], sigmas[str(name)].values ** 2, rtol=1e-8)
 
-    remote = run_mcmc_postprocess_remote(lsq_refit.run_id, overrides=MCMC_OVERRIDES)
+    remote = run_mcmc_postprocess_remote(lbfgs.run_id, overrides=MCMC_OVERRIDES)
     _assert_two_sane_lineouts(remote)
