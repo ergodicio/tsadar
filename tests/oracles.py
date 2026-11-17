@@ -93,11 +93,18 @@ class QuadratureEDF:
 
     def response(self, x):
         x = np.asarray(x, dtype=float)
-        table = _quadrature_response_table(self)
-        inside = np.abs(x) <= self.X_MAX
-        with np.errstate(divide="ignore", invalid="ignore"):
-            tail = -1.0 / x**2 - 3.0 / x**4
-        real = np.where(inside, table[0](np.clip(x, -self.X_MAX, self.X_MAX)), tail)
+        spline, moments = _quadrature_response_table(self)
+
+        def series(y):
+            return -sum((n + 1.0) * m / y ** (n + 2) for n, m in enumerate(moments))
+
+        def tail(edge):
+            y = np.where(np.sign(x) == np.sign(edge), x, edge)
+            y = np.where(np.abs(y) < self.X_MAX, edge, y)
+            return series(y) + (spline(edge) - series(edge)) * (edge / y) ** 5
+
+        real = np.where(x > self.X_MAX, tail(self.X_MAX), np.where(x < -self.X_MAX, tail(-self.X_MAX), 0.0))
+        real = np.where(np.abs(x) <= self.X_MAX, spline(np.clip(x, -self.X_MAX, self.X_MAX)), real)
         return real - 1j * np.pi * self.derivative(x)
 
 
@@ -114,7 +121,8 @@ def _quadrature_response_table(edf):
         return smooth + fx * np.log((b - x) / (x - a))
 
     grid = np.arange(-edf.X_MAX, edf.X_MAX + edf.X_STEP / 2, edf.X_STEP)
-    return (CubicSpline(grid, -np.array([principal_value(x) for x in grid])),)
+    moments = [quad(lambda t: t**n * edf.density(t), a, b, limit=500)[0] for n in range(4)]
+    return CubicSpline(grid, -np.array([principal_value(x) for x in grid])), moments
 
 
 @dataclass(frozen=True, eq=True)

@@ -92,7 +92,7 @@ def test_ion_acoustic_peak_sits_at_the_screened_sound_speed(k_lambda_de, ti_over
 
 def test_quadrature_susceptibility_reproduces_faddeeva_for_a_maxwellian():
     """The Cauchy-quadrature path used for kappa (A5) and other non-Gaussian EDFs, applied to a Maxwellian."""
-    x = np.linspace(-20.0, 20.0, 4001)
+    x = np.linspace(-60.0, 60.0, 12001)
     np.testing.assert_allclose(
         oracles.GaussianEDF().response(x), oracles.maxwellian_response(x), rtol=0, atol=2e-7,
         err_msg="quadrature response != Faddeeva response",
