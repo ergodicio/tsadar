@@ -418,7 +418,7 @@ def process_data(config, sample_indices, all_data, all_axes, loss_fn, fitted_wei
     mlflow.set_tag("status", "plotting")
     t1 = time.time()
 
-    final_params = plotters.get_final_params(config, all_params, all_axes, td)
+    final_params = plotters.get_final_params(config, all_params, all_axes, td, sa, fitted_weights)
 
     red_losses = plotters.plot_loss_hist(config, losses_init, losses, reduced_points, td)
     savedata = plotters.plot_ts_data(config, fits, all_data, all_axes, td)
@@ -500,7 +500,7 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     mlflow.set_tag("status", "plotting")
     t1 = time.time()
 
-    final_params = plotters.get_final_params(config, all_params, all_axes, td)
+    final_params = plotters.get_final_params(config, all_params, all_axes, td, sa, fitted_weights)
     sigma_fe = None
     if "fe" in final_params:
         if sigmas is not None:

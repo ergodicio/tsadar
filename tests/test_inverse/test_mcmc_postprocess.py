@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 
-from tsadar.inverse.postprocess.mcmc_postprocess import _finalize_chain_selection, _mad_flagged_chains
+from tsadar.inverse.postprocess.mcmc_postprocess import _finalize_chain_selection, _mad_flagged_chains, mcmc_postprocess
 
 
 def _make_stacked(chain_means, num_kept=50, noise=1e-3, seed=0):
@@ -56,131 +57,49 @@ def test_mad_flagged_chains_returns_shape_matching_num_chains_batch_and_params()
     assert flagged.dtype == bool
 
 
-def test_finalize_chain_selection_keeps_everything_when_nothing_flagged():
-    num_chains, batch_size, n_active, num_kept = 6, 2, 3, 10
+CHAIN_SELECTION = [
+    pytest.param(6, 2, 3, [], [], 0.2, [set(), set()], [], [], id="nothing-flagged"),
+    pytest.param(10, 1, 1, [], [(2, 0, 0), (5, 0, 0)], 0.2, [{2, 5}], [], [], id="drops-under-the-cap"),
+    pytest.param(10, 1, 1, [(1, 0, 0)], [(3, 0, 0)], 0.5, [{1, 3}], [], [], id="within-and-outlier-union"),
+    pytest.param(
+        10, 1, 2, [(0, 0, 0), (1, 0, 0), (2, 0, 1), (3, 0, 1)], [], 0.2, [{0, 1, 2, 3}], [0], [],
+        id="voting-parameters-exceed-the-cap",
+    ),
+    pytest.param(
+        10, 1, 2, [(c, 0, 0) for c in range(6)], [(7, 0, 1)], 0.2, [{7}], [], [(0, 0)],
+        id="unreliable-parameter-excluded-from-voting",
+    ),
+    pytest.param(10, 1, 1, [(c, 0, 0) for c in range(5)], [], 0.2, [set()], [], [(0, 0)], id="nobody-can-vote"),
+    pytest.param(
+        10, 2, 1, [(c, 0, 0) for c in range(5)], [(7, 1, 0)], 0.2, [set(), {7}], [], [(0, 0)],
+        id="lineouts-are-independent",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "num_chains, batch_size, n_active, within, outlier, cap, dropped, unreliable_lineouts, excluded",
+    CHAIN_SELECTION,
+)
+def test_finalize_chain_selection(num_chains, batch_size, n_active, within, outlier, cap, dropped, unreliable_lineouts, excluded):
+    """Flags are (chain, lineout, parameter); an unreliable lineout keeps no chain."""
+    num_kept = 5
     bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
     bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
+    for flags, array in ((within, bad_within), (outlier, bad_outlier)):
+        for c, b, a in flags:
+            array[c, b, a] = True
 
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.2, num_kept)
+    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, cap, num_kept)
 
-    assert np.all(keep_mask)
-    assert np.all(n_dropped == 0)
-    assert not np.any(unreliable)
-    assert not np.any(param_unreliable)
-
-
-def test_finalize_chain_selection_drops_flagged_chains_under_the_cap():
-    # A single active parameter, so this degenerates to the pre-per-parameter behavior: the one parameter
-    # stays well under its own cap, so it drives chain selection normally.
-    num_chains, batch_size, n_active, num_kept = 10, 1, 1, 5
-    bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier[[2, 5], 0, 0] = True  # 2 of 10 flagged, cap allows floor(0.2*10)=2 -- exactly at the cap
-
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.2, num_kept)
-
-    assert n_dropped[0] == 2
-    assert not unreliable[0]
-    assert not param_unreliable[0, 0]  # under its own cap, so not excluded from voting either
+    np.testing.assert_array_equal(n_dropped, [len(d) for d in dropped])
+    np.testing.assert_array_equal(np.flatnonzero(unreliable), unreliable_lineouts)
+    assert {tuple(i) for i in np.argwhere(param_unreliable)} == set(excluded)
     keep_by_chain = keep_mask.reshape(num_chains, num_kept, batch_size)
-    assert not keep_by_chain[2, :, 0].any()
-    assert not keep_by_chain[5, :, 0].any()
-    other_chains = [c for c in range(num_chains) if c not in (2, 5)]
-    assert keep_by_chain[other_chains, :, 0].all()
-
-
-def test_finalize_chain_selection_combines_within_and_outlier_flags():
-    num_chains, batch_size, n_active, num_kept = 10, 1, 1, 5
-    bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_within[1, 0, 0] = True  # never converged on its own
-    bad_outlier[3, 0, 0] = True  # converged, but to a different answer
-
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.5, num_kept)
-
-    assert n_dropped[0] == 2  # union of the two failure modes, not just one
-    assert not unreliable[0]
-    keep_by_chain = keep_mask.reshape(num_chains, num_kept, batch_size)
-    assert not keep_by_chain[1, :, 0].any()
-    assert not keep_by_chain[3, :, 0].any()
-
-
-def test_finalize_chain_selection_marks_lineout_unreliable_when_voting_parameters_exceed_cap():
-    # Two active parameters, BOTH structurally fine on their own (well under the cap individually) but
-    # together dropping more chains than the shared budget allows -- the case max_dropped_chain_fraction
-    # is meant to catch: not any single parameter's fault, but too much disagreement overall.
-    num_chains, batch_size, n_active, num_kept = 10, 1, 2, 5
-    bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_within[[0, 1], 0, 0] = True  # param 0: 2 chains bad, under the cap (floor(0.2*10)=2) on its own
-    bad_within[[2, 3], 0, 1] = True  # param 1: 2 different chains bad, also under the cap on its own
-    # union across the two voting parameters is 4 distinct chains -- over the shared cap of 2
-
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.2, num_kept)
-
-    assert not np.any(param_unreliable)  # neither parameter alone exceeded its own cap
-    assert n_dropped[0] == 4  # the true (uncapped) union count is still reported, not truncated
-    assert unreliable[0]
-    keep_by_chain = keep_mask.reshape(num_chains, num_kept, batch_size)
-    assert not keep_by_chain[:, :, 0].any()  # nothing feeds this lineout's summary stats
-
-
-def test_finalize_chain_selection_excludes_a_structurally_unreliable_parameter_from_voting():
-    # The core new behavior: one genuinely weakly-identified parameter (most chains disagree on it, e.g.
-    # a near-flat marginal posterior -- see mcmc.py's block Metropolis-within-Gibbs docstring) must not be
-    # able to veto chain selection -- and therefore the reported mean/std -- for a second, well-behaved
-    # parameter that every chain actually agrees on.
-    num_chains, batch_size, n_active, num_kept = 10, 1, 2, 5
-    bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_within[[0, 1, 2, 3, 4, 5], 0, 0] = True  # param 0 ("Ti"): 6 of 10 chains disagree -- over the cap
-    bad_outlier[7, 0, 1] = True  # param 1 (well-behaved): one genuine outlier chain, well under the cap
-
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.2, num_kept)
-
-    assert param_unreliable[0, 0]  # param 0 excluded from voting -- its own disagreement doesn't get "fixed"
-    assert not param_unreliable[0, 1]  # param 1 is fine
-    assert not unreliable[0]  # the lineout as a whole is still reliable -- param 0 didn't poison it
-    assert n_dropped[0] == 1  # driven only by param 1's own outlier chain, not param 0's six
-    keep_by_chain = keep_mask.reshape(num_chains, num_kept, batch_size)
-    assert not keep_by_chain[7, :, 0].any()
-    other_chains = [c for c in range(num_chains) if c != 7]
-    assert keep_by_chain[other_chains, :, 0].all()
-
-
-def test_finalize_chain_selection_keeps_every_chain_when_every_parameter_is_structurally_unreliable():
-    # If no parameter can vote at all, there's no informative subset to select -- every chain is kept
-    # (reporting a necessarily wide, but non-NaN, summary) rather than the whole lineout being discarded.
-    num_chains, batch_size, n_active, num_kept = 10, 1, 1, 5
-    bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_within[[0, 1, 2, 3, 4], 0, 0] = True  # the only active parameter: 5 of 10 chains disagree
-
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.2, num_kept)
-
-    assert param_unreliable[0, 0]  # flagged, so a caller can tell this parameter's spread is untrustworthy
-    assert not unreliable[0]  # but not wholesale-discarded -- there's nothing else to select chains by
-    assert n_dropped[0] == 0
-    assert np.all(keep_mask[:, 0])  # every chain kept, full pool used for this parameter's own mean/std
-
-
-def test_finalize_chain_selection_is_per_lineout_independent():
-    num_chains, batch_size, n_active, num_kept = 10, 2, 1, 5
-    bad_within = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_outlier = np.zeros((num_chains, batch_size, n_active), dtype=bool)
-    bad_within[[0, 1, 2, 3, 4], 0, 0] = True  # lineout 0: the only parameter is structurally unreliable
-    bad_outlier[7, 1, 0] = True  # lineout 1: one clean outlier, well under the cap
-
-    keep_mask, n_dropped, unreliable, param_unreliable = _finalize_chain_selection(bad_within, bad_outlier, 0.2, num_kept)
-
-    assert param_unreliable[0, 0] and not param_unreliable[1, 0]
-    assert not unreliable[0] and not unreliable[1]
-    assert n_dropped[0] == 0 and n_dropped[1] == 1
-    keep_by_chain = keep_mask.reshape(num_chains, num_kept, batch_size)
-    assert keep_by_chain[:, :, 0].all()  # lineout 0: nothing to vote, so nothing dropped
-    assert not keep_by_chain[7, :, 1].any()
-    other_chains = [c for c in range(num_chains) if c != 7]
-    assert keep_by_chain[other_chains, :, 1].all()
+    for b in range(batch_size):
+        kept = set() if b in unreliable_lineouts else set(range(num_chains)) - dropped[b]
+        assert {c for c in range(num_chains) if keep_by_chain[c, :, b].all()} == kept
+        assert not any(keep_by_chain[c, :, b].any() for c in set(range(num_chains)) - kept)
 
 
 def test_failed_chains_flags_frozen_and_nonfinite_chains():
@@ -210,3 +129,9 @@ def test_reorder_columns_matches_parameters_by_name():
     sigmas = np.array([[1.0, 3.0, 4.0, 5.0]])
 
     np.testing.assert_array_equal(_reorder_columns(sigmas, laplace_keys, active_keys), [[1.0, 4.0, 5.0, 3.0]])
+
+
+def test_mcmc_postprocess_raises_on_angular():
+    config = {"other": {"extraoptions": {"spectype": "angular_full"}}}
+    with pytest.raises(NotImplementedError):
+        mcmc_postprocess(config, [], {}, {}, None, None, [], 0)

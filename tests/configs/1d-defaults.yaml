@@ -22,7 +22,7 @@ parameters:
             val: 14.0
             active: False
             lb: 0.5
-            ub: 7.0
+            ub: 18.0
         A:
             val: 40.0
             active: False
@@ -77,6 +77,7 @@ parameters:
             ub: 100.0
 
 other:
+    zprime: faddeeva
     expandedions: False
     extraoptions:
         spectype: 1d

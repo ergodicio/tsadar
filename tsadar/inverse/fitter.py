@@ -18,7 +18,7 @@ from ..data import prepare
 from ..utils.misc import rename_deprecated_gain_keys
 
 
-def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
+def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict], sa):
     """
     Persists the raw fit results to mlflow independently of postprocess, so they survive even if
     postprocess is skipped (config["other"]["run_postprocess"] = False) or fails partway through.
@@ -39,6 +39,7 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
             a single ThomsonParams for angular fits).
         all_params (Optional[Dict]): Unbatched fitted parameters from unbatch_fitted_params, or None
             (angular fits don't compute this at the fitter level).
+        sa: The scattering angles the fit used.
     Returns:
         The dict returned by plotters.get_final_params, or None if all_params wasn't available.
     """
@@ -60,7 +61,7 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
 
         final_params = None
         if all_params is not None:
-            final_params = plotters.get_final_params(config, all_params, all_axes, td)
+            final_params = plotters.get_final_params(config, all_params, all_axes, td, sa, fitted_weights)
 
         mlflow.log_artifacts(td)
 
@@ -195,14 +196,14 @@ def _validate_inputs_(config: Dict) -> Dict:
             "please choose 1 or 2"
         )
     if config["parameters"]["electron"]["fe"]["dim"] == 1:
-        if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary"]:
-            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary")
+        if config["parameters"]["electron"]["fe"]["type"] not in ["mx", "dlm", "arbitrary", "numeric"]:
+            raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 1D EDFs, please choose one of the allowed types: mx, dlm, arbitrary, numeric")
     elif config["parameters"]["electron"]["fe"]["dim"] == 2:
         if config["parameters"]["electron"]["fe"]["type"] not in ["sphericalharmonic", "arbitrary"]:
             raise ValueError(f"Electron distribution function type {config['parameters']['electron']['fe']['type']} is not supported for 2D EDFs, please choose one of the allowed types: sphericalharmonic or arbitrary")
         elif config["parameters"]["electron"]["fe"]["type"] == "sphericalharmonic" and config["parameters"]["electron"]["fe"]["params"]["flm_type"].casefold() not in ["mora-yahi", "nn", "arbitrary"]:
             raise ValueError(f"Electron distribution function params type {config['parameters']['electron']['fe']['params']['type']} is not supported for spherical harmonic EDFs, please choose one of the allowed flm types: Mora-Yahi, NN, arbitrary")
-    if "matte" in config["parameters"]["electron"]["fe"]["params"]["m"] and config["parameters"]["electron"]["fe"]["params"]["m"]["matte"]:
+    if config["parameters"]["electron"]["fe"].get("params", {}).get("m", {}).get("matte", False):
         if config["parameters"]["electron"]["fe"]["type"] != "dlm" or config["parameters"]["electron"]["fe"]["dim"] != 1:
             raise ValueError("Matte based m-values are only supported for 1D DLM electron distribution functions")
         elif config["parameters"]["electron"]["fe"]["active"]:
@@ -232,6 +233,24 @@ def _validate_inputs_(config: Dict) -> Dict:
     return config
 
 
+def reject_numeric_distributions(config: Dict) -> None:
+    """
+    Raises ValueError if the electron or any ion distribution is ``type: numeric``. Numeric distributions are
+    for forward calculations only; fits and fit replays reject them.
+    """
+    params = config["parameters"]
+    blocks = [("electron.fe", params["electron"].get("fe", {}))] + [
+        (f"{species}.fi", block["fi"])
+        for species, block in params.items()
+        if species.startswith("ion-") and isinstance(block, dict) and "fi" in block
+    ]
+    numeric = [name for name, block in blocks if str(block.get("type", "")).casefold() == "numeric"]
+    if numeric:
+        raise ValueError(
+            f"Numeric distributions ({', '.join(numeric)}) are supported in forward mode only; they cannot be fit."
+        )
+
+
 def fit(config) -> Tuple[pd.DataFrame, float]:
     """
     Fits the Thomson scattering spectral density function to experimental data or plots specified spectra based on the provided configuration.
@@ -250,6 +269,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     
     t1 = time.time()
     mlflow.set_tag("status", "preprocessing")
+    reject_numeric_distributions(config)
     config = _validate_inputs_(config)
 
     # prepare data
@@ -273,7 +293,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
 
-    saved_final_params = _save_fit_artifacts(config, all_axes, fitted_weights, all_params)
+    saved_final_params = _save_fit_artifacts(config, all_axes, fitted_weights, all_params, sa)
 
     if config["other"].get("run_postprocess", True):
         mlflow.set_tag("status", "postprocessing")

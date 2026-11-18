@@ -82,6 +82,7 @@ parameters:
         active: False
 
 other:
+    zprime: faddeeva
     crop_window: 1
     BinWidth: 10
     NumBinInRng: 0

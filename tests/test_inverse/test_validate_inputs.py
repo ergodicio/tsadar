@@ -6,7 +6,11 @@ import yaml
 from flatten_dict import flatten, unflatten
 
 from tsadar.data.lineouts import spectral_smoothing_width
-from tsadar.inverse.fitter import OMEGA_TS_GAIN, _validate_inputs_
+import mlflow
+
+from tsadar.inverse import fitter
+from tsadar.inverse.fitter import OMEGA_TS_GAIN, _validate_inputs_, reject_numeric_distributions
+from tsadar.postprocess_runner import _reconstruct_fit_state
 
 
 @pytest.fixture(scope="module")
@@ -90,3 +94,37 @@ def test_calc_sigmas_with_smoothed_data_warns(base_config):
     cfg["other"]["calc_sigmas"] = True
     with pytest.warns(UserWarning, match="uncertainties are underestimated"):
         _validate_inputs_(cfg)
+
+
+NUMERIC = {"dim": 1, "type": "numeric", "file": "fe.csv", "nvx": 513}
+
+
+def _with_numeric(base_config, species):
+    cfg = copy.deepcopy(base_config)
+    if species == "electron":
+        cfg["parameters"]["electron"]["fe"] = dict(NUMERIC)
+    else:
+        cfg["parameters"][species]["fi"] = dict(NUMERIC)
+    return cfg
+
+
+def test_a_numeric_electron_distribution_passes_validation_for_forward_use(base_config):
+    _validate_inputs_(_with_numeric(base_config, "electron"))
+
+
+@pytest.mark.parametrize("species", ["electron", "ion-1"])
+def test_fits_and_replays_reject_numeric_distributions(base_config, species):
+    cfg = _with_numeric(base_config, species)
+    with pytest.raises(ValueError, match="forward mode only"):
+        reject_numeric_distributions(cfg)
+    with pytest.raises(ValueError, match="forward mode only"):
+        _reconstruct_fit_state(copy.deepcopy(cfg), "unused.eqx")
+    with mlflow.start_run(), pytest.raises(ValueError, match="forward mode only"):
+        fitter.fit(copy.deepcopy(cfg))
+
+
+@pytest.mark.parametrize("fe_type", ["dlm", "arbitrary", "arbitrary-nn", "mixture"])
+def test_other_distribution_types_are_not_rejected(base_config, fe_type):
+    cfg = copy.deepcopy(base_config)
+    cfg["parameters"]["electron"]["fe"]["type"] = fe_type
+    reject_numeric_distributions(cfg)

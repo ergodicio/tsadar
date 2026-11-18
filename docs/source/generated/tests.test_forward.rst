@@ -4,26 +4,10 @@ tests.test\_forward package
 Submodules
 ----------
 
-tests.test\_forward.test\_1d module
------------------------------------
+tests.test\_forward.test\_irf\_area module
+------------------------------------------
 
-.. automodule:: tests.test_forward.test_1d
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tests.test\_forward.test\_angular\_1v module
---------------------------------------------
-
-.. automodule:: tests.test_forward.test_angular_1v
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tests.test\_forward.test\_angular\_2v module
---------------------------------------------
-
-.. automodule:: tests.test_forward.test_angular_2v
+.. automodule:: tests.test_forward.test_irf_area
    :members:
    :undoc-members:
    :show-inheritance:

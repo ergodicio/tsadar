@@ -6,6 +6,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 
 import scipy.interpolate as sp
+from scipy.special import wofz
 from functools import partial, lru_cache
 
 import os
@@ -20,6 +21,8 @@ from .interpolation import interp_uniform
 from ...utils.vector_tools import vsub, vdot, vdiv
 
 BASE_FILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "external")
+
+ZPRIME_SOURCES = ("faddeeva", "legacy")
 
 # Angles in the tabulated projection used by the 2D form factor (see
 # FormFactor._build_sinogram). Single source of truth: the config layer defers to this
@@ -86,18 +89,24 @@ def _load_zprime_tables():
     return rdWT, idWT
 
 
-def zprimeMaxw(xi):
+def zprimeMaxw(xi, source="faddeeva"):
     """
-    Calculates the derivative of the plasma dispersion function (Z-prime) for an array of normalized phase velocities (xi)
-    using a combination of tabulated values and asymptotic approximations.
-    For values of xi between -10 and 10, the function uses interpolated data from precomputed tables. For values outside
-    this range, it applies the asymptotic approximation as described in Eqn. 5.2.10 of the Thomson scattering reference.
+    Derivative of the plasma dispersion function, Z'(xi) = -2 [1 + xi Z(xi)], for real xi.
+
     Args:
-        xi (np.ndarray): Array of normalized phase velocities (must be in ascending order).
+        xi (np.ndarray): Normalized phase velocities (ascending for "legacy").
+        source (str): "faddeeva" (exact, from the Faddeeva function) or "legacy" (the rdWT/idWT tables,
+            with the asymptote of Sheffield eq. 5.2.10 beyond |xi| = 10).
     Returns:
-        Zp (np.ndarray): 2D array where the first row contains the real components and the second row contains the imaginary
-        components of Z-prime evaluated at each value of xi.
+        Zp (np.ndarray): Shape ``(2, len(xi))``: real and imaginary parts of Z'(xi).
     """
+
+    if source == "faddeeva":
+        xi = np.asarray(xi, dtype=float)
+        Zp = -2.0 * (1.0 + xi * 1j * np.sqrt(np.pi) * wofz(xi))
+        return np.vstack((Zp.real, Zp.imag))
+    if source != "legacy":
+        raise ValueError(f"Unknown Z' source {source!r}; other.zprime must be one of {ZPRIME_SOURCES}")
 
     rdWT, idWT = _load_zprime_tables()
 
@@ -111,6 +120,26 @@ def zprimeMaxw(xi):
 
     Zp = np.vstack((rZp, iZp))
     return Zp
+
+
+def _zprime_tail(xi, source):
+    """Re Z'(xi) beyond the tabulated range: the asymptotic series for "faddeeva", the leading term for "legacy"."""
+    inv2 = xi**-2
+    if source == "legacy":
+        return inv2
+    return inv2 * (1.0 + inv2 * (1.5 + inv2 * (3.75 + inv2 * 13.125)))
+
+
+def _moment_tail(x, edge, edge_value, moments):
+    """
+    int f(t)/(t - x)^2 dt beyond the tabulated range, from the moments of f, plus a residual decaying as
+    (edge/x)^5 that matches the table at the edge.
+    """
+
+    def series(y):
+        return sum((n + 1.0) * m / y ** (n + 2) for n, m in enumerate(moments))
+
+    return series(x) + (edge_value - series(edge)) * (edge / x) ** 5
 
 
 class FormFactor:
@@ -209,6 +238,7 @@ class FormFactor:
         calc_gain,
         n_beta=DEFAULT_N_BETA,
         points_per_pixel=1,
+        zprime="faddeeva",
     ):
         """
         Args:
@@ -218,6 +248,7 @@ class FormFactor:
                     Ipump (float): pump intensity in 1e14 W/cm^2, from Ipump_14
                     beam_diam_um (float): pump beam diameter in microns, from beam_diam_um
                     gain_cap (float): upper limit on the gain exponent, from LPI_gain_cap
+            zprime (str): source of Z' for Maxwellian ions, "faddeeva" (default) or "legacy"; see zprimeMaxw.
         """
 
         # basic quantities
@@ -245,7 +276,8 @@ class FormFactor:
 
         self.xi1 = jnp.linspace(-minmax - jnp.sqrt(2.0) / h1, minmax + jnp.sqrt(2.0) / h1, h1)
         self.xi2 = jnp.array(jnp.arange(-minmax, minmax, self.h))
-        self.Zpi = jnp.array(zprimeMaxw(self.xi2))
+        self.zprime = zprime
+        self.Zpi = jnp.array(zprimeMaxw(self.xi2, zprime))
 
         # `ratintn` is exactly linear in its first argument and, in the 1D path, the other two are
         # built from the fixed grids above. The quadrature is therefore a constant matrix applied to
@@ -368,7 +400,13 @@ class FormFactor:
 
         # num_ion_pts = jnp.shape(xii)
         # chiI = jnp.zeros(num_ion_pts)
-        ZpiR = interp_uniform(xii, self.xi2, self.Zpi[0, :], left=xii**-2, right=xii**-2)
+        ZpiR = interp_uniform(
+            xii,
+            self.xi2,
+            self.Zpi[0, :],
+            left=_zprime_tail(jnp.minimum(xii, self.xi2[0]), self.zprime),
+            right=_zprime_tail(jnp.maximum(xii, self.xi2[-1]), self.zprime),
+        )
         ZpiI = interp_uniform(xii, self.xi2, self.Zpi[1, :], left=0, right=0)
         #chiI = jnp.sum(-0.5 / (kldi**2) * (ZpiR + 1j * ZpiI), 3)
         chiI = -0.5 / (kldi**2) * (ZpiR + 1j * ZpiI) 
@@ -381,33 +419,24 @@ class FormFactor:
         electron_omgdop = omg - k * electron_flow
         xie = electron_omgdop / (k * vTe)
 
-        #fe_vphi = jnp.exp(jnp.interp(xie, vx, jnp.log(fe)))
-        fe_vphi=jnp.exp(jnp.apply_along_axis(interp1d,0,jnp.squeeze(xie),vx,jnp.log(jnp.squeeze(fe)),extrap=[-50, -50])).reshape(jnp.shape(xie))
+        chiE, fe_vphi = self._numeric_chi(fe, vx, xie, klde)
 
-        df = jnp.diff(fe_vphi, 1, 1) / jnp.diff(xie, 1, 1)
-        df = jnp.append(df, jnp.zeros((len(ne), 1, len(self.scattering_angles["sa"]),1)), 1) 
+        fi_vphi = jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
+        for s, species in enumerate([species for species in params.keys() if "ion" in species]):
+            if "fi" in params[species]:
+                chi_s, fi_s = self._numeric_chi(
+                    params[species]["fi"], params[species]["vi"], jnp.sqrt(2.0) * xii[..., s : s + 1], kldi[..., s : s + 1]
+                )
+                chiI = chiI.at[..., s : s + 1].set(chi_s)
+                fi_vphi = fi_vphi.at[..., s : s + 1].set(fi_s)
 
-        chiEI = -jnp.pi / (klde**2) * 1j * df
-        
-        ratmod = jnp.exp(interp1d(self.xi1, vx, jnp.log(fe), extrap=[-50, -50]))
-        ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
-
-        # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
-        chiERratprim = self.chiERratprim_op @ ratdf
-        chiERrat = jnp.reshape(interp_uniform(xie.flatten(), self.xi2, chiERratprim), xie.shape)
-        chiERrat = -1.0 / (klde**2) * chiERrat
-
-        chiE = chiERrat + chiEI
         chiI = jnp.sum(chiI, 3) # Sum over ion species to get total ion susceptibility
         chiI = chiI[..., jnp.newaxis]
         epsilon = 1.0 + chiE + chiI
 
-        # This line needs to be changed if ion distribution is changed!!!
         ion_comp_fact = fract * Z**2 / Zbar / vTi
         #ion_comp_fact = fract * Zbar / vTi
-        ion_comp = ion_comp_fact * (
-            (jnp.abs(chiE)) ** 2.0 * jnp.exp(-(xii**2)) / jnp.sqrt(2 * jnp.pi)
-        )
+        ion_comp = ion_comp_fact * (jnp.abs(chiE)) ** 2.0 * fi_vphi
 
         ele_comp = (jnp.abs(1.0 + chiI)) ** 2.0 * fe_vphi / vTe
 
@@ -445,6 +474,35 @@ class FormFactor:
 
 
         return formfactor, jnp.squeeze(lams, axis=-1)
+
+    def _numeric_chi(self, f, v, xi, kld):
+        """
+        Susceptibility of a numerical 1D distribution f(v), with v and xi in units of the thermal velocity
+        sqrt(T/m), and f evaluated at xi. xi and kld have shape [ng, npts, na, 1].
+        df/dv is taken on the velocity grid xi1 and interpolated to xi. Past the tabulated |xi| <= 8.2 the
+        principal value continues as a moment series of f matched to the table (see _moment_tail).
+        """
+        #f_vphi = jnp.exp(jnp.interp(xi, v, jnp.log(f)))
+        f_vphi = jnp.exp(jnp.apply_along_axis(interp1d, 0, jnp.squeeze(xi), v, jnp.log(jnp.squeeze(f)), extrap=[-50, -50])).reshape(jnp.shape(xi))
+
+        ratmod = jnp.exp(interp1d(self.xi1, v, jnp.log(f), extrap=[-50, -50]))
+        ratdf = jnp.gradient(ratmod, self.xi1[1] - self.xi1[0])
+
+        df = interp_uniform(xi, self.xi1, ratdf, left=0.0, right=0.0)
+
+        chiI = -jnp.pi / (kld**2) * 1j * df
+
+        # xi2 = jnp.squeeze(self.xi2 - 1j*(10*Zbar*Esq*omgpe**2)/(self.Me*vTe**3))
+        chiRratprim = self.chiERratprim_op @ ratdf
+        x = xi.flatten()
+        dx1 = self.xi1[1] - self.xi1[0]
+        moments = [jnp.sum(self.xi1**n * ratmod) * dx1 for n in range(6)]
+        left = _moment_tail(jnp.minimum(x, self.xi2[0]), self.xi2[0], chiRratprim[0], moments)
+        right = _moment_tail(jnp.maximum(x, self.xi2[-1]), self.xi2[-1], chiRratprim[-1], moments)
+        chiRrat = jnp.reshape(interp_uniform(x, self.xi2, chiRratprim, left=left, right=right), xi.shape)
+        chiRrat = -1.0 / (kld**2) * chiRrat
+
+        return chiRrat + chiI, f_vphi
 
     def rotate(self, vx, df, angle, reshape: bool = False) -> jnp.ndarray:
         """

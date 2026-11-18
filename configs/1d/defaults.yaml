@@ -90,6 +90,7 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
+  zprime: faddeeva
   detector_specs:
     norm: 0
     EPWDispersion: 0.4143

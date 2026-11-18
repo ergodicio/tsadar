@@ -1,5 +1,4 @@
 import copy
-import tempfile
 
 import equinox as eqx
 import jax
@@ -7,8 +6,6 @@ import jax.numpy as jnp
 import mlflow
 import numpy as np
 import pytest
-import yaml
-from flatten_dict import flatten, unflatten
 from jax import config as jax_config
 
 jax_config.update("jax_enable_x64", True)
@@ -18,86 +15,19 @@ from tsadar.data import prepare
 from tsadar.inverse.loops import build_batch, one_d_loop
 from tsadar.inverse.postprocess import mcmc, mcmc_calibration
 
-
-def _base_config():
-    with open("tests/configs/time_test_defaults.yaml") as fi:
-        d = yaml.safe_load(fi)
-    with open("tests/configs/time_test_inputs.yaml") as fi:
-        i = yaml.safe_load(fi)
-    flat = flatten(d)
-    flat.update(flatten(i))
-    cfg = unflatten(flat)
-    cfg["parameters"]["electron"]["fe"]["active"] = False  # see mcmc.py's module docstring
-    cfg["data"]["launch_data_visualizer"] = False
-    cfg["data"]["lineouts"]["val"] = list(
-        range(cfg["data"]["lineouts"]["start"], cfg["data"]["lineouts"]["end"], cfg["data"]["lineouts"]["skip"])
-    )
-    cfg["optimizer"]["num_epochs"] = 10  # fast fit; the tests below only need *a* fitted point, not a good one
-    return cfg
-
-
-@pytest.fixture(scope="module")
-def fitted_fixture():
-    """Runs one small real fit once and shares it across every test in this file, since re-fitting for
-    each test would dominate the file's runtime without adding coverage."""
-    cfg = _base_config()
-    mlflow.set_tracking_uri(f"sqlite:///{tempfile.mkdtemp()}/mlflow.db")
-    mlflow.set_experiment("test-mcmc")
-    with mlflow.start_run():
-        all_data, sa, all_axes = prepare.prepare_data(cfg, cfg["data"]["shotnum"])
-        sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
-        num_batches = len(sample_indices) // cfg["optimizer"]["batch_size"] or 1
-        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, num_batches)
-    batch = build_batch(all_data, sample_indices[: cfg["optimizer"]["batch_size"]], cfg["data"]["background"]["bg_subtract"])
-    return {
-        "config": cfg,
-        "all_data": all_data,
-        "all_axes": all_axes,
-        "sa": sa,
-        "loss_fn": loss_fn,
-        "fitted_weights": fitted_weights,
-        "batch": batch,
-    }
+from .shared import base_config
 
 
 def test_check_fe_inactive_raises_when_fe_active():
-    cfg = _base_config()
+    cfg = base_config()
     cfg["parameters"]["electron"]["fe"]["active"] = True
     with pytest.raises(NotImplementedError):
         mcmc.check_fe_inactive(cfg["parameters"])
 
 
 def test_check_fe_inactive_passes_when_fe_inactive():
-    cfg = _base_config()
+    cfg = base_config()
     mcmc.check_fe_inactive(cfg["parameters"])  # should not raise
-
-
-def test_run_mcmc_for_batch_acceptance_rate_near_target(fitted_fixture):
-    # with the Laplace-seeded proposal, acceptance should land near the configured target
-    cfg = copy.deepcopy(fitted_fixture["config"])
-    target = 0.234
-    cfg["other"]["mcmc"] = {
-        "num_steps": 2500,
-        "burn_in": 2000,
-        "thin": 5,
-        "adapt_every": 50,
-        "target_accept": target,
-        "use_laplace_seed": True,
-    }
-    key = jax.random.PRNGKey(42)
-    samples, static_params, diagnostics = mcmc.run_mcmc_for_batch(
-        cfg, fitted_fixture["loss_fn"], fitted_fixture["fitted_weights"][0], fitted_fixture["batch"], key
-    )
-    acceptance_rate = np.asarray(diagnostics["acceptance_rate"])
-    assert acceptance_rate.shape == (cfg["optimizer"]["batch_size"],)
-    # loose tolerance: this is a stochastic process with a finite adaptation budget, not an exact solve
-    assert np.all(np.abs(acceptance_rate - target) < 0.15)
-
-    leaves = jax.tree_util.tree_leaves(samples)
-    assert len(leaves) > 0
-    for leaf in leaves:
-        assert leaf.shape[1] == cfg["optimizer"]["batch_size"]
-        assert np.all(np.isfinite(np.asarray(leaf)))
 
 
 def test_seed_step_scale_from_laplace_regularizes_degenerate_brem_c(fitted_fixture):
@@ -201,54 +131,6 @@ def test_run_mcmc_for_batch_falls_back_when_laplace_seed_disabled(fitted_fixture
         cfg, fitted_fixture["loss_fn"], fitted_fixture["fitted_weights"][0], fitted_fixture["batch"], key
     )
     assert np.all(np.isfinite(np.asarray(diagnostics["acceptance_rate"])))
-
-
-def test_run_mcmc_for_fit_batches_matches_manual_loop_with_multiple_fit_batches(fitted_fixture):
-    # builds a 3-fit-batch fit (wrapping the indices of the small dataset) to exercise the
-    # n_fit_batches > 1 path, and checks the vmapped result is identical to looping run_mcmc_for_batch per
-    # fit-batch with the same PRNG key and a precomputed step_scale
-    cfg = copy.deepcopy(fitted_fixture["config"])
-    all_data = fitted_fixture["all_data"]
-    sa = fitted_fixture["sa"]
-    batch_size = cfg["optimizer"]["batch_size"]
-    n_fit_batches = 3
-    n_lineouts = max(len(all_data["e_data"]), len(all_data["i_data"]))
-    sample_indices = np.arange(n_fit_batches * batch_size) % n_lineouts
-
-    with mlflow.start_run():
-        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, n_fit_batches)
-    assert len(fitted_weights) == n_fit_batches
-
-    batch_indices = np.reshape(sample_indices, (-1, batch_size))
-    background_subtract = cfg["data"]["background"]["bg_subtract"]
-    batch_list = [build_batch(all_data, batch_indices[i], background_subtract) for i in range(n_fit_batches)]
-
-    cfg["other"]["mcmc"] = {
-        "num_steps": 40, "burn_in": 20, "thin": 2, "adapt_every": 10, "use_laplace_seed": True,
-    }
-    key = jax.random.PRNGKey(7)
-
-    samples_vmap, _, diag_vmap = mcmc.run_mcmc_for_fit_batches(cfg, loss_fn, fitted_weights, batch_list, key)
-    leaves = jax.tree_util.tree_leaves(samples_vmap)
-    assert len(leaves) > 0
-    for leaf in leaves:
-        assert leaf.shape[0] == n_fit_batches
-        assert np.all(np.isfinite(np.asarray(leaf)))
-
-    keys = jax.random.split(key, n_fit_batches)
-    manual_samples_list, manual_accept_list = [], []
-    for i in range(n_fit_batches):
-        s, _, diag_i = mcmc.run_mcmc_for_batch(cfg, loss_fn, fitted_weights[i], batch_list[i], keys[i])
-        manual_samples_list.append(s)
-        manual_accept_list.append(diag_i["acceptance_rate"])
-    manual_samples = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs, axis=0), *manual_samples_list)
-    manual_accept = jnp.stack(manual_accept_list, axis=0)
-
-    manual_leaves = jax.tree_util.tree_leaves(manual_samples)
-    assert len(leaves) == len(manual_leaves)
-    for a, b in zip(leaves, manual_leaves):
-        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(np.asarray(diag_vmap["acceptance_rate"]), np.asarray(manual_accept), rtol=1e-10)
 
 
 def test_seed_step_scale_from_laplace_matches_full_hessian_inverse(fitted_fixture):
@@ -360,72 +242,6 @@ def test_calibration_draws_perturb_gain_and_rescale_data(fitted_fixture):
         np.testing.assert_allclose(all_data_k["e_data"], nominal_e_data * expected_scale)
 
 
-def test_calibration_uncertainty_widens_the_pooled_posterior(fitted_fixture):
-    # pooling chains run under different calibration realizations should give a wider posterior than a
-    # single chain at the nominal calibration. The EPW dispersion is perturbed because it moves the
-    # plasma-wave peaks and therefore the inferred density; the comparison is averaged over seed pairs.
-    cfg = fitted_fixture["config"]
-    sa = fitted_fixture["sa"]
-    ts_params = fitted_fixture["fitted_weights"][0]
-    batch_size = cfg["optimizer"]["batch_size"]
-    mcmc_settings = {"num_steps": 1500, "burn_in": 1000, "thin": 5, "adapt_every": 50, "use_laplace_seed": True}
-
-    def _pooled_ne_std(num_draws, dispersion_sigma, mcmc_key_seed, cal_rng_seed):
-        cfg_run = copy.deepcopy(cfg)
-        cfg_run["other"]["mcmc"] = mcmc_settings
-        cfg_run["other"]["calibration_uncertainty"] = {
-            "num_draws": num_draws, "EPWDispersion_sigma": dispersion_sigma, "seed": cal_rng_seed,
-        }
-        draws = mcmc_calibration.draw_calibration_realizations(
-            cfg_run, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(cal_rng_seed)
-        )
-        # build a LossFunction for every draw whose calibration was perturbed, as mcmc_postprocess does
-        from tsadar.inverse.loss_function import LossFunction
-
-        loss_fns = []
-        for cfg_k, all_data_k in draws:
-            reuse_nominal = cfg_k is cfg_run and all_data_k is fitted_fixture["all_data"]
-            if reuse_nominal:
-                loss_fns.append(fitted_fixture["loss_fn"])
-            else:
-                sample = {k: v[:batch_size] for k, v in all_data_k.items()}
-                sample = {
-                    "noise_e": all_data_k["noiseE"][:batch_size],
-                    "noise_i": all_data_k["noiseI"][:batch_size],
-                } | sample
-                loss_fns.append(LossFunction(cfg_k, sa, sample))
-
-        inds = np.arange(batch_size)
-        batches = [[build_batch(all_data_k, inds, cfg["data"]["background"]["bg_subtract"])] for _, all_data_k in draws]
-        key = jax.random.PRNGKey(mcmc_key_seed)
-        pooled, static_params, _, _, _ = mcmc.run_mcmc_pooled(cfg_run, loss_fns, [ts_params], batches, key)
-        filter_spec = get_filter_spec(cfg_run["parameters"], ts_params)
-        static_i = jax.tree_util.tree_map(lambda x: x[0], eqx.filter(static_params, eqx.is_array))
-        static_i = eqx.combine(static_i, eqx.filter(static_params, eqx.is_array, inverse=True))
-        diff_i = jax.tree_util.tree_map(lambda x: x[0], pooled)
-
-        def _unnorm(dp):
-            return eqx.combine(static_i, dp).get_unnormed_params()
-
-        physical = eqx.filter_vmap(_unnorm)(diff_i)
-        return float(np.std(np.asarray(physical["electron"]["ne"])[:, 0]))
-
-    # Same set of shapes (num_steps/burn_in/thin/adapt_every) every repeat, so _run_window's filter_jit
-    # cache is warmed once and every further repeat is cheap -- only the PRNG/calibration seeds vary.
-    n_repeats = 5
-    gaps = []
-    for i in range(n_repeats):
-        std_no = _pooled_ne_std(num_draws=1, dispersion_sigma=0.0, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
-        std_with = _pooled_ne_std(num_draws=4, dispersion_sigma=0.005, mcmc_key_seed=100 + i, cal_rng_seed=200 + i)
-        gaps.append(std_with - std_no)
-
-    mean_gap = float(np.mean(gaps))
-    assert mean_gap > 0, (
-        f"calibration uncertainty should widen the pooled posterior on average across independent seeds; "
-        f"got mean gap {mean_gap:.6f} over {n_repeats} repeats: {gaps}"
-    )
-
-
 def test_init_dispersion_factor_perturbs_starting_point(fitted_fixture):
     # With very few steps (so the chain has no time to "forget" its start) and use_laplace_seed off (a
     # fixed, deterministic step_scale), a nonzero init_dispersion_factor should visibly shift where the
@@ -450,49 +266,6 @@ def test_init_dispersion_factor_perturbs_starting_point(fitted_fixture):
     leaves_disp = jax.tree_util.tree_leaves(samples_disp)
     assert len(leaves_no_disp) == len(leaves_disp) > 0
     assert any(not np.allclose(np.asarray(a), np.asarray(b)) for a, b in zip(leaves_no_disp, leaves_disp))
-
-
-def test_run_mcmc_pooled_reports_r_hat_with_multiple_chains(fitted_fixture):
-    cfg = copy.deepcopy(fitted_fixture["config"])
-    cfg["other"]["mcmc"] = {
-        "num_steps": 300, "burn_in": 200, "thin": 5, "adapt_every": 20,
-        "use_laplace_seed": True, "init_dispersion_factor": 3.0,
-    }
-    cfg["other"]["calibration_uncertainty"] = {"num_draws": 3, "seed": 5}
-    ts_params = fitted_fixture["fitted_weights"][0]
-    batch_size = cfg["optimizer"]["batch_size"]
-
-    draws = mcmc_calibration.draw_calibration_realizations(
-        cfg, fitted_fixture["all_data"], fitted_fixture["all_axes"], np.random.default_rng(5)
-    )
-    assert len(draws) == 3  # num_draws still drives the chain count with every *_sigma at 0.0
-
-    loss_fns = [fitted_fixture["loss_fn"] for _ in draws]  # every draw shares the identical nominal config/data
-    inds = np.arange(batch_size)
-    batches = [
-        [build_batch(fitted_fixture["all_data"], inds, cfg["data"]["background"]["bg_subtract"])] for _ in draws
-    ]
-
-    filter_spec = get_filter_spec(cfg["parameters"], ts_params)
-    n_active = len(jax.tree_util.tree_leaves(eqx.partition(ts_params, filter_spec)[0]))
-
-    key = jax.random.PRNGKey(21)
-    _, _, _, max_r_hat, within_chain_r_hat = mcmc.run_mcmc_pooled(cfg, loss_fns, [ts_params], batches, key)
-
-    assert max_r_hat is not None
-    max_r_hat = np.asarray(max_r_hat)
-    assert max_r_hat.shape == (1, batch_size, n_active)  # one fit-batch, per active parameter
-    assert np.all(np.isfinite(max_r_hat))
-    # R-hat is an estimator and can dip slightly below 1 for a short chain, so the bound is loose
-    assert np.all(max_r_hat >= 0.5)
-
-    # within_chain_r_hat is meaningful even with multiple chains -- it never compares different chains to
-    # each other, only a chain to itself (see _within_chain_r_hat's docstring) -- so it's populated here
-    # for all 3 chains, not None the way max_r_hat would be with only 1.
-    within_chain_r_hat = np.asarray(within_chain_r_hat)
-    assert within_chain_r_hat.shape == (3, 1, batch_size, n_active)  # 3 chains, one fit-batch, per parameter
-    assert np.all(np.isfinite(within_chain_r_hat))
-    assert np.all(within_chain_r_hat >= 0.5)  # see max_r_hat's assertion above for why not a strict >= 1.0
 
 
 def test_run_mcmc_pooled_r_hat_is_none_with_a_single_chain(fitted_fixture):
@@ -802,3 +575,40 @@ def test_binned_model_axis_matches_the_detector_pixel_centers(fitted_fixture, po
 
     _, _, lamAxisE, _ = loss_fn.ts_diag(fitted_fixture["fitted_weights"][0], fitted_fixture["batch"])
     np.testing.assert_allclose(np.asarray(lamAxisE)[0], np.asarray(fitted_fixture["all_axes"]["epw_y"]), rtol=0, atol=1e-9)
+
+
+class _ShiftedGaussianLikelihood:
+    def __init__(self, cfg, centre, width):
+        self.cfg, self.centre, self.width = cfg, centre, width
+
+    def neg_log_likelihood(self, weights, batch, per_lineout=True):
+        te = weights.get_unnormed_params()["electron"]["Te"]
+        return ((te - self.centre) / self.width) ** 2
+
+
+def test_calibration_draws_propagate_into_the_pooled_posterior():
+    from tsadar.core.modules.ts_params import ThomsonParams
+
+    from ..oracles import Plasma
+    from ..physics import harness
+    from ..physics.cases import HYDROGEN
+
+    cfg = harness.diagnostic_config(Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,)), harness.EPW_DETECTOR)
+    cfg["parameters"]["electron"]["Te"]["active"] = True
+    cfg["other"]["mcmc"] = {
+        "num_steps": 1500, "burn_in": 500, "thin": 2, "adapt_every": 50,
+        "use_laplace_seed": False, "init_step_scale": 0.05, "init_dispersion_factor": 0.0,
+    }
+    ts_params = ThomsonParams(cfg["parameters"], num_params=2, activate=True)
+    centres, width = np.array([0.55, 0.65, 0.75]), 0.01
+    loss_fns = [_ShiftedGaussianLikelihood(cfg, c, width) for c in centres]
+    pooled, static, _, _, _ = mcmc.run_mcmc_pooled(
+        cfg, loss_fns, [ts_params], [[{}] for _ in centres], jax.random.PRNGKey(5)
+    )
+    te_of = eqx.filter_vmap(lambda dp: eqx.combine(dp, static).get_unnormed_params()["electron"]["Te"])
+    te = np.asarray(te_of(jax.tree_util.tree_map(lambda x: x[0], pooled)))
+    per_draw = te.reshape(len(centres), -1, te.shape[-1])
+
+    np.testing.assert_allclose(per_draw.mean(axis=1), np.repeat(centres[:, None], 2, axis=1), atol=0.4 * width)
+    np.testing.assert_allclose(per_draw.std(axis=1), width, rtol=0.3)
+    np.testing.assert_allclose(te.std(axis=0), np.sqrt(width**2 + centres.var()), rtol=0.1)

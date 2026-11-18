@@ -196,6 +196,7 @@ class FitModel:
             calc_gain=calc_gain,
             n_beta=n_beta,
             points_per_pixel=config["other"].get("points_per_pixel", 1),
+            zprime=config["other"].get("zprime", "faddeeva"),
         )
         self.ion_form_factor = FormFactor(
             config["other"]["lamrangI"],
@@ -208,6 +209,7 @@ class FitModel:
             calc_gain=calc_gain,
             n_beta=n_beta,
             points_per_pixel=config["other"].get("points_per_pixel", 1),
+            zprime=config["other"].get("zprime", "faddeeva"),
         )
 
     def __call__(self, all_params: Dict):

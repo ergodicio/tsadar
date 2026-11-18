@@ -141,7 +141,10 @@ CSVs
 ``csv/learned_parameters.csv``
    The fitted parameters per lineout. 1D fits include the lineout axis column;
    angular fits do not, since they have no such axis, so they cannot be plotted
-   as profiles.
+   as profiles. The ``alpha`` and ``beta_ion-N`` columns are the scattering
+   parameters of each lineout's final plasma conditions. Together with the run's
+   ``validity`` tag, they mark results outside the verified range; see
+   :ref:`validity-flag`.
 
 ``csv/losses.csv``
    Loss values per lineout.

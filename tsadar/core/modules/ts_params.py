@@ -14,6 +14,7 @@ from .distribution_functions.base import (
     DistributionFunction2V,
     DLM1V,
     Arbitrary1V,
+    Numeric1V,
     Arbitrary2V,
     get_distribution_filter_spec,
 )
@@ -151,6 +152,11 @@ class ElectronParams(eqx.Module):
                     distribution_functions = [Arbitrary1V(dist_cfg) for _ in range(batch_size)]
                 else:
                     distribution_functions = Arbitrary1V(dist_cfg)
+            elif dist_cfg["type"].casefold() == "numeric":
+                if batch:
+                    distribution_functions = [Numeric1V(dist_cfg) for _ in range(batch_size)]
+                else:
+                    distribution_functions = Numeric1V(dist_cfg)
 
             else:
                 raise NotImplementedError(f"Unknown 1D distribution type: {dist_cfg['type']}")
@@ -266,6 +272,7 @@ class IonParams(eqx.Module):
     Va_scale: float  
     Va_shift: float  
     A: int
+    distribution_function: Union[Numeric1V, None]
     act_funs: Dict[str, Callable]
     inv_act_funs: Dict[str, Callable]
 
@@ -317,6 +324,12 @@ class IonParams(eqx.Module):
             self.A = cfg["A"]["val"]
             self.fract = float(self.inv_act_funs["fract"](cfg["fract"]["val"]))
 
+        # the ion distribution is Maxwellian unless fi.type is "numeric"
+        if cfg.get("fi", {}).get("type", "mx").casefold() == "numeric":
+            self.distribution_function = Numeric1V(cfg["fi"])
+        else:
+            self.distribution_function = None
+
     def get_unnormed_params(self):
         """
         Returns the unnormalized (physical) ion parameters. Equivalent to calling the instance directly;
@@ -337,13 +350,20 @@ class IonParams(eqx.Module):
             dict: Dictionary with keys "A", "fract", "Ti", and "Z" containing the processed values.
         """
 
-        return {
+        params = {
             "A": self.A,
             "fract": self.act_funs["fract"](self.fract),
             "Ti": self.act_funs["Ti"](self.normed_Ti) * self.Ti_scale + self.Ti_shift,
             "Z": self.act_funs["Z"](self.normed_Z) * self.Z_scale + self.Z_shift,
             "Va": self.act_funs["Va"](self.normed_Va) * self.Va_scale + self.Va_shift,
         }
+        if self.distribution_function is not None:
+            fi, vi = self.distribution_function(), self.distribution_function.vx
+            if jnp.ndim(self.A):
+                fi, vi = (jnp.broadcast_to(x, (len(self.A),) + x.shape) for x in (fi, vi))
+            params |= {"fi": fi, "vi": vi}
+
+        return params
 
 
 def get_act_and_inv_act(param_cfg: Dict, activate: bool):
@@ -571,6 +591,14 @@ class ThomsonParams(eqx.Module):
     def __init__(self, param_cfg, num_params: int, batch=True, activate=False):
         super().__init__()
 
+        if param_cfg["electron"]["fe"]["dim"] == 2 and any(
+            cfg.get("fi", {}).get("type", "mx").casefold() == "numeric"
+            for species, cfg in param_cfg.items()
+            if "ion" in species
+        ):
+            raise NotImplementedError(
+                "Numeric ion distributions are not supported with a 2-D electron distribution yet (see #165)."
+            )
         self.electron = ElectronParams(param_cfg["electron"], num_params, batch, activate)
         self.ions = []
         for ion_index in range(len([species for species in param_cfg.keys() if "ion" in species])):
@@ -608,7 +636,7 @@ class ThomsonParams(eqx.Module):
         """
         zbar = 0
         z2bar = 0
-        m_config = self.param_cfg["electron"]["fe"]["params"].get("m", {})
+        m_config = self.param_cfg["electron"]["fe"].get("params", {}).get("m", {})
         if m_config.get("matte", False):
             for ion_index in range(len(self.ions)):
                 zbar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]
@@ -737,7 +765,7 @@ def get_filter_spec(cfg_params: Dict, ts_params: ThomsonParams) -> Dict:
         if "ion" in species:
             ion_num += 1
         for key, _params in params.items():
-            if _params["active"]:
+            if _params.get("active", False):
                 if key == "fe":
                     filter_spec = get_distribution_filter_spec(filter_spec, dist_params=_params)
                 else:

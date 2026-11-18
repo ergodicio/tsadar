@@ -17,6 +17,7 @@ from ..utils.plotting import plotters
 from ..core.thomson_diagnostic import ThomsonScatteringDiagnostic
 from ..core.modules.ts_params import ThomsonParams
 from ..data.calibration import get_scattering_angles, get_calibrations
+from ..core.physics.validity import numeric_ion_species, report_validity, scattering_parameters
 
 
 def forward_pass(config):
@@ -119,6 +120,7 @@ def forward_pass(config):
     lamAxisE = [None] * serieslen
     lamAxisI = [None] * serieslen
 
+    physical = []
     t_start = time()
     # Only the swept "val" fields differ between decks; everything ThomsonScatteringDiagnostic
     # reads at construction time (npts, instrument specs, spectype) is the same across the
@@ -129,8 +131,24 @@ def forward_pass(config):
 
         # params = ts_diag.get_plasma_parameters(ts_diag.pytree_weights["active"])
         ThryE[i], ThryI[i], lamAxisE[i], lamAxisI[i] = ts_diag(ts_params, dummy_batch)
+        physical.append(ts_params())
 
     spectime = time() - t_start
+    ion_species = [s for s in physical[0] if "ion" in s]
+
+    def _series(species, key):
+        return np.array([np.ravel(p[species][key])[0] for p in physical])
+
+    report_validity(
+        scattering_parameters(
+            _series("electron", "ne"),
+            _series("electron", "Te"),
+            {s: (_series(s, "Z"), _series(s, "Ti")) for s in ion_species},
+            _series("general", "lam"),
+            sas["sa"],
+        ),
+        numeric_ion_species(decks[0]["parameters"]),
+    )
     ThryE = np.array(ThryE)
     ThryI = np.array(ThryI)
     lamAxisE = np.array(lamAxisE)

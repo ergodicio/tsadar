@@ -28,7 +28,7 @@ Table of Contents
    Background Algorithms<bg_algorithms>
    Forward<forward_pass>
    Fundamentals of Thomson Scattering<TS_fundamentals>
-   Physics Validation<physics_validation>
+   Test Suite<physics_validation>
    FAQ
    contributing
    math

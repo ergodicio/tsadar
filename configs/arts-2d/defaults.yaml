@@ -111,6 +111,7 @@ optimizer:
   x_norm: false
   y_norm: true
 other:
+  zprime: faddeeva
   BinWidth: 10
   CCDsize:
   - 1024

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "tsadar_version": "<masked>",
+  "mode": "fit",
+  "kind": "one_d",
+  "files": [
+    {
+      "path": "binary/ele_fit_and_data.nc",
+      "role": "spectrogram",
+      "bytes": "<masked>",
+      "species": "ele",
+      "dims": {
+        "Time (ps)": 4,
+        "Wavelength": 8
+      },
+      "coords": [
+        "Time (ps)",
+        "Wavelength"
+      ],
+      "data_vars": [
+        "data",
+        "fit"
+      ]
+    },
+    {
+      "path": "binary/ion_fit_and_data.nc",
+      "role": "spectrogram",
+      "bytes": "<masked>",
+      "species": "ion",
+      "dims": {
+        "Time (ps)": 4,
+        "Wavelength": 8
+      },
+      "coords": [
+        "Time (ps)",
+        "Wavelength"
+      ],
+      "data_vars": [
+        "data",
+        "fit"
+      ]
+    },
+    {
+      "path": "csv/learned_parameters.csv",
+      "role": "parameter_profiles",
+      "bytes": "<masked>",
+      "columns": [
+        "lineout pixel",
+        "Te",
+        "ne"
+      ],
+      "rows": 2
+    },
+    {
+      "path": "csv/losses.csv",
+      "role": "losses",
+      "bytes": "<masked>",
+      "columns": [
+        "loss"
+      ],
+      "rows": 2
+    },
+    {
+      "path": "lineouts/lineout_1.png",
+      "role": "plot",
+      "bytes": "<masked>"
+    },
+    {
+      "path": "plots/fit_and_data.png",
+      "role": "plot",
+      "bytes": "<masked>"
+    },
+    {
+      "path": "state_weights.txt",
+      "role": "other",
+      "bytes": "<masked>"
+    }
+  ]
+}

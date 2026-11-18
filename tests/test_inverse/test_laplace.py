@@ -1,62 +1,22 @@
 import copy
-import tempfile
 
 import equinox as eqx
 import jax
 import mlflow
 import numpy as np
 import pytest
-import yaml
-from flatten_dict import flatten, unflatten
 from jax import config as jax_config
 
 jax_config.update("jax_enable_x64", True)
 
-from tsadar.core.modules.ts_params import get_filter_spec
-from tsadar.data import prepare
+from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.inverse.loops import build_batch, one_d_loop, unbatch_fitted_params
 from tsadar.inverse.postprocess.laplace import get_sigmas, recalculate_with_chosen_weights
 
-
-def _base_config():
-    with open("tests/configs/time_test_defaults.yaml") as fi:
-        d = yaml.safe_load(fi)
-    with open("tests/configs/time_test_inputs.yaml") as fi:
-        i = yaml.safe_load(fi)
-    flat = flatten(d)
-    flat.update(flatten(i))
-    cfg = unflatten(flat)
-    cfg["parameters"]["electron"]["fe"]["active"] = False
-    cfg["data"]["launch_data_visualizer"] = False
-    cfg["data"]["lineouts"]["val"] = list(
-        range(cfg["data"]["lineouts"]["start"], cfg["data"]["lineouts"]["end"], cfg["data"]["lineouts"]["skip"])
-    )
-    cfg["optimizer"]["num_epochs"] = 10  # fast fit; these tests only need *a* fitted point, not a good one
-    return cfg
-
-
-@pytest.fixture(scope="module")
-def fitted_fixture():
-    """Runs one small real fit once and shares it across every test in this file, since re-fitting for
-    each test would dominate the file's runtime without adding coverage. Mirrors test_mcmc.py's
-    fitted_fixture."""
-    cfg = _base_config()
-    mlflow.set_tracking_uri(f"sqlite:///{tempfile.mkdtemp()}/mlflow.db")
-    mlflow.set_experiment("test-laplace")
-    with mlflow.start_run():
-        all_data, sa, all_axes = prepare.prepare_data(cfg, cfg["data"]["shotnum"])
-        sample_indices = np.arange(max(len(all_data["e_data"]), len(all_data["i_data"])))
-        num_batches = len(sample_indices) // cfg["optimizer"]["batch_size"] or 1
-        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, num_batches)
-    return {
-        "config": cfg,
-        "all_data": all_data,
-        "all_axes": all_axes,
-        "sa": sa,
-        "loss_fn": loss_fn,
-        "fitted_weights": fitted_weights,
-        "sample_indices": sample_indices,
-    }
+from ..oracles import Plasma
+from ..physics import harness
+from ..physics.cases import HYDROGEN
+from .shared import base_config
 
 
 def test_calc_sigmas_does_not_fall_back_and_is_fast(fitted_fixture):
@@ -78,64 +38,6 @@ def test_calc_sigmas_does_not_fall_back_and_is_fast(fitted_fixture):
     assert sigmas is not None, "calc_sigma silently fell back to False"
     assert sigmas.shape == (len(sample_indices), num_params)
     assert np.all(np.isfinite(sigmas))
-
-
-def test_get_sigmas_matches_independent_recomputation(fitted_fixture):
-    # fitted_params order (electron, general, ions) differs from diff_params order (electron, ions,
-    # general), so get_sigmas has to permute; compare against an independent recomputation
-    cfg = copy.deepcopy(fitted_fixture["config"])
-    cfg["parameters"]["ion-1"]["Z"]["active"] = True
-    all_data = fitted_fixture["all_data"]
-    sa = fitted_fixture["sa"]
-    sample_indices = fitted_fixture["sample_indices"]
-    batch_size = cfg["optimizer"]["batch_size"]
-
-    with mlflow.start_run():
-        num_batches = len(sample_indices) // batch_size or 1
-        fitted_weights, _, loss_fn = one_d_loop(cfg, all_data, sa, sample_indices, num_batches)
-
-    all_params, num_params = unbatch_fitted_params(cfg, fitted_weights)
-    ordered = [(species, key) for species, params in all_params.items() for key in params.keys()]
-
-    ts_params0 = fitted_weights[0]
-    filter_spec = get_filter_spec(cfg["parameters"], ts_params0)
-    diff_params0, static_params0 = eqx.partition(ts_params0, filter_spec)
-    batch0 = build_batch(all_data, sample_indices[:batch_size], cfg["data"]["background"]["bg_subtract"])
-    hess0 = loss_fn.h_loss_wrt_params_per_lineout(diff_params0, static_params0, batch0)
-
-    fitted_params0, _ = ts_params0.get_fitted_params(cfg["parameters"])
-    sigmas = get_sigmas(hess0, diff_params0, static_params0, fitted_params0, batch_size)
-
-    def _leaf(tree, species, key):
-        nkey = f"normed_{key}" if key != "fract" else key
-        if species.startswith("ion-"):
-            return getattr(tree.ions[int(species.split("-")[1]) - 1], nkey)
-        return getattr(getattr(tree, species), nkey)
-
-    independent = np.zeros((batch_size, len(ordered)))
-    for i in range(batch_size):
-        temp = np.zeros((len(ordered), len(ordered)))
-        for a, (sp1, k1) in enumerate(ordered):
-            outer = _leaf(hess0, sp1, k1)
-            for b, (sp2, k2) in enumerate(ordered):
-                temp[a, b] = np.asarray(_leaf(outer, sp2, k2))[i]
-        # physical covariance: J (2 H^-1) J^T, with J from central differences of the parameter transform
-        jac = np.zeros((len(ordered), len(ordered)))
-        step = 1e-5
-        for b, (sp2, k2) in enumerate(ordered):
-            nkey = f"normed_{k2}" if k2 != "fract" else k2
-            if sp2.startswith("ion-"):
-                where = lambda t, _sp=sp2, _k=nkey: getattr(t.ions[int(_sp.split("-")[1]) - 1], _k)
-            else:
-                where = lambda t, _sp=sp2, _k=nkey: getattr(getattr(t, _sp), _k)
-            plus = eqx.tree_at(where, ts_params0, replace_fn=lambda x: x + step).get_unnormed_params()
-            minus = eqx.tree_at(where, ts_params0, replace_fn=lambda x: x - step).get_unnormed_params()
-            for a, (sp1, k1) in enumerate(ordered):
-                jac[a, b] = (np.asarray(plus[sp1][k1])[i] - np.asarray(minus[sp1][k1])[i]) / (2 * step)
-        covariance = jac @ (2.0 * np.linalg.inv(temp)) @ jac.T
-        independent[i, :] = np.sign(np.diag(covariance)) * np.sqrt(np.abs(np.diag(covariance)))
-
-    np.testing.assert_allclose(sigmas, independent, rtol=1e-5)
 
 
 def test_h_loss_wrt_params_per_lineout_matches_full_hessian_diagonal(fitted_fixture):
@@ -197,6 +99,58 @@ def test_get_sigmas_raises_when_fe_active():
     fitted_params = {"electron": {"Te": None, "m": None}, "general": {}, "ion-1": {}}
     with pytest.raises(NotImplementedError):
         get_sigmas(None, None, None, fitted_params, batch_size=2)
+
+
+MIXED_FREE = (("electron", "ne"), ("electron", "Te"), ("general", "amp1"), ("ion-1", "Ti"))
+
+
+def _physical_columns(params, columns, lineout):
+    unnormed = params.get_unnormed_params()
+    return np.array([np.asarray(unnormed[s][k]).ravel()[lineout] for s, k in columns])
+
+
+def test_get_sigmas_propagates_a_known_hessian_through_mixed_parameters():
+    cfg = harness.diagnostic_config(Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,)), harness.EPW_DETECTOR)
+    p = cfg["parameters"]
+    for species, key in MIXED_FREE:
+        p[species][key]["active"] = True
+    params = ThomsonParams(p, num_params=2, activate=True)
+    diff, static = eqx.partition(params, get_filter_spec(p, params))
+    diff = jax.tree_util.tree_map(lambda x: x + np.array([0.0, 0.4]), diff)
+    leaves, treedef = jax.tree_util.tree_flatten(diff)
+    n = len(leaves)
+
+    rng = np.random.default_rng(3)
+    hessians = []
+    for _ in range(2):
+        a = rng.normal(size=(n, n))
+        hessians.append(a @ a.T + n * np.diag(10.0 ** rng.uniform(-1, 2, n)))
+    hess = jax.tree_util.tree_unflatten(
+        treedef,
+        [
+            jax.tree_util.tree_unflatten(treedef, [np.array([h[k1, k2] for h in hessians]) for k2 in range(n)])
+            for k1 in range(n)
+        ],
+    )
+
+    fitted, _ = eqx.combine(static, diff).get_fitted_params(p)
+    columns = [(species, key) for species, keys in fitted.items() for key in keys if key not in ("fe", "f", "flm")]
+    assert sorted(columns) == sorted(MIXED_FREE)
+    sigmas = get_sigmas(hess, diff, static, fitted, batch_size=2)
+
+    step = 1.0e-6
+    for i, h in enumerate(hessians):
+        jac = np.zeros((len(columns), n))
+        for k in range(n):
+            shifted = []
+            for sign in (1.0, -1.0):
+                bumped = [leaf.at[i].add(sign * step) if j == k else leaf for j, leaf in enumerate(leaves)]
+                weights = eqx.combine(static, jax.tree_util.tree_unflatten(treedef, bumped))
+                shifted.append(_physical_columns(weights, columns, i))
+            jac[:, k] = (shifted[0] - shifted[1]) / (2 * step)
+        expected = np.sqrt(np.diag(jac @ (2.0 * np.linalg.inv(h)) @ jac.T))
+        np.testing.assert_allclose(sigmas[i], expected, rtol=1e-6)
+    assert np.all(sigmas[0] != sigmas[1])
 
 
 def test_a_failed_sigma_calculation_is_reported_as_nan(fitted_fixture, monkeypatch):

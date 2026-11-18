@@ -27,8 +27,8 @@ The physics-only commands are:
    pytest tests/ -m "physics and slow"
 
 The second command is the scheduled reference/NERSC lane. See
-:ref:`physics_validation` for the case inventory, tolerance evidence, and detailed
-requirements for adding a physics-validation case.
+:ref:`physics_validation` for what every test checks, the tolerance evidence, and how to
+add a test.
 
 Physics-test review checklist
 -----------------------------

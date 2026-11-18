@@ -7,6 +7,8 @@ In addition to the options covered in :ref:`Configuring the inputs <inputs_deck>
 
 To run a series of forward passes, any of the fit parameters can be turned into a list of values. This list will then be iterated over to produce a series of spectra relflecting the series of parameters. For example, if the electron temperature is turned into a list of values, then a series of spectra will be produced for each value of the electron temperature. Multiple parameters can be turned into lists at the same time, but they must all be the same length.
 
+A forward run is tagged ``validity`` in the same way as a fit. The tag reports whether :math:`\alpha` and, for numeric ion distributions, :math:`\beta` stay inside the verified range across the whole series (see :ref:`validity-flag`). Numeric electron and ion distributions are supported in forward runs only.
+
 
 Other
 -----------------------------

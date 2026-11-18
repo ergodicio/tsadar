@@ -1,11 +1,7 @@
 """Detector-coordinate and area-preserving IRF regressions for ARTS."""
 
-from types import SimpleNamespace
-from pathlib import Path
-
 import numpy as np
 import pytest
-import yaml
 from jax import config
 
 config.update("jax_enable_x64", True)
@@ -19,30 +15,13 @@ from tsadar.core.instrument.irf import (
     add_ATS_IRF,
 )
 from tsadar.utils.detector_grid import detector_edges_from_centers, grouped_detector_edges, oversampled_axis
-from tsadar.core import thomson_diagnostic
-from tsadar.core.thomson_diagnostic import (
-    ThomsonScatteringDiagnostic,
-    _ensure_angular_detector_edges,
-)
+from tsadar.core.thomson_diagnostic import _ensure_angular_detector_edges
 from tsadar.data import prepare
 from tsadar.data.calibration import get_calibrations
-from tsadar.utils.misc import merge_defaults_and_inputs
 
 
 def _instrument_params():
     return {"general": {"lam": 0.0, "amp1": 1.0, "amp2": 1.0}}
-
-
-def test_shipped_arts2d_deck_exposes_detector_irf_and_quadrature():
-    repository = Path(__file__).resolve().parents[2]
-    defaults = yaml.safe_load((repository / "configs/arts-2d/defaults.yaml").read_text())
-    inputs = yaml.safe_load((repository / "configs/arts-2d/inputs.yaml").read_text())
-
-    merged = merge_defaults_and_inputs(defaults, inputs)
-
-    assert merged["other"]["extraoptions"]["spectype"] == "angular"
-    assert merged["other"]["detector_specs"]["widIRF"]["spect_FWHM_ele"] == 0.9
-    assert merged["other"]["resonance_quadrature"]["enabled"] is True
 
 
 def test_detector_edges_distinguish_centers_from_finite_pixel_support():
@@ -94,10 +73,7 @@ def test_oversampled_axis_rejects_invalid_points_per_pixel(bad_points_per_pixel)
         oversampled_axis(np.arange(4.0), bad_points_per_pixel)
 
 
-@pytest.mark.parametrize("fe_dim, detector_binned", [(2, True), (1, False)])
-def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_bins(
-    monkeypatch, fe_dim, detector_binned
-):
+def test_prepare_data_drops_a_ragged_final_arts_spectral_unit_on_the_uniform_model_grid(monkeypatch):
     electron_data = np.arange(20.0).reshape(5, 4)
     ion_data = np.zeros_like(electron_data)
     wavelength_centers = np.arange(5.0) + 0.5
@@ -150,7 +126,7 @@ def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_
         },
         "feature_detector": {"estimate_lineouts_epw": False, "estimate_lineouts_iaw": False},
         "optimizer": {"batch_size": 1},
-        "parameters": {"electron": {"fe": {"dim": fe_dim}}},
+        "parameters": {"electron": {"fe": {"dim": 1}}},
         "other": {
             "CCDsize": [5, 4],
             "ang_res_unit": 2,
@@ -163,12 +139,7 @@ def test_prepare_data_keeps_a_ragged_final_arts_spectral_unit_only_for_detector_
 
     all_data, _, all_axes = prepare.prepare_data(cfg, 1)
 
-    # 5 wavelength pixels in units of 2. The detector-bin quadrature keeps the fifth pixel as a
-    # half-width unit; the uniform model grid drops it.
-    if detector_binned:
-        centers, edges = np.array([1.0, 3.0, 4.5]), np.array([0.0, 2.0, 4.0, 5.0])
-    else:
-        centers, edges = np.array([1.0, 3.0]), np.array([0.0, 2.0, 4.0])
+    centers, edges = np.array([1.0, 3.0]), np.array([0.0, 2.0, 4.0])
     np.testing.assert_array_equal(all_axes["epw_y"].squeeze(), centers)
     np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_edges"], edges)
     np.testing.assert_array_equal(cfg["other"]["detector_specs"]["electron_wavelength_centers"], centers)
@@ -371,116 +342,3 @@ def test_real_nonuniform_angular_irf_preserves_physical_area_and_center():
     np.testing.assert_allclose(constant[interior], 1.0, rtol=0, atol=1e-6)
 
 
-def test_ats_can_skip_spectral_blur_after_detector_bin_quadrature():
-    angles = np.linspace(-5.0, 5.0, 101)
-    wavelengths = jnp.array([-1.0, 0.0, 1.0])
-    detector_bin_means = jnp.tile(jnp.array([[0.0, 1.0, 0.0]]), (angles.size, 1))
-    irf = AngularIRF(spect_stddev=0.5, ang_stddev=0.3, ang_axis=angles, normalize=0)
-
-    _, angular_only = add_ATS_IRF(
-        irf,
-        wavelengths,
-        detector_bin_means,
-        _instrument_params(),
-        apply_spectral_blur=False,
-    )
-
-    np.testing.assert_allclose(np.asarray(angular_only[angles.size // 2]), np.array([0.0, 1.0, 0.0]), atol=1e-12)
-
-
-def test_diagnostic_does_not_apply_a_second_spectral_irf(monkeypatch):
-    diagnostic = ThomsonScatteringDiagnostic.__new__(ThomsonScatteringDiagnostic)
-    diagnostic.cfg = {
-        "data": {"load_ele_spec": True, "load_ion_spec": False},
-        "other": {"extraoptions": {"spectype": "angular_full"}},
-    }
-    diagnostic.model = SimpleNamespace(electron_spectrum_is_detector_binned=True)
-    diagnostic.ats_irf = object()
-    called = {}
-
-    def capture_ats_irf(
-        irf_description,
-        wavelength_axis,
-        model,
-        instrument_params,
-        *,
-        apply_spectral_blur,
-    ):
-        del irf_description, instrument_params
-        called["apply_spectral_blur"] = apply_spectral_blur
-        return wavelength_axis, model
-
-    monkeypatch.setattr(thomson_diagnostic.irf, "add_ATS_IRF", capture_ats_irf)
-    wavelengths = jnp.asarray([1.0, 2.0, 3.0])
-    model = jnp.ones((2, 3))
-    output, _, output_axis, _ = diagnostic.postprocess_theory(
-        model,
-        0,
-        wavelengths,
-        jnp.zeros(1),
-        {"e_amps": 1.0, "i_amps": 1.0},
-        _instrument_params(),
-    )
-
-    assert called["apply_spectral_blur"] is False
-    np.testing.assert_array_equal(np.asarray(output), np.asarray(model))
-    np.testing.assert_array_equal(np.asarray(output_axis), np.asarray(wavelengths))
-
-
-def test_detector_binned_arts_reduction_only_reduces_angle():
-    diagnostic = ThomsonScatteringDiagnostic.__new__(ThomsonScatteringDiagnostic)
-    diagnostic.model = SimpleNamespace(electron_spectrum_is_detector_binned=True)
-    diagnostic.cfg = {
-        "other": {"CCDsize": [2, 3], "ang_res_unit": 2},
-        "data": {"lineouts": {"start": 0, "end": 2}},
-    }
-    wavelengths = jnp.asarray([1.0, 2.0, 4.0])
-    model = jnp.asarray(
-        [
-            [1.0, 2.0, 3.0],
-            [2.0, 4.0, 6.0],
-            [3.0, 6.0, 9.0],
-            [4.0, 8.0, 12.0],
-        ]
-    )
-    batch = {
-        "e_data": np.ones((2, 3)),
-        # Measured maxima are deliberately unrelated to the model. They must not
-        # enter the differentiable forward calculation.
-        "e_amps": jnp.asarray([[1.0e6], [1.0e-6]]),
-    }
-    instrument_params = {
-        "general": {"lam": 0.0, "amp1": 1.0, "amp2": 1.0}
-    }
-
-    reduced, reduced_axis = diagnostic.reduce_ATS_to_resunit(
-        model, wavelengths, instrument_params, batch
-    )
-
-    assert reduced.shape == (2, 3)
-    np.testing.assert_array_equal(np.asarray(reduced_axis), np.asarray(wavelengths))
-    np.testing.assert_allclose(
-        np.asarray(reduced),
-        np.asarray([[1.5, 3.0, 4.5], [3.5, 7.0, 10.5]]),
-    )
-
-
-def test_detector_binned_arts_reduction_keeps_a_ragged_angular_group():
-    diagnostic = ThomsonScatteringDiagnostic.__new__(ThomsonScatteringDiagnostic)
-    diagnostic.model = SimpleNamespace(electron_spectrum_is_detector_binned=True)
-    diagnostic.cfg = {
-        "other": {"CCDsize": [2, 2], "ang_res_unit": 3},
-        "data": {"lineouts": {"start": 0, "end": 2}},
-    }
-    wavelengths = jnp.asarray([1.0, 2.0])
-    model = jnp.arange(10.0).reshape(5, 2) + 1
-    batch = {"e_data": np.ones((2, 2)), "e_amps": jnp.ones((2, 1))}
-    instrument_params = {
-        "general": {"lam": 0.0, "amp1": 1.0, "amp2": 1.0}
-    }
-
-    reduced, _ = diagnostic.reduce_ATS_to_resunit(
-        model, wavelengths, instrument_params, batch
-    )
-
-    assert reduced.shape == (2, 2)
