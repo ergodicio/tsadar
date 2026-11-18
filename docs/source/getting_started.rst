@@ -461,6 +461,27 @@ Learned parameters
 
 Like the data and fits, the learned parameters are also provided in numerical form via a csv file and in visual form via the learned parameters plots. The csv file contains the fitted parameters for every lineout.
 
+.. _validity-flag:
+
+Scattering parameters and the validity flag
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The csv also has two kinds of derived columns, computed for every lineout from the final plasma conditions. They say how collective the scattering is and whether the result lies in the range where TSADAR's spectrum has been verified.
+
+- ``alpha`` is the Salpeter parameter :math:`\alpha = 1/(k\lambda_{De})`. It uses the probe wavelength and the smallest scattering angle of the aperture. For :math:`\alpha < 1` the scattering is non-collective: the electron spectrum follows the electron velocity distribution. For :math:`\alpha > 1` it is collective: the spectrum shows the electron plasma wave (EPW) and ion-acoustic wave (IAW) features. The EPW resonance sits near :math:`\xi = \sqrt{\alpha^2 + 3}` electron thermal velocities.
+- ``beta_ion-N`` is the ion scattering parameter of species N, :math:`\beta^2 = (Z T_e/T_i)\,\alpha^2/(1+\alpha^2)`. The IAW resonance sits near :math:`\sqrt{\beta^2 + 3}` ion thermal velocities. A large :math:`\beta` means weak ion Landau damping and sharp IAW peaks.
+
+TSADAR computes the electron susceptibility by quadrature over a 1024-point velocity grid. As :math:`\alpha` grows, the EPW becomes weakly damped and the spectrum amplifies small errors in that quadrature. Against the exact spectrum, the error stays below 0.25 % of the peak up to :math:`\alpha \approx 3.4`. For :math:`\alpha` = 4–6 it rises to several percent, and to 77 % once the narrow line is finely sampled.
+
+Ion species with ``fi: type: numeric`` are integrated the same way, and their table ends at 8.2 ion thermal velocities. Past :math:`\beta \approx 8` their resonance lies on an extrapolated tail, and its accuracy depends on the shape of the distribution near that edge. Maxwellian ions use the exact plasma dispersion function, so their :math:`\beta` is reported but not limited.
+
+Every run carries an MLflow tag ``validity`` built from these limits, and the same message goes to the log as a warning:
+
+- ``within alpha <= 3.5`` (with ``beta_ion-N <= 8.0`` added for numeric ion species) when every lineout is inside the limits.
+- ``likely under-resolved: alpha=4.21 (limit 3.5)`` otherwise. It names the largest value past each limit.
+
+A flagged result is not necessarily wrong. It lies outside the verified range, so check the fit against the data and treat its plasma conditions with caution. Because ``alpha`` uses the smallest scattering angle, angular (ARTS) data are flagged whenever their smallest angles are collective enough. That flag tells you the small-angle rows need the resonance treatment that is still in development. Forward runs carry the same tag (see :ref:`forward`). The measurements behind the limits are on the :doc:`Test Suite <physics_validation>` page.
+
 
 .. image:: _elfolder/lparam_epw.PNG
 

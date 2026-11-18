@@ -142,6 +142,41 @@ the EPW peak for :math:`k\lambda_{De}` = 0.15–0.25 (0.4 % with 4096 points and
 finer :math:`\xi_2`, 0.1 % with 8192), and to 0.6 % for a positive-slope bump-on-tail at
 :math:`\alpha \approx 2`. Those cases are not tested; see *Future work*.
 
+Validity flag
+~~~~~~~~~~~~~
+
+Results outside this scope are not rejected. They are reported: every fit and forward run
+records :math:`\alpha` and :math:`\beta` per lineout and an MLflow ``validity`` tag (see
+:ref:`validity-flag`). The limits come from where the current code breaks down: FormFactor
+against the oracle, peak-normalized :math:`L_\infty`, at 1024 and 8192 wavelengths.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Scan
+     - Error
+     - Limit
+   * - EPW, Maxwellian electrons (quadrature), :math:`\alpha` from angle and from
+       :math:`n_e`
+     - 1.4e-4 to 2.3e-3 for :math:`\alpha` = 1.2–3.4; 2.9e-3 to 9e-3 at 4.0–4.1; 6e-3 to
+       0.77 at 4.8–5.9 (the larger value at 8192 points, which resolve the narrowing line).
+       Above :math:`\alpha \approx 7` the line falls between samples, so the small errors
+       there mean nothing.
+     - :math:`\alpha \le 3.5`
+   * - IAW, Maxwellian ions (Faddeeva :math:`Z'`), :math:`\alpha` = 2.06, :math:`\beta`
+       from :math:`Z T_e/T_i`
+     - ≤ 7e-4 for :math:`\beta \le 2.9`; 1.3e-3 to 3.9e-3 for 4–6; flat at 4e-3 to 6e-3
+       out to :math:`\beta` = 31
+     - none
+   * - IAW, numeric ions, same plasmas
+     - as for Maxwellian ions up to :math:`\beta` = 8; 1.1e-2 at 11, just past the
+       :math:`|\xi| = 8.2` table
+     - :math:`\beta \le 8`
+
+``test_validity.py`` checks that :math:`\alpha` and :math:`\beta` match the oracle's
+:math:`1/(k\lambda_{De})` to 1e-3, that every physics case is inside the limits, and that
+the flag marks a case past each limit.
+
 Cases and tolerances
 ~~~~~~~~~~~~~~~~~~~~
 
@@ -200,7 +235,7 @@ Tolerances are set from measured errors; the measured values are in brackets.
        :math:`v_T`; high-Z IAW (Au, Z = 40, :math:`T_i/T_e` = 0.25) at 8192 wavelengths
      - Continuity at both edges 1e-5 (≤ 1.1e-6). At 0.5, 4 and 30 past each edge:
        Maxwellian 2e-4 (9e-5), A3 3e-2 (≤ 1.7e-2); the beam is checked for continuity only
-       (13 % there, see *Defects found*). :math:`Z'` series against Faddeeva to 1e-5.
+       (up to 15 % there, see *Defects found*). :math:`Z'` series against Faddeeva to 1e-5.
        High-Z: :math:`L_\infty` 1e-2 (5.8e-3), peaks 5e-5 nm (1e-5)
    * - S1
      - Recovery of (ne, Te) from the EPW and (Va, Ti) from the IAW, from displaced starts,
@@ -270,9 +305,11 @@ Defects found
   moment series :math:`\sum_n (n+1) M_n/\xi^{n+2}` (moments 0–5 of :math:`f`) plus a
   residual decaying as :math:`(\xi_{edge}/\xi)^5` that matches the table at the edge. A
   distribution with a narrow feature near the edge, such as the 6 :math:`v_T` beam, is
-  continuous but still 13 % off just past the edge, because its moment series converges
-  slowly there. Its tail lies past the grid that resolves it, which is outside the scope
-  above.
+  continuous but still off past the edge: 2.3 % at :math:`\xi` = 8.3, 15 % at 10 and 8 %
+  at 15. Its moment series converges slowly there. A resonance that far out needs
+  :math:`\alpha \gtrsim 8` for electrons or :math:`\beta \gtrsim 8` for numeric ions.
+  Both are past the limits above, so such a result is flagged as likely under-resolved
+  rather than corrected.
 * **Numeric distributions with zero tails.** Zero density in the csv gave NaN in every
   pixel (log interpolation). Values below :math:`e^{-50}` are now raised to it with a
   warning, and negative values are rejected.
@@ -332,7 +369,9 @@ Unit and contract tests
   an EDF). ``fitter.fit`` and the fit-replay path reject ``type: numeric`` for ``fe`` or
   any ``fi``; ``calc_vs_data`` and every other distribution type are unaffected
   (``test_inverse/test_validate_inputs.py``). ``test_forward/test_numeric_edf.py`` loads
-  electron and ion csvs with zero tails.
+  electron and ion csvs with zero tails, through the full diagnostic and from the minimal
+  numeric block (no ``params``). A numeric ion distribution with a 2-D electron
+  distribution raises ``NotImplementedError`` until the 2-D path supports it (#165).
 
 Future work
 -----------
