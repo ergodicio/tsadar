@@ -113,7 +113,7 @@ def _numeric_edf(components, folder, name):
         header="v,f",
         comments="",
     )
-    return {"dim": 1, "type": "numeric", "file": str(path), "active": False, "nvx": NUMERIC_V.size, "params": {}}
+    return {"dim": 1, "type": "numeric", "file": str(path), "active": False, "nvx": NUMERIC_V.size}
 
 
 def _ion_block(ion):

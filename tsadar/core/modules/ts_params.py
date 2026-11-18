@@ -591,6 +591,14 @@ class ThomsonParams(eqx.Module):
     def __init__(self, param_cfg, num_params: int, batch=True, activate=False):
         super().__init__()
 
+        if param_cfg["electron"]["fe"]["dim"] == 2 and any(
+            cfg.get("fi", {}).get("type", "mx").casefold() == "numeric"
+            for species, cfg in param_cfg.items()
+            if "ion" in species
+        ):
+            raise NotImplementedError(
+                "Numeric ion distributions are not supported with a 2-D electron distribution yet (see #165)."
+            )
         self.electron = ElectronParams(param_cfg["electron"], num_params, batch, activate)
         self.ions = []
         for ion_index in range(len([species for species in param_cfg.keys() if "ion" in species])):
@@ -628,7 +636,7 @@ class ThomsonParams(eqx.Module):
         """
         zbar = 0
         z2bar = 0
-        m_config = self.param_cfg["electron"]["fe"]["params"].get("m", {})
+        m_config = self.param_cfg["electron"]["fe"].get("params", {}).get("m", {})
         if m_config.get("matte", False):
             for ion_index in range(len(self.ions)):
                 zbar += tmp_dict[f"ion-{ion_index+1}"]["fract"]*tmp_dict[f"ion-{ion_index+1}"]["Z"]
