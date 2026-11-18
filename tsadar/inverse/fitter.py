@@ -18,7 +18,7 @@ from ..data import prepare
 from ..utils.misc import rename_deprecated_gain_keys
 
 
-def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict]):
+def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params: Optional[Dict], sa):
     """
     Persists the raw fit results to mlflow independently of postprocess, so they survive even if
     postprocess is skipped (config["other"]["run_postprocess"] = False) or fails partway through.
@@ -39,6 +39,7 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
             a single ThomsonParams for angular fits).
         all_params (Optional[Dict]): Unbatched fitted parameters from unbatch_fitted_params, or None
             (angular fits don't compute this at the fitter level).
+        sa: The scattering angles the fit used.
     Returns:
         The dict returned by plotters.get_final_params, or None if all_params wasn't available.
     """
@@ -60,7 +61,7 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
 
         final_params = None
         if all_params is not None:
-            final_params = plotters.get_final_params(config, all_params, all_axes, td)
+            final_params = plotters.get_final_params(config, all_params, all_axes, td, sa)
 
         mlflow.log_artifacts(td)
 
@@ -292,7 +293,7 @@ def fit(config) -> Tuple[pd.DataFrame, float]:
     mlflow.log_metrics({"overall loss": float(overall_loss)})
     mlflow.log_metrics({"fit_time": round(time.time() - t1, 2)})
 
-    saved_final_params = _save_fit_artifacts(config, all_axes, fitted_weights, all_params)
+    saved_final_params = _save_fit_artifacts(config, all_axes, fitted_weights, all_params, sa)
 
     if config["other"].get("run_postprocess", True):
         mlflow.set_tag("status", "postprocessing")

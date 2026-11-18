@@ -46,8 +46,11 @@ def test_alpha_is_the_oracle_value_and_every_physics_case_is_within_the_validity
 )
 def test_the_flag_marks_the_measured_breakdown(plasma, numeric, flagged):
     """The limits of the measured breakdown (Test suite page)."""
-    message = validity_message(_scattering(plasma), numeric)
-    if flagged is None:
-        assert message is None
-    else:
-        assert message is not None and flagged in message
+    scattering = _scattering(plasma)
+    padded = {name: np.append(value, np.nan) for name, value in scattering.items()}
+    for values, expect in ((scattering, flagged), (padded, flagged or "alpha")):
+        message = validity_message(values, numeric)
+        if expect is None:
+            assert message is None
+        else:
+            assert message is not None and expect in message

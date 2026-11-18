@@ -44,13 +44,16 @@ def _limits(numeric_species):
 
 def validity_message(scattering, numeric_species=()):
     """
-    None when alpha <= 3.5 and beta <= 8 for every numeric ion species; otherwise the message naming the values past
-    their limits. beta of a Maxwellian species is not limited.
+    None when every alpha <= 3.5 and every beta of a numeric ion species <= 8; otherwise the message naming the
+    values past their limits. A non-finite value counts as past its limit; beta of a Maxwellian species is not
+    limited.
     """
     limits = _limits(numeric_species)
-    over = {
-        name: float(np.max(scattering[name])) for name, limit in limits.items() if np.max(scattering[name]) > limit
-    }
+    over = {}
+    for name, limit in limits.items():
+        value = np.asarray(scattering[name], dtype=float)
+        if not np.all(value <= limit):
+            over[name] = float(np.max(np.where(np.isfinite(value), value, np.inf)))
     if not over:
         return None
     values = ", ".join(f"{name}={value:.2f} (limit {limits[name]})" for name, value in over.items())
