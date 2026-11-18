@@ -52,15 +52,12 @@ Layout
      conftest.py             session setup (above)
      physics/                checks against physics, at every depth of the code
        harness.py            builds tsadar inputs from an oracle plasma
-       compare.py            the detector-depth comparison and TSADAR's tolerances
+       adapter.py            TsadarAdapter: tsadar as a code under test for tsverify
+       conftest.py           the ts_adapter fixture
+       test_tsverify.py      tsverify's conformance tests: L2, L3, A10, A12, A1 sweep (slow)
        test_kernels.py       L1: susceptibility kernel and Z'
-       test_spectra.py       L2: FormFactor
-       test_detector.py      L3: the full diagnostic
-       test_averaging.py     A10: gradients, aperture, species
        test_notch.py         A13: spectrum breakdown
-       test_relativistic.py  A12: relativistic limit
        test_inverse.py       L4: S1-S3
-       test_sweeps.py        scheduled: A1 over a plasma matrix
      pipeline/test_real_shot.py   the production pipeline on real data
      test_form_factor/       ratintn numerics (singular nodes, AD branches, GPU)
      test_forward/           detector edges and IRF area/centroid (incl. angular IRF)
@@ -76,7 +73,11 @@ Design: one oracle, four depths
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The oracle and the case catalog live in `tsverify <https://github.com/almilder/tsverify>`_,
-a separate package (NumPy and SciPy only) pinned in the ``test`` extra. ``tsverify.oracle``
+a separate package (NumPy and SciPy only) pinned in the ``test`` extra. So do the code-independent
+tests (L2, L3, A10, A12 and the A1 sweep, in ``tsverify.conformance``): ``test_tsverify.py``
+runs them against TSADAR through ``TsadarAdapter``, which maps an oracle plasma and scattering
+volume onto ``FormFactor`` and the diagnostic. The tolerances are tsverify's ``REFERENCE``
+tier. L1, A13 and L4 use TSADAR internals and stay here. ``tsverify.oracle``
 computes the collisionless Thomson spectrum independently of TSADAR. Every susceptibility comes from the Faddeeva function,
 :math:`\chi_s = [1 + \zeta_s Z(\zeta_s)]/(k\lambda_{Ds})^2` with
 :math:`Z(\zeta) = i\sqrt{\pi}\,w(\zeta)`, for Maxwellian or Gaussian-mixture species (a
@@ -376,7 +377,7 @@ These are outside this suite on purpose and should be added with the code they n
 * **High phase velocity** (:math:`\alpha > 3.5`, weakly damped EPWs, positive-slope
   bumps): test with the resonance quadrature (peak refinement) together with the
   collisional model; the plain sampled form factor is not expected to pass there. Drop the
-  :math:`\alpha` filter in ``test_sweeps.py`` then.
+  :math:`\alpha` filter in the A1 sweep (``tsverify.conformance``) then.
 * **Collective relativistic regime:** the EPW phase velocity can approach :math:`c` at
   moderate :math:`T_e`, and the first-order factor fails much sooner than in the
   non-collective limit (Palastro et al., Phys. Rev. E 81, 036411, 2010, figs. 5–9:

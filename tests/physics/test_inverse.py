@@ -17,9 +17,9 @@ from tsadar.inverse.postprocess.laplace import get_sigmas
 
 from tsverify import oracle as oracles
 from tsverify.cases import A1_CASES
+from tsverify.compare import oracle_detector
 
 from . import harness
-from .compare import oracle_detector
 
 pytestmark = pytest.mark.physics
 
