@@ -79,3 +79,11 @@ gradient-based methods can be applied to solve this many parameter optimization 
 
 ## Citation
 1. Milder, A. L., Joglekar, A. S., Rozmus, W. & Froula, D. H. Qualitative and quantitative enhancement of parameter estimation for model-based diagnostics using automatic differentiation with an application to inertial fusion. Mach. Learn.: Sci. Technol. 5, 015026 (2024).
+
+## License
+tsadar is free for noncommercial use, including research, teaching and personal projects, under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). For commercial use, contact the authors
+(amild@lle.rochester.edu, archis@ergodic.io).
+
+If you use tsadar in published work, please cite the article above. [CITATION.cff](CITATION.cff) has the
+citation in machine-readable form, and GitHub shows it under "Cite this repository".
