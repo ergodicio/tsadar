@@ -6,9 +6,15 @@ import pytest
 from .. import oracles
 from ..oracles import Ion, Plasma
 from .cases import SPECTRUM_CASES
-from .harness import MAXWELLIAN
+from .harness import EPW_DETECTOR, MAXWELLIAN, diagnostic_config
 
-from tsadar.core.physics.validity import scattering_parameters, validity_message
+from tsadar.core.modules.ts_params import ThomsonParams
+from tsadar.core.physics.validity import (
+    plasma_conditions,
+    scattering_from_conditions,
+    scattering_parameters,
+    validity_message,
+)
 
 pytestmark = pytest.mark.physics
 
@@ -54,3 +60,17 @@ def test_the_flag_marks_the_measured_breakdown(plasma, numeric, flagged):
             assert message is None
         else:
             assert message is not None and expect in message
+
+
+def test_the_fit_state_gives_alpha_and_beta_for_fixed_and_fitted_parameters_alike():
+    """Two fit batches of a CH deck with ne and ion-1 Ti active, everything else fixed, and ion-2 Ti tied to ion-1."""
+    plasma = next(case.plasma for case in SPECTRUM_CASES if case.name == "A1-iaw-CH-relative-drift")
+    params = diagnostic_config(plasma, EPW_DETECTOR)["parameters"]
+    params["electron"]["ne"]["active"] = True
+    params["ion-1"]["Ti"]["active"] = True
+    params["ion-2"]["Ti"].update(val=5.0, same=True)
+    batches = [ThomsonParams(params, num_params=2, batch=True) for _ in range(2)]
+    scattering = scattering_from_conditions(plasma_conditions(batches), [plasma.angle_deg])
+    expected = _scattering(plasma)
+    for name, value in expected.items():
+        np.testing.assert_allclose(scattering[name], np.full(4, value), rtol=1e-6, err_msg=name)

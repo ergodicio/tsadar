@@ -397,7 +397,7 @@ def mcmc_postprocess(
     with tempfile.TemporaryDirectory() as td:
         _ = [os.makedirs(os.path.join(td, dirname), exist_ok=True) for dirname in ["plots", "binary", "csv"]]
 
-        final_params = plotters.get_final_params(config, all_params_mean, all_axes, td, sa)
+        final_params = plotters.get_final_params(config, all_params_mean, all_axes, td, sa, fitted_weights)
         mcmc_sigmas_ds = plotters.save_sigmas_params_mcmc(config, all_params_mean, mcmc_sigmas, all_axes, td)
         plotters.plot_final_params(config, all_params_mean, mcmc_sigmas_ds, td)
         plotters.plot_mcmc_diagnostics(

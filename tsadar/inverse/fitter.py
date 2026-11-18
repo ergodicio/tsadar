@@ -61,7 +61,7 @@ def _save_fit_artifacts(config: Dict, all_axes: Dict, fitted_weights, all_params
 
         final_params = None
         if all_params is not None:
-            final_params = plotters.get_final_params(config, all_params, all_axes, td, sa)
+            final_params = plotters.get_final_params(config, all_params, all_axes, td, sa, fitted_weights)
 
         mlflow.log_artifacts(td)
 

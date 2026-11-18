@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import xarray as xr
 from matplotlib.colors import ListedColormap
 
-from tsadar.core.physics.validity import numeric_ion_species, report_validity, scattering_parameters
+from tsadar.core.physics.validity import numeric_ion_species, plasma_conditions, report_validity, scattering_from_conditions
 from tsadar.utils.plotting.lineout_plot import lineout_plot
 
 
@@ -42,7 +42,7 @@ def white_transition_cmap(base_cmap_name, transition_len=20):
     return ListedColormap(colors)
 
 
-def get_final_params(config, best_weights, all_axes, td, sa):
+def get_final_params(config, best_weights, all_axes, td, sa, fitted_weights):
     """
     Formats and saves the final fitted parameters and distribution function.
     This function processes the fitted parameters and distribution functions for all species, formats them into pandas DataFrames, and saves them as CSV files in a specified temporary directory. It handles different parameter structures depending on the species and configuration, and combines the results into a single output dictionary.
@@ -84,24 +84,7 @@ def get_final_params(config, best_weights, all_axes, td, sa):
                 #     all_params[k] = pandas.Series(v.reshape(-1))
 
     final_params = pandas.DataFrame(all_params)
-    num_states = len(all_params["ne_electron"]) if "ne_electron" in all_params else 1
-
-    def _value(species, key):
-        if key == "Ti" and species != "ion-1" and config["parameters"][species]["Ti"].get("same", False):
-            species = "ion-1"
-        column = f"{key}_{species}"
-        if column in all_params:
-            return np.asarray(all_params[column], dtype=float)
-        return np.full(num_states, float(config["parameters"][species][key]["val"]))
-
-    ion_species = [s for s in config["parameters"] if "ion" in s]
-    scattering = scattering_parameters(
-        _value("electron", "ne"),
-        _value("electron", "Te"),
-        {s: (_value(s, "Z"), _value(s, "Ti")) for s in ion_species},
-        _value("general", "lam"),
-        sa["sa"],
-    )
+    scattering = scattering_from_conditions(plasma_conditions(fitted_weights), sa["sa"])
     for name, value in scattering.items():
         final_params[name] = pandas.Series(np.asarray(value))
     report_validity(scattering, numeric_ion_species(config["parameters"]))

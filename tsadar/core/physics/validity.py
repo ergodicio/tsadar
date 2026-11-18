@@ -38,6 +38,29 @@ def scattering_parameters(ne, Te, ions, lam_nm, angles_deg):
     return out
 
 
+def plasma_conditions(fitted_weights):
+    """
+    ne, Te, lam and each ion species' Z and Ti for every fitted state, from the full physical parameters of a
+    ThomsonParams (or a list of them, one per fit batch), fixed and fitted parameters alike.
+    """
+    weights = fitted_weights if isinstance(fitted_weights, (list, tuple)) else [fitted_weights]
+    conditions = {}
+    for weight in weights:
+        physical = weight()
+        for species, values in physical.items():
+            keys = ("Z", "Ti") if "ion" in species else {"electron": ("ne", "Te"), "general": ("lam",)}.get(species, ())
+            for key in keys:
+                conditions.setdefault(species, {}).setdefault(key, []).append(np.ravel(np.asarray(values[key], float)))
+    return {species: {key: np.concatenate(v) for key, v in c.items()} for species, c in conditions.items()}
+
+
+def scattering_from_conditions(conditions, angles_deg):
+    """scattering_parameters for the output of plasma_conditions."""
+    ions = {species: (c["Z"], c["Ti"]) for species, c in conditions.items() if "ion" in species}
+    electron = conditions["electron"]
+    return scattering_parameters(electron["ne"], electron["Te"], ions, conditions["general"]["lam"], angles_deg)
+
+
 def _limits(numeric_species):
     return {"alpha": ALPHA_LIMIT} | {f"beta_{species}": NUMERIC_BETA_LIMIT for species in numeric_species}
 
