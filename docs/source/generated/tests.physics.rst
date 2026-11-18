@@ -4,10 +4,10 @@ tests.physics package
 Submodules
 ----------
 
-tests.physics.compare module
+tests.physics.adapter module
 ----------------------------
 
-.. automodule:: tests.physics.compare
+.. automodule:: tests.physics.adapter
    :members:
    :undoc-members:
    :show-inheritance:
@@ -16,22 +16,6 @@ tests.physics.harness module
 ----------------------------
 
 .. automodule:: tests.physics.harness
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tests.physics.test\_averaging module
-------------------------------------
-
-.. automodule:: tests.physics.test_averaging
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tests.physics.test\_detector module
------------------------------------
-
-.. automodule:: tests.physics.test_detector
    :members:
    :undoc-members:
    :show-inheritance:
@@ -60,18 +44,10 @@ tests.physics.test\_notch module
    :undoc-members:
    :show-inheritance:
 
-tests.physics.test\_spectra module
-----------------------------------
+tests.physics.test\_tsverify module
+-----------------------------------
 
-.. automodule:: tests.physics.test_spectra
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tests.physics.test\_sweeps module
----------------------------------
-
-.. automodule:: tests.physics.test_sweeps
+.. automodule:: tests.physics.test_tsverify
    :members:
    :undoc-members:
    :show-inheritance:
