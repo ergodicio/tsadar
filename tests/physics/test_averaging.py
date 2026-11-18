@@ -5,10 +5,11 @@ import dataclasses
 import numpy as np
 import pytest
 
-from .. import oracles
-from ..oracles import Ion, Plasma
+from tsverify import oracle as oracles
+from tsverify.cases import A1_CASES
+from tsverify.oracle import Ion, Plasma
+
 from . import harness
-from .cases import A1_CASES
 from .compare import assert_detector_matches, oracle_detector
 
 pytestmark = pytest.mark.physics

@@ -13,9 +13,10 @@ from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.inverse.loops import build_batch, one_d_loop, unbatch_fitted_params
 from tsadar.inverse.postprocess.laplace import get_sigmas, recalculate_with_chosen_weights
 
-from ..oracles import Plasma
+from tsverify.cases import HYDROGEN
+from tsverify.oracle import Plasma
+
 from ..physics import harness
-from ..physics.cases import HYDROGEN
 from .shared import base_config
 
 

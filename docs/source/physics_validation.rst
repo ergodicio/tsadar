@@ -49,12 +49,10 @@ Layout
 .. code-block:: text
 
    tests/
-     oracles.py              analytic reference spectra (NumPy/SciPy only)
      conftest.py             session setup (above)
      physics/                checks against physics, at every depth of the code
-       cases.py              the analytic cases (data)
        harness.py            builds tsadar inputs from an oracle plasma
-       compare.py            the detector-depth comparison
+       compare.py            the detector-depth comparison and TSADAR's tolerances
        test_kernels.py       L1: susceptibility kernel and Z'
        test_spectra.py       L2: FormFactor
        test_detector.py      L3: the full diagnostic
@@ -62,7 +60,6 @@ Layout
        test_notch.py         A13: spectrum breakdown
        test_relativistic.py  A12: relativistic limit
        test_inverse.py       L4: S1-S3
-       test_oracle.py        the oracle against independent physics
        test_sweeps.py        scheduled: A1 over a plasma matrix
      pipeline/test_real_shot.py   the production pipeline on real data
      test_form_factor/       ratintn numerics (singular nodes, AD branches, GPU)
@@ -78,8 +75,9 @@ Physics suite
 Design: one oracle, four depths
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``tests/oracles.py`` computes the collisionless Thomson spectrum independently of
-TSADAR. Every susceptibility comes from the Faddeeva function,
+The oracle and the case catalog live in `tsverify <https://github.com/almilder/tsverify>`_,
+a separate package (NumPy and SciPy only) pinned in the ``test`` extra. ``tsverify.oracle``
+computes the collisionless Thomson spectrum independently of TSADAR. Every susceptibility comes from the Faddeeva function,
 :math:`\chi_s = [1 + \zeta_s Z(\zeta_s)]/(k\lambda_{Ds})^2` with
 :math:`Z(\zeta) = i\sqrt{\pi}\,w(\zeta)`, for Maxwellian or Gaussian-mixture species (a
 mixture's :math:`\chi` is the sum of shifted, scaled Faddeeva terms). Distributions with
@@ -118,8 +116,8 @@ comparisons are absolute. The same oracle is compared with TSADAR at four depths
      - data made by the oracle
 
 L3 is also the plumbing test: a shift, scale or smear anywhere between the form factor
-and the detector fails against physics. Cases are data (``PhysicsCase`` in
-``cases.py``), so a new plasma is checked at every depth. Non-Maxwellian distributions
+and the detector fails against physics. Cases are data (``Case`` in
+``tsverify.cases``), so a new plasma is checked at every depth. Non-Maxwellian distributions
 reach TSADAR the way a user gives one: written to a csv and loaded as
 ``type: numeric`` (``fe`` for electrons, ``fi`` for ions).
 
@@ -263,7 +261,7 @@ hold: the inverse activation in ``ts_params`` is a stabilized logit,
 The oracle against independent physics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``test_oracle.py`` and ``test_relativistic.py`` check the oracle itself:
+``tsverify.selftest`` checks the oracle itself (``pytest --pyargs tsverify.selftest``):
 
 * A6, equilibrium sum rule: for Maxwellian species at one temperature,
   :math:`\int S\,d\omega = (k^2 + \sum_s k_s^2)/(k^2 + k_e^2 + \sum_s k_s^2)` (Debye–Hückel),
@@ -394,10 +392,10 @@ These are outside this suite on purpose and should be added with the code they n
 Adding a test
 -------------
 
-* A new plasma: add a ``PhysicsCase`` to ``cases.py`` (Gaussian mixtures or a
-  ``QuadratureEDF`` for the distributions). It is then checked at L1, L2 and L3.
-* Keep the oracle free of TSADAR imports and state the equation or identity in its
-  docstring.
+* A new plasma: add a ``Case`` to ``tsverify.cases`` (Gaussian mixtures or a
+  ``QuadratureEDF`` for the distributions), release tsverify, and bump the pin. It is then
+  checked at L1, L2 and L3.
+* Oracle changes go to tsverify, with a self-test stating the equation or identity.
 * Set tolerances from measured errors and record the measurement and what limits it on
   this page.
 * Stay in the well-resolved regime unless the case uses the resonance-aware path.

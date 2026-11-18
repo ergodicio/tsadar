@@ -3,11 +3,6 @@
 import numpy as np
 import pytest
 
-from .. import oracles
-from ..oracles import Ion, Plasma
-from .cases import SPECTRUM_CASES
-from .harness import EPW_DETECTOR, MAXWELLIAN, diagnostic_config
-
 from tsadar.core.modules.ts_params import ThomsonParams
 from tsadar.core.physics.validity import (
     plasma_conditions,
@@ -15,6 +10,11 @@ from tsadar.core.physics.validity import (
     scattering_parameters,
     validity_message,
 )
+from tsverify import oracle as oracles
+from tsverify.cases import SPECTRUM_CASES
+from tsverify.oracle import Ion, Plasma
+
+from .harness import EPW_DETECTOR, MAXWELLIAN, diagnostic_config
 
 pytestmark = pytest.mark.physics
 

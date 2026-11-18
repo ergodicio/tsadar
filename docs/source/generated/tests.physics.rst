@@ -4,14 +4,6 @@ tests.physics package
 Submodules
 ----------
 
-tests.physics.cases module
---------------------------
-
-.. automodule:: tests.physics.cases
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 tests.physics.compare module
 ----------------------------
 
@@ -64,14 +56,6 @@ tests.physics.test\_notch module
 --------------------------------
 
 .. automodule:: tests.physics.test_notch
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-tests.physics.test\_oracle module
----------------------------------
-
-.. automodule:: tests.physics.test_oracle
    :members:
    :undoc-members:
    :show-inheritance:

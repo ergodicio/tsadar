@@ -3,9 +3,10 @@
 import numpy as np
 import pytest
 
-from .. import oracles
+from tsverify import oracle as oracles
+from tsverify.cases import SPECTRUM_CASES
+
 from . import harness
-from .cases import SPECTRUM_CASES
 from .compare import assert_detector_matches, oracle_detector
 
 pytestmark = pytest.mark.physics

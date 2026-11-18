@@ -15,9 +15,10 @@ from tsadar.inverse.loss_function import LossFunction
 from tsadar.inverse.postprocess import mcmc
 from tsadar.inverse.postprocess.laplace import get_sigmas
 
-from .. import oracles
+from tsverify import oracle as oracles
+from tsverify.cases import A1_CASES
+
 from . import harness
-from .cases import A1_CASES
 from .compare import oracle_detector
 
 pytestmark = pytest.mark.physics

@@ -19,7 +19,9 @@ from tsadar.core.modules.ts_params import ThomsonParams
 from tsadar.core.physics.form_factor import FormFactor
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
-from ..oracles import GaussianComponent, Plasma, mixture_density
+from tsverify.cases import EPW_DETECTOR, IAW_DETECTOR
+from tsverify.instrument import Detector
+from tsverify.oracle import GaussianComponent, Plasma, mixture_density
 
 DECK = Path(__file__).parents[1] / "configs" / "1d-defaults.yaml"
 MAXWELLIAN = (GaussianComponent(),)
@@ -62,40 +64,6 @@ def form_factor(plasma: Plasma, lam_range, npts, **edf):
     )
     spectrum, lam_cm = ff(form_factor_params(plasma, **edf))
     return np.squeeze(np.asarray(lam_cm)) * 1.0e7, np.squeeze(np.asarray(spectrum))
-
-
-@dataclass(frozen=True)
-class Detector:
-    """One spectrometer channel: pixel centres, IRF width, fit ranges and an optional notch."""
-
-    channel: str
-    lam_range: tuple[float, float]
-    pixels: int
-    points_per_pixel: int
-    sigma: float
-    amp_ranges: tuple[tuple[float, float], ...]
-    notch: tuple[float, float, float] | None = None
-    amplitude: float = 100.0
-
-
-EPW_DETECTOR = Detector(
-    channel="EPW",
-    lam_range=(440.0, 630.0),
-    pixels=128,
-    points_per_pixel=8,
-    sigma=1.3,
-    amp_ranges=((442.0, 522.0), (531.0, 628.0)),
-    notch=(526.5, 24.0, 4.0),
-)
-
-IAW_DETECTOR = Detector(
-    channel="IAW",
-    lam_range=(524.5, 528.5),
-    pixels=128,
-    points_per_pixel=8,
-    sigma=0.05,
-    amp_ranges=((524.6, 526.4), (526.6, 528.4)),
-)
 
 
 @lru_cache(maxsize=1)

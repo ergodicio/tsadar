@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 from jax import numpy as jnp
 
-from .. import oracles
+from tsverify import oracle as oracles
+from tsverify.cases import SPECTRUM_CASES
+
 from . import harness
-from .cases import SPECTRUM_CASES
 
 pytestmark = pytest.mark.physics
 
