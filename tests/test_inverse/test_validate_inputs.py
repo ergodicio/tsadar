@@ -10,7 +10,7 @@ import mlflow
 
 from tsadar.core.modules.ts_params import ThomsonParams
 from tsadar.inverse import fitter
-from tsadar.inverse.fitter import OMEGA_TS_GAIN, _check_ion_locks_, _validate_inputs_, reject_numeric_distributions
+from tsadar.inverse.fitter import OMEGA_TS_GAIN, _validate_inputs_, reject_numeric_distributions
 from tsadar.postprocess_runner import _reconstruct_fit_state
 
 
@@ -142,7 +142,6 @@ def _three_ions(base_config, ti_same=(False, False, False), va_same=(False, Fals
 
 def test_ion_locks_copy_ti_and_va_from_the_named_species(base_config):
     params = _three_ions(base_config, ti_same=(False, False, "ion-2"), va_same=(False, "ion-3", False))
-    _check_ion_locks_(params)
     out = ThomsonParams(params, num_params=1).get_unnormed_params()
     assert float(out["ion-3"]["Ti"][0]) == pytest.approx(0.5)
     assert float(out["ion-2"]["Va"][0]) == pytest.approx(3.0)
@@ -155,8 +154,7 @@ def test_ion_locks_copy_ti_and_va_from_the_named_species(base_config):
 def test_legacy_same_true_locks_to_ion_1_with_a_deprecation_warning(base_config):
     params = _three_ions(base_config, ti_same=(False, False, True))
     with pytest.warns(FutureWarning, match="same: true is deprecated"):
-        _check_ion_locks_(params)
-    out = ThomsonParams(params, num_params=1).get_unnormed_params()
+        out = ThomsonParams(params, num_params=1).get_unnormed_params()
     assert float(out["ion-3"]["Ti"][0]) == pytest.approx(0.2)
 
 
@@ -166,4 +164,4 @@ def test_legacy_same_true_locks_to_ion_1_with_a_deprecation_warning(base_config)
 )
 def test_an_ion_lock_must_name_a_different_unlocked_species(base_config, ti_same):
     with pytest.raises(ValueError, match="Ti:same"):
-        _check_ion_locks_(_three_ions(base_config, ti_same=ti_same))
+        ThomsonParams(_three_ions(base_config, ti_same=ti_same), num_params=1)
