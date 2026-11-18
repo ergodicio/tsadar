@@ -14,6 +14,7 @@ import mlflow
 
 from tsadar.inverse.loops import multirun_angular_optax, one_d_loop, unbatch_fitted_params
 
+from ..core.modules.ts_params import ion_lock_target
 from ..data import prepare
 from ..utils.misc import rename_deprecated_gain_keys
 
@@ -87,6 +88,27 @@ def _check_spectral_smoothing_(config: Dict) -> int:
     if value != "default" and not (isinstance(value, int) and not isinstance(value, bool) and value >= 1 and value % 2 == 1):
         raise ValueError("data:spectral_smoothing must be 'default' or a positive odd integer (1 for no smoothing)")
     return 2 * config["data"]["dpixel"] + 1 if value == "default" else value
+
+
+def _check_ion_locks_(params: Dict) -> None:
+    """Validates the ``same`` locks on ion Ti and Va and warns about the deprecated ``same: true``."""
+    ion_species = [s for s in params if "ion" in s]
+    for species in ion_species:
+        for key in ("Ti", "Va"):
+            if params[species].get(key, {}).get("same", False) is True:
+                warnings.warn(
+                    f"parameters:{species}:{key}:same: true is deprecated and will be removed in a future version. "
+                    "It locks to ion-1; name the target species instead, e.g. 'same: ion-1'.",
+                    FutureWarning,
+                )
+            target = ion_lock_target(params, species, key)
+            if target is not None and (
+                target not in ion_species or target == species or ion_lock_target(params, target, key) is not None
+            ):
+                raise ValueError(
+                    f"parameters:{species}:{key}:same must name a different ion species whose {key} is not itself "
+                    f"locked, got {target!r}"
+                )
 
 
 def _validate_inputs_(config: Dict) -> Dict:
@@ -208,7 +230,7 @@ def _validate_inputs_(config: Dict) -> Dict:
             raise ValueError("Matte based m-values are only supported for 1D DLM electron distribution functions")
         elif config["parameters"]["electron"]["fe"]["active"]:
             raise ValueError("Matte based m-values cannot be fit, please set active to false for fe when using the Matte model")
-    
+    _check_ion_locks_(config["parameters"])
 
     # get slices - support both forward (start < end) and reverse (start > end) iteration
     start = config["data"]["lineouts"]["start"]

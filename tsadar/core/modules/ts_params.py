@@ -21,6 +21,12 @@ from .distribution_functions.base import (
 from .distribution_functions.spherical_harmonics import SphericalHarmonics
 
 
+def ion_lock_target(param_cfg: Dict, species: str, key: str) -> Union[str, None]:
+    """The ion species whose ``key`` (Ti or Va) ``species`` is locked to, or None. Legacy ``same: true`` means ion-1."""
+    same = param_cfg[species].get(key, {}).get("same", False)
+    return "ion-1" if same is True else (same or None)
+
+
 class ElectronParams(eqx.Module):
     """
     ElectronParams encapsulates the parameters and distribution functions for electron populations
@@ -610,21 +616,17 @@ class ThomsonParams(eqx.Module):
 
     def renormalize_ions(self, tmp_dict):
         """
-        Renormalizes the fractional abundances of ions in the provided dictionary so that their sum equals 1.
-        For each ion, if the temperature ("Ti") is set to be the same as the first ion (as specified in the parameter configuration),
-        it copies the temperature value from the first ion. Then, it sums the fractional abundances ("fract") of all ions.
-        Finally, it normalizes each ion's fractional abundance by dividing by the total sum.
-        Args:
-            tmp_dict (dict): A dictionary containing ion parameters, where each ion is keyed as "ion-1", "ion-2", etc.,
-                             and contains at least the keys "Ti" (temperature) and "fract" (fractional abundance).
-        Returns:
-            dict: The updated dictionary with normalized fractional abundances and synchronized temperatures where specified.
+        Copies each locked Ti and Va (``same: ion-N``) from its target species, then renormalizes the ion
+        fractions to sum to 1.
         """
         fract_sum = 0
         for ion_index in range(len(self.ions)):
-            if ion_index > 0 and self.param_cfg[f"ion-{ion_index+1}"]["Ti"]["same"]:
-                tmp_dict[f"ion-{ion_index+1}"]["Ti"] = tmp_dict["ion-1"]["Ti"]
-            fract_sum += tmp_dict[f"ion-{ion_index+1}"]["fract"]
+            species = f"ion-{ion_index+1}"
+            for key in ("Ti", "Va"):
+                target = ion_lock_target(self.param_cfg, species, key)
+                if target is not None:
+                    tmp_dict[species][key] = tmp_dict[target][key]
+            fract_sum += tmp_dict[species]["fract"]
         for ion_index in range(len(self.ions)):
             tmp_dict[f"ion-{ion_index+1}"]["fract"] /= fract_sum
 

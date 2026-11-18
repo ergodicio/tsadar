@@ -369,6 +369,10 @@ Unit and contract tests
   electron and ion csvs with zero tails, through the full diagnostic and from the minimal
   numeric block (no ``params``). A numeric ion distribution with a 2-D electron
   distribution raises ``NotImplementedError`` until the 2-D path supports it (#165).
+* Ion locks (``test_inverse/test_validate_inputs.py``): with three ions, ``Ti: same: ion-2``
+  and ``Va: same: ion-3`` return the target's value and leave the other species' values
+  unchanged. The legacy ``same: true`` warns and locks to ion-1. A target that is missing,
+  is the species itself, or is locked for that parameter raises.
 
 Future work
 -----------
