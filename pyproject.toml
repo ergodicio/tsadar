@@ -60,7 +60,6 @@ docs = [
 ]
 test = [
     "pytest",
-    "pytest-xdist",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -18,7 +18,7 @@ Running the tests
      - Command
      - When
    * - Pull request
-     - ``pytest -m "not slow" -n 2 --dist loadfile tests/``
+     - ``pytest -m "not slow" tests/``
      - every PR (``.github/workflows/test.yaml``)
    * - Scheduled
      - ``pytest -m "physics and slow" tests/``
@@ -27,10 +27,7 @@ Running the tests
      - ``pytest tests/test_form_factor/test_ratintn_gpu.py``
      - opt-in, on a GPU runner
 
-The PR lane runs on two ``pytest-xdist`` workers. A worker peaks at about 4.75 GB (9.1 GB
-for two), which fits the 16 GB hosted runner; ``-n auto`` would start four.
-``--dist loadfile`` keeps each file's module-scoped fits on one worker. The lane takes
-about 5.5 minutes on CI.
+The PR lane runs serially, in one process.
 
 Markers: ``physics`` (a check against physics), ``slow`` (scheduled lane only), ``gpu``.
 
@@ -404,5 +401,4 @@ Adding a test
 * Set tolerances from measured errors and record the measurement and what limits it on
   this page.
 * Stay in the well-resolved regime unless the case uses the resonance-aware path.
-* Record plain floats with ``record_property`` (xdist cannot send NumPy floats between
-  workers), and mark expensive tests ``slow``.
+* Record plain floats with ``record_property``, and mark expensive tests ``slow``.
