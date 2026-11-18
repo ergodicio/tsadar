@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import xarray as xr
 from matplotlib.colors import ListedColormap
 
+from tsadar.core.physics.validity import numeric_ion_species, report_validity, scattering_parameters
+from tsadar.data.calibration import get_scattering_angles
 from tsadar.utils.plotting.lineout_plot import lineout_plot
 
 
@@ -83,6 +85,25 @@ def get_final_params(config, best_weights, all_axes, td):
                 #     all_params[k] = pandas.Series(v.reshape(-1))
 
     final_params = pandas.DataFrame(all_params)
+    def _value(species, key):
+        if key == "Ti" and species != "ion-1" and config["parameters"][species]["Ti"].get("same", False):
+            species = "ion-1"
+        column = f"{key}_{species}"
+        if column in final_params:
+            return np.asarray(final_params[column], dtype=float)
+        return np.full(len(final_params), float(config["parameters"][species][key]["val"]))
+
+    ion_species = [s for s in config["parameters"] if "ion" in s]
+    scattering = scattering_parameters(
+        _value("electron", "ne"),
+        _value("electron", "Te"),
+        {s: (_value(s, "Z"), _value(s, "Ti")) for s in ion_species},
+        _value("general", "lam"),
+        get_scattering_angles(config)["sa"],
+    )
+    for name, value in scattering.items():
+        final_params[name] = np.asarray(value)
+    report_validity(scattering, numeric_ion_species(config["parameters"]))
     if config["data"]["load_ion_spec"]:
         final_params.insert(0, all_axes["x_label"], np.array(all_axes["iaw_x"][config["data"]["lineouts"]["pixelI"]]))
         final_params.insert(0, "lineout pixel", config["data"]["lineouts"]["pixelI"])
