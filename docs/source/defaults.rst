@@ -86,7 +86,10 @@ These parameters are found in the ``parameters:ion-1`` section of the input deck
 
 - ``Ti`` is the ion temperature in keV
     
-    - ``same`` is a special field for ion temperature; if multiple ions are used subsequent ions can have this boolean set to True in order to use a single ion temperature for all ion species
+    - ``same`` locks this species' ``Ti`` to another species: ``same: ion-1`` uses ion-1's ``Ti`` (fit or fixed) in place of this species' own. The target must be a different ion species whose ``Ti`` is not itself locked, so to give three species one temperature, set ``same: ion-1`` on both ion-2 and ion-3. ``same: false`` (the default) leaves ``Ti`` independent.
+
+      .. deprecated:: 0.5.1
+          ``same: true`` locks to ion-1 and will be removed in a future version; name the target species instead.
 
 - ``Z`` is the average ionization state of the parent species
 
@@ -96,6 +99,8 @@ These parameters are found in the ``parameters:ion-1`` section of the input deck
 
 - ``Va`` is the species lab-frame flow velocity in 10^6 cm/s. For 2-D distributions,
   ``angle`` gives its direction from the x-axis in degrees.
+
+    - ``same`` locks the flow speed to another species, as for ``Ti``. ``angle`` is not locked; give locked species the same ``angle``.
     
 .. versionadded:: 0.2.0
     Va is now associated with indivdual ions allowing for counter-streaming plasmas or other complicated flow configurations. In previous versions the flow was a general parameter that was applied to all ions.

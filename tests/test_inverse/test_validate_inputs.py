@@ -8,6 +8,7 @@ from flatten_dict import flatten, unflatten
 from tsadar.data.lineouts import spectral_smoothing_width
 import mlflow
 
+from tsadar.core.modules.ts_params import ThomsonParams
 from tsadar.inverse import fitter
 from tsadar.inverse.fitter import OMEGA_TS_GAIN, _validate_inputs_, reject_numeric_distributions
 from tsadar.postprocess_runner import _reconstruct_fit_state
@@ -128,3 +129,39 @@ def test_other_distribution_types_are_not_rejected(base_config, fe_type):
     cfg = copy.deepcopy(base_config)
     cfg["parameters"]["electron"]["fe"]["type"] = fe_type
     reject_numeric_distributions(cfg)
+
+
+def _three_ions(base_config, ti_same=(False, False, False), va_same=(False, False, False)):
+    params = copy.deepcopy(base_config["parameters"])
+    for i, (Ti, Va) in enumerate([(0.2, -1.0), (0.5, 1.0), (1.5, 3.0)], start=1):
+        params[f"ion-{i}"] = copy.deepcopy(base_config["parameters"]["ion-1"])
+        params[f"ion-{i}"]["Ti"].update(val=Ti, same=ti_same[i - 1])
+        params[f"ion-{i}"]["Va"].update(val=Va, same=va_same[i - 1])
+    return params
+
+
+def test_ion_locks_copy_ti_and_va_from_the_named_species(base_config):
+    params = _three_ions(base_config, ti_same=(False, False, "ion-2"), va_same=(False, "ion-3", False))
+    out = ThomsonParams(params, num_params=1).get_unnormed_params()
+    assert float(out["ion-3"]["Ti"][0]) == pytest.approx(0.5)
+    assert float(out["ion-2"]["Va"][0]) == pytest.approx(3.0)
+    assert float(out["ion-2"]["Ti"][0]) == pytest.approx(0.5)
+    assert float(out["ion-3"]["Va"][0]) == pytest.approx(3.0)
+    assert float(out["ion-1"]["Ti"][0]) == pytest.approx(0.2)
+    assert float(out["ion-1"]["Va"][0]) == pytest.approx(-1.0)
+
+
+def test_legacy_same_true_locks_to_ion_1_with_a_deprecation_warning(base_config):
+    params = _three_ions(base_config, ti_same=(False, False, True))
+    with pytest.warns(FutureWarning, match="same: true is deprecated"):
+        out = ThomsonParams(params, num_params=1).get_unnormed_params()
+    assert float(out["ion-3"]["Ti"][0]) == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(
+    "ti_same",
+    [(False, "ion-2", "ion-1"), (False, "ion-2", False), (False, "ion-4", False), ("ion-2", "ion-1", False)],
+)
+def test_an_ion_lock_must_name_a_different_unlocked_species(base_config, ti_same):
+    with pytest.raises(ValueError, match="Ti:same"):
+        ThomsonParams(_three_ions(base_config, ti_same=ti_same), num_params=1)
