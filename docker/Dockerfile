@@ -4,7 +4,7 @@ FROM mambaorg/micromamba:latest
 WORKDIR /app
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER tsadar /app/tsadar
-COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md /app/
+COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md LICENSE /app/
 COPY --chown=$MAMBA_USER:$MAMBA_USER docker/fit_for_app.py docker/run.sh /app/
 RUN chmod +x run.sh
 
