@@ -3,8 +3,9 @@
 import numpy as np
 import pytest
 
+from tsverify.cases import A1_CASES
+
 from . import harness
-from .cases import A1_CASES
 
 pytestmark = pytest.mark.physics
 

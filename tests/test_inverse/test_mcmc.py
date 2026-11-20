@@ -589,9 +589,10 @@ class _ShiftedGaussianLikelihood:
 def test_calibration_draws_propagate_into_the_pooled_posterior():
     from tsadar.core.modules.ts_params import ThomsonParams
 
-    from ..oracles import Plasma
+    from tsverify.cases import HYDROGEN
+    from tsverify.oracle import Plasma
+
     from ..physics import harness
-    from ..physics.cases import HYDROGEN
 
     cfg = harness.diagnostic_config(Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,)), harness.EPW_DETECTOR)
     cfg["parameters"]["electron"]["Te"]["active"] = True

@@ -13,8 +13,9 @@ from tsadar.core.modules.distribution_functions.base import Numeric1V
 from tsadar.core.modules.ts_params import ThomsonParams
 from tsadar.core.thomson_diagnostic import ThomsonScatteringDiagnostic
 
-from ..oracles import GaussianComponent as G
-from ..oracles import Ion, Plasma
+from tsverify.oracle import GaussianComponent as G
+from tsverify.oracle import Ion, Plasma
+
 from ..physics.harness import EPW_DETECTOR, IAW_DETECTOR, diagnostic_config
 
 PLASMA = Plasma(

@@ -18,14 +18,6 @@ Subpackages
 Submodules
 ----------
 
-tests.oracles module
---------------------
-
-.. automodule:: tests.oracles
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 tests.test\_postprocess\_runner module
 --------------------------------------
 

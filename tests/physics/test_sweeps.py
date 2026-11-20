@@ -5,8 +5,9 @@ import itertools
 import numpy as np
 import pytest
 
-from .. import oracles
-from ..oracles import ELECTRON_MASS, Ion, Plasma
+from tsverify import oracle as oracles
+from tsverify.oracle import ELECTRON_MASS, Ion, Plasma
+
 from . import harness
 
 pytestmark = [pytest.mark.physics, pytest.mark.slow]

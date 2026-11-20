@@ -2,9 +2,11 @@
 
 import pytest
 
-from .. import oracles
+from tsverify import oracle as oracles
+from tsverify.cases import SPECTRUM_CASES
+
 from . import harness
-from .cases import SPECTRUM_CASES
+from .compare import L2_TOL
 
 pytestmark = pytest.mark.physics
 
@@ -15,7 +17,7 @@ def test_form_factor_matches_analytic_spectral_density(case, npts):
     lam, model = harness.form_factor(case.plasma, case.detector.lam_range, npts=npts)
     expected = oracles.spectral_density(lam, case.plasma)
     linf, l1 = oracles.relative_errors(model, expected)
-    linf_tol, l1_tol = case.l2_tol
+    linf_tol, l1_tol = L2_TOL[case.problem]
     assert linf < linf_tol and l1 < l1_tol, (
         f"{case.problem}-L2/{case}: FormFactor departs from the analytic S(k, w): "
         f"peak-normalized Linf={linf:.2e} (tol {linf_tol:.1e}), L1={l1:.2e} (tol {l1_tol:.1e})"

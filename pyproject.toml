@@ -62,7 +62,11 @@ docs = [
 ]
 test = [
     "pytest",
+    "tsverify @ git+https://github.com/almilder/tsverify@v0.1.0",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["tsadar"]

@@ -2,8 +2,9 @@
 
 import numpy as np
 
-from .. import oracles
+from tsverify import oracle as oracles
 
+L2_TOL = {"A1": (1.0e-3, 5.0e-4), "A3": (2.5e-3, 1.5e-3), "A5": (1.0e-3, 5.0e-4)}
 LINF_TOL = {"EPW": 1.5e-3, "IAW": 1.0e-3}
 L1_TOL = {"EPW": 1.0e-3, "IAW": 1.0e-3}
 NOTCH_EDGE_SIGMAS = 2.0
