@@ -253,8 +253,8 @@ class FormFactor:
 
         # basic quantities
         self.C = 2.99792458e10
-        self.Me = 510.9896 / self.C**2  # electron mass keV/C^2
-        self.Mp = self.Me * 1836.1  # proton mass keV/C^2
+        self.Me = 510.99895069 / self.C**2  # electron mass keV/C^2
+        self.Mp = self.Me * 1836.152673426  # proton mass keV/C^2
         # self.lambda_range = lambda_range
         self.npts = npts
         self.h = 0.01
@@ -365,7 +365,7 @@ class FormFactor:
         vx = params["electron"]["v"]
 
         Mi = A * self.Mp  # ion mass [1, 1, 1, ns]
-        re = 2.8179e-13  # classical electron radius cm
+        re = 2.8179403205e-13  # classical electron radius cm
         Esq = self.Me * self.C**2 * re  # sq of the electron charge keV cm
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
         sarad = self.scattering_angles["sa"] * jnp.pi / 180  # scattering angle in radians
@@ -1028,7 +1028,7 @@ class FormFactor:
         relative_electron_flow = (ud_mag * jnp.cos(ud_angle), ud_mag * jnp.sin(ud_angle))
 
         Mi = A * self.Mp
-        re = 2.8179e-13
+        re = 2.8179403205e-13
         Esq = self.Me * self.C**2 * re
         constants = jnp.sqrt(4 * jnp.pi * Esq / self.Me)
 
