@@ -103,18 +103,9 @@ def recalculate_with_chosen_weights(
 
         if calc_sigma:
             try:
-                _check_fe_not_fit(config)
-                # Hessian with respect to the active fit parameters (diff_params) only
-                ts_params = fitted_weights[i_batch]
-                filter_spec = get_filter_spec(config["parameters"], ts_params)
-                diff_params, static_params = eqx.partition(ts_params, filter_spec)
-                hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
-                fitted_params_this_batch, _ = ts_params.get_fitted_params(config["parameters"])
-                sigmas[inds] = get_sigmas(
-                    hess, diff_params, static_params, fitted_params_this_batch, config["optimizer"]["batch_size"]
-                )
+                sigmas[inds] = calc_sigmas(config, loss_fn, fitted_weights[i_batch], batch)
             except Exception as e:
-                print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
+                print(f"Error calculating uncertainties, none have been calculated: {e}")
                 calc_sigma = False
                 # a failed calculation is reported as NaN, never as zero uncertainty
                 sigmas[:] = np.nan
@@ -182,15 +173,7 @@ def get_sigmas(hess, diff_params, static_params, fitted_params: Dict, batch_size
     Raises:
         NotImplementedError: if the DLM shape parameter m is among the fitted parameters.
     """
-    # "f"/"fe"/"flm" are always reported by get_fitted_params and are not sigma columns
-    ordered_names = [
-        (species, key)
-        for species, params in fitted_params.items()
-        for key in params.keys()
-        if key not in ("fe", "f", "flm")
-    ]
-    if any(key == "m" for _, key in ordered_names):
-        raise NotImplementedError("get_sigmas does not yet support fitting the DLM shape parameter m.")
+    ordered_names = _sigma_columns(fitted_params)
     num_params = len(ordered_names)
     sigmas = np.full((batch_size, num_params), np.nan)
     if num_params == 0:
@@ -200,19 +183,47 @@ def get_sigmas(hess, diff_params, static_params, fitted_params: Dict, batch_size
     rows = jax.tree_util.tree_leaves(
         hess, is_leaf=lambda node: jax.tree_util.tree_structure(node) == target_structure
     )
-    row_names = _named_diff_leaves(diff_params)
-    if len(rows) != len(row_names):
-        raise ValueError(f"Unexpected Hessian structure: found {len(rows)} row(s), expected {len(row_names)}")
-    name_to_row_index = {name: idx for idx, name in enumerate(row_names)}
-    if any(name not in name_to_row_index for name in ordered_names):
-        missing = [name for name in ordered_names if name not in name_to_row_index]
-        raise ValueError(f"fitted_params names not found among diff_params' active leaves: {missing}")
+    n_leaves = len(_named_diff_leaves(diff_params))
+    if len(rows) != n_leaves:
+        raise ValueError(f"Unexpected Hessian structure: found {len(rows)} row(s), expected {n_leaves}")
+    perm, jacobian_at = _leaf_to_physical(diff_params, static_params, ordered_names, batch_size)
 
     blocks = [jax.tree_util.tree_leaves(row) for row in rows]  # blocks[k1][k2][i] is d^2L/d(leaf k1[i]) d(leaf k2[i])
-    # permutation from fitted_params order (electron/general/ions) to diff_params order (electron/ions/general)
-    perm = [name_to_row_index[name] for name in ordered_names]
 
-    # jacobian[k][a] is d(physical parameter a)/d(leaf k), per lineout
+    for i in range(batch_size):
+        temp = np.array(
+            [[np.asarray(blocks[perm[k1]][perm[k2]]).reshape(-1)[i] for k2 in range(num_params)] for k1 in range(num_params)]
+        )
+        jac = jacobian_at(i)
+        covariance = jac @ (2.0 * np.linalg.inv(temp)) @ jac.T
+        sigmas[i, :] = np.sign(np.diag(covariance)) * np.sqrt(np.abs(np.diag(covariance)))
+
+    return sigmas
+
+
+def _sigma_columns(fitted_params: Dict) -> List[Tuple[str, str]]:
+    """(species, key) of every sigma column, in fitted_params order."""
+    ordered_names = [
+        (species, key)
+        for species, params in fitted_params.items()
+        for key in params.keys()
+        if key not in ("fe", "f", "flm")
+    ]
+    if any(key == "m" for _, key in ordered_names):
+        raise NotImplementedError("get_sigmas does not yet support fitting the DLM shape parameter m.")
+    return ordered_names
+
+
+def _leaf_to_physical(diff_params, static_params, ordered_names, batch_size: int):
+    """Positions of ordered_names among diff_params' leaves, and a function of the lineout giving the Jacobian
+    d(physical parameter a)/d(leaf perm[b]) in those columns."""
+    name_to_row_index = {name: idx for idx, name in enumerate(_named_diff_leaves(diff_params))}
+    missing = [name for name in ordered_names if name not in name_to_row_index]
+    if missing:
+        raise ValueError(f"fitted_params names not found among diff_params' active leaves: {missing}")
+    perm = [name_to_row_index[name] for name in ordered_names]
+    num_params = len(ordered_names)
+
     leaves, treedef = jax.tree_util.tree_flatten(diff_params)
 
     def _physical(flat_leaves):
@@ -221,21 +232,96 @@ def get_sigmas(hess, diff_params, static_params, fitted_params: Dict, batch_size
 
     jacobian = [np.asarray(j).reshape(num_params, batch_size, -1) for j in jax.jacfwd(_physical)(leaves)]
 
-    for i in range(batch_size):
-        temp = np.array(
-            [[np.asarray(blocks[perm[k1]][perm[k2]]).reshape(-1)[i] for k2 in range(num_params)] for k1 in range(num_params)]
-        )
-        # each lineout only depends on its own leaf entry (entry 0 for an unbatched leaf)
-        jac = np.array(
+    def jacobian_at(i):
+        return np.array(
             [
                 [jacobian[perm[k2]][a, i, i if jacobian[perm[k2]].shape[-1] > 1 else 0] for k2 in range(num_params)]
                 for a in range(num_params)
             ]
         )
-        covariance = jac @ (2.0 * np.linalg.inv(temp)) @ jac.T
-        sigmas[i, :] = np.sign(np.diag(covariance)) * np.sqrt(np.abs(np.diag(covariance)))
 
+    return perm, jacobian_at
+
+
+def sandwich_covariance(residual, jacobian) -> np.ndarray:
+    """HC3 sandwich covariance of a least-squares fit, per lineout.
+
+    Args:
+        residual: (batch_size, n) residuals at the best fit.
+        jacobian: (batch_size, n, p) their Jacobian with respect to the fitted coordinates.
+
+    Returns:
+        (batch_size, p, p) covariance of the fitted coordinates.
+    """
+    residual = np.asarray(residual, dtype=np.float64)
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    covariance = np.empty((jacobian.shape[0], jacobian.shape[2], jacobian.shape[2]))
+    for i, (r, j) in enumerate(zip(residual, jacobian)):
+        bread = np.linalg.inv(j.T @ j)
+        leverage = np.einsum("np,pq,nq->n", j, bread, j)
+        scores = j * (r / (1.0 - leverage))[:, None]
+        covariance[i] = bread @ (scores.T @ scores) @ bread
+    return covariance
+
+
+def get_sandwich_sigmas(residual, jacobian, diff_params, static_params, fitted_params: Dict, batch_size: int):
+    """Uncertainty in physical units from the HC3 sandwich covariance of the l2 fit.
+
+    Args:
+        residual, jacobian: as returned by LossFunction.l2_residual_jacobian_per_lineout.
+        diff_params, static_params, fitted_params, batch_size: as in get_sigmas.
+
+    Returns:
+        batch_size x number_of_parameters array, columns ordered to match fitted_params.
+    """
+    ordered_names = _sigma_columns(fitted_params)
+    sigmas = np.full((batch_size, len(ordered_names)), np.nan)
+    if not ordered_names:
+        return sigmas
+    perm, jacobian_at = _leaf_to_physical(diff_params, static_params, ordered_names, batch_size)
+    covariance_z = sandwich_covariance(residual, jacobian)
+    for i in range(batch_size):
+        jac = jacobian_at(i)
+        covariance = jac @ covariance_z[i][np.ix_(perm, perm)] @ jac.T
+        sigmas[i, :] = np.sqrt(np.diag(covariance))
     return sigmas
+
+
+SIGMA_METHODS = ("auto", "laplace", "sandwich")
+
+
+def sigma_method(config: Dict) -> str:
+    """The uncertainty method other.sigma_method selects: "auto" is the sandwich for 1D l2 fits, else Laplace."""
+    method = config["other"].get("sigma_method", "auto")
+    if method not in SIGMA_METHODS:
+        raise ValueError(f"other.sigma_method must be one of {SIGMA_METHODS}, got {method!r}")
+    least_squares = (
+        config["optimizer"]["loss_method"] == "l2"
+        and "angular" not in config["other"]["extraoptions"]["spectype"]
+    )
+    if method == "auto":
+        return "sandwich" if least_squares else "laplace"
+    if method == "sandwich" and not least_squares:
+        raise ValueError("other.sigma_method: sandwich needs optimizer.loss_method: l2 on 1D (non-angular) data")
+    return method
+
+
+def calc_sigmas(config: Dict, loss_fn: LossFunction, ts_params, batch: Dict, fitted_params: Dict = None) -> np.ndarray:
+    """Per-lineout uncertainty of the active parameters at ts_params, by the method sigma_method selects.
+
+    Returns:
+        batch_size x number_of_parameters array in physical units, columns ordered as get_fitted_params.
+    """
+    _check_fe_not_fit(config)
+    diff_params, static_params = eqx.partition(ts_params, get_filter_spec(config["parameters"], ts_params))
+    if fitted_params is None:
+        fitted_params, _ = ts_params.get_fitted_params(config["parameters"])
+    batch_size = config["optimizer"]["batch_size"]
+    if sigma_method(config) == "sandwich":
+        residual, jacobian = loss_fn.l2_residual_jacobian_per_lineout(diff_params, static_params, batch)
+        return get_sandwich_sigmas(residual, jacobian, diff_params, static_params, fitted_params, batch_size)
+    hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
+    return get_sigmas(hess, diff_params, static_params, fitted_params, batch_size)
 
 
 def postprocess(
@@ -483,16 +569,10 @@ def process_angular_data(config, batch_indices, all_data, all_axes, loss_fn, fit
     sigmas = None
     if config["other"]["calc_sigmas"]:
         try:
-            _check_fe_not_fit(config)
-            filter_spec = get_filter_spec(config["parameters"], fitted_weights)
-            diff_params, static_params = eqx.partition(fitted_weights, filter_spec)
-            hess = loss_fn.h_loss_wrt_params_per_lineout(diff_params, static_params, batch)
-            sigmas = get_sigmas(
-                hess, diff_params, static_params, batch_fitted_params, config["optimizer"]["batch_size"]
-            )
+            sigmas = calc_sigmas(config, loss_fn, fitted_weights, batch, batch_fitted_params)
             print(f"Number of 0s in sigma: {np.count_nonzero(sigmas==0)}")
         except Exception as e:
-            print(f"Error calculating Hessian, no hessian based uncertainties have been calculated: {e}")
+            print(f"Error calculating uncertainties, none have been calculated: {e}")
             sigmas = None
 
     # Logging and plotting

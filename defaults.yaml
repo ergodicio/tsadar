@@ -104,6 +104,7 @@ other:
     refit: True
     refit_thresh: 0.25
     calc_sigmas: False
+    sigma_method: auto
 
 plotting:
     n_sigmas: 3

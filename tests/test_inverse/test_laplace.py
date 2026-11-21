@@ -11,7 +11,13 @@ jax_config.update("jax_enable_x64", True)
 
 from tsadar.core.modules.ts_params import ThomsonParams, get_filter_spec
 from tsadar.inverse.loops import build_batch, one_d_loop, unbatch_fitted_params
-from tsadar.inverse.postprocess.laplace import get_sigmas, recalculate_with_chosen_weights
+from tsadar.inverse.postprocess.laplace import (
+    get_sandwich_sigmas,
+    get_sigmas,
+    recalculate_with_chosen_weights,
+    sandwich_covariance,
+    sigma_method,
+)
 
 from tsverify.cases import HYDROGEN
 from tsverify.oracle import Plasma
@@ -20,10 +26,12 @@ from ..physics import harness
 from .shared import base_config
 
 
-def test_calc_sigmas_does_not_fall_back_and_is_fast(fitted_fixture):
+@pytest.mark.parametrize("method", ["laplace", "sandwich"])
+def test_calc_sigmas_does_not_fall_back_and_is_fast(fitted_fixture, method):
     # the Hessian is taken with respect to diff_params only, so calc_sigma must complete quickly and
     # must not fall back to calc_sigma=False
-    cfg = fitted_fixture["config"]
+    cfg = copy.deepcopy(fitted_fixture["config"])
+    cfg["other"]["sigma_method"] = method
     all_data = fitted_fixture["all_data"]
     sa = fitted_fixture["sa"]
     loss_fn = fitted_fixture["loss_fn"]
@@ -160,7 +168,7 @@ def test_a_failed_sigma_calculation_is_reported_as_nan(fitted_fixture, monkeypat
     def _fail(*args, **kwargs):
         raise RuntimeError("forced failure")
 
-    monkeypatch.setattr(laplace, "get_sigmas", _fail)
+    monkeypatch.setattr(laplace, "calc_sigmas", _fail)
     cfg = fitted_fixture["config"]
     fitted_weights = fitted_fixture["fitted_weights"]
     _, num_params = unbatch_fitted_params(cfg, fitted_weights)
@@ -172,3 +180,100 @@ def test_a_failed_sigma_calculation_is_reported_as_nan(fitted_fixture, monkeypat
 
     assert sigmas.shape == (len(fitted_fixture["sample_indices"]), num_params)
     assert np.all(np.isnan(sigmas))
+
+
+def _hat_diagonal(j):
+    return np.einsum("np,pq,nq->n", j, np.linalg.inv(j.T @ j), j)
+
+
+def test_sandwich_covariance_of_leverage_scaled_residuals_is_the_inverse_normal_matrix():
+    rng = np.random.default_rng(7)
+    jac = rng.normal(size=(3, 40, 4))
+    residual = np.stack([2.5 * (1.0 - _hat_diagonal(j)) for j in jac])
+    covariance = sandwich_covariance(residual, jac)
+    for c, j in zip(covariance, jac):
+        np.testing.assert_allclose(c, 2.5**2 * np.linalg.inv(j.T @ j), rtol=1e-12)
+    np.testing.assert_allclose(sandwich_covariance(7.0 * residual, 7.0 * jac), covariance, rtol=1e-12)
+
+
+def test_get_sandwich_sigmas_matches_get_sigmas_for_the_same_covariance():
+    cfg = harness.diagnostic_config(Plasma(ne=0.2, Te=0.6, ions=(HYDROGEN,)), harness.EPW_DETECTOR)
+    p = cfg["parameters"]
+    for species, key in MIXED_FREE:
+        p[species][key]["active"] = True
+    params = ThomsonParams(p, num_params=2, activate=True)
+    diff, static = eqx.partition(params, get_filter_spec(p, params))
+    diff = jax.tree_util.tree_map(lambda x: x + np.array([0.0, 0.4]), diff)
+    _, treedef = jax.tree_util.tree_flatten(diff)
+    n = len(jax.tree_util.tree_leaves(diff))
+
+    rng = np.random.default_rng(11)
+    jac = rng.normal(size=(2, 50, n)) * 10.0 ** rng.uniform(-1, 1, n)
+    residual = np.stack([1.0 - _hat_diagonal(j) for j in jac])
+    normal = [j.T @ j for j in jac]
+    hess = jax.tree_util.tree_unflatten(
+        treedef,
+        [
+            jax.tree_util.tree_unflatten(treedef, [np.array([2.0 * a[k1, k2] for a in normal]) for k2 in range(n)])
+            for k1 in range(n)
+        ],
+    )
+    fitted, _ = eqx.combine(static, diff).get_fitted_params(p)
+    np.testing.assert_allclose(
+        get_sandwich_sigmas(residual, jac, diff, static, fitted, batch_size=2),
+        get_sigmas(hess, diff, static, fitted, batch_size=2),
+        rtol=1e-10,
+    )
+
+
+def test_l2_residual_jacobian_per_lineout_matches_the_residuals_and_their_autodiff(fitted_fixture):
+    cfg = fitted_fixture["config"]
+    loss_fn, batch = fitted_fixture["loss_fn"], fitted_fixture["batch"]
+    ts_params = fitted_fixture["fitted_weights"][0]
+    diff, static = eqx.partition(ts_params, get_filter_spec(cfg["parameters"], ts_params))
+    residual, jac = loss_fn.l2_residual_jacobian_per_lineout(diff, static, batch)
+    batch_size = cfg["optimizer"]["batch_size"]
+    leaves, treedef = jax.tree_util.tree_flatten(diff)
+    assert residual.shape[0] == batch_size and jac.shape == residual.shape + (len(leaves),)
+
+    flat, _ = loss_fn.residuals(diff, static, batch)
+    np.testing.assert_allclose(np.sum(np.asarray(residual) ** 2), np.sum(np.asarray(flat) ** 2), rtol=1e-10)
+
+    def rows_of(stacked):
+        weights = eqx.combine(static, jax.tree_util.tree_unflatten(treedef, list(stacked)))
+        parts, _ = loss_fn._l2_residual_parts(weights, batch)
+        return jax.numpy.concatenate(parts, axis=-1)
+
+    residual, jac = np.asarray(residual), np.asarray(jac)
+    np.testing.assert_allclose(residual, np.asarray(rows_of(jax.numpy.stack(leaves))), atol=1e-9 * np.abs(residual).max())
+    dense = np.asarray(jax.jacfwd(rows_of)(jax.numpy.stack(leaves)))
+    scale = np.abs(dense).max()
+    for i in range(batch_size):
+        for k in range(batch_size):
+            if k != i:
+                np.testing.assert_allclose(dense[i, :, :, k], 0.0, atol=1e-12 * scale)
+        np.testing.assert_allclose(jac[i], dense[i, :, :, i], atol=1e-9 * scale)
+
+
+@pytest.mark.parametrize(
+    "loss_method, spectype, requested, expected",
+    [
+        ("l2", "temporal", "auto", "sandwich"),
+        ("covar", "temporal", "auto", "laplace"),
+        ("l2", "angular_full", "auto", "laplace"),
+        ("l2", "temporal", "laplace", "laplace"),
+        ("poisson", "temporal", "laplace", "laplace"),
+    ],
+)
+def test_sigma_method_selection(loss_method, spectype, requested, expected):
+    cfg = {"optimizer": {"loss_method": loss_method}, "other": {"extraoptions": {"spectype": spectype}}}
+    cfg["other"]["sigma_method"] = requested
+    assert sigma_method(cfg) == expected
+
+
+@pytest.mark.parametrize("loss_method, requested", [("covar", "sandwich"), ("l2", "hessian")])
+def test_sigma_method_rejects_unsupported_requests(loss_method, requested):
+    cfg = {"optimizer": {"loss_method": loss_method}, "other": {"extraoptions": {"spectype": "temporal"}}}
+    cfg["other"]["sigma_method"] = requested
+    with pytest.raises(ValueError):
+        sigma_method(cfg)

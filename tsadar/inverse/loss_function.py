@@ -201,6 +201,7 @@ class LossFunction:
         ## this will be replaced with jacobian params jacobian inverse
         self._h_func_ = filter_jit(filter_hessian(self._loss_for_hess_fn_))
         self._h_func_per_lineout_ = filter_jit(self._h_loss_wrt_params_per_lineout_impl)
+        self._l2_jac_per_lineout_ = filter_jit(self._l2_residual_jacobian_per_lineout_impl)
         self.array_loss = filter_jit(self.post_loss)
 
     def _init_covar_pixel_indices(self, cfg, dummy_batch):
@@ -1274,6 +1275,43 @@ class LossFunction:
         covariance) whitening is left for a future change.
         """
         weights = eqx.combine(static_weights, diff_weights)
+        parts, ThryE = self._l2_residual_parts(weights, batch)
+        return jnp.concatenate([part.ravel() for part in parts]), [ThryE, weights()]
+
+    def l2_residual_jacobian_per_lineout(self, diff_params, static_params, batch):
+        """The l2 residual of each lineout and its Jacobian with respect to diff_params.
+
+        Returns ``(r, J)`` with ``r`` of shape (batch_size, n_res) and ``J`` of shape (batch_size, n_res, n_active),
+        columns in ``jax.tree_util.tree_leaves(diff_params)`` order. Every leaf must have the same (batch_size,)
+        shape, as for :meth:`h_loss_wrt_params_per_lineout`.
+        """
+        return self._l2_jac_per_lineout_(diff_params, static_params, batch)
+
+    def _l2_residual_jacobian_per_lineout_impl(self, diff_params, static_params, batch):
+        flat_diff, treedef = jax.tree_util.tree_flatten(diff_params)
+        shapes = {leaf.shape for leaf in flat_diff}
+        dtypes = {leaf.dtype for leaf in flat_diff}
+        if len(shapes) != 1 or len(dtypes) != 1:
+            raise ValueError(
+                "l2_residual_jacobian_per_lineout requires every active leaf to share one shape/dtype; "
+                f"got shapes {shapes}, dtypes {dtypes}."
+            )
+        stacked = jnp.stack(flat_diff, axis=0)
+
+        def rows_of(rows):
+            weights = eqx.combine(static_params, jax.tree_util.tree_unflatten(treedef, list(rows)))
+            parts, _ = self._l2_residual_parts(weights, batch)
+            return jnp.concatenate(parts, axis=-1)
+
+        def column(b):
+            _, out = jax.jvp(rows_of, (stacked,), (jnp.zeros_like(stacked).at[b].set(1.0),))
+            return out
+
+        jac = jax.lax.map(column, jnp.arange(len(flat_diff)))
+        return rows_of(stacked), jnp.moveaxis(jac, 0, -1)
+
+    def _l2_residual_parts(self, weights, batch: Dict):
+        """Per-feature l2 residuals, each of shape (batch_size, n_pixels), and the EPW model."""
         ThryE, ThryI, lamAxisE, lamAxisI = self.ts_diag(weights, batch)
 
         fr = self.cfg["data"]["fit_rng"]
@@ -1286,19 +1324,19 @@ class LossFunction:
                 (lamAxisI > fr["iaw_cf_max"]) & (lamAxisI < fr["iaw_max"])
             )
             scale = jnp.sqrt(self.cfg["data"]["ion_loss_scale"] / (jnp.abs(self.i_norm) * jnp.sum(mask)))
-            parts.append(jnp.where(mask, (batch["i_data"] - ThryI) * scale, 0.0).ravel())
+            parts.append(jnp.where(mask, (batch["i_data"] - ThryI) * scale, 0.0))
 
         if self.cfg["data"]["fit_EPWb"]:
             mask = (lamAxisE > fr["blue_min"]) & (lamAxisE < fr["blue_max"])
             scale = 1.0 / jnp.sqrt(jnp.abs(self.e_norm) * jnp.sum(mask) * epw_factor)
-            parts.append(jnp.where(mask, (batch["e_data"] - ThryE) * scale, 0.0).ravel())
+            parts.append(jnp.where(mask, (batch["e_data"] - ThryE) * scale, 0.0))
 
         if self.cfg["data"]["fit_EPWr"]:
             mask = (lamAxisE > fr["red_min"]) & (lamAxisE < fr["red_max"])
             scale = 1.0 / jnp.sqrt(jnp.abs(self.e_norm) * jnp.sum(mask) * epw_factor)
-            parts.append(jnp.where(mask, (batch["e_data"] - ThryE) * scale, 0.0).ravel())
+            parts.append(jnp.where(mask, (batch["e_data"] - ThryE) * scale, 0.0))
 
-        return jnp.concatenate(parts), [ThryE, weights()]
+        return parts, ThryE
 
     def __loss__(self, diff_weights, static_weights, batch: Dict):
         """

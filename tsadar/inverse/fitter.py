@@ -148,12 +148,16 @@ def _validate_inputs_(config: Dict) -> Dict:
             "pixel-to-pixel correlations itself. Setting data.spectral_smoothing to 1."
         )
         config["data"]["spectral_smoothing"] = smoothing_width = 1
-    if config["other"].get("calc_sigmas", False) and smoothing_width != 1:
-        warnings.warn(
-            f"calc_sigmas with data.spectral_smoothing={smoothing_width}: smoothing reduces and correlates the "
-            "pixel noise, so the Hessian-based uncertainties are underestimated. Set data.spectral_smoothing "
-            "to 1 for uncertainty estimates."
-        )
+    if config["other"].get("calc_sigmas", False):
+        from .postprocess.laplace import sigma_method
+
+        sigma_method(config)
+        if smoothing_width != 1:
+            warnings.warn(
+                f"calc_sigmas with data.spectral_smoothing={smoothing_width}: smoothing reduces and correlates the "
+                "pixel noise, so the uncertainties are underestimated. Set data.spectral_smoothing to 1 for "
+                "uncertainty estimates."
+            )
 
     if config["optimizer"]["loss_method"] == "covar" and config["other"]["detector_gain"] != OMEGA_TS_GAIN:
         warnings.warn(

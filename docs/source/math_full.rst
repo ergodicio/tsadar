@@ -1098,6 +1098,29 @@ since only :math:`j=i` survives. One Jacobian–vector product per active parame
 
 A true local minimum has a positive-definite Hessian, and hence :math:`\Sigma_{pp}>0`. A negative :math:`\Sigma_{pp}` instead signals that the “best fit” isn’t actually a clean minimum in that parameter’s direction – a saddle, a boundary artifact, or an under-constrained parameter. Rather than silently clamping this to a positive number, TSADAR reports :math:`\sigma_p` itself as negative, so a downstream consumer can flag the fit as suspect instead of trusting an uncertainty that was never really a curvature in the first place. As with §\ :ref:`13.4 <sec:uq-mcmc>`, the electron distribution function cannot currently be an active fit parameter when ``calc_sigmas`` is requested: its per-lineout representation as a list of separate objects rather than one batched array is incompatible with this leaf-based approach, and ``get_sigmas`` raises rather than silently mis-computing.
 
+.. _`sec:sandwich`:
+
+.. rubric:: The sandwich covariance of an l2 fit.
+
+
+With ``loss_method="l2"`` the fit minimizes :math:`\sum_i r_i^2`, the residuals of ``LossFunction.residuals`` with the constant weights of §\ :ref:`12 <sec:loss>`, while the Hessian above is taken of the :math:`-2\log L` of §\ :ref:`13.2 <sec:uq-likelihood>`, with the variance :math:`\vert d\vert`. The two objectives have different minima. The Laplace covariance is therefore evaluated away from the minimum of the function whose curvature it uses: it does not describe the scatter of the l2 estimates, and it can be indefinite there, which is one source of the negative :math:`\sigma_p` above. ``other.sigma_method`` selects what ``calc_sigmas`` computes: ``laplace`` (above), ``sandwich``, or ``auto``, the default, which is the sandwich for 1D l2 fits and the Laplace covariance otherwise.
+
+The sandwich covariance is that of the l2 estimator itself [white1980]_. With :math:`\mathbf r` the residuals of one lineout at the best fit and :math:`J=\partial\mathbf r/\partial z` their Jacobian (``LossFunction.l2_residual_jacobian_per_lineout``, one forward-mode product per active parameter, as for the Hessian above), TSADAR uses the HC3 form [mackinnon1985]_ [long2000]_:
+
+.. math::
+
+     \Sigma_z = (J^{\!\top}J)^{-1}\,J^{\!\top}\operatorname{diag}\!\left(\frac{r_i^2}{(1-h_{ii})^2}\right)J\,(J^{\!\top}J)^{-1},
+     \qquad h_{ii}=\big[J(J^{\!\top}J)^{-1}J^{\!\top}\big]_{ii}
+     \qquad(\mathtt{postprocess.laplace.get\_sandwich\_sigmas}),
+
+converted to physical units as above. It needs no noise model: each squared residual stands in for its pixel's variance, and the leverage :math:`h_{ii}` corrects for the fit pulling the residuals toward the data, so that HC3 errs toward overestimating :math:`\sigma`. The weights cancel between the outer factors and the middle one, so the result does not depend on the overall scale of the loss. The covariance is positive semi-definite by construction, so the sign convention above never applies. It is zero on noiseless data. Its assumptions:
+
+- **Uncorrelated pixels.** Noise correlated between neighboring pixels (the CCD spread function of §\ :ref:`12.3 <sec:covar>`, or ``spectral_smoothing`` above 1) is not described, and positively correlated noise makes :math:`\sigma` too small.
+- **Misfit counts as noise.** A model that does not fit the data leaves systematic residuals, which raise :math:`\sigma`.
+- **One lineout's residuals are its only sample.** :math:`\sigma` is itself an estimate, and a noisy one: on the synthetic fit problems of tsverify (about 120 fitted pixels per lineout) it scatters by 20–40 % between noise realizations, while its RMS is within 10 % of the actual scatter of the estimates. Because :math:`\sigma` is noisy, the distribution of (estimate − truth)/:math:`\sigma` is 1.1–1.25 wide rather than 1.
+
+The l2 fit with constant weights is not efficient: on the same problems its estimates scatter 1.2–1.4 times the Cramér–Rao bound, and the sandwich reports that larger scatter honestly. The ``covar`` method, with a noise model, is the efficient one (§\ :ref:`12.3 <sec:covar>`).
+
 .. _`sec:uq-mcmc`:
 
 13.4 MCMC: sampling the full posterior
@@ -1245,6 +1268,12 @@ References
 .. [swadling2022] G. F. Swadling, C. Bruulsema, W. Rozmus, and J. Katz, *Quantitative assessment of fitting errors associated with streak camera noise in Thomson scattering data analysis*, Review of Scientific Instruments **93**, 043503 (2022).
 
 .. [ghosh2004] S. Ghosh, R. Boni, and P. A. Jaanimagi, *Optical and x-ray streak camera gain measurements*, Review of Scientific Instruments **75**, 3956 (2004).
+
+.. [white1980] H. White, *A Heteroskedasticity-Consistent Covariance Matrix Estimator and a Direct Test for Heteroskedasticity*, Econometrica **48**, 817 (1980).
+
+.. [mackinnon1985] J. G. MacKinnon and H. White, *Some heteroskedasticity-consistent covariance matrix estimators with improved finite sample properties*, Journal of Econometrics **29**, 305 (1985).
+
+.. [long2000] J. S. Long and L. H. Ervin, *Using Heteroscedasticity Consistent Standard Errors in the Linear Regression Model*, The American Statistician **54**, 217 (2000).
 
 .. [humphrey2009] P. J. Humphrey, W. Liu, and D. A. Buote, *:math:`\chi^2` and Poissonian data: biases even in the high-count regime and how to avoid them*, Astrophysical Journal **693**, 822 (2009).
 
