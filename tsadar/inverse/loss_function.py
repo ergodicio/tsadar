@@ -553,6 +553,8 @@ class LossFunction:
             per_lineout=per_lineout,
         )
 
+        if self.cfg["optimizer"]["loss_method"] == "poisson":
+            return 2.0 * (i_error + e_error)
         return i_error + e_error
 
     def _loss_for_hess_fn_(self, diff_params, static_params, batch):

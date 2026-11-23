@@ -1051,6 +1051,8 @@ Three qualifications apply to reading the result as a posterior. First, it is on
 
 - **l2**: :math:`\sum(d-t)^2/\sigma^2` with :math:`\sigma^2=\vert d\vert+10^{-10}`, a Poisson-like variance taken from the data (the offset only guards against an exactly-zero-count pixel).
 
+- **poisson**: :math:`2\sum(t-d\ln t)`, twice the loss functional, which is :math:`-\log L` rather than :math:`-2\log L`.
+
 - **covar**: :math:`\mathbf e^{\!\top}K^{-1}\mathbf e+\ln\det K` for each feature (Eq. :eq:`eq-covar-likelihood`), with :math:`K` the model-based noise covariance of §\ :ref:`12.3 <sec:covar>` and no degrees-of-freedom normalization.
 
 It can reduce either to a single scalar for a whole batch or, when ``per_lineout=True``, to one value per lineout. The per-lineout form is what the sampler and the Hessian use, because each lineout’s posterior is independent and should not be coupled through a shared reduction. For the covar method the batch scalar is the degrees-of-freedom-normalized :math:`\chi^2` of §\ :ref:`12 <sec:loss>`, which is the right scale for the optimizer but not a likelihood: differentiating it instead of the per-lineout sum divides the Hessian by :math:`N_{\rm pts}-N_{\rm free}` (a factor of several hundred to over a thousand on a real shot) and so inflates a Laplace-seeded proposal step by its square root. For angular data ``neg_log_likelihood`` delegates to the angular objective, which is not separable per lineout.
