@@ -165,3 +165,11 @@ def test_legacy_same_true_locks_to_ion_1_with_a_deprecation_warning(base_config)
 def test_an_ion_lock_must_name_a_different_unlocked_species(base_config, ti_same):
     with pytest.raises(ValueError, match="Ti:same"):
         ThomsonParams(_three_ions(base_config, ti_same=ti_same), num_params=1)
+
+
+def test_an_unknown_sigma_method_is_rejected(base_config):
+    cfg = copy.deepcopy(base_config)
+    cfg["other"]["calc_sigmas"] = True
+    cfg["other"]["sigma_method"] = "hessian"
+    with pytest.raises(ValueError, match="sigma_method"):
+        _validate_inputs_(cfg)

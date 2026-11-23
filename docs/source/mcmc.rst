@@ -3,10 +3,11 @@
 MCMC Uncertainty Postprocessor
 ========================================
 
-TSADAR normally estimates the uncertainty on fitted parameters from the Hessian of the loss at the
-best fit (the ``calc_sigmas`` option described in :doc:`defaults`, computed by
-:mod:`tsadar.inverse.postprocess.laplace`). That Laplace/Hessian approximation is fast but assumes the
-posterior is locally Gaussian around the best fit, which is not always a good approximation.
+TSADAR normally estimates the uncertainty on fitted parameters at the best fit (the ``calc_sigmas``
+option described in :doc:`defaults`, computed by :mod:`tsadar.inverse.postprocess.laplace`), from the
+Hessian of the loss or, for ``l2`` fits, from the sandwich covariance of the residuals. Both are fast but
+linearize the model around the best fit, which treats the uncertainty as Gaussian; that is not always a
+good approximation.
 
 As an alternative, TSADAR includes a standalone Metropolis-Hastings MCMC sampler
 (:mod:`tsadar.inverse.postprocess.mcmc`) that samples the actual posterior around each lineout's best

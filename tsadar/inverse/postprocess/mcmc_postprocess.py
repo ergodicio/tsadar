@@ -3,6 +3,7 @@ best fit, optionally pooled across calibration draws (see .mcmc_calibration), an
 of artifacts as the Hessian/Laplace postprocessor (.laplace). Only reachable through
 mcmc_postprocess_runner.py.
 """
+import copy
 import os
 import tempfile
 import time
@@ -372,8 +373,10 @@ def mcmc_postprocess(
     laplace_sigmas = None
     if mcmc_cfg["compare_to_laplace"]:
         try:
+            laplace_config = copy.deepcopy(config)
+            laplace_config["other"]["sigma_method"] = "laplace"
             _, _, _, laplace_sigmas = recalculate_with_chosen_weights(
-                config, sa, sample_indices, all_data, loss_fn, True, fitted_weights, n_active
+                laplace_config, sa, sample_indices, all_data, loss_fn, True, fitted_weights, n_active
             )
             # the Laplace columns follow get_fitted_params order, the MCMC tables follow active_keys
             fitted_params, _ = fitted_weights[0].get_fitted_params(config["parameters"])

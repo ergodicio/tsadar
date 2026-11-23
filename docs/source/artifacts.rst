@@ -130,10 +130,12 @@ Written by :func:`tsadar.utils.plotting.plotters.plot_data_angular`. Same
 ``sigmas.nc``, ``binary/sigma-params.nc``, ``binary/sigma-fe.nc``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Parameter uncertainties derived from the Hessian. Note that ``sigmas.nc`` sits at
-the artifact **root**, not under ``binary/``. Negative values are meaningful:
-they mark parameters whose inverse Hessian diagonal was negative, which normally
-indicates a non-optimal point -- see :func:`tsadar.inverse.postprocess.get_sigmas`.
+Parameter uncertainties, by the method ``other.sigma_method`` selects: the
+Hessian (Laplace) or, by default for ``l2`` fits, the sandwich covariance. Note
+that ``sigmas.nc`` sits at the artifact **root**, not under ``binary/``. Negative
+values are meaningful: they mark parameters whose inverse Hessian diagonal was
+negative, which normally indicates a non-optimal point -- see
+:func:`tsadar.inverse.postprocess.get_sigmas`. The sandwich is never negative.
 
 CSVs
 ----

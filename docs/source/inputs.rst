@@ -169,7 +169,9 @@ on how to perform the fit.
 
 - ``refit_thresh`` is the value of the loss metric above which refits will be performed; this threshold must be determined empirically from the other fits.
 
-- ``calc_sigmas`` is a boolean determining if a Hessian will be computed to determine the uncertainty in fitted parameters.
+- ``calc_sigmas`` is a boolean determining if the uncertainty in the fitted parameters is computed, by the method ``sigma_method`` selects.
+
+- ``sigma_method`` selects how ``calc_sigmas`` computes the uncertainty (:ref:`the math page <sec:sandwich>`): ``laplace`` from the Hessian of the :math:`-2\log L`, ``sandwich`` from the HC3 sandwich covariance of the ``l2`` fit, or ``auto`` (the default), which is ``sandwich`` for ``loss_method: l2`` on 1D data and ``laplace`` otherwise. ``sandwich`` is only available for ``loss_method: l2`` on 1D data. Before this option existed, ``l2`` fits reported the Laplace uncertainty, which does not describe the scatter of an ``l2`` fit; select ``laplace`` to reproduce it.
 
 .. versionchanged:: 0.4.0
     Earlier releases computed this Hessian with respect to the *entire* fitted-parameter pytree, which could attempt a multi-hundred-GB allocation on an ordinary fit whose electron distribution function carries a sizeable fixed interpolation table (even with ``fe`` inactive), and the resulting uncertainties were not usable. The Hessian is now restricted to only the active fit parameters, which fixes both problems. ``calc_sigmas`` still does not support the electron distribution function ("fe") as an active fit parameter -- deactivate ``electron.fe.active`` to use it, or use the MCMC postprocessor (:doc:`mcmc`) instead.

@@ -8,6 +8,9 @@ postprocess.postprocess(...)`) keep working unchanged now that this is a package
 from .laplace import (
     postprocess,
     get_sigmas,
+    get_sandwich_sigmas,
+    calc_sigmas,
+    sigma_method,
     recalculate_with_chosen_weights,
     refit_bad_fits,
     process_data,
@@ -17,6 +20,9 @@ from .laplace import (
 __all__ = [
     "postprocess",
     "get_sigmas",
+    "get_sandwich_sigmas",
+    "calc_sigmas",
+    "sigma_method",
     "recalculate_with_chosen_weights",
     "refit_bad_fits",
     "process_data",
