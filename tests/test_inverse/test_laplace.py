@@ -95,6 +95,28 @@ def test_h_loss_wrt_params_per_lineout_matches_full_hessian_diagonal(fitted_fixt
             )
 
 
+def test_poisson_neg_log_likelihood_matches_the_gaussian_limit(fitted_fixture):
+    """At noiseless data a small step changes -2 ln L by the same chi^2 for poisson and l2."""
+    loss_fn = fitted_fixture["loss_fn"]
+    weights = fitted_fixture["fitted_weights"][0]
+    thry_e, thry_i, _, _ = loss_fn.ts_diag(weights, fitted_fixture["batch"])
+    batch = dict(fitted_fixture["batch"], e_data=thry_e, i_data=thry_i)
+    diff, static = eqx.partition(weights, get_filter_spec(fitted_fixture["config"]["parameters"], weights))
+    nudged = eqx.combine(static, jax.tree_util.tree_map(lambda x: x + 1e-3, diff))
+
+    def step_change(method):
+        fn = copy.copy(loss_fn)
+        fn.cfg = copy.deepcopy(loss_fn.cfg)
+        fn.cfg["optimizer"]["loss_method"] = method
+        after = fn.neg_log_likelihood(nudged, batch, per_lineout=True)
+        before = fn.neg_log_likelihood(weights, batch, per_lineout=True)
+        return np.asarray(after - before)
+
+    gaussian = step_change("l2")
+    assert np.all(gaussian > 0)
+    np.testing.assert_allclose(step_change("poisson"), gaussian, rtol=1e-2)
+
+
 def test_get_sigmas_raises_when_fe_active():
     # an active electron distribution function must raise rather than be mis-computed
     fitted_params = {"electron": {"Te": None, "m": None}, "general": {}, "ion-1": {}}
